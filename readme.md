@@ -10,8 +10,8 @@ You can fork or edit this source code !
 
 Current API
 
-| Menu                | URL           | parameter                              | type      |
-|---------------------|---------------|----------------------------------------|-----------|
-| Login               | /auth/login   |                                        |           |
-| Logout              | /auth/logout  |                                        |           |
-| Send Message (Text) | /send/message | phone_number (62...), message (string) | form-data |
+| Menu                | Method | URL           | parameter                              | type      |
+|---------------------|--------|---------------|----------------------------------------|-----------|
+| Login               | GET    | /auth/login   |                                        |           |
+| Logout              | GET    | /auth/logout  |                                        |           |
+| Send Message (Text) | POST   | /send/message | phone_number (62...), message (string) | form-data |
