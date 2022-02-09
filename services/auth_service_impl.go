@@ -10,7 +10,6 @@ import (
 	fiberutils "github.com/gofiber/fiber/v2/utils"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,13 +17,11 @@ import (
 
 type authServiceImpl struct {
 	WaCli *whatsmeow.Client
-	WaDB  *sqlstore.Container
 }
 
-func NewAuthService(waDB *sqlstore.Container, waCli *whatsmeow.Client) AuthService {
+func NewAuthService(waCli *whatsmeow.Client) AuthService {
 	return &authServiceImpl{
 		WaCli: waCli,
-		WaDB:  waDB,
 	}
 }
 
@@ -111,13 +108,6 @@ func (service authServiceImpl) Logout(c *fiber.Ctx) (err error) {
 		}
 	}
 
-	err = service.WaDB.DeleteDevice(service.WaCli.Store)
-	if err != nil {
-		return errors.New("error when DeleteDevice " + err.Error())
-	}
-
 	err = service.WaCli.Logout()
-
-	service.WaCli.Disconnect()
 	return
 }

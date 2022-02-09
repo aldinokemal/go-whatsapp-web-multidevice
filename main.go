@@ -25,7 +25,7 @@ func main() {
 	cli := utils.InitWaCLI(db)
 
 	// Service
-	authService := services.NewAuthService(db, cli)
+	authService := services.NewAuthService(cli)
 	sendService := services.NewSendService(cli)
 
 	// Controller
