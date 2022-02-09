@@ -1,0 +1,5 @@
+root = '.'
+tmp_dir = "tmp"
+
+[build]
+exclude_dir = ["statics"]

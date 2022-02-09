@@ -1,0 +1,4 @@
+*.db
+tmp
+.idea
+.DS_Store
