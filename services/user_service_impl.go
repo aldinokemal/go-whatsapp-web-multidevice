@@ -21,6 +21,10 @@ func NewUserService(waCli *whatsmeow.Client) UserService {
 }
 
 func (service UserServiceImpl) UserInfo(c *fiber.Ctx, request structs.UserInfoRequest) (response structs.UserInfoResponse, err error) {
+	if !service.WaCli.IsLoggedIn() {
+		err = errors.New("you are not loggin")
+		return
+	}
 	var jids []types.JID
 	jid, ok := utils.ParseJID(request.PhoneNumber)
 	if !ok {
@@ -60,6 +64,10 @@ func (service UserServiceImpl) UserInfo(c *fiber.Ctx, request structs.UserInfoRe
 }
 
 func (service UserServiceImpl) UserAvatar(c *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
+	if !service.WaCli.IsLoggedIn() {
+		err = errors.New("you are not loggin")
+		return
+	}
 	jid, ok := utils.ParseJID(request.PhoneNumber)
 	if !ok {
 		return response, errors.New("invalid JID " + request.PhoneNumber)

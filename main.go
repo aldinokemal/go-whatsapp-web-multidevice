@@ -15,7 +15,8 @@ import (
 func main() {
 	engine := html.New("./views", ".html")
 	app := fiber.New(fiber.Config{
-		Views: engine,
+		Views:     engine,
+		BodyLimit: 10 * 1024 * 1024,
 	})
 	app.Static("/statics", "./statics")
 	app.Use(recover.New())

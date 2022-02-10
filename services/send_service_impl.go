@@ -28,6 +28,10 @@ func NewSendService(waCli *whatsmeow.Client) SendService {
 }
 
 func (service SendServiceImpl) SendText(c *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
+	if !service.WaCli.IsLoggedIn() {
+		err = errors.New("you are not loggin")
+		return
+	}
 	recipient, ok := utils.ParseJID(request.PhoneNumber)
 	if !ok {
 		return response, errors.New("invalid JID " + request.PhoneNumber)
@@ -43,6 +47,11 @@ func (service SendServiceImpl) SendText(c *fiber.Ctx, request structs.SendMessag
 }
 
 func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImageRequest) (response structs.SendImageResponse, err error) {
+	if !service.WaCli.IsLoggedIn() {
+		err = errors.New("you are not loggin")
+		return
+	}
+
 	// Resize image
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendImage, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
@@ -50,7 +59,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		return response, err
 	}
 	openImageBuffer, err := bimg.Read(oriImagePath)
-	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 400, Height: 400, Embed: true})
+	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Height: 600, Embed: true})
 	if err != nil {
 		return response, err
 	}
@@ -100,10 +109,10 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	go removeFile(oriImagePath, newImagePath)
 	if err != nil {
 		return response, err
 	} else {
-		go removeFile(oriImagePath, newImagePath)
 		response.Status = fmt.Sprintf("Image message sent (server timestamp: %s)", ts)
 		return response, nil
 	}
