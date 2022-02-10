@@ -41,4 +41,17 @@ func ValidateSendImage(request structs.SendImageRequest) {
 			Message: "this is only work for indonesia country (start with 62)",
 		})
 	}
+
+	availableMimes := map[string]bool{
+		"image/jpeg": true,
+		"image/jpg":  true,
+		"image/png":  true,
+	}
+
+	if !availableMimes[request.Image.Header.Get("Content-Type")] {
+		panic(utils.ValidationError{
+			Message: "your image is not allowed. please use jpg/jpeg/png",
+		})
+	}
+
 }
