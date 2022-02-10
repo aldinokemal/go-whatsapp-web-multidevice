@@ -10,8 +10,22 @@ You can fork or edit this source code !
 
 Current API
 
-| Menu                | Method | URL           | parameter                              | type      |
-|---------------------|--------|---------------|----------------------------------------|-----------|
-| Login               | GET    | /auth/login   |                                        |           |
-| Logout              | GET    | /auth/logout  |                                        |           |
-| Send Message (Text) | POST   | /send/message | phone_number (62...), message (string) | form-data |
+| Feature  | Menu                 | Method | URL            | parameter                                                                | type        |
+|----------|----------------------|--------|----------------|--------------------------------------------------------------------------|-------------|
+| ✅        | Login                | GET    | /app/login     |                                                                          |             |
+| ✅        | Logout               | GET    | /app/logout    |                                                                          |             |
+| ✅        | Reconnect            | GET    | /app/reconnect |                                                                          |             |
+| ❌        | User Info            | GET    | /user/info     | phone_number (string: 62...)                                             | querystring |
+| ❌        | User Avatar          | GET    | /user/avatar   | phone_number (string: 62...)                                             | querystring |
+| ✅        | Send Message (Text)  | POST   | /send/message  | phone_number (string: 62...) <br/> message (string)                      | form-data   |
+| ✅        | Send Message (Image) | POST   | /send/message  | phone_number (string: 62...) <br/> caption (string) <br/> image (binary) | form-data   |
+
+```
+✅ = Available
+❌ = Not Available Yet
+```
+
+### Mac OS NOTE
+
+Please do this if you have an error (invalid flag in pkg-config --cflags:
+-Xpreprocessor) `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`

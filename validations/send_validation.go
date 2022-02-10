@@ -24,3 +24,21 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 		})
 	}
 }
+
+func ValidateSendImage(request structs.SendImageRequest) {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Caption, validation.When(true, validation.Length(4, 200))),
+		validation.Field(&request.Image, validation.Required),
+	)
+
+	if err != nil {
+		panic(utils.ValidationError{
+			Message: err.Error(),
+		})
+	} else if !strings.HasPrefix(request.PhoneNumber, "62") {
+		panic(utils.ValidationError{
+			Message: "this is only work for indonesia country (start with 62)",
+		})
+	}
+}

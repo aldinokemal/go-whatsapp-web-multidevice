@@ -6,6 +6,7 @@ require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/gofiber/fiber/v2 v2.26.0
 	github.com/gofiber/template v1.6.21
+	github.com/h2non/bimg v1.1.6
 	github.com/mattn/go-sqlite3 v1.14.11
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	go.mau.fi/whatsmeow v0.0.0-20220204210537-a425ddb0b16c

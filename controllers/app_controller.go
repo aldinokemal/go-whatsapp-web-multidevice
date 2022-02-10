@@ -46,7 +46,7 @@ func (controller *AppController) Logout(c *fiber.Ctx) error {
 }
 
 func (controller *AppController) Reconnect(c *fiber.Ctx) error {
-	err := controller.Service.Logout(c)
+	err := controller.Service.Reconnect(c)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
