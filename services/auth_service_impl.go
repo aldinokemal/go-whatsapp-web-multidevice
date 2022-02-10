@@ -51,15 +51,15 @@ func (service authServiceImpl) Login(c *fiber.Ctx) (response structs.LoginRespon
 		go func() {
 			for evt := range ch {
 				response.Code = evt.Code
-				response.Duration = evt.Timeout / time.Second
+				response.Duration = evt.Timeout / time.Second / 2
 				if evt.Event == "code" {
 					qrPath := fmt.Sprintf("%s/scan-qr-%s.png", config.PathQrCode, fiberutils.UUIDv4())
 					err = qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath)
 					if err != nil {
-						fmt.Println(err.Error())
+						fmt.Println("error when write qrImage file", err.Error())
 					}
 					go func() {
-						time.Sleep(5 * time.Second)
+						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)
 						if err != nil {
 							fmt.Println("Failed to remove qrPath " + qrPath)

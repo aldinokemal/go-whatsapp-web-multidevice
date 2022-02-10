@@ -1,10 +1,10 @@
 package controllers
 
 import (
-	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -25,7 +25,9 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	fmt.Println(request)
+	// add validation send message
+	validations.ValidateSendMessage(request)
+
 	request.PhoneNumber = request.PhoneNumber + "@s.whatsapp.net"
 	response, err := controller.Service.SendText(c, request)
 	utils.PanicIfNeeded(err)
