@@ -25,15 +25,19 @@ func main() {
 	cli := utils.InitWaCLI(db)
 
 	// Service
-	AppService := services.NewAppService(cli)
+	appService := services.NewAppService(cli)
 	sendService := services.NewSendService(cli)
+	userService := services.NewUserService(cli)
 
 	// Controller
-	AppController := controllers.NewAppController(AppService)
+	appController := controllers.NewAppController(appService)
 	sendController := controllers.NewSendController(sendService)
+	userController := controllers.NewUserController(userService)
 
-	AppController.Route(app)
+	appController.Route(app)
 	sendController.Route(app)
+	userController.Route(app)
+
 	app.Get("/", func(ctx *fiber.Ctx) error {
 		return ctx.JSON(map[string]interface{}{"Status": "Ok"})
 	})
