@@ -15,17 +15,17 @@ import (
 	"time"
 )
 
-type authServiceImpl struct {
+type AppServiceImpl struct {
 	WaCli *whatsmeow.Client
 }
 
-func NewAuthService(waCli *whatsmeow.Client) AuthService {
-	return &authServiceImpl{
+func NewAppService(waCli *whatsmeow.Client) AppService {
+	return &AppServiceImpl{
 		WaCli: waCli,
 	}
 }
 
-func (service authServiceImpl) Login(c *fiber.Ctx) (response structs.LoginResponse, err error) {
+func (service AppServiceImpl) Login(c *fiber.Ctx) (response structs.LoginResponse, err error) {
 	if service.WaCli == nil {
 		return response, errors.New("wa cli nil cok")
 	}
@@ -82,7 +82,7 @@ func (service authServiceImpl) Login(c *fiber.Ctx) (response structs.LoginRespon
 	return response, nil
 }
 
-func (service authServiceImpl) Logout(c *fiber.Ctx) (err error) {
+func (service AppServiceImpl) Logout(c *fiber.Ctx) (err error) {
 	// delete history
 	files, err := filepath.Glob("./history-*")
 	if err != nil {
@@ -110,4 +110,9 @@ func (service authServiceImpl) Logout(c *fiber.Ctx) (err error) {
 
 	err = service.WaCli.Logout()
 	return
+}
+
+func (service AppServiceImpl) Reconnect(c *fiber.Ctx) (err error) {
+	service.WaCli.Disconnect()
+	return service.WaCli.Connect()
 }
