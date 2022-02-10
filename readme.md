@@ -1,5 +1,16 @@
 ## Go Whatsapp API Multi Device Version
 
+### Required
+
+- Mac OS:
+    - `brew install vips`
+    - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
+- Linux:
+    - `sudo apt update`
+    - `sudo apt install libvips-dev`
+- Windows:
+    - https://www.libvips.org/install.html
+
 ### How to use
 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
