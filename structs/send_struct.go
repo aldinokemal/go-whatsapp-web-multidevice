@@ -1,6 +1,7 @@
 package structs
 
 import (
+	"go.mau.fi/whatsmeow/types"
 	"mime/multipart"
 )
 
@@ -37,6 +38,18 @@ type UserAvatarResponse struct {
 	URL  string `json:"url"`
 	ID   string `json:"id"`
 	Type string `json:"type"`
+}
+
+type UserMyPrivacySettingResponse struct {
+	GroupAdd     string `json:"group_add"`
+	LastSeen     string `json:"last_seen"`
+	Status       string `json:"status"`
+	Profile      string `json:"profile"`
+	ReadReceipts string `json:"read_receipts"`
+}
+
+type UserMyListGroupsResponse struct {
+	Data []types.GroupInfo `json:"data"`
 }
 
 // ============================== END USER ==============================

@@ -83,3 +83,30 @@ func (service UserServiceImpl) UserAvatar(_ *fiber.Ctx, request structs.UserAvat
 		return response, nil
 	}
 }
+
+func (service UserServiceImpl) UserMyListGroups(_ *fiber.Ctx) (response structs.UserMyListGroupsResponse, err error) {
+	groups, err := service.WaCli.GetJoinedGroups()
+	if err != nil {
+		return
+	}
+	fmt.Printf("%+v\n", groups)
+	if groups != nil {
+		for _, group := range groups {
+			response.Data = append(response.Data, *group)
+		}
+	}
+	return response, nil
+}
+
+func (service UserServiceImpl) UserMyPrivacySetting(_ *fiber.Ctx) (response structs.UserMyPrivacySettingResponse, err error) {
+	resp, err := service.WaCli.TryFetchPrivacySettings(false)
+	if err != nil {
+		return
+	}
+
+	response.GroupAdd = string(resp.GroupAdd)
+	response.Status = string(resp.Status)
+	response.ReadReceipts = string(resp.ReadReceipts)
+	response.Profile = string(resp.Profile)
+	return response, nil
+}
