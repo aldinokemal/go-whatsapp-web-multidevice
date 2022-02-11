@@ -8,7 +8,7 @@
 - Linux:
     - `sudo apt update`
     - `sudo apt install libvips-dev`
-- Windows:
+- Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
     - install vips library, or you can check here https://www.libvips.org/install.html
     - `choco install nip2`
     - `choco install pkgconfiglite`
