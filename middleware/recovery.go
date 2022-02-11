@@ -12,14 +12,19 @@ func Recovery() fiber.Handler {
 			err := recover()
 			if err != nil {
 				var res utils.ResponseData
+				res.Code = 500
+				res.Message = fmt.Sprintf("%s", err)
 
-				dt, ok := err.(utils.ValidationError)
-				if ok {
+				errValidation, okValidation := err.(utils.ValidationError)
+				if okValidation {
 					res.Code = 400
-					res.Message = dt.Message
-				} else {
-					res.Code = 500
-					res.Message = fmt.Sprintf("%s", err)
+					res.Message = errValidation.Message
+				}
+
+				errAuth, okAuth := err.(utils.AuthError)
+				if okAuth {
+					res.Code = 401
+					res.Message = errAuth.Message
 				}
 
 				_ = ctx.Status(res.Code).JSON(res)

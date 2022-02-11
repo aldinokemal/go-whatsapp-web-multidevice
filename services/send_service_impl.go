@@ -27,10 +27,9 @@ func NewSendService(waCli *whatsmeow.Client) SendService {
 	}
 }
 
-func (service SendServiceImpl) SendText(c *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
+func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
 	if !service.WaCli.IsLoggedIn() {
-		err = errors.New("you are not loggin")
-		return
+		panic(utils.AuthError{Message: "you are not loggin"})
 	}
 	recipient, ok := utils.ParseJID(request.PhoneNumber)
 	if !ok {
@@ -48,10 +47,8 @@ func (service SendServiceImpl) SendText(c *fiber.Ctx, request structs.SendMessag
 
 func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImageRequest) (response structs.SendImageResponse, err error) {
 	if !service.WaCli.IsLoggedIn() {
-		err = errors.New("you are not loggin")
-		return
+		panic(utils.AuthError{Message: "you are not loggin"})
 	}
-
 	// Resize image
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
@@ -120,10 +117,8 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 
 func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRequest) (response structs.SendFileResponse, err error) {
 	if !service.WaCli.IsLoggedIn() {
-		err = errors.New("you are not loggin")
-		return
+		panic(utils.AuthError{Message: "you are not loggin"})
 	}
-
 	// Resize image
 	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
 	err = c.SaveFile(request.File, oriFilePath)
@@ -158,25 +153,15 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 	}
 
 	msg := &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
-		Url:                 proto.String(uploadedFile.URL),
-		Mimetype:            proto.String(http.DetectContentType(dataWaFile)),
-		Title:               proto.String(request.File.Filename),
-		FileSha256:          uploadedFile.FileSHA256,
-		FileLength:          proto.Uint64(uploadedFile.FileLength),
-		PageCount:           nil,
-		MediaKey:            uploadedFile.MediaKey,
-		FileName:            proto.String(request.File.Filename),
-		FileEncSha256:       uploadedFile.FileEncSHA256,
-		DirectPath:          proto.String(uploadedFile.DirectPath),
-		MediaKeyTimestamp:   nil,
-		ContactVcard:        nil,
-		ThumbnailDirectPath: nil,
-		ThumbnailSha256:     nil,
-		ThumbnailEncSha256:  nil,
-		JpegThumbnail:       nil,
-		ContextInfo:         nil,
-		ThumbnailHeight:     nil,
-		ThumbnailWidth:      nil,
+		Url:           proto.String(uploadedFile.URL),
+		Mimetype:      proto.String(http.DetectContentType(dataWaFile)),
+		Title:         proto.String(request.File.Filename),
+		FileSha256:    uploadedFile.FileSHA256,
+		FileLength:    proto.Uint64(uploadedFile.FileLength),
+		MediaKey:      uploadedFile.MediaKey,
+		FileName:      proto.String(request.File.Filename),
+		FileEncSha256: uploadedFile.FileEncSHA256,
+		DirectPath:    proto.String(uploadedFile.DirectPath),
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go removeFile(oriFilePath)

@@ -19,3 +19,11 @@ type ValidationError struct {
 func (validationError ValidationError) Error() string {
 	return validationError.Message
 }
+
+type AuthError struct {
+	Message string
+}
+
+func (err AuthError) Error() string {
+	return err.Message
+}

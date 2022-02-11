@@ -20,10 +20,9 @@ func NewUserService(waCli *whatsmeow.Client) UserService {
 	}
 }
 
-func (service UserServiceImpl) UserInfo(c *fiber.Ctx, request structs.UserInfoRequest) (response structs.UserInfoResponse, err error) {
+func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRequest) (response structs.UserInfoResponse, err error) {
 	if !service.WaCli.IsLoggedIn() {
-		err = errors.New("you are not loggin")
-		return
+		panic(utils.AuthError{Message: "you are not loggin"})
 	}
 	var jids []types.JID
 	jid, ok := utils.ParseJID(request.PhoneNumber)
@@ -63,10 +62,9 @@ func (service UserServiceImpl) UserInfo(c *fiber.Ctx, request structs.UserInfoRe
 	return response, nil
 }
 
-func (service UserServiceImpl) UserAvatar(c *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
+func (service UserServiceImpl) UserAvatar(_ *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
 	if !service.WaCli.IsLoggedIn() {
-		err = errors.New("you are not loggin")
-		return
+		panic(utils.AuthError{Message: "you are not loggin"})
 	}
 	jid, ok := utils.ParseJID(request.PhoneNumber)
 	if !ok {
