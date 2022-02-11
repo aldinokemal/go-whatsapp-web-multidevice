@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/controllers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/template/html"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -19,7 +19,7 @@ func main() {
 		BodyLimit: 10 * 1024 * 1024,
 	})
 	app.Static("/statics", "./statics")
-	app.Use(recover.New())
+	app.Use(middleware.Recovery())
 	app.Use(logger.New())
 
 	db := utils.InitWaDB()
