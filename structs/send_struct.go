@@ -63,4 +63,13 @@ type SendImageResponse struct {
 	Status string `json:"status"`
 }
 
+type SendFileRequest struct {
+	PhoneNumber string                `json:"phone_number" form:"phone_number"`
+	File        *multipart.FileHeader `json:"file" form:"file"`
+}
+
+type SendFileResponse struct {
+	Status string `json:"status"`
+}
+
 // ============================== END SEND ==============================

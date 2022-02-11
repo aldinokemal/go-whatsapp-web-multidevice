@@ -55,3 +55,26 @@ func ValidateSendImage(request structs.SendImageRequest) {
 	}
 
 }
+
+func ValidateSendFile(request structs.SendFileRequest) {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.File, validation.Required),
+	)
+
+	if err != nil {
+		panic(utils.ValidationError{
+			Message: err.Error(),
+		})
+	} else if !strings.HasPrefix(request.PhoneNumber, "62") {
+		panic(utils.ValidationError{
+			Message: "this is only work for indonesia country (start with 62)",
+		})
+	}
+
+	if request.File.Size > 10240000 { // 10MB
+		panic(utils.ValidationError{
+			Message: "max file upload is 10MB, please upload in cloud and send via text if your file is higher than 10MB",
+		})
+	}
+}

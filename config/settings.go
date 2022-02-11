@@ -1,5 +1,5 @@
 package config
 
 const PathQrCode = "statics/images/qrcode"
-const PathSendImage = "statics/images/sendimages"
+const PathSendItems = "statics/images/senditems"
 const DBName = "hydrogenWaCli.db"

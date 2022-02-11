@@ -53,7 +53,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	}
 
 	// Resize image
-	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendImage, request.Image.Filename)
+	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
 	if err != nil {
 		return response, err
@@ -64,7 +64,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		return response, err
 	}
 
-	newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendImage, request.Image.Filename)
+	newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
 	err = bimg.Write(newImagePath, newImage)
 	if err != nil {
 		return response, err
@@ -114,6 +114,76 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		return response, err
 	} else {
 		response.Status = fmt.Sprintf("Image message sent (server timestamp: %s)", ts)
+		return response, nil
+	}
+}
+
+func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRequest) (response structs.SendFileResponse, err error) {
+	if !service.WaCli.IsLoggedIn() {
+		err = errors.New("you are not loggin")
+		return
+	}
+
+	// Resize image
+	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
+	err = c.SaveFile(request.File, oriFilePath)
+	if err != nil {
+		return response, err
+	}
+
+	removeFile := func(paths ...string) {
+		time.Sleep(5 * time.Second)
+		for _, path := range paths {
+			err := os.Remove(path)
+			if err != nil {
+				fmt.Println("error when delete " + path)
+			}
+		}
+
+	}
+
+	// Send to WA server
+	dataWaRecipient, ok := utils.ParseJID(request.PhoneNumber)
+	if !ok {
+		return response, errors.New("invalid JID " + request.PhoneNumber)
+	}
+	dataWaFile, err := os.ReadFile(oriFilePath)
+	if err != nil {
+		return response, err
+	}
+	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaFile, whatsmeow.MediaDocument)
+	if err != nil {
+		fmt.Printf("Failed to upload file: %v", err)
+		return response, err
+	}
+
+	msg := &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
+		Url:                 proto.String(uploadedFile.URL),
+		Mimetype:            proto.String(http.DetectContentType(dataWaFile)),
+		Title:               proto.String(request.File.Filename),
+		FileSha256:          uploadedFile.FileSHA256,
+		FileLength:          proto.Uint64(uploadedFile.FileLength),
+		PageCount:           nil,
+		MediaKey:            uploadedFile.MediaKey,
+		FileName:            proto.String(request.File.Filename),
+		FileEncSha256:       uploadedFile.FileEncSHA256,
+		DirectPath:          proto.String(uploadedFile.DirectPath),
+		MediaKeyTimestamp:   nil,
+		ContactVcard:        nil,
+		ThumbnailDirectPath: nil,
+		ThumbnailSha256:     nil,
+		ThumbnailEncSha256:  nil,
+		JpegThumbnail:       nil,
+		ContextInfo:         nil,
+		ThumbnailHeight:     nil,
+		ThumbnailWidth:      nil,
+	}}
+	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	go removeFile(oriFilePath)
+	if err != nil {
+		return response, err
+	} else {
+		response.Status = fmt.Sprintf("File message sent (server timestamp: %s)", ts)
 		return response, nil
 	}
 }
