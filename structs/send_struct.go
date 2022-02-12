@@ -8,7 +8,7 @@ import (
 // ============================== USER ==============================
 
 type UserInfoRequest struct {
-	PhoneNumber string `json:"phone_number" query:"phone_number"`
+	Phone string `json:"phone" query:"phone"`
 }
 
 type UserInfoResponseDataDevice struct {
@@ -31,7 +31,7 @@ type UserInfoResponse struct {
 }
 
 type UserAvatarRequest struct {
-	PhoneNumber string `json:"phone_number" query:"phone_number"`
+	Phone string `json:"phone" query:"phone"`
 }
 
 type UserAvatarResponse struct {
@@ -57,8 +57,8 @@ type UserMyListGroupsResponse struct {
 // ============================== SEND ==============================
 
 type SendMessageRequest struct {
-	PhoneNumber string `json:"phone_number" form:"phone_number"`
-	Message     string `json:"message" form:"message"`
+	Phone   string `json:"phone" form:"phone"`
+	Message string `json:"message" form:"message"`
 }
 
 type SendMessageResponse struct {
@@ -66,10 +66,10 @@ type SendMessageResponse struct {
 }
 
 type SendImageRequest struct {
-	PhoneNumber string                `json:"phone_number" form:"phone_number"`
-	Caption     string                `json:"caption" form:"caption"`
-	Image       *multipart.FileHeader `json:"image" form:"image"`
-	ViewOnce    bool                  `json:"view_once" form:"view_once"`
+	Phone    string                `json:"phone" form:"phone"`
+	Caption  string                `json:"caption" form:"caption"`
+	Image    *multipart.FileHeader `json:"image" form:"image"`
+	ViewOnce bool                  `json:"view_once" form:"view_once"`
 }
 
 type SendImageResponse struct {
@@ -77,8 +77,8 @@ type SendImageResponse struct {
 }
 
 type SendFileRequest struct {
-	PhoneNumber string                `json:"phone_number" form:"phone_number"`
-	File        *multipart.FileHeader `json:"file" form:"file"`
+	Phone string                `json:"phone" form:"phone"`
+	File  *multipart.FileHeader `json:"file" form:"file"`
 }
 
 type SendFileResponse struct {

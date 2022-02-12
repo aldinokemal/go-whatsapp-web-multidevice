@@ -21,13 +21,12 @@ func NewUserService(waCli *whatsmeow.Client) UserService {
 }
 
 func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRequest) (response structs.UserInfoResponse, err error) {
-	if !service.WaCli.IsLoggedIn() {
-		panic(utils.AuthError{Message: "you are not loggin"})
-	}
+	utils.MustLogin(service.WaCli)
+
 	var jids []types.JID
-	jid, ok := utils.ParseJID(request.PhoneNumber)
+	jid, ok := utils.ParseJID(request.Phone)
 	if !ok {
-		return response, errors.New("invalid JID " + request.PhoneNumber)
+		return response, errors.New("invalid JID " + request.Phone)
 	}
 
 	jids = append(jids, jid)
@@ -63,12 +62,11 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 }
 
 func (service UserServiceImpl) UserAvatar(_ *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
-	if !service.WaCli.IsLoggedIn() {
-		panic(utils.AuthError{Message: "you are not loggin"})
-	}
-	jid, ok := utils.ParseJID(request.PhoneNumber)
+	utils.MustLogin(service.WaCli)
+
+	jid, ok := utils.ParseJID(request.Phone)
 	if !ok {
-		return response, errors.New("invalid JID " + request.PhoneNumber)
+		return response, errors.New("invalid JID " + request.Phone)
 	}
 	pic, err := service.WaCli.GetProfilePictureInfo(jid, false)
 	if err != nil {
@@ -85,6 +83,8 @@ func (service UserServiceImpl) UserAvatar(_ *fiber.Ctx, request structs.UserAvat
 }
 
 func (service UserServiceImpl) UserMyListGroups(_ *fiber.Ctx) (response structs.UserMyListGroupsResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
 	groups, err := service.WaCli.GetJoinedGroups()
 	if err != nil {
 		return
@@ -99,6 +99,8 @@ func (service UserServiceImpl) UserMyListGroups(_ *fiber.Ctx) (response structs.
 }
 
 func (service UserServiceImpl) UserMyPrivacySetting(_ *fiber.Ctx) (response structs.UserMyPrivacySettingResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
 	resp, err := service.WaCli.TryFetchPrivacySettings(false)
 	if err != nil {
 		return

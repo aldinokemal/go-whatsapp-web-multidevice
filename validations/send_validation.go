@@ -10,7 +10,7 @@ import (
 
 func ValidateSendMessage(request structs.SendMessageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
 		validation.Field(&request.Message, validation.Required, validation.Length(4, 50)),
 	)
 
@@ -18,7 +18,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 		panic(utils.ValidationError{
 			Message: err.Error(),
 		})
-	} else if !strings.HasPrefix(request.PhoneNumber, "62") {
+	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
 			Message: "this is only work for indonesia country (start with 62)",
 		})
@@ -27,7 +27,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 
 func ValidateSendImage(request structs.SendImageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
 		validation.Field(&request.Caption, validation.When(true, validation.Length(4, 200))),
 		validation.Field(&request.Image, validation.Required),
 	)
@@ -36,7 +36,7 @@ func ValidateSendImage(request structs.SendImageRequest) {
 		panic(utils.ValidationError{
 			Message: err.Error(),
 		})
-	} else if !strings.HasPrefix(request.PhoneNumber, "62") {
+	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
 			Message: "this is only work for indonesia country (start with 62)",
 		})
@@ -58,7 +58,7 @@ func ValidateSendImage(request structs.SendImageRequest) {
 
 func ValidateSendFile(request structs.SendFileRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
 		validation.Field(&request.File, validation.Required),
 	)
 
@@ -66,7 +66,7 @@ func ValidateSendFile(request structs.SendFileRequest) {
 		panic(utils.ValidationError{
 			Message: err.Error(),
 		})
-	} else if !strings.HasPrefix(request.PhoneNumber, "62") {
+	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
 			Message: "this is only work for indonesia country (start with 62)",
 		})

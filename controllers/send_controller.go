@@ -30,7 +30,7 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 	// add validation send message
 	validations.ValidateSendMessage(request)
 
-	request.PhoneNumber = request.PhoneNumber + "@s.whatsapp.net"
+	request.Phone = request.Phone + "@s.whatsapp.net"
 	response, err := controller.Service.SendText(c, request)
 	utils.PanicIfNeeded(err)
 
@@ -54,7 +54,7 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendImage(request)
 
-	request.PhoneNumber = request.PhoneNumber + "@s.whatsapp.net"
+	request.Phone = request.Phone + "@s.whatsapp.net"
 	response, err := controller.Service.SendImage(c, request)
 	utils.PanicIfNeeded(err)
 
@@ -78,7 +78,7 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendFile(request)
 
-	request.PhoneNumber = request.PhoneNumber + "@s.whatsapp.net"
+	request.Phone = request.Phone + "@s.whatsapp.net"
 	response, err := controller.Service.SendFile(c, request)
 	utils.PanicIfNeeded(err)
 

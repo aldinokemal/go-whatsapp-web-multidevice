@@ -9,7 +9,7 @@ import (
 
 func ValidateUserInfo(request structs.UserInfoRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
 	)
 
 	if err != nil {
@@ -20,7 +20,7 @@ func ValidateUserInfo(request structs.UserInfoRequest) {
 }
 func ValidateUserAvatar(request structs.UserAvatarRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.PhoneNumber, validation.Required, is.E164, validation.Length(10, 15)),
+		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
 	)
 
 	if err != nil {

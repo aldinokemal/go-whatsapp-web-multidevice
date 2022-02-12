@@ -28,12 +28,11 @@ func NewSendService(waCli *whatsmeow.Client) SendService {
 }
 
 func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
-	if !service.WaCli.IsLoggedIn() {
-		panic(utils.AuthError{Message: "you are not loggin"})
-	}
-	recipient, ok := utils.ParseJID(request.PhoneNumber)
+	utils.MustLogin(service.WaCli)
+
+	recipient, ok := utils.ParseJID(request.Phone)
 	if !ok {
-		return response, errors.New("invalid JID " + request.PhoneNumber)
+		return response, errors.New("invalid JID " + request.Phone)
 	}
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
 	ts, err := service.WaCli.SendMessage(recipient, "", msg)
@@ -46,9 +45,8 @@ func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessag
 }
 
 func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImageRequest) (response structs.SendImageResponse, err error) {
-	if !service.WaCli.IsLoggedIn() {
-		panic(utils.AuthError{Message: "you are not loggin"})
-	}
+	utils.MustLogin(service.WaCli)
+
 	// Resize image
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
@@ -80,9 +78,9 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 
 	// Send to WA server
 	dataWaCaption := request.Caption
-	dataWaRecipient, ok := utils.ParseJID(request.PhoneNumber)
+	dataWaRecipient, ok := utils.ParseJID(request.Phone)
 	if !ok {
-		return response, errors.New("invalid JID " + request.PhoneNumber)
+		return response, errors.New("invalid JID " + request.Phone)
 	}
 	dataWaImage, err := os.ReadFile(newImagePath)
 	if err != nil {
@@ -116,9 +114,8 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 }
 
 func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRequest) (response structs.SendFileResponse, err error) {
-	if !service.WaCli.IsLoggedIn() {
-		panic(utils.AuthError{Message: "you are not loggin"})
-	}
+	utils.MustLogin(service.WaCli)
+
 	// Resize image
 	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
 	err = c.SaveFile(request.File, oriFilePath)
@@ -138,9 +135,9 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 	}
 
 	// Send to WA server
-	dataWaRecipient, ok := utils.ParseJID(request.PhoneNumber)
+	dataWaRecipient, ok := utils.ParseJID(request.Phone)
 	if !ok {
-		return response, errors.New("invalid JID " + request.PhoneNumber)
+		return response, errors.New("invalid JID " + request.Phone)
 	}
 	dataWaFile, err := os.ReadFile(oriFilePath)
 	if err != nil {

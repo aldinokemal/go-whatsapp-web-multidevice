@@ -76,6 +76,14 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 	return cli
 }
 
+func MustLogin(waCli *whatsmeow.Client) {
+	if !waCli.IsConnected() {
+		panic(AuthError{Message: "you are not connect to whatsapp server, please reconnect"})
+	} else if !waCli.IsLoggedIn() {
+		panic(AuthError{Message: "you are not login"})
+	}
+}
+
 func handler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.AppStateSyncComplete:
