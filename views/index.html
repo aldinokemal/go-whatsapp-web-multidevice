@@ -1,10 +1,791 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" type="text/css"
+          href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.js"></script>
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <title>Whatsapp Web Multi</title>
+
+    <style>
+        .container {
+            padding-top: 2em;
+        }
+    </style>
 </head>
 <body>
-  <h2>Hello</h2>
+<div class="ui container" id="app">
+    <h1 class="ui dividing header">[[ app_name ]]</h1>
+
+    <h3 class="first">Features</h3>
+    <div class="ui three cards">
+        <div class="green card" @click="loginModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Login</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Scan your QRCode and you can use all this API feature
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="logoutProcess" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Logout</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Remove your login session in application
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="reconnectProcess" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Reconnect</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Reconnect to whatsapp server, please do this if your api doesn't work or your application is down or
+                    restart
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui three cards">
+        <div class="green card" @click="sendMessageModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Send Message (Text)</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send any message to any
+                    <div class="ui blue horizontal label">indonesian</div>
+                    whatsapp number
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendImageModal" style="cursor:pointer;">
+            <div class="content">
+                <div class="header">Send Message (Image)</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send image with
+                    <div class="ui blue horizontal label">jpg/jpeg/png</div>
+                    type
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendFileModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Send Message (File)</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send any file up to
+                    <div class="ui blue horizontal label">10MB</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui four cards">
+        <div class="green card" @click="infoModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Info</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    You can search someone user info by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="avatarModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Avatar</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    You can search someone avatar by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="groupModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User List Groups</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Display all groups you joined
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="privacyModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User Privacy Setting</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Get your privacy settings
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!--  Modal Login  -->
+    <div class="ui small modal" id="modalLogin">
+        <i class="close icon"></i>
+        <div class="header">
+            Login Whatsapp
+        </div>
+        <div class="image content">
+            <div class="ui medium image">
+                <img :src="login_link">
+            </div>
+            <div class="description">
+                <div class="ui header">Please scan to connect</div>
+                <p>Open Setting > Linked Devices > Link Device</p>
+            </div>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button">
+                Done
+                <i class="checkmark icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendMessage  -->
+    <div class="ui small modal" id="modalSendMessage">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Message
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="message_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field">
+                    <label>Message</label>
+                    <input v-model="message_text" type="text" placeholder="Hello this is message text"
+                           aria-label="message">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendMessageProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendImage  -->
+    <div class="ui small modal" id="modalSendImage">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Image
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="image_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>Image</label>
+                    <input type="file" class="inputfile" id="image_file" style="display: none"
+                           accept="image/png,image/jpg,image/jpeg"/>
+                    <label for="image_file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload image
+                    </label>
+                </div>
+                <div class="field">
+                    <label>Caption</label>
+                    <input v-model="image_caption" type="text" placeholder="Hello this is image caption"
+                           aria-label="caption">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendImageProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendFile  -->
+    <div class="ui small modal" id="modalSendFile">
+        <i class="close icon"></i>
+        <div class="header">
+            Send File
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="file_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>File</label>
+                    <input type="file" class="inputfile" id="file_file" style="display: none"/>
+                    <label for="file_file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload file
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendFileProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal UserGroup  -->
+    <div class="ui small modal" id="modalUserGroup">
+        <i class="close icon"></i>
+        <div class="header">
+            My Group List
+        </div>
+        <div class="content">
+            <table class="ui celled table" id="user_groups_table">
+                <thead>
+                <tr>
+                    <th>Group Name</th>
+                    <th>Group Participants</th>
+                    <th>Group Created At</th>
+                </tr>
+                </thead>
+                <tbody v-if="data_groups != null">
+                <tr v-for="g in data_groups">
+                    <td data-label="Name">[[ g.Name ]]</td>
+                    <td data-label="Age">[[ g.Participants.length ]]</td>
+                    <td data-label="Job">[[ g.GroupCreated ]]</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!--  Modal UserPrivacy  -->
+    <div class="ui small modal" id="modalUserPrivacy">
+        <i class="close icon"></i>
+        <div class="header">
+            My Privacy
+        </div>
+        <div class="content">
+            <ol v-if="data_privacy != null">
+                <li>Who can add Group : <b>[[ data_privacy.group_add ]]</b></li>
+                <li>Who can see my Last Seen : <b>[[ data_privacy.last_seen ]]</b></li>
+                <li>Who can see my Status : <b>[[ data_privacy.status ]]</b></li>
+                <li>Who can see my Profile : <b>[[ data_privacy.profile ]]</b></li>
+                <li>Read Receipts : <b>[[ data_privacy.read_receipts ]]</b></li>
+            </ol>
+        </div>
+    </div>
+
+    <!--  Modal UserAvatar  -->
+    <div class="ui small modal" id="modalUserAvatar">
+        <i class="close icon"></i>
+        <div class="header">
+            Search User Avatar
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="avatar_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+
+                <button type="button" class="ui primary button" :class="{'loading': avatar_loading}"
+                        @click="avatarProcess">
+                    Search
+                </button>
+            </form>
+
+            <div v-if="avatar_image != null" class="center">
+                <img :src="avatar_image" alt="profile picture" style="padding-top: 10px;">
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal UserInfo  -->
+    <div class="ui small modal" id="modalUserInfo">
+        <i class="close icon"></i>
+        <div class="header">
+            Search User Information
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="info_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+
+                <button type="button" class="ui primary button" :class="{'loading': info_loading}"
+                        @click="infoProcess">
+                    Search
+                </button>
+            </form>
+
+            <div v-if="info_devices.length > 0" class="center">
+                <ol>
+                    <li>Nama: [[ info_name ]]</li>
+                    <li>Status: [[ info_status ]]</li>
+                    <li>Device:
+                        <ul>
+                            <li v-for="d in info_devices">
+                                [[ d.Device ]]
+                            </li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const showErrorInfo = (message) => {
+        $('body').toast({
+            position: 'bottom right',
+            title: 'Error',
+            message: message,
+            showProgress: 'bottom',
+            classProgress: 'red'
+        });
+    }
+    const showSuccessInfo = (message) => {
+        $('body').toast({
+            position: 'bottom right',
+            title: 'Success',
+            message: message,
+            showProgress: 'bottom',
+            classProgress: 'green'
+        });
+    }
+
+    const login = {
+        data() {
+            return {
+                login_link: '',
+                login_duration_sec: 0,
+            }
+        },
+        methods: {
+            async loginModal() {
+                try {
+                    await this.loginApiGetQrCode();
+                    $('#modalLogin').modal('show');
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            loginApiGetQrCode() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/app/login`)
+                        let results = response.data.results;
+                        this.login_link = results.qr_link;
+                        this.login_duration_sec = results.qr_duration;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    const logout = {
+        methods: {
+            async logoutProcess() {
+                try {
+                    await this.logoutApi()
+                    showSuccessInfo("Logout success")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+
+            logoutApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        await axios.get(`${this.app_host}/app/logout`)
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    const reconnect = {
+        methods: {
+            async reconnectProcess() {
+                try {
+                    await this.reconnectApi()
+                    showSuccessInfo("Reconnect success")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+
+            reconnectApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        await axios.get(`${this.app_host}/app/reconnect`)
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    const sendMessage = {
+        data() {
+            return {
+                message_phone: '',
+                message_text: '',
+            }
+        },
+        methods: {
+            sendMessageModal() {
+                $('#modalSendMessage').modal('show');
+            },
+            async sendMessageProcess() {
+                try {
+                    let response = await this.sendMessageApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendMessageApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.message_phone)
+                        payload.append("message", this.message_text)
+                        let response = await axios.post(`${this.app_host}/send/message`, payload)
+                        this.sendMessageReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendMessageReset() {
+                this.message_phone = '';
+                this.message_text = '';
+            },
+        }
+    }
+
+    const sendImage = {
+        data() {
+            return {
+                image_phone: '',
+                image_caption: '',
+            }
+        },
+        methods: {
+            sendImageModal() {
+                $('#modalSendImage').modal('show');
+            },
+            async sendImageProcess() {
+                try {
+                    let response = await this.sendImageApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendImageApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.image_phone)
+                        payload.append("caption", this.image_caption)
+                        payload.append("image", $("#image_file")[0].files[0])
+                        let response = await axios.post(`${this.app_host}/send/image`, payload)
+                        this.sendImageReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendImageReset() {
+                this.image_phone = '';
+                this.image_caption = '';
+                $("#image_file").val('');
+            },
+        }
+    }
+
+    const sendFile = {
+        data() {
+            return {
+                file_phone: '',
+            }
+        },
+        methods: {
+            sendFileModal() {
+                $('#modalSendFile').modal('show');
+            },
+            async sendFileProcess() {
+                try {
+                    let response = await this.sendFileApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendFileApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.file_phone)
+                        payload.append("file", $("#file_file")[0].files[0])
+                        let response = await axios.post(`${this.app_host}/send/file`, payload)
+                        this.sendFileReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendFileReset() {
+                this.file_phone = '';
+                this.file_caption = '';
+                $("#file_file").val('');
+            },
+        }
+    }
+
+    const userGroups = {
+        data() {
+            return {
+                data_groups: []
+            }
+        },
+        methods: {
+            async groupModal() {
+                try {
+                    await this.groupApi();
+                    $('#modalUserGroup').modal('show');
+                    $('#user_groups_table').DataTable().destroy();
+                    $('#user_groups_table').DataTable({
+                        "pageLength": 100,
+                    });
+                    showSuccessInfo("Groups fetched")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            groupApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/my/groups`)
+                        this.data_groups = response.data.results.data;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    const userPrivacy = {
+        data() {
+            return {
+                data_privacy: null
+            }
+        },
+        methods: {
+            async privacyModal() {
+                try {
+                    await this.privacyApi();
+                    $('#modalUserPrivacy').modal('show');
+                    showSuccessInfo("Privacy fetched")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            privacyApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/my/privacy`)
+                        this.data_privacy = response.data.results;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    const userAvatar = {
+        data() {
+            return {
+                avatar_phone: '',
+                avatar_image: null,
+                avatar_loading: false,
+            }
+        },
+        methods: {
+            async avatarModal() {
+                this.avatarReset();
+                $('#modalUserAvatar').modal('show');
+            },
+            async avatarProcess() {
+                try {
+                    this.avatar_loading = true;
+                    await this.avatarApi();
+                    this.avatar_loading = false;
+                    showSuccessInfo("Avatar fetched")
+                } catch (err) {
+                    this.avatar_loading = false;
+                    showErrorInfo(err)
+                }
+            },
+            avatarApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/avatar?phone=${this.avatar_phone}`)
+                        this.avatar_image = response.data.results.url;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            avatarReset() {
+                this.avatar_phone = '';
+                this.avatar_image = null;
+            }
+        }
+    }
+
+    const userInfo = {
+        data() {
+            return {
+                info_phone: '',
+                //
+                info_name: null,
+                info_status: null,
+                info_devices: [],
+                //
+                info_loading: false,
+            }
+        },
+        methods: {
+            async infoModal() {
+                this.infoReset();
+                $('#modalUserInfo').modal('show');
+            },
+            async infoProcess() {
+                try {
+                    this.info_loading = true;
+                    await this.infoApi();
+                    this.info_loading = false;
+                    showSuccessInfo("Info fetched")
+                } catch (err) {
+                    this.info_loading = false;
+                    showErrorInfo(err)
+                }
+            },
+            infoApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/info?phone=${this.info_phone}`)
+                        this.info_name = response.data.results.verified_name;
+                        this.info_status = response.data.results.status;
+                        this.info_devices = response.data.results.devices;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            infoReset() {
+                this.info_phone = '';
+                this.info_name = null;
+                this.info_status = null;
+                this.info_devices = [];
+            }
+        }
+    }
+
+    Vue.createApp({
+        delimiters: ['[[', ']]'],
+        data() {
+            return {
+                app_host: {{ .AppHost }},
+                app_name: 'Whatsapp API Multi Device App'
+            }
+        },
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy, userAvatar, userInfo]
+    }).mount('#app')
+</script>
 </body>
 </html>

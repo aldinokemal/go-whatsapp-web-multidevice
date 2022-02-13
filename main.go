@@ -45,7 +45,7 @@ func main() {
 	userController.Route(app)
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
-		return ctx.JSON(map[string]interface{}{"Status": "Ok"})
+		return ctx.Render("index", fiber.Map{"AppHost": "http://localhost:3000"})
 	})
 
 	err := app.Listen(":3000")
