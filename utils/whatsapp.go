@@ -29,6 +29,35 @@ var (
 
 const logLevel = "DEBUG"
 
+func GetPlatformName(deviceID int) string {
+	switch deviceID {
+	case 2:
+		return "UNKNOWN"
+	case 3:
+		return "CHROME"
+	case 4:
+		return "FIREFOX"
+	case 5:
+		return "IE"
+	case 6:
+		return "OPERA"
+	case 7:
+		return "SAFARI"
+	case 8:
+		return "EDGE"
+	case 9:
+		return "DESKTOP"
+	case 10:
+		return "IPAD"
+	case 11:
+		return "ANDROID_TABLET"
+	case 12:
+		return "OHANA"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 func ParseJID(arg string) (types.JID, bool) {
 	if arg[0] == '+' {
 		arg = arg[1:]

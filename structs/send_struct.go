@@ -14,7 +14,7 @@ type UserInfoRequest struct {
 type UserInfoResponseDataDevice struct {
 	User   string
 	Agent  uint8
-	Device uint8
+	Device string
 	Server string
 	AD     bool
 }

@@ -41,7 +41,7 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 			device = append(device, structs.UserInfoResponseDataDevice{
 				User:   j.User,
 				Agent:  j.Agent,
-				Device: j.Device,
+				Device: utils.GetPlatformName(int(j.Device)),
 				Server: j.Server,
 				AD:     j.AD,
 			})
