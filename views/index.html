@@ -94,7 +94,7 @@
     </div>
 
     <div class="ui four cards">
-        <div class="green card">
+        <div class="green card" @click="infoModal" style="cursor: pointer;">
             <div class="content">
                 <div class="header">User Info</div>
                 <div class="meta">App</div>
@@ -317,6 +317,42 @@
 
             <div v-if="avatar_image != null" class="center">
                 <img :src="avatar_image" alt="profile picture" style="padding-top: 10px;">
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal UserInfo  -->
+    <div class="ui small modal" id="modalUserInfo">
+        <i class="close icon"></i>
+        <div class="header">
+            Search User Information
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="info_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+
+                <button type="button" class="ui primary button" :class="{'loading': info_loading}"
+                        @click="infoProcess">
+                    Search
+                </button>
+            </form>
+
+            <div v-if="info_devices.length > 0" class="center">
+                <ol>
+                    <li>Nama: [[ info_name ]]</li>
+                    <li>Status: [[ info_status ]]</li>
+                    <li>Device:
+                        <ul>
+                            <li v-for="d in info_devices">
+                                [[ d.Device ]]
+                            </li>
+                        </ul>
+                    </li>
+                </ol>
             </div>
         </div>
     </div>
@@ -685,6 +721,59 @@
         }
     }
 
+    const userInfo = {
+        data() {
+            return {
+                info_phone: '',
+                //
+                info_name: null,
+                info_status: null,
+                info_devices: [],
+                //
+                info_loading: false,
+            }
+        },
+        methods: {
+            async infoModal() {
+                this.infoReset();
+                $('#modalUserInfo').modal('show');
+            },
+            async infoProcess() {
+                try {
+                    this.info_loading = true;
+                    await this.infoApi();
+                    this.info_loading = false;
+                    showSuccessInfo("Info fetched")
+                } catch (err) {
+                    this.info_loading = false;
+                    showErrorInfo(err)
+                }
+            },
+            infoApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/info?phone=${this.info_phone}`)
+                        this.info_name = response.data.results.verified_name;
+                        this.info_status = response.data.results.status;
+                        this.info_devices = response.data.results.devices;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            infoReset() {
+                this.info_name = null;
+                this.info_status = null;
+                this.info_devices = [];
+            }
+        }
+    }
+
     Vue.createApp({
         delimiters: ['[[', ']]'],
         data() {
@@ -693,7 +782,7 @@
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy, userAvatar]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy, userAvatar, userInfo]
     }).mount('#app')
 </script>
 </body>
