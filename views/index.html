@@ -117,7 +117,7 @@
                 </div>
             </div>
         </div>
-        <div class="green card">
+        <div class="green card" @click="sendFileModal" style="cursor: pointer">
             <div class="content">
                 <div class="header">Send Message (File)</div>
                 <div class="meta">App</div>
@@ -194,7 +194,7 @@
                     <input v-model="image_phone" type="text" placeholder="6289..."
                            aria-label="phone">
                 </div>
-                <div class="field">
+                <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
                     <input type="file" class="inputfile" id="image_file" style="display: none"
                            accept="image/png,image/jpg,image/jpeg"/>
@@ -212,6 +212,37 @@
         </div>
         <div class="actions">
             <div class="ui positive right labeled icon button" @click="sendImageProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendFile  -->
+    <div class="ui small modal" id="modalSendFile">
+        <i class="close icon"></i>
+        <div class="header">
+            Send File
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="file_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>File</label>
+                    <input type="file" class="inputfile" id="file_file" style="display: none"/>
+                    <label for="file_file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload file
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendFileProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -421,6 +452,50 @@
         }
     }
 
+    const sendFile = {
+        data() {
+            return {
+                file_phone: '',
+            }
+        },
+        methods: {
+            sendFileModal() {
+                $('#modalSendFile').modal('show');
+            },
+            async sendFileProcess() {
+                try {
+                    let response = await this.sendFileApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendFileApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.file_phone)
+                        payload.append("file", $("#file_file")[0].files[0])
+                        let response = await axios.post(`${this.app_host}/send/file`, payload)
+                        this.sendFileReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendFileReset() {
+                this.file_phone = '';
+                this.file_caption = '';
+                $("#file_file").val('');
+            },
+        }
+    }
+
     Vue.createApp({
         delimiters: ['[[', ']]'],
         data() {
@@ -429,7 +504,7 @@
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile]
     }).mount('#app')
 </script>
 </body>
