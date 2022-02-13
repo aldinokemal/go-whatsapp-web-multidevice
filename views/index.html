@@ -86,7 +86,7 @@
                 </div>
             </div>
         </div>
-        <div class="green card">
+        <div class="green card" @click="privacyModal" style="cursor: pointer">
             <div class="content">
                 <div class="header">User Privacy Setting</div>
                 <div class="meta">App</div>
@@ -275,6 +275,22 @@
                 </tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+    <!--  Modal UserPrivacy  -->
+    <div class="ui small modal" id="modalUserPrivacy">
+        <i class="close icon"></i>
+        <div class="header">
+            My Privacy
+        </div>
+        <div class="content">
+            <ol v-if="data_privacy != null">
+                <li>Who can add Group : <b>[[ data_privacy.group_add ]]</b></li>
+                <li>Who can see my Last Seen : <b>[[ data_privacy.last_seen ]]</b></li>
+                <li>Who can see my Status : <b>[[ data_privacy.status ]]</b></li>
+                <li>Who can see my Profile : <b>[[ data_privacy.profile ]]</b></li>
+                <li>Read Receipts : <b>[[ data_privacy.read_receipts ]]</b></li>
+            </ol>
         </div>
     </div>
 </div>
@@ -525,7 +541,6 @@
         }
     }
 
-
     const userGroups = {
         data() {
             return {
@@ -564,6 +579,40 @@
         }
     }
 
+    const userPrivacy = {
+        data() {
+            return {
+                data_privacy: null
+            }
+        },
+        methods: {
+            async privacyModal() {
+                try {
+                    await this.privacyApi();
+                    $('#modalUserPrivacy').modal('show');
+                    showSuccessInfo("Privacy fetched")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            privacyApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/my/privacy`)
+                        this.data_privacy = response.data.results;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
     Vue.createApp({
         delimiters: ['[[', ']]'],
         data() {
@@ -572,7 +621,7 @@
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy]
     }).mount('#app')
 </script>
 </body>
