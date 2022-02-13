@@ -7,7 +7,10 @@
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" type="text/css"
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.js"></script>
     <script src="https://unpkg.com/vue@3"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
@@ -74,7 +77,7 @@
                 </div>
             </div>
         </div>
-        <div class="green card">
+        <div class="green card" @click="groupModal" style="cursor: pointer">
             <div class="content">
                 <div class="header">User List Groups</div>
                 <div class="meta">App</div>
@@ -246,6 +249,32 @@
                 Send
                 <i class="send icon"></i>
             </div>
+        </div>
+    </div>
+
+    <!--  Modal UserGroup  -->
+    <div class="ui small modal" id="modalUserGroup">
+        <i class="close icon"></i>
+        <div class="header">
+            My Group List
+        </div>
+        <div class="content">
+            <table class="ui celled table" id="user_groups_table">
+                <thead>
+                <tr>
+                    <th>Group Name</th>
+                    <th>Group Participants</th>
+                    <th>Group Created At</th>
+                </tr>
+                </thead>
+                <tbody v-if="data_groups != null">
+                <tr v-for="g in data_groups">
+                    <td data-label="Name">[[ g.Name ]]</td>
+                    <td data-label="Age">[[ g.Participants.length ]]</td>
+                    <td data-label="Job">[[ g.GroupCreated ]]</td>
+                </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -496,6 +525,45 @@
         }
     }
 
+
+    const userGroups = {
+        data() {
+            return {
+                data_groups: []
+            }
+        },
+        methods: {
+            async groupModal() {
+                try {
+                    await this.groupApi();
+                    $('#modalUserGroup').modal('show');
+                    $('#user_groups_table').DataTable().destroy();
+                    $('#user_groups_table').DataTable({
+                        "pageLength": 100,
+                    });
+                    showSuccessInfo("Groups fetched")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            groupApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/my/groups`)
+                        this.data_groups = response.data.results.data;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            }
+        }
+    }
+
     Vue.createApp({
         delimiters: ['[[', ']]'],
         data() {
@@ -504,7 +572,7 @@
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups]
     }).mount('#app')
 </script>
 </body>
