@@ -38,7 +38,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	return c.JSON(utils.ResponseData{
 		Code:    200,
 		Message: "Success",
-		Results: response,
+		Results: response.Data[0],
 	})
 }
 
