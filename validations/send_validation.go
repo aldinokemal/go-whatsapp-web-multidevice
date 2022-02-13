@@ -11,7 +11,7 @@ import (
 func ValidateSendMessage(request structs.SendMessageRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
-		validation.Field(&request.Message, validation.Required, validation.Length(4, 50)),
+		validation.Field(&request.Message, validation.Required, validation.Length(1, 50)),
 	)
 
 	if err != nil {
@@ -20,7 +20,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 		})
 	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
-			Message: "this is only work for indonesia country (start with 62)",
+			Message: "phone number only work for indonesia country (start with 62)",
 		})
 	}
 }
@@ -28,7 +28,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 func ValidateSendImage(request structs.SendImageRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, is.E164, validation.Length(10, 15)),
-		validation.Field(&request.Caption, validation.When(true, validation.Length(4, 200))),
+		validation.Field(&request.Caption, validation.When(true, validation.Length(1, 200))),
 		validation.Field(&request.Image, validation.Required),
 	)
 
@@ -38,7 +38,7 @@ func ValidateSendImage(request structs.SendImageRequest) {
 		})
 	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
-			Message: "this is only work for indonesia country (start with 62)",
+			Message: "phone number only work for indonesia country (start with 62)",
 		})
 	}
 
@@ -68,7 +68,7 @@ func ValidateSendFile(request structs.SendFileRequest) {
 		})
 	} else if !strings.HasPrefix(request.Phone, "62") {
 		panic(utils.ValidationError{
-			Message: "this is only work for indonesia country (start with 62)",
+			Message: "phone number only work for indonesia country (start with 62)",
 		})
 	}
 
