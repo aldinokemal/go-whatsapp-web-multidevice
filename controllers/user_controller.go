@@ -56,7 +56,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: "Success get avatar",
 		Results: response,
 	})
 }
@@ -67,7 +67,7 @@ func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: "Success get privacy",
 		Results: response,
 	})
 }
@@ -78,7 +78,7 @@ func (controller *UserController) UserMyListGroups(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: "Success get list groups",
 		Results: response,
 	})
 }

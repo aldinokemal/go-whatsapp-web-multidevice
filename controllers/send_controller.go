@@ -36,7 +36,7 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: response.Status,
 		Results: response,
 	})
 }
@@ -60,7 +60,7 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: response.Status,
 		Results: response,
 	})
 }
@@ -84,7 +84,7 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Code:    200,
-		Message: "Success",
+		Message: response.Status,
 		Results: response,
 	})
 }
