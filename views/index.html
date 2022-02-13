@@ -103,7 +103,7 @@
                 </div>
             </div>
         </div>
-        <div class="green card">
+        <div class="green card" @click="avatarModal" style="cursor: pointer;">
             <div class="content">
                 <div class="header">User Avatar</div>
                 <div class="meta">App</div>
@@ -277,6 +277,7 @@
             </table>
         </div>
     </div>
+
     <!--  Modal UserPrivacy  -->
     <div class="ui small modal" id="modalUserPrivacy">
         <i class="close icon"></i>
@@ -291,6 +292,32 @@
                 <li>Who can see my Profile : <b>[[ data_privacy.profile ]]</b></li>
                 <li>Read Receipts : <b>[[ data_privacy.read_receipts ]]</b></li>
             </ol>
+        </div>
+    </div>
+
+    <!--  Modal UserAvatar  -->
+    <div class="ui small modal" id="modalUserAvatar">
+        <i class="close icon"></i>
+        <div class="header">
+            Search User Avatar
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="avatar_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+
+                <button type="button" class="ui primary button" :class="{'loading': avatar_loading}"
+                        @click="avatarProcess">
+                    Search
+                </button>
+            </form>
+
+            <div v-if="avatar_image != null" class="center">
+                <img :src="avatar_image" alt="profile picture" style="padding-top: 10px;">
+            </div>
         </div>
     </div>
 </div>
@@ -613,6 +640,51 @@
         }
     }
 
+    const userAvatar = {
+        data() {
+            return {
+                avatar_phone: '',
+                avatar_image: null,
+                avatar_loading: false,
+            }
+        },
+        methods: {
+            async avatarModal() {
+                this.avatarReset();
+                $('#modalUserAvatar').modal('show');
+            },
+            async avatarProcess() {
+                try {
+                    this.avatar_loading = true;
+                    await this.avatarApi();
+                    this.avatar_loading = false;
+                    showSuccessInfo("Privacy fetched")
+                } catch (err) {
+                    this.avatar_loading = false;
+                    showErrorInfo(err)
+                }
+            },
+            avatarApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let response = await axios.get(`${this.app_host}/user/avatar?phone=${this.avatar_phone}`)
+                        this.avatar_image = response.data.results.url;
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            avatarReset() {
+                this.avatar_image = null;
+            }
+        }
+    }
+
     Vue.createApp({
         delimiters: ['[[', ']]'],
         data() {
@@ -621,7 +693,7 @@
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy, userAvatar]
     }).mount('#app')
 </script>
 </body>
