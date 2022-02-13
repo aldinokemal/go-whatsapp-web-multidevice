@@ -716,6 +716,7 @@
                 })
             },
             avatarReset() {
+                this.avatar_phone = '';
                 this.avatar_image = null;
             }
         }
@@ -778,7 +779,7 @@
         delimiters: ['[[', ']]'],
         data() {
             return {
-                app_host: "http://localhost:3000",
+                app_host: {{ .AppHost }},
                 app_name: 'Whatsapp API Multi Device App'
             }
         },
