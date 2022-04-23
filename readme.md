@@ -10,8 +10,7 @@
     - `sudo apt install libvips-dev`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
     - install vips library, or you can check here https://www.libvips.org/install.html
-    - `choco install nip2`
-    - `choco install pkgconfiglite`
+    - add to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ### How to use
 
