@@ -39,7 +39,7 @@ func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessag
 	if err != nil {
 		return response, err
 	} else {
-		response.Status = fmt.Sprintf("Message sent (server timestamp: %s)", ts)
+		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 	}
 	return response, nil
 }
@@ -108,7 +108,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	if err != nil {
 		return response, err
 	} else {
-		response.Status = fmt.Sprintf("Image message sent (server timestamp: %s)", ts)
+		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 		return response, nil
 	}
 }
@@ -165,7 +165,7 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 	if err != nil {
 		return response, err
 	} else {
-		response.Status = fmt.Sprintf("File message sent (server timestamp: %s)", ts)
+		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 		return response, nil
 	}
 }

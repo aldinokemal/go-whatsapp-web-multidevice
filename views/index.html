@@ -59,20 +59,18 @@
     </div>
 
     <div class="ui three cards">
-        <div class="green card" @click="sendMessageModal" style="cursor: pointer">
+        <div class="green card" @click="sendMessageModal('user')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (Text)</div>
+                <div class="header">Send Message (Text) | Private Message</div>
                 <div class="meta">App</div>
                 <div class="description">
-                    Send any message to any
-                    <div class="ui blue horizontal label">indonesian</div>
-                    whatsapp number
+                    Send any message to any whatsapp number
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendImageModal" style="cursor:pointer;">
+        <div class="green card" @click="sendImageModal('user')" style="cursor:pointer;">
             <div class="content">
-                <div class="header">Send Message (Image)</div>
+                <div class="header">Send Message (Image) | Private Message</div>
                 <div class="meta">App</div>
                 <div class="description">
                     Send image with
@@ -81,9 +79,42 @@
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendFileModal" style="cursor: pointer">
+        <div class="green card" @click="sendFileModal('user')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (File)</div>
+                <div class="header">Send Message (File) | Private Message</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send any file up to
+                    <div class="ui blue horizontal label">10MB</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui three cards">
+        <div class="green card" @click="sendMessageModal('group')" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Send Message (Text) | Group</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send any message to any whatsapp number
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendImageModal('group')" style="cursor:pointer;">
+            <div class="content">
+                <div class="header">Send Message (Image) | Group</div>
+                <div class="meta">App</div>
+                <div class="description">
+                    Send image with
+                    <div class="ui blue horizontal label">jpg/jpeg/png</div>
+                    type
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendFileModal('group')" style="cursor: pointer">
+            <div class="content">
+                <div class="header">Send Message (File) | Group</div>
                 <div class="meta">App</div>
                 <div class="description">
                     Send any file up to
@@ -141,7 +172,7 @@
         </div>
         <div class="image content">
             <div class="ui medium image">
-                <img :src="login_link">
+                <img :src="login_link" alt="qrCodeLogin">
             </div>
             <div class="description">
                 <div class="ui header">Please scan to connect</div>
@@ -165,7 +196,7 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
-                    <label>Phone</label>
+                    <label>Phone / Group ID</label>
                     <input v-model="message_phone" type="text" placeholder="6289..."
                            aria-label="phone">
                 </div>
@@ -193,7 +224,7 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
-                    <label>Phone</label>
+                    <label>Phone / Group ID</label>
                     <input v-model="image_phone" type="text" placeholder="6289..."
                            aria-label="phone">
                 </div>
@@ -230,7 +261,7 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
-                    <label>Phone</label>
+                    <label>Phone / Group ID</label>
                     <input v-model="file_phone" type="text" placeholder="6289..."
                            aria-label="phone">
                 </div>
@@ -473,12 +504,14 @@
     const sendMessage = {
         data() {
             return {
+                message_type: 'user',
                 message_phone: '',
                 message_text: '',
             }
         },
         methods: {
-            sendMessageModal() {
+            sendMessageModal(type) {
+                this.message_type = type
                 $('#modalSendMessage').modal('show');
             },
             async sendMessageProcess() {
@@ -495,6 +528,7 @@
                         let payload = new FormData();
                         payload.append("phone", this.message_phone)
                         payload.append("message", this.message_text)
+                        payload.append("type", this.message_type)
                         let response = await axios.post(`${this.app_host}/send/message`, payload)
                         this.sendMessageReset();
                         resolve(response.data.message)
@@ -510,6 +544,7 @@
             sendMessageReset() {
                 this.message_phone = '';
                 this.message_text = '';
+                this.message_type = 'user';
             },
         }
     }
@@ -519,10 +554,12 @@
             return {
                 image_phone: '',
                 image_caption: '',
+                image_type: 'user',
             }
         },
         methods: {
-            sendImageModal() {
+            sendImageModal(type) {
+                this.image_type = type
                 $('#modalSendImage').modal('show');
             },
             async sendImageProcess() {
@@ -540,6 +577,7 @@
                         payload.append("phone", this.image_phone)
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
+                        payload.append("type", this.image_type)
                         let response = await axios.post(`${this.app_host}/send/image`, payload)
                         this.sendImageReset();
                         resolve(response.data.message)
@@ -555,6 +593,7 @@
             sendImageReset() {
                 this.image_phone = '';
                 this.image_caption = '';
+                this.image_type = 'user';
                 $("#image_file").val('');
             },
         }
@@ -563,11 +602,13 @@
     const sendFile = {
         data() {
             return {
+                file_type: 'user',
                 file_phone: '',
             }
         },
         methods: {
-            sendFileModal() {
+            sendFileModal(type) {
+                this.file_type = type
                 $('#modalSendFile').modal('show');
             },
             async sendFileProcess() {
@@ -584,6 +625,7 @@
                         let payload = new FormData();
                         payload.append("phone", this.file_phone)
                         payload.append("file", $("#file_file")[0].files[0])
+                        payload.append("type", this.file_type)
                         let response = await axios.post(`${this.app_host}/send/file`, payload)
                         this.sendFileReset();
                         resolve(response.data.message)
@@ -598,7 +640,7 @@
             },
             sendFileReset() {
                 this.file_phone = '';
-                this.file_caption = '';
+                this.file_type = 'user';
                 $("#file_file").val('');
             },
         }

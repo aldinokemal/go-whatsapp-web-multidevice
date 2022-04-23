@@ -56,9 +56,15 @@ type UserMyListGroupsResponse struct {
 
 // ============================== SEND ==============================
 
+type SendType string
+
+const TypeUser SendType = "user"
+const TypeGroup SendType = "group"
+
 type SendMessageRequest struct {
-	Phone   string `json:"phone" form:"phone"`
-	Message string `json:"message" form:"message"`
+	Phone   string   `json:"phone" form:"phone"`
+	Message string   `json:"message" form:"message"`
+	Type    SendType `json:"type" form:"type"`
 }
 
 type SendMessageResponse struct {
@@ -70,6 +76,7 @@ type SendImageRequest struct {
 	Caption  string                `json:"caption" form:"caption"`
 	Image    *multipart.FileHeader `json:"image" form:"image"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
+	Type     SendType              `json:"type" form:"message"`
 }
 
 type SendImageResponse struct {
@@ -79,6 +86,7 @@ type SendImageResponse struct {
 type SendFileRequest struct {
 	Phone string                `json:"phone" form:"phone"`
 	File  *multipart.FileHeader `json:"file" form:"file"`
+	Type  SendType              `json:"type" form:"message"`
 }
 
 type SendFileResponse struct {

@@ -30,7 +30,12 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 	// add validation send message
 	validations.ValidateSendMessage(request)
 
-	request.Phone = request.Phone + "@s.whatsapp.net"
+	if request.Type == structs.TypeGroup {
+		request.Phone = request.Phone + "@g.us"
+	} else {
+		request.Phone = request.Phone + "@s.whatsapp.net"
+	}
+
 	response, err := controller.Service.SendText(c, request)
 	utils.PanicIfNeeded(err)
 
@@ -54,7 +59,12 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendImage(request)
 
-	request.Phone = request.Phone + "@s.whatsapp.net"
+	if request.Type == structs.TypeGroup {
+		request.Phone = request.Phone + "@g.us"
+	} else {
+		request.Phone = request.Phone + "@s.whatsapp.net"
+	}
+
 	response, err := controller.Service.SendImage(c, request)
 	utils.PanicIfNeeded(err)
 
@@ -78,7 +88,12 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendFile(request)
 
-	request.Phone = request.Phone + "@s.whatsapp.net"
+	if request.Type == structs.TypeGroup {
+		request.Phone = request.Phone + "@g.us"
+	} else {
+		request.Phone = request.Phone + "@s.whatsapp.net"
+	}
+	
 	response, err := controller.Service.SendFile(c, request)
 	utils.PanicIfNeeded(err)
 
