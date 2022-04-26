@@ -529,7 +529,13 @@
                         payload.append("phone", this.message_phone)
                         payload.append("message", this.message_text)
                         payload.append("type", this.message_type)
-                        let response = await axios.post(`${this.app_host}/send/message`, payload)
+                        let response = await axios.post(`${this.app_host}/send/message`, payload, {
+                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
+                            transformRequest: (data, headers) => {
+                                delete headers.post['Content-Type'];
+                                return data;
+                            }
+                        })
                         this.sendMessageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -578,7 +584,13 @@
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
                         payload.append("type", this.image_type)
-                        let response = await axios.post(`${this.app_host}/send/image`, payload)
+                        let response = await axios.post(`${this.app_host}/send/image`, payload, {
+                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
+                            transformRequest: (data, headers) => {
+                                delete headers.post['Content-Type'];
+                                return data;
+                            }
+                        })
                         this.sendImageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -626,7 +638,13 @@
                         payload.append("phone", this.file_phone)
                         payload.append("file", $("#file_file")[0].files[0])
                         payload.append("type", this.file_type)
-                        let response = await axios.post(`${this.app_host}/send/file`, payload)
+                        let response = await axios.post(`${this.app_host}/send/file`, payload, {
+                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
+                            transformRequest: (data, headers) => {
+                                delete headers.post['Content-Type'];
+                                return data;
+                            }
+                        })
                         this.sendFileReset();
                         resolve(response.data.message)
                     } catch (error) {

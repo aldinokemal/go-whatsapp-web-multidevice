@@ -406,7 +406,7 @@ paths:
             schema:
               type: object
               properties:
-                phone_number:
+                phone:
                   type: integer
                   example: '6289685024091'
                 message:
@@ -460,7 +460,7 @@ paths:
                 type: object
               example:
                 code: 400
-                message: 'phone_number: cannot be blank.'
+                message: 'phone: cannot be blank.'
                 results: null
         '500':
           description: Internal Server Error
@@ -496,7 +496,7 @@ paths:
             schema:
               type: object
               properties:
-                phone_number:
+                phone:
                   type: integer
                   example: '6289685024091'
                 caption:
@@ -556,7 +556,7 @@ paths:
                 type: object
               example:
                 code: 400
-                message: 'phone_number: cannot be blank.'
+                message: 'phone: cannot be blank.'
                 results: null
         '500':
           description: Internal Server Error
@@ -592,7 +592,7 @@ paths:
             schema:
               type: object
               properties:
-                phone_number:
+                phone:
                   type: integer
                   example: '6289685024091'
                 caption:
@@ -652,7 +652,7 @@ paths:
                 type: object
               example:
                 code: 400
-                message: 'phone_number: cannot be blank.'
+                message: 'phone: cannot be blank.'
                 results: null
         '500':
           description: Internal Server Error
