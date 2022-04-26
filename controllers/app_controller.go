@@ -28,7 +28,7 @@ func (controller *AppController) Login(c *fiber.Ctx) error {
 		Code:    200,
 		Message: "Success",
 		Results: map[string]interface{}{
-			"qr_link":     "http://localhost:3000/" + response.ImagePath,
+			"qr_link":     c.Hostname() + response.ImagePath,
 			"qr_duration": response.Duration,
 		},
 	})

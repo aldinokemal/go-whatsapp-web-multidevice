@@ -1,0 +1,679 @@
+openapi: 3.0.0
+info:
+  title: WhatsApp API MultiDevice
+  version: 2.1.1
+  description: This API is used for sending whatsapp via API
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: auth
+    description: Initial Connection to Whatsapp server
+  - name: user
+    description: Getting information
+  - name: send
+    description: Send Message (Text/Image/File/Video)
+paths:
+  /app/login:
+    get:
+      tags:
+        - auth
+      summary: Login to whatsapp server
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 02:38:34 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '166'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  qr_duration: 30
+                  qr_link: >-
+                    http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png
+  /app/logout:
+    get:
+      tags:
+        - auth
+      summary: Remove database and logout
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:44:15 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '54'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success logout
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 02:39:02 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: text/plain; charset=utf-8
+            Content-Length:
+              schema:
+                type: integer
+                example: '38'
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: the store doesn't contain a device JID
+  /app/reconnect:
+    get:
+      tags:
+        - auth
+      summary: Reconnecting to whatsapp server
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 02:38:10 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '57'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Reconnect success
+                results: null
+  /user/info:
+    get:
+      tags:
+        - user
+      summary: User Info
+      parameters:
+        - name: phone
+          in: query
+          schema:
+            type: integer
+          example: '6289685024091'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Sun, 13 Feb 2022 05:46:55 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '394'
+            Vary:
+              schema:
+                type: string
+                example: Origin
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: '*'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  verified_name: ''
+                  status: you are blocked
+                  picture_id: '1635239861'
+                  devices:
+                    - User: '6289685024091'
+                      Agent: 0
+                      Device: UNKNOWN
+                      Server: s.whatsapp.net
+                      AD: true
+                    - User: '6289685024091'
+                      Agent: 0
+                      Device: SAFARI
+                      Server: s.whatsapp.net
+                      AD: true
+                    - User: '6289685024091'
+                      Agent: 0
+                      Device: IPAD
+                      Server: s.whatsapp.net
+                      AD: true
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Sun, 13 Feb 2022 05:04:20 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '63'
+            Vary:
+              schema:
+                type: string
+                example: Origin
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: '*'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:03:21 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /user/avatar:
+    get:
+      tags:
+        - user
+      summary: User Avatar
+      parameters:
+        - name: phone
+          in: query
+          schema:
+            type: integer
+          example: '6289685024091'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:43:39 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '244'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  url: >-
+                    https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726
+                  id: '1635239861'
+                  type: image
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:03:29 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /user/my/privacy:
+    get:
+      tags:
+        - user
+      summary: User My Privacy Setting
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Sun, 13 Feb 2022 04:01:41 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '147'
+            Vary:
+              schema:
+                type: string
+                example: Origin
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+                example: '*'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success get privacy
+                results:
+                  group_add: all
+                  last_seen: ''
+                  status: all
+                  profile: contacts
+                  read_receipts: all
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:03:29 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /user/my/groups:
+    get:
+      tags:
+        - user
+      summary: User My List Groups
+      responses:
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:03:29 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /send/message:
+    post:
+      tags:
+        - send
+      summary: Send Message
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone_number:
+                  type: integer
+                  example: '6289685024091'
+                message:
+                  type: string
+                  example: selamat malam
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:43:28 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '118'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  status: >-
+                    Message sent (server timestamp: 2022-02-11 10:43:29 +0700
+                    WIB)
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:58 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '70'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone_number: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:22 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /send/image:
+    post:
+      tags:
+        - send
+      summary: Send Image
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone_number:
+                  type: integer
+                  example: '6289685024091'
+                caption:
+                  type: string
+                  example: selamat malam
+                view_once:
+                  type: boolean
+                  example: false
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:26:22 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '124'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  status: >-
+                    Image message sent (server timestamp: 2022-02-11 10:26:22
+                    +0700 WIB)
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:17 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '70'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone_number: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:48 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /send/file:
+    post:
+      tags:
+        - send
+      summary: Send File
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone_number:
+                  type: integer
+                  example: '6289685024091'
+                caption:
+                  type: string
+                  example: selamat malam
+                view_once:
+                  type: boolean
+                  example: 'false'
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:42:57 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '123'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  status: >-
+                    File message sent (server timestamp: 2022-02-11 10:42:57
+                    +0700 WIB)
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:17 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '70'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone_number: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:48 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
