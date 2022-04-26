@@ -45,7 +45,7 @@ func main() {
 	userController.Route(app)
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
-		return ctx.Render("index", fiber.Map{"AppHost": "http://localhost:3000"})
+		return ctx.Render("index", fiber.Map{"AppHost": fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname())})
 	})
 
 	err := app.Listen(":3000")

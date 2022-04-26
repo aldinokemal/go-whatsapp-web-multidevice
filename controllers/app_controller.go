@@ -29,7 +29,7 @@ func (controller *AppController) Login(c *fiber.Ctx) error {
 		Code:    200,
 		Message: "Success",
 		Results: map[string]interface{}{
-			"qr_link":     fmt.Sprintf("%s/%s", c.Hostname(), response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
