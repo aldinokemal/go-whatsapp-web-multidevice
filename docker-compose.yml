@@ -1,0 +1,14 @@
+version: '3.2'
+services:
+  whatsapp_go:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+    build:
+      context: .
+      dockerfile: ./docker/golang.Dockerfile
+    restart: 'always'
+    ports:
+      - "3000:3000"

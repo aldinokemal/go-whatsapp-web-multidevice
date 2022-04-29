@@ -1,6 +1,6 @@
 ## Go Whatsapp API Multi Device Version
 
-### Required
+### Required (without docker)
 
 - Mac OS:
     - `brew install vips`
@@ -14,13 +14,28 @@
 
 ### How to use
 
+#### Basic
+
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
-2. run `go run main.go`
-3. open `http://localhost:3000`
+2. open via cmd/terminal
+3. run `cd src`
+4. run `go run main.go`
+5. open `http://localhost:3000`
+
+#### Docker (you don't need to install in required)
+
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+2. open via cmd/terminal
+3. run `docker-compose up -d --build`
+4. open `http://localhost:3000`
+
+## Production Mode (without config)
+- `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
 
 You can fork or edit this source code !
 
 ### Current API
+`You can check docs/openapi.yml for detail API`
 
 | Feature | Menu                    | Method | URL              | Payload                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 |---------|-------------------------|--------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
