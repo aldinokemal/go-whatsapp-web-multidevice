@@ -66,7 +66,7 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 6. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
 6. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
 7. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
-8. User Group  ![List Group](https://i.ibb.co/GM9fhQD/Screen-Shot-2022-02-13-at-12-57-19.png)
+8. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
 
 ### Mac OS NOTE
 
