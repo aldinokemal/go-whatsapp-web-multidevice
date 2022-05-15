@@ -97,7 +97,7 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 		panic(err)
 	}
 
-	store.CompanionProps.PlatformType = waProto.CompanionProps_UNKNOWN.Enum()
+	store.CompanionProps.PlatformType = waProto.CompanionProps_CHROME.Enum()
 	store.CompanionProps.Os = proto.String("AldinoKemal")
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", logLevel, true))
 	cli.AddEventHandler(handler)

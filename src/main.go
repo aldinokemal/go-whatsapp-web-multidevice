@@ -57,7 +57,7 @@ func main() {
 		return ctx.Render("index", fiber.Map{"AppHost": fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname())})
 	})
 
-	err = app.Listen(":3000")
+	err = app.Listen(":" + config.AppPort)
 	if err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}

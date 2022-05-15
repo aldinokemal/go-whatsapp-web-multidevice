@@ -1,5 +1,12 @@
 package config
 
-const PathQrCode = "statics/images/qrcode"
-const PathSendItems = "statics/images/senditems"
-const DBName = "hydrogenWaCli.db"
+type Browser string
+
+const (
+	AppPort string = "3000"
+
+	PathQrCode    string = "statics/images/qrcode"
+	PathSendItems string = "statics/images/senditems"
+
+	DBName string = "hydrogenWaCli.db"
+)
