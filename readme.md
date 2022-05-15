@@ -29,6 +29,15 @@
 3. run `docker-compose up -d --build`
 4. open `http://localhost:3000`
 
+#### Build your own binary 
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+2. open via cmd/terminal
+3. run `go install github.com/gobuffalo/packr/v2/packr2@latest`
+4. run `cd src`
+5. run `pkger && go build -o darwin-amd64`
+6. run `./darwin-amd64`
+7. open `http://localhost:3000`
+
 ## Production Mode (without config)
 - `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
 

@@ -10,11 +10,17 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html"
+	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
+	"os"
+	"path/filepath"
 )
 
 func main() {
-	engine := html.New("./views", ".html")
+	// preparing folder if single binary
+	preparingFolder("statics/images/qrcode", "statics/images/senditems")
+
+	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
 	app := fiber.New(fiber.Config{
 		Views:     engine,
 		BodyLimit: 10 * 1024 * 1024,
@@ -51,5 +57,15 @@ func main() {
 	err := app.Listen(":3000")
 	if err != nil {
 		fmt.Println("Failed to start: ", err.Error())
+	}
+}
+
+func preparingFolder(folderPath ...string) {
+	for _, folder := range folderPath {
+		newpath := filepath.Join(".", folder)
+		err := os.MkdirAll(newpath, os.ModePerm)
+		if err != nil {
+			os.Exit(0)
+		}
 	}
 }
