@@ -14,7 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
-	"time"
 )
 
 type SendServiceImpl struct {
@@ -64,18 +63,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	if err != nil {
 		return response, err
 	}
-
-	removeFile := func(paths ...string) {
-		time.Sleep(5 * time.Second)
-		for _, path := range paths {
-			err := os.Remove(path)
-			if err != nil {
-				fmt.Println("error when delete " + path)
-			}
-		}
-
-	}
-
+	
 	// Send to WA server
 	dataWaCaption := request.Caption
 	dataWaRecipient, ok := utils.ParseJID(request.Phone)
@@ -93,6 +81,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	}
 
 	msg := &waProto.Message{ImageMessage: &waProto.ImageMessage{
+		JpegThumbnail: newImage,
 		Caption:       proto.String(dataWaCaption),
 		Url:           proto.String(uploadedImage.URL),
 		DirectPath:    proto.String(uploadedImage.DirectPath),
@@ -104,7 +93,12 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
-	go removeFile(oriImagePath, newImagePath)
+	go func() {
+		errDelete := utils.RemoveFile(0, oriImagePath, newImagePath)
+		if errDelete != nil {
+			fmt.Println(errDelete)
+		}
+	}()
 	if err != nil {
 		return response, err
 	} else {
@@ -121,17 +115,6 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 	err = c.SaveFile(request.File, oriFilePath)
 	if err != nil {
 		return response, err
-	}
-
-	removeFile := func(paths ...string) {
-		time.Sleep(5 * time.Second)
-		for _, path := range paths {
-			err := os.Remove(path)
-			if err != nil {
-				fmt.Println("error when delete " + path)
-			}
-		}
-
 	}
 
 	// Send to WA server
@@ -161,7 +144,12 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
-	go removeFile(oriFilePath)
+	go func() {
+		errDelete := utils.RemoveFile(0, oriFilePath)
+		if errDelete != nil {
+			fmt.Println(errDelete)
+		}
+	}()
 	if err != nil {
 		return response, err
 	} else {
