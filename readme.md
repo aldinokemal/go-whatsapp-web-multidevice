@@ -32,11 +32,15 @@
 #### Build your own binary 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
 2. open via cmd/terminal
-3. run `go install github.com/gobuffalo/packr/v2/packr2@latest`
+3. run `go install github.com/markbates/pkger/cmd/pkger@latest`
 4. run `cd src`
-5. run `pkger && go build -o darwin-amd64`
-6. run `./darwin-amd64`
-7. open `http://localhost:3000`
+5. run 
+   1. Linux & MacOS: `pkger && go build -o whatsapp`
+   2. Windows (CMD, not PowerShell): `pkger.exe && go build -o whatsapp.exe`
+6. run 
+   1. Linux & MacOS: `./whatsapp`
+   2. Windows: `.\whatsapp.exe` or you can double-click it
+7. open `http://localhost:3000` in browser
 
 ## Production Mode (without config)
 - `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
