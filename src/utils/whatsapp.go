@@ -169,6 +169,10 @@ func handler(rawEvt interface{}) {
 			}
 			log.Infof("Saved image in message to %s", path)
 		}
+
+		if config.WhatsappAutoReplyMessage != "" {
+			_, _ = cli.SendMessage(evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+		}
 	case *events.Receipt:
 		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
 			log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)

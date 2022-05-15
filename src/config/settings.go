@@ -11,5 +11,6 @@ var (
 
 	DBName string = "hydrogenWaCli.db"
 
-	WhatsappLogLevel string = "ERROR"
+	WhatsappLogLevel         string = "ERROR"
+	WhatsappAutoReplyMessage string
 )
