@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/controllers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
@@ -10,11 +11,19 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html"
+	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
+	"log"
 )
 
 func main() {
-	engine := html.New("./views", ".html")
+	// preparing folder if not exist
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
 	app := fiber.New(fiber.Config{
 		Views:     engine,
 		BodyLimit: 10 * 1024 * 1024,
@@ -48,8 +57,8 @@ func main() {
 		return ctx.Render("index", fiber.Map{"AppHost": fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname())})
 	})
 
-	err := app.Listen(":3000")
+	err = app.Listen(":3000")
 	if err != nil {
-		fmt.Println("Failed to start: ", err.Error())
+		log.Fatalln("Failed to start: ", err.Error())
 	}
 }
