@@ -12,13 +12,15 @@ import (
 	"github.com/gofiber/template/html"
 	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
-	"os"
-	"path/filepath"
+	"log"
 )
 
 func main() {
-	// preparing folder if single binary
-	preparingFolder("statics/images/qrcode", "statics/images/senditems")
+	// preparing folder if not exist
+	err := utils.CreateFolder("statics/images/qrcode", "statics/images/senditems")
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
 	app := fiber.New(fiber.Config{
@@ -54,18 +56,8 @@ func main() {
 		return ctx.Render("index", fiber.Map{"AppHost": fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname())})
 	})
 
-	err := app.Listen(":3000")
+	err = app.Listen(":3000")
 	if err != nil {
-		fmt.Println("Failed to start: ", err.Error())
-	}
-}
-
-func preparingFolder(folderPath ...string) {
-	for _, folder := range folderPath {
-		newpath := filepath.Join(".", folder)
-		err := os.MkdirAll(newpath, os.ModePerm)
-		if err != nil {
-			os.Exit(0)
-		}
+		log.Fatalln("Failed to start: ", err.Error())
 	}
 }
