@@ -27,8 +27,6 @@ var (
 	startupTime   = time.Now().Unix()
 )
 
-const logLevel = "DEBUG"
-
 func GetPlatformName(deviceID int) string {
 	switch deviceID {
 	case 2:
@@ -79,8 +77,8 @@ func ParseJID(arg string) (types.JID, bool) {
 
 func InitWaDB() *sqlstore.Container {
 	// Running Whatsapp
-	log = waLog.Stdout("Main", logLevel, true)
-	dbLog := waLog.Stdout("Database", logLevel, true)
+	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
+	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
 	storeContainer, err := sqlstore.New("sqlite3", fmt.Sprintf("file:%s?_foreign_keys=off", config.DBName), dbLog)
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
@@ -99,7 +97,7 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 
 	store.CompanionProps.PlatformType = waProto.CompanionProps_CHROME.Enum()
 	store.CompanionProps.Os = proto.String("AldinoKemal")
-	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", logLevel, true))
+	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.AddEventHandler(handler)
 
 	return cli
