@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/controllers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
@@ -17,7 +18,7 @@ import (
 
 func main() {
 	// preparing folder if not exist
-	err := utils.CreateFolder("statics/images/qrcode", "statics/images/senditems")
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems)
 	if err != nil {
 		log.Fatalln(err)
 	}
