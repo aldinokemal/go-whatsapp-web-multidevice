@@ -18,6 +18,7 @@ RUN go build -o /app/whatsapp
 #############################
 FROM alpine
 RUN apk update && apk add --no-cache vips-dev
+WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
 # Run the binary.
