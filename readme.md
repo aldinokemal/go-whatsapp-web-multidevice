@@ -1,5 +1,14 @@
 ## Go Whatsapp API Multi Device Version
 
+### Feature
+- Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
+- Compress image before send
+- Customizable port and debug mode
+  - `--port 8000`
+  - `--debug true`
+- Auto reply message
+  - `--autoreply="Don't reply this message"`
+
 ### Required (without docker)
 
 - Mac OS:
@@ -21,6 +30,7 @@
 3. run `cd src`
 4. run `go run main.go`
 5. open `http://localhost:3000`
+6. run `go run main.go --help` for more detail flags
 
 #### Docker (you don't need to install in required)
 
@@ -39,11 +49,16 @@
    2. Windows (CMD, not PowerShell): `pkger.exe && go build -o whatsapp.exe`
 6. run 
    1. Linux & MacOS: `./whatsapp`
+      1. run `./whatsapp --help` for more detail flags
    2. Windows: `.\whatsapp.exe` or you can double-click it
+      1. run `.\whatsapp.exe --help` for more detail flags
 7. open `http://localhost:3000` in browser
 
-## Production Mode (without config)
+### Production Mode (docker)
 - `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
+
+### Production Mode (binary)
+- download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
 
 You can fork or edit this source code !
 

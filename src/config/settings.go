@@ -1,5 +1,16 @@
 package config
 
-const PathQrCode = "statics/images/qrcode"
-const PathSendItems = "statics/images/senditems"
-const DBName = "hydrogenWaCli.db"
+type Browser string
+
+var (
+	AppPort  string = "3000"
+	AppDebug bool   = false
+
+	PathQrCode    string = "statics/images/qrcode"
+	PathSendItems string = "statics/images/senditems"
+
+	DBName string = "hydrogenWaCli.db"
+
+	WhatsappLogLevel         string = "ERROR"
+	WhatsappAutoReplyMessage string
+)

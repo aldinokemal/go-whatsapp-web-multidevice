@@ -88,7 +88,7 @@ func (service AppServiceImpl) Logout(c *fiber.Ctx) (err error) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(files)
+
 	for _, f := range files {
 		err = os.Remove(f)
 		if err != nil {
@@ -100,7 +100,7 @@ func (service AppServiceImpl) Logout(c *fiber.Ctx) (err error) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(qrImages)
+
 	for _, f := range qrImages {
 		err = os.Remove(f)
 		if err != nil {
