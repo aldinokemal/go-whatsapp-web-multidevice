@@ -54,8 +54,11 @@
       1. run `.\whatsapp.exe --help` for more detail flags
 7. open `http://localhost:3000` in browser
 
-## Production Mode (without config)
+### Production Mode (docker)
 - `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
+
+### Production Mode (binary)
+- download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
 
 You can fork or edit this source code !
 
