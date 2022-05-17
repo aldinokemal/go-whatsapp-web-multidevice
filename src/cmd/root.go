@@ -49,7 +49,7 @@ func runRest(cmd *cobra.Command, args []string) {
 	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
 	app := fiber.New(fiber.Config{
 		Views:     engine,
-		BodyLimit: 10 * 1024 * 1024,
+		BodyLimit: 30 * 1024 * 1024,
 	})
 	app.Static("/statics", "./statics")
 	app.Use(middleware.Recovery())
