@@ -48,23 +48,50 @@ func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessag
 func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImageRequest) (response structs.SendImageResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
+	var (
+		imagePath      string
+		imageThumbnail string
+		deletedItems   []string
+	)
+
 	// Save image to server
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
 	if err != nil {
 		return response, err
 	}
-	// Resize image
-	openImageBuffer, err := bimg.Read(oriImagePath)
-	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
+	deletedItems = append(deletedItems, oriImagePath)
+
+	// Generate thumbnail with smalled image
+	openThumbnailBuffer, err := bimg.Read(oriImagePath)
+	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
+	thumbnailImage, err := bimg.NewImage(openThumbnailBuffer).Process(bimg.Options{Quality: 90, Width: 100, Embed: true})
 	if err != nil {
 		return response, err
 	}
-
-	newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
-	err = bimg.Write(newImagePath, newImage)
+	err = bimg.Write(imageThumbnail, thumbnailImage)
 	if err != nil {
 		return response, err
+	}
+	deletedItems = append(deletedItems, imageThumbnail)
+
+	if request.Compress {
+		// Resize image
+		openImageBuffer, err := bimg.Read(oriImagePath)
+		newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
+		if err != nil {
+			return response, err
+		}
+
+		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
+		err = bimg.Write(newImagePath, newImage)
+		if err != nil {
+			return response, err
+		}
+		deletedItems = append(deletedItems, newImagePath)
+		imagePath = newImagePath
+	} else {
+		imagePath = oriImagePath
 	}
 
 	// Send to WA server
@@ -73,7 +100,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	if !ok {
 		return response, errors.New("invalid JID " + request.Phone)
 	}
-	dataWaImage, err := os.ReadFile(newImagePath)
+	dataWaImage, err := os.ReadFile(imagePath)
 	if err != nil {
 		return response, err
 	}
@@ -82,9 +109,10 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
 	}
+	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
 
 	msg := &waProto.Message{ImageMessage: &waProto.ImageMessage{
-		JpegThumbnail: newImage,
+		JpegThumbnail: dataWaThumbnail,
 		Caption:       proto.String(dataWaCaption),
 		Url:           proto.String(uploadedImage.URL),
 		DirectPath:    proto.String(uploadedImage.DirectPath),
@@ -97,7 +125,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, oriImagePath, newImagePath)
+		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
 			fmt.Println("error when deleting picture: ", errDelete)
 		}

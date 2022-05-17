@@ -516,6 +516,9 @@ paths:
                   type: string
                   example: 'user'
                   description: 'user/group | default: user'
+                compress:
+                  type: boolean
+                  example: false
       responses:
         '200':
           description: OK
