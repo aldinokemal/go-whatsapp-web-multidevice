@@ -13,13 +13,16 @@
 
 - Mac OS:
     - `brew install vips`
+    - `brew install ffmpeg`
     - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
     - `sudo apt update`
     - `sudo apt install libvips-dev`
+    - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
     - install vips library, or you can check here https://www.libvips.org/install.html
-    - add to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+    - install ffmpeg, download [here](https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.7z) 
+    - add to vips & ffmpg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ### How to use
 
