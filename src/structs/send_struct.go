@@ -47,6 +47,7 @@ type SendVideoRequest struct {
 	Video    *multipart.FileHeader `json:"video" form:"video"`
 	Type     SendType              `json:"type" form:"message"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
+	Compress bool                  `json:"compress"`
 }
 
 type SendVideoResponse struct {

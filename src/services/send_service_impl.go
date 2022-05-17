@@ -163,6 +163,12 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideoRequest) (response structs.SendVideoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
+	var (
+		videoPath      string
+		videoThumbnail string
+		deletedItems   []string
+	)
+
 	generateUUID := fiberUtils.UUIDv4()
 	// Save video to server
 	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
@@ -171,16 +177,12 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		return response, err
 	}
 
-	compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
-	// Compress video with ffmpeg
-	cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
-	err = cmdCompress.Run()
-	utils.PanicIfNeeded(err, "error when compress video")
 	// Get thumbnail video with ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
 	err = cmdThumbnail.Run()
 	utils.PanicIfNeeded(err, "error when getting thumbnail")
+
 	// Resize Thumbnail
 	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
 	resize, err := bimg.NewImage(openImageBuffer).Thumbnail(100)
@@ -193,12 +195,30 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		return response, err
 	}
 
+	deletedItems = append(deletedItems, thumbnailVideoPath)
+	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
+	videoThumbnail = thumbnailResizeVideoPath
+
+	if request.Compress {
+		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
+		// Compress video with ffmpeg
+		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
+		err = cmdCompress.Run()
+		utils.PanicIfNeeded(err, "error when compress video")
+
+		videoPath = compresVideoPath
+		deletedItems = append(deletedItems, compresVideoPath)
+	} else {
+		videoPath = oriVideoPath
+		deletedItems = append(deletedItems, oriVideoPath)
+	}
+
 	//Send to WA server
 	dataWaRecipient, ok := utils.ParseJID(request.Phone)
 	if !ok {
 		return response, errors.New("invalid JID " + request.Phone)
 	}
-	dataWaVideo, err := os.ReadFile(oriVideoPath)
+	dataWaVideo, err := os.ReadFile(videoPath)
 	if err != nil {
 		return response, err
 	}
@@ -207,7 +227,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
 	}
-	dataWaThumbnail, err := os.ReadFile(thumbnailResizeVideoPath)
+	dataWaThumbnail, err := os.ReadFile(videoThumbnail)
 	if err != nil {
 		return response, err
 	}
@@ -226,7 +246,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, oriVideoPath, compresVideoPath, thumbnailVideoPath, thumbnailResizeVideoPath)
+		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
 			fmt.Println(errDelete)
 		}

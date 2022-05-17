@@ -81,6 +81,18 @@ func ValidateSendVideo(request structs.SendVideoRequest) {
 		})
 	}
 
+	availableMimes := map[string]bool{
+		"video/mp4":        true,
+		"video/x-matroska": true,
+		"video/avi":        true,
+	}
+
+	if !availableMimes[request.Video.Header.Get("Content-Type")] {
+		panic(utils.ValidationError{
+			Message: "your video type is not allowed. please use mp4/mkv",
+		})
+	}
+
 	if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
 		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
 		panic(utils.ValidationError{
