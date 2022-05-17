@@ -8,12 +8,14 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/gofiber/fiber/v2"
+	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/h2non/bimg"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
+	"os/exec"
 )
 
 type SendServiceImpl struct {
@@ -54,7 +56,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	}
 	// Resize image
 	openImageBuffer, err := bimg.Read(oriImagePath)
-	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Height: 600, Embed: true})
+	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
 	if err != nil {
 		return response, err
 	}
@@ -161,31 +163,58 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideoRequest) (response structs.SendVideoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
-	// Save image to server
-	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Video.Filename)
+	generateUUID := fiberUtils.UUIDv4()
+	// Save video to server
+	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
 	err = c.SaveFile(request.Video, oriVideoPath)
 	if err != nil {
 		return response, err
 	}
 
-	// Send to WA server
+	compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
+	// Compress video with ffmpeg
+	cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
+	err = cmdCompress.Run()
+	utils.PanicIfNeeded(err, "error when compress video")
+	// Get thumbnail video with ffmpeg
+	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
+	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
+	err = cmdThumbnail.Run()
+	utils.PanicIfNeeded(err, "error when getting thumbnail")
+	// Resize Thumbnail
+	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
+	resize, err := bimg.NewImage(openImageBuffer).Thumbnail(100)
+	if err != nil {
+		return response, err
+	}
+	thumbnailResizeVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+"_resize.png")
+	err = bimg.Write(thumbnailResizeVideoPath, resize)
+	if err != nil {
+		return response, err
+	}
+
+	//Send to WA server
 	dataWaRecipient, ok := utils.ParseJID(request.Phone)
 	if !ok {
 		return response, errors.New("invalid JID " + request.Phone)
 	}
-	dataWaFile, err := os.ReadFile(oriVideoPath)
+	dataWaVideo, err := os.ReadFile(oriVideoPath)
 	if err != nil {
 		return response, err
 	}
-	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaFile, whatsmeow.MediaDocument)
+	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaVideo, whatsmeow.MediaVideo)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
+		return response, err
+	}
+	dataWaThumbnail, err := os.ReadFile(thumbnailResizeVideoPath)
+	if err != nil {
 		return response, err
 	}
 
 	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
 		Url:           proto.String(uploadedFile.URL),
-		Mimetype:      proto.String(http.DetectContentType(dataWaFile)),
+		Mimetype:      proto.String(http.DetectContentType(dataWaVideo)),
 		Caption:       proto.String(request.Caption),
 		FileLength:    proto.Uint64(uploadedFile.FileLength),
 		FileSha256:    uploadedFile.FileSHA256,
@@ -193,10 +222,11 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		MediaKey:      uploadedFile.MediaKey,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		ViewOnce:      proto.Bool(request.ViewOnce),
+		JpegThumbnail: dataWaThumbnail,
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, oriVideoPath)
+		errDelete := utils.RemoveFile(0, oriVideoPath, thumbnailVideoPath)
 		if errDelete != nil {
 			fmt.Println(errDelete)
 		}
