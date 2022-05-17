@@ -99,7 +99,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	go func() {
 		errDelete := utils.RemoveFile(0, oriImagePath, newImagePath)
 		if errDelete != nil {
-			fmt.Println(errDelete)
+			fmt.Println("error when deleting picture: ", errDelete)
 		}
 	}()
 	if err != nil {
@@ -226,7 +226,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, oriVideoPath, thumbnailVideoPath)
+		errDelete := utils.RemoveFile(0, oriVideoPath, compresVideoPath, thumbnailVideoPath, thumbnailResizeVideoPath)
 		if errDelete != nil {
 			fmt.Println(errDelete)
 		}

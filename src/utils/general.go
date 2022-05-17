@@ -14,7 +14,9 @@ func RemoveFile(delaySecond int, paths ...string) error {
 
 	for _, path := range paths {
 		err := os.Remove(path)
-		return err
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
