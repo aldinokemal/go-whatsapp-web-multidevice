@@ -3,8 +3,9 @@ package config
 type Browser string
 
 var (
-	AppPort  string = "3000"
-	AppDebug bool   = false
+	AppVersion string = "3.3.0"
+	AppPort    string = "3000"
+	AppDebug   bool   = false
 
 	PathQrCode    string = "statics/qrcode"
 	PathSendItems string = "statics/senditems"

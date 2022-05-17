@@ -7,12 +7,11 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/dustin/go-humanize"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
 func ValidateSendMessage(request structs.SendMessageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Message, validation.Required, validation.Length(1, 50)),
 	)
 
@@ -25,7 +24,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 
 func ValidateSendImage(request structs.SendImageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Caption, validation.When(true, validation.Length(1, 200))),
 		validation.Field(&request.Image, validation.Required),
 	)
@@ -51,7 +50,7 @@ func ValidateSendImage(request structs.SendImageRequest) {
 
 func ValidateSendFile(request structs.SendFileRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.File, validation.Required),
 	)
 
@@ -71,7 +70,7 @@ func ValidateSendFile(request structs.SendFileRequest) {
 
 func ValidateSendVideo(request structs.SendVideoRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Video, validation.Required),
 	)
 

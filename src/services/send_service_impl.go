@@ -185,7 +185,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 
 	// Resize Thumbnail
 	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
-	resize, err := bimg.NewImage(openImageBuffer).Thumbnail(100)
+	resize, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
 	if err != nil {
 		return response, err
 	}

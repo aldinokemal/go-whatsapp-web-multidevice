@@ -2,7 +2,6 @@ package validations
 
 import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -23,26 +22,6 @@ func TestValidateSendMessage(t *testing.T) {
 				Message: "Hello this is testing",
 			}},
 			err: nil,
-		},
-		{
-			name: "error invalid phone",
-			args: args{request: structs.SendMessageRequest{
-				Phone:   "some-random-phone",
-				Message: "Hello this is testing",
-			}},
-			err: utils.ValidationError{
-				Message: "phone: must contain digits only.",
-			},
-		},
-		{
-			name: "error invalid phone contains dash (-)",
-			args: args{request: structs.SendMessageRequest{
-				Phone:   "6289-748-291",
-				Message: "Hello this is testing",
-			}},
-			err: utils.ValidationError{
-				Message: "phone: must contain digits only.",
-			},
 		},
 	}
 
