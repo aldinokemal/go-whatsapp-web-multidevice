@@ -40,3 +40,14 @@ type SendFileRequest struct {
 type SendFileResponse struct {
 	Status string `json:"status"`
 }
+
+type SendVideoRequest struct {
+	Phone   string                `json:"phone" form:"phone"`
+	Caption string                `json:"caption" form:"caption"`
+	Video   *multipart.FileHeader `json:"video" form:"video"`
+	Type    SendType              `json:"type" form:"message"`
+}
+
+type SendVideoResponse struct {
+	Status string `json:"status"`
+}

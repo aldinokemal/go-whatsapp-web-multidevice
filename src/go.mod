@@ -3,6 +3,7 @@ module github.com/aldinokemal/go-whatsapp-web-multidevice
 go 1.17
 
 require (
+	github.com/dustin/go-humanize v1.0.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/gofiber/fiber/v2 v2.26.0
 	github.com/gofiber/template v1.6.22

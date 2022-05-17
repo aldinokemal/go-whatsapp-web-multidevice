@@ -46,12 +46,13 @@ func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessag
 func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImageRequest) (response structs.SendImageResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
-	// Resize image
+	// Save image to server
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 	err = c.SaveFile(request.Image, oriImagePath)
 	if err != nil {
 		return response, err
 	}
+	// Resize image
 	openImageBuffer, err := bimg.Read(oriImagePath)
 	newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Height: 600, Embed: true})
 	if err != nil {
@@ -63,7 +64,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 	if err != nil {
 		return response, err
 	}
-	
+
 	// Send to WA server
 	dataWaCaption := request.Caption
 	dataWaRecipient, ok := utils.ParseJID(request.Phone)
@@ -110,7 +111,6 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRequest) (response structs.SendFileResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
-	// Resize image
 	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
 	err = c.SaveFile(request.File, oriFilePath)
 	if err != nil {
@@ -153,7 +153,57 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 	if err != nil {
 		return response, err
 	} else {
-		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
+		response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts)
+		return response, nil
+	}
+}
+
+func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideoRequest) (response structs.SendVideoResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
+	// Save image to server
+	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Video.Filename)
+	err = c.SaveFile(request.Video, oriVideoPath)
+	if err != nil {
+		return response, err
+	}
+
+	// Send to WA server
+	dataWaRecipient, ok := utils.ParseJID(request.Phone)
+	if !ok {
+		return response, errors.New("invalid JID " + request.Phone)
+	}
+	dataWaFile, err := os.ReadFile(oriVideoPath)
+	if err != nil {
+		return response, err
+	}
+	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaFile, whatsmeow.MediaDocument)
+	if err != nil {
+		fmt.Printf("Failed to upload file: %v", err)
+		return response, err
+	}
+
+	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
+		Url:           proto.String(uploadedFile.URL),
+		Mimetype:      proto.String(http.DetectContentType(dataWaFile)),
+		Caption:       proto.String(request.Caption),
+		FileLength:    proto.Uint64(uploadedFile.FileLength),
+		FileSha256:    uploadedFile.FileSHA256,
+		FileEncSha256: uploadedFile.FileEncSHA256,
+		MediaKey:      uploadedFile.MediaKey,
+		DirectPath:    proto.String(uploadedFile.DirectPath),
+	}}
+	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	go func() {
+		errDelete := utils.RemoveFile(0, oriVideoPath)
+		if errDelete != nil {
+			fmt.Println(errDelete)
+		}
+	}()
+	if err != nil {
+		return response, err
+	} else {
+		response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts)
 		return response, nil
 	}
 }

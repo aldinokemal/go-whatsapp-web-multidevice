@@ -55,7 +55,7 @@
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
-- `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
+- `docker run --publish=3000:3000 --restart=always --detach aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
 
 ### Production Mode (binary)
 - download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
