@@ -58,7 +58,7 @@
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
-- `docker run --publish=3000:3000 --restart=always --detach aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
+- `docker run --publish=3000:3000 --name=whatsapp --restart=always --detach aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
 
 ### Production Mode (binary)
 - download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
@@ -96,9 +96,10 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 4. Send Image ![Send Image](https://i.ibb.co/HDVJZSN/Screen-Shot-2022-02-13-at-12-59-06.png)
 5. Send File ![Send File](https://i.ibb.co/XxNnsQ8/Screen-Shot-2022-02-13-at-12-59-14.png)
 6. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
-6. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
-7. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
-8. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
+7. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
+8. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
+9. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
+10. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
 
 ### Mac OS NOTE
 
