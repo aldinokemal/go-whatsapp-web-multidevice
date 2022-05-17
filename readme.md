@@ -3,6 +3,7 @@
 ### Feature
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
+- Compress video before send
 - Customizable port and debug mode
   - `--port 8000`
   - `--debug true`
