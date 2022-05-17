@@ -940,7 +940,7 @@
         data() {
             return {
                 app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device App ({{ .AppVersion }})'
+                app_name: 'Whatsapp API Multi Device (v{{ .AppVersion }})'
             }
         },
         mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, userGroups, userPrivacy, userAvatar, userInfo]

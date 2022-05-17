@@ -49,6 +49,8 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 
 func (controller *SendController) SendImage(c *fiber.Ctx) error {
 	var request structs.SendImageRequest
+	request.Compress = true
+
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -133,4 +135,3 @@ func (controller *SendController) SendVideo(c *fiber.Ctx) error {
 		Results: response,
 	})
 }
-

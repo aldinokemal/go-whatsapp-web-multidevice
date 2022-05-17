@@ -25,6 +25,7 @@ type SendImageRequest struct {
 	Image    *multipart.FileHeader `json:"image" form:"image"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
 	Type     SendType              `json:"type" form:"type"`
+	Compress bool                  `json:"compress"`
 }
 
 type SendImageResponse struct {
