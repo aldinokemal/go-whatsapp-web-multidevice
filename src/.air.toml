@@ -2,4 +2,4 @@ root = '.'
 tmp_dir = "tmp"
 
 [build]
-exclude_dir = ["statics"]
+exclude_dir = ["statics", "views"]

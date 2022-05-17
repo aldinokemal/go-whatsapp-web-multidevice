@@ -7,6 +7,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -49,7 +50,7 @@ func runRest(cmd *cobra.Command, args []string) {
 	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
 	app := fiber.New(fiber.Config{
 		Views:     engine,
-		BodyLimit: 10 * 1024 * 1024,
+		BodyLimit: 50 * 1024 * 1024,
 	})
 	app.Static("/statics", "./statics")
 	app.Use(middleware.Recovery())
@@ -79,7 +80,12 @@ func runRest(cmd *cobra.Command, args []string) {
 	userController.Route(app)
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
-		return ctx.Render("index", fiber.Map{"AppHost": fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname())})
+		return ctx.Render("index", fiber.Map{
+			"AppHost":      fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
+			"AppVersion":   config.AppVersion,
+			"MaxFileSize":  humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+			"MaxVideoSize": humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+		})
 	})
 
 	err = app.Listen(":" + config.AppPort)

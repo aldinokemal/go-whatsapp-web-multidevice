@@ -27,11 +27,10 @@
     <h1 class="ui dividing header">[[ app_name ]]</h1>
 
     <h3 class="first">Features</h3>
-    <div class="ui three cards">
+    <div class="ui three column stackable grid cards">
         <div class="green card" @click="loginModal" style="cursor: pointer">
             <div class="content">
                 <div class="header">Login</div>
-                <div class="meta">App</div>
                 <div class="description">
                     Scan your QRCode and you can use all this API feature
                 </div>
@@ -40,7 +39,6 @@
         <div class="green card" @click="logoutProcess" style="cursor: pointer">
             <div class="content">
                 <div class="header">Logout</div>
-                <div class="meta">App</div>
                 <div class="description">
                     Remove your login session in application
                 </div>
@@ -49,7 +47,6 @@
         <div class="green card" @click="reconnectProcess" style="cursor: pointer">
             <div class="content">
                 <div class="header">Reconnect</div>
-                <div class="meta">App</div>
                 <div class="description">
                     Reconnect to whatsapp server, please do this if your api doesn't work or your application is down or
                     restart
@@ -58,11 +55,46 @@
         </div>
     </div>
 
-    <div class="ui three cards">
+    <div class="ui four column doubling grid cards">
+        <div class="green card" @click="infoModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Info</div>
+                <div class="description">
+                    You can search someone user info by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="avatarModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Avatar</div>
+                <div class="description">
+                    You can search someone avatar by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="groupModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User List Groups</div>
+                <div class="description">
+                    Display all groups you joined
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="privacyModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User Privacy Setting</div>
+                <div class="description">
+                    Get your privacy settings
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui four column doubling grid cards">
         <div class="green card" @click="sendMessageModal('user')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (Text) | Private Message</div>
-                <div class="meta">App</div>
+                <a class="ui blue right ribbon label">Private</a>
+                <div class="header">Send Message </div>
                 <div class="description">
                     Send any message to any whatsapp number
                 </div>
@@ -70,8 +102,8 @@
         </div>
         <div class="green card" @click="sendImageModal('user')" style="cursor:pointer;">
             <div class="content">
-                <div class="header">Send Message (Image) | Private Message</div>
-                <div class="meta">App</div>
+                <a class="ui blue right ribbon label">Private</a>
+                <div class="header">Send Image</div>
                 <div class="description">
                     Send image with
                     <div class="ui blue horizontal label">jpg/jpeg/png</div>
@@ -81,21 +113,31 @@
         </div>
         <div class="green card" @click="sendFileModal('user')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (File) | Private Message</div>
-                <div class="meta">App</div>
+                <a class="ui blue right ribbon label">Private</a>
+                <div class="header">Send File</div>
                 <div class="description">
                     Send any file up to
-                    <div class="ui blue horizontal label">10MB</div>
+                    <div class="ui blue horizontal label">{{ .MaxFileSize }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendVideoModal('user')" style="cursor: pointer">
+            <div class="content">
+                <a class="ui blue right ribbon label">Private</a>
+                <div class="header">Send Video</div>
+                <div class="description">
+                    Send video <div class="ui blue horizontal label">mp4</div> up to
+                    <div class="ui blue horizontal label">{{ .MaxVideoSize }}</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="ui three cards">
+    <div class="ui four column doubling grid cards">
         <div class="green card" @click="sendMessageModal('group')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (Text) | Group</div>
-                <div class="meta">App</div>
+                <a class="ui teal right ribbon label">Group</a>
+                <div class="header">Send Message</div>
                 <div class="description">
                     Send any message to any whatsapp number
                 </div>
@@ -103,61 +145,32 @@
         </div>
         <div class="green card" @click="sendImageModal('group')" style="cursor:pointer;">
             <div class="content">
-                <div class="header">Send Message (Image) | Group</div>
-                <div class="meta">App</div>
+                <a class="ui teal right ribbon label">Group</a>
+                <div class="header">Send Image</div>
                 <div class="description">
                     Send image with
-                    <div class="ui blue horizontal label">jpg/jpeg/png</div>
+                    <div class="ui teal horizontal label">jpg/jpeg/png</div>
                     type
                 </div>
             </div>
         </div>
         <div class="green card" @click="sendFileModal('group')" style="cursor: pointer">
             <div class="content">
-                <div class="header">Send Message (File) | Group</div>
-                <div class="meta">App</div>
+                <a class="ui teal right ribbon label">Group</a>
+                <div class="header">Send File</div>
                 <div class="description">
                     Send any file up to
-                    <div class="ui blue horizontal label">10MB</div>
+                    <div class="ui teal horizontal label">{{ .MaxFileSize }}</div>
                 </div>
             </div>
         </div>
-    </div>
-
-    <div class="ui four cards">
-        <div class="green card" @click="infoModal" style="cursor: pointer;">
+        <div class="green card" @click="sendVideoModal('group')" style="cursor: pointer">
             <div class="content">
-                <div class="header">User Info</div>
-                <div class="meta">App</div>
+                <a class="ui teal right ribbon label">Group</a>
+                <div class="header">Send Video</div>
                 <div class="description">
-                    You can search someone user info by phone
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="avatarModal" style="cursor: pointer;">
-            <div class="content">
-                <div class="header">User Avatar</div>
-                <div class="meta">App</div>
-                <div class="description">
-                    You can search someone avatar by phone
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="groupModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">User List Groups</div>
-                <div class="meta">App</div>
-                <div class="description">
-                    Display all groups you joined
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="privacyModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">User Privacy Setting</div>
-                <div class="meta">App</div>
-                <div class="description">
-                    Get your privacy settings
+                    Send video <div class="ui teal horizontal label">mp4</div> up to
+                    <div class="ui teal horizontal label">{{ .MaxVideoSize }}</div>
                 </div>
             </div>
         </div>
@@ -283,6 +296,37 @@
         </div>
     </div>
 
+    <!--  Modal SendFile  -->
+    <div class="ui small modal" id="modalSendVideo">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Video
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="video_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>Video</label>
+                    <input type="file" class="inputfile" id="video_file" style="display: none" accept="video/*"/>
+                    <label for="video_file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload video
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendVideoProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
     <!--  Modal UserGroup  -->
     <div class="ui small modal" id="modalUserGroup">
         <i class="close icon"></i>
@@ -301,7 +345,7 @@
                 </thead>
                 <tbody v-if="data_groups != null">
                 <tr v-for="g in data_groups">
-                    <td data-label="GID">[[ g.JID.User ]]</td>
+                    <td data-label="GID">[[ g.JID.split('@')[0] ]]</td>
                     <td data-label="Name">[[ g.Name ]]</td>
                     <td data-label="Age">[[ g.Participants.length ]]</td>
                     <td data-label="Job">[[ g.GroupCreated ]]</td>
@@ -666,6 +710,59 @@
         }
     }
 
+    const sendVideo = {
+        data() {
+            return {
+                video_type: 'user',
+                video_phone: '',
+            }
+        },
+        methods: {
+            sendVideoModal(type) {
+                this.video_type = type
+                $('#modalSendVideo').modal('show');
+            },
+            async sendVideoProcess() {
+                try {
+                    let response = await this.sendVideoApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendVideoApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.video_phone)
+                        payload.append("video", $("#video_file")[0].files[0])
+                        payload.append("type", this.video_type)
+                        let response = await axios.post(`${this.app_host}/send/video`, payload, {
+                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
+                            transformRequest: (data, headers) => {
+                                delete headers.post['Content-Type'];
+                                return data;
+                            }
+                        })
+                        this.sendVideoReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendVideoReset() {
+                this.video_phone = '';
+                this.video_type = 'user';
+                $("#video_file").val('');
+            },
+        }
+    }
+
     const userGroups = {
         data() {
             return {
@@ -843,10 +940,10 @@
         data() {
             return {
                 app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device App'
+                app_name: 'Whatsapp API Multi Device App ({{ .AppVersion }})'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, userGroups, userPrivacy, userAvatar, userInfo]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, userGroups, userPrivacy, userAvatar, userInfo]
     }).mount('#app')
 </script>
 </body>

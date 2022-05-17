@@ -24,7 +24,7 @@ type SendImageRequest struct {
 	Caption  string                `json:"caption" form:"caption"`
 	Image    *multipart.FileHeader `json:"image" form:"image"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
-	Type     SendType              `json:"type" form:"message"`
+	Type     SendType              `json:"type" form:"type"`
 }
 
 type SendImageResponse struct {
@@ -34,9 +34,22 @@ type SendImageResponse struct {
 type SendFileRequest struct {
 	Phone string                `json:"phone" form:"phone"`
 	File  *multipart.FileHeader `json:"file" form:"file"`
-	Type  SendType              `json:"type" form:"message"`
+	Type  SendType              `json:"type" form:"type"`
 }
 
 type SendFileResponse struct {
+	Status string `json:"status"`
+}
+
+type SendVideoRequest struct {
+	Phone    string                `json:"phone" form:"phone"`
+	Caption  string                `json:"caption" form:"caption"`
+	Video    *multipart.FileHeader `json:"video" form:"video"`
+	Type     SendType              `json:"type" form:"type"`
+	ViewOnce bool                  `json:"view_once" form:"view_once"`
+	Compress bool                  `json:"compress"`
+}
+
+type SendVideoResponse struct {
 	Status string `json:"status"`
 }

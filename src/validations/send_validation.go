@@ -1,15 +1,17 @@
 package validations
 
 import (
+	"fmt"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/dustin/go-humanize"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
 func ValidateSendMessage(request structs.SendMessageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Message, validation.Required, validation.Length(1, 50)),
 	)
 
@@ -22,7 +24,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 
 func ValidateSendImage(request structs.SendImageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Caption, validation.When(true, validation.Length(1, 200))),
 		validation.Field(&request.Image, validation.Required),
 	)
@@ -44,12 +46,11 @@ func ValidateSendImage(request structs.SendImageRequest) {
 			Message: "your image is not allowed. please use jpg/jpeg/png",
 		})
 	}
-
 }
 
 func ValidateSendFile(request structs.SendFileRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, is.Digit, validation.Length(10, 25)),
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.File, validation.Required),
 	)
 
@@ -59,9 +60,42 @@ func ValidateSendFile(request structs.SendFileRequest) {
 		})
 	}
 
-	if request.File.Size > 10240000 { // 10MB
+	if request.File.Size > config.WhatsappSettingMaxFileSize { // 10MB
+		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize))
 		panic(utils.ValidationError{
-			Message: "max file upload is 10MB, please upload in cloud and send via text if your file is higher than 10MB",
+			Message: fmt.Sprintf("max file upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString),
+		})
+	}
+}
+
+func ValidateSendVideo(request structs.SendVideoRequest) {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
+		validation.Field(&request.Video, validation.Required),
+	)
+
+	if err != nil {
+		panic(utils.ValidationError{
+			Message: err.Error(),
+		})
+	}
+
+	availableMimes := map[string]bool{
+		"video/mp4":        true,
+		"video/x-matroska": true,
+		"video/avi":        true,
+	}
+
+	if !availableMimes[request.Video.Header.Get("Content-Type")] {
+		panic(utils.ValidationError{
+			Message: "your video type is not allowed. please use mp4/mkv",
+		})
+	}
+
+	if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
+		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
+		panic(utils.ValidationError{
+			Message: fmt.Sprintf("max video upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString),
 		})
 	}
 }

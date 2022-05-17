@@ -3,6 +3,7 @@
 ### Feature
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
+- Compress video before send
 - Customizable port and debug mode
   - `--port 8000`
   - `--debug true`
@@ -13,13 +14,16 @@
 
 - Mac OS:
     - `brew install vips`
+    - `brew install ffmpeg`
     - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
     - `sudo apt update`
     - `sudo apt install libvips-dev`
+    - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
     - install vips library, or you can check here https://www.libvips.org/install.html
-    - add to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+    - install ffmpeg, download [here](https://www.ffmpeg.org/download.html#build-windows) 
+    - add to vips & ffmpg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ### How to use
 
@@ -55,7 +59,7 @@
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
-- `docker run --publish 3000:3000 --restart=always aldinokemal2104/go-whatsapp-web-multidevice`
+- `docker run --publish=3000:3000 --name=whatsapp --restart=always --detach aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
 
 ### Production Mode (binary)
 - download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
@@ -65,19 +69,20 @@ You can fork or edit this source code !
 ### Current API
 You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 
-| Feature | Menu                    | Method | URL              | Payload                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-|---------|-------------------------|--------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| ✅       | Login                   | GET    | /app/login       |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ✅       | Logout                  | GET    | /app/logout      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |  
-| ✅       | Reconnect               | GET    | /app/reconnect   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 
-| ✅       | User Info               | GET    | /user/info       | <table> <thead> <tr> <th>Param</th> <th>Type</th> <th>Type</th> <th>Example</th> </tr></thead> <tbody> <tr> <td>phone</td><td>string</td><td>querystring</td><td>6289685024099</td></tr></tbody></table>                                                                                                                                                                                                                                                                                                                                                        |
-| ✅       | User Avatar             | GET    | /user/avatar     | <table> <thead> <tr> <th>Param</th> <th>Type</th> <th>Type</th> <th>Example</th> </tr></thead> <tbody> <tr> <td>phone</td><td>string</td><td>querystring</td><td>6289685024099</td></tr></tbody></table>                                                                                                                                                                                                                                                                                                                                                        |
-| ✅       | User My Group List      | GET    | /user/my/groups  |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ✅       | User My Privacy Setting | GET    | /user/my/privacy |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ✅       | Send Message (Text)     | POST   | /send/message    | <table> <thead> <tr> <th>Param</th> <th>Data Type</th> <th>Type</th> <th>Example</th> </tr></thead> <tbody> <tr> <td>phone</td><td>string</td><td>form-data</td><td>6289685024099</td></tr><tr> <td>message</td><td>string</td><td>form-data</td><td>Hello guys this is testing</td></tr><tr> <td>type</td><td>string (user/group)</td><td>form-data</td><td>user</td></tr></tbody></table>                                                                                                                                                                     |
-| ✅       | Send Message (Image)    | POST   | /send/image      | <table> <thead> <tr> <th>Param</th> <th>Type</th> <th>Type</th> <th>Example</th> </tr></thead> <tbody> <tr> <td>phone</td><td>string</td><td>form-data</td><td>6289685024099</td></tr><tr> <td>caption</td><td>string</td><td>form-data</td><td>Hello guys this is caption</td></tr><tr> <td>view_once</td><td>bool</td><td>form-data</td><td>false</td></tr><tr> <td>image</td><td>binary</td><td>form-data</td><td>image/jpg,image/jpeg,image/png</td></tr><tr> <td>type</td><td>string (user/group)</td><td>form-data</td><td>user</td></tr></tbody></table> | 
-| ✅       | Send Message (File)     | POST   | /send/file       | <table><thead><tr><th>Param</th><th>Type</th><th>Type</th><th>Example</th></tr></thead><tbody><tr><td>phone</td><td>string</td><td>form-data</td><td>6289685024099</td></tr><tr><td>file</td><td>binary</td><td>form-data</td><td>any (max: 10MB)</td></tr><tr> <td>type</td><td>string (user/group)</td><td>form-data</td><td>user</td></tr></tbody></table>                                                                                                                                                                                                   | 
-| ❌       | Send Message (Video)    | POST   | /send/video      | <table><thead><tr><th>Param</th><th>Type</th><th>Type</th><th>Example</th></tr></thead><tbody><tr><td>phone</td><td>string</td><td>form-data</td><td>6289685024099</td></tr><tr><td>video</td><td>binary</td><td>form-data</td><td>mp4/avi/mkv</td></tr><tr> <td>type</td><td>string (user/group)</td><td>form-data</td><td>user</td></tr></tbody></table>                                                                                                                                                                                                      | 
+| Feature | Menu                    | Method | URL              | 
+|---------|-------------------------|--------|------------------|
+| ✅       | Login                   | GET    | /app/login       |
+| ✅       | Logout                  | GET    | /app/logout      |  
+| ✅       | Reconnect               | GET    | /app/reconnect   | 
+| ✅       | User Info               | GET    | /user/info       |
+| ✅       | User Avatar             | GET    | /user/avatar     |
+| ✅       | User My Group List      | GET    | /user/my/groups  |
+| ✅       | User My Privacy Setting | GET    | /user/my/privacy |
+| ✅       | Send Message            | POST   | /send/message    |
+| ✅       | Send Image              | POST   | /send/image      | 
+| ✅       | Send File               | POST   | /send/file       | 
+| ✅       | Send Video              | POST   | /send/video      | 
+| ❌       | Send Contact            | POST   | /send/contact    | 
 
 ```
 ✅ = Available
@@ -92,9 +97,10 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 4. Send Image ![Send Image](https://i.ibb.co/HDVJZSN/Screen-Shot-2022-02-13-at-12-59-06.png)
 5. Send File ![Send File](https://i.ibb.co/XxNnsQ8/Screen-Shot-2022-02-13-at-12-59-14.png)
 6. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
-6. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
-7. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
-8. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
+7. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
+8. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
+9. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
+10. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
 
 ### Mac OS NOTE
 
