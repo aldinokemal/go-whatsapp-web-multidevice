@@ -9,9 +9,9 @@ COPY ./src .
 # Fetch dependencies.
 RUN go mod download
 # Install pkger
-RUN go install github.com/gobuffalo/packr/v2/packr2@latest
+RUN go install github.com/markbates/pkger/cmd/pkger@latest
 # Build the binary.
-RUN pkger && go build -o whatsapp
+RUN pkger && go build -o /app/whatsapp
 
 #############################
 ## STEP 2 build a smaller image

@@ -28,7 +28,9 @@ func CreateFolder(folderPath ...string) error {
 	for _, folder := range folderPath {
 		newFolder := filepath.Join(".", folder)
 		err := os.MkdirAll(newFolder, os.ModePerm)
-		return err
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
