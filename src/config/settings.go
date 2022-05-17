@@ -6,8 +6,8 @@ var (
 	AppPort  string = "3000"
 	AppDebug bool   = false
 
-	PathQrCode    string = "statics/images/qrcode"
-	PathSendItems string = "statics/images/senditems"
+	PathQrCode    string = "statics/qrcode"
+	PathSendItems string = "statics/senditems"
 
 	DBName string = "hydrogenWaCli.db"
 
