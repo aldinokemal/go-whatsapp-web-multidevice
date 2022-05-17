@@ -192,6 +192,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		FileEncSha256: uploadedFile.FileEncSHA256,
 		MediaKey:      uploadedFile.MediaKey,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
+		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
 	go func() {

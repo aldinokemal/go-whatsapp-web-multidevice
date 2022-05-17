@@ -42,10 +42,11 @@ type SendFileResponse struct {
 }
 
 type SendVideoRequest struct {
-	Phone   string                `json:"phone" form:"phone"`
-	Caption string                `json:"caption" form:"caption"`
-	Video   *multipart.FileHeader `json:"video" form:"video"`
-	Type    SendType              `json:"type" form:"message"`
+	Phone    string                `json:"phone" form:"phone"`
+	Caption  string                `json:"caption" form:"caption"`
+	Video    *multipart.FileHeader `json:"video" form:"video"`
+	Type     SendType              `json:"type" form:"message"`
+	ViewOnce bool                  `json:"view_once" form:"view_once"`
 }
 
 type SendVideoResponse struct {
