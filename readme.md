@@ -94,7 +94,7 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 1. Homepage  ![Homepage](https://i.ibb.co/nCK9w1W/Screen-Shot-2022-05-22-at-13-39-28.png)
 2. Login  ![Login](https://i.ibb.co/Yp3YJKM/Screen-Shot-2022-02-13-at-12-55-54.png)
 3. Send Message ![Send Message](https://i.ibb.co/VMRjX3K/Screen-Shot-2022-05-22-at-13-41-55.png)
-4. Send Image ![Send Image](https://i.ibb.co/HDVJZSN/Screen-Shot-2022-02-13-at-12-59-06.png)
+4. Send Image ![Send Image](https://i.ibb.co/gJj3SrQ/Screen-Shot-2022-05-22-at-13-49-21.png)
 5. Send File ![Send File](https://i.ibb.co/nCwhysd/Screen-Shot-2022-05-22-at-13-43-16.png)
 6. Send Video ![Send File](https://i.ibb.co/yBXsWXX/Screen-Shot-2022-05-22-at-13-43-24.png)
 7. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
