@@ -94,7 +94,7 @@
         <div class="green card" @click="sendMessageModal('user')" style="cursor: pointer">
             <div class="content">
                 <a class="ui blue right ribbon label">Private</a>
-                <div class="header">Send Message </div>
+                <div class="header">Send Message</div>
                 <div class="description">
                     Send any message to any whatsapp number
                 </div>
@@ -126,7 +126,9 @@
                 <a class="ui blue right ribbon label">Private</a>
                 <div class="header">Send Video</div>
                 <div class="description">
-                    Send video <div class="ui blue horizontal label">mp4</div> up to
+                    Send video
+                    <div class="ui blue horizontal label">mp4</div>
+                    up to
                     <div class="ui blue horizontal label">{{ .MaxVideoSize }}</div>
                 </div>
             </div>
@@ -169,7 +171,9 @@
                 <a class="ui teal right ribbon label">Group</a>
                 <div class="header">Send Video</div>
                 <div class="description">
-                    Send video <div class="ui teal horizontal label">mp4</div> up to
+                    Send video
+                    <div class="ui teal horizontal label">mp4</div>
+                    up to
                     <div class="ui teal horizontal label">{{ .MaxVideoSize }}</div>
                 </div>
             </div>
@@ -241,6 +245,25 @@
                     <input v-model="image_phone" type="text" placeholder="6289..."
                            aria-label="phone">
                 </div>
+                <div class="field">
+                    <label>Caption</label>
+                    <input v-model="image_caption" type="text" placeholder="Hello this is image caption"
+                           aria-label="caption">
+                </div>
+                <div class="field">
+                    <label>View Once</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="image_view_once">
+                        <label>Check for enable one time view</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Compress</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="image_compress">
+                        <label>Check for compressing image to smaller size</label>
+                    </div>
+                </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
                     <input type="file" class="inputfile" id="image_file" style="display: none"
@@ -249,11 +272,6 @@
                         <i class="ui upload icon"></i>
                         Upload image
                     </label>
-                </div>
-                <div class="field">
-                    <label>Caption</label>
-                    <input v-model="image_caption" type="text" placeholder="Hello this is image caption"
-                           aria-label="caption">
                 </div>
             </form>
         </div>
@@ -277,6 +295,11 @@
                     <label>Phone / Group ID</label>
                     <input v-model="file_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                </div>
+                <div class="field">
+                    <label>Caption</label>
+                    <input v-model="file_caption" type="text" placeholder="Type some caption (optional)..."
+                           aria-label="caption">
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>
@@ -308,6 +331,25 @@
                     <label>Phone / Group ID</label>
                     <input v-model="video_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                </div>
+                <div class="field">
+                    <label>Caption</label>
+                    <input v-model="video_caption" type="text" placeholder="Type some caption (optional)..."
+                           aria-label="caption">
+                </div>
+                <div class="field">
+                    <label>View Once</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="video_view_once">
+                        <label>Check for enable one time view</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Compress</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="video_compress">
+                        <label>Check for compressing image to smaller size</label>
+                    </div>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Video</label>
@@ -605,6 +647,8 @@
         data() {
             return {
                 image_phone: '',
+                image_view_once: false,
+                image_compress: false,
                 image_caption: '',
                 image_type: 'user',
             }
@@ -627,6 +671,8 @@
                     try {
                         let payload = new FormData();
                         payload.append("phone", this.image_phone)
+                        payload.append("view_once", this.image_view_once)
+                        payload.append("compress", this.image_compress)
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
                         payload.append("type", this.image_type)
@@ -649,6 +695,8 @@
                 })
             },
             sendImageReset() {
+                this.image_view_once = false;
+                this.image_compress = false;
                 this.image_phone = '';
                 this.image_caption = '';
                 this.image_type = 'user';
@@ -660,6 +708,7 @@
     const sendFile = {
         data() {
             return {
+                file_caption: '',
                 file_type: 'user',
                 file_phone: '',
             }
@@ -681,6 +730,7 @@
                 return new Promise(async (resolve, reject) => {
                     try {
                         let payload = new FormData();
+                        payload.append("caption", this.file_caption)
                         payload.append("phone", this.file_phone)
                         payload.append("file", $("#file_file")[0].files[0])
                         payload.append("type", this.file_type)
@@ -703,6 +753,7 @@
                 })
             },
             sendFileReset() {
+                this.file_caption = '';
                 this.file_phone = '';
                 this.file_type = 'user';
                 $("#file_file").val('');
@@ -713,6 +764,9 @@
     const sendVideo = {
         data() {
             return {
+                video_caption: '',
+                video_view_once: false,
+                video_compress: false,
                 video_type: 'user',
                 video_phone: '',
             }
@@ -735,6 +789,9 @@
                     try {
                         let payload = new FormData();
                         payload.append("phone", this.video_phone)
+                        payload.append("caption", this.video_caption)
+                        payload.append("view_once", this.video_view_once)
+                        payload.append("compress", this.video_compress)
                         payload.append("video", $("#video_file")[0].files[0])
                         payload.append("type", this.video_type)
                         let response = await axios.post(`${this.app_host}/send/video`, payload, {
@@ -756,6 +813,9 @@
                 })
             },
             sendVideoReset() {
+                this.video_caption = '';
+                this.video_view_once = false;
+                this.video_compress = false;
                 this.video_phone = '';
                 this.video_type = 'user';
                 $("#video_file").val('');
