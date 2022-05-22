@@ -3,7 +3,7 @@ package config
 type Browser string
 
 var (
-	AppVersion string = "3.3.0"
+	AppVersion string = "3.3.1"
 	AppPort    string = "3000"
 	AppDebug   bool   = false
 
