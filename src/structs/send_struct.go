@@ -54,3 +54,14 @@ type SendVideoRequest struct {
 type SendVideoResponse struct {
 	Status string `json:"status"`
 }
+
+type SendContactRequest struct {
+	Phone        string   `json:"phone" form:"phone"`
+	ContactName  string   `json:"contact_name" form:"contact_name"`
+	ContactPhone string   `json:"contact_phone" form:"contact_phone"`
+	Type         SendType `json:"type" form:"type"`
+}
+
+type SendContactResponse struct {
+	Status string `json:"status"`
+}

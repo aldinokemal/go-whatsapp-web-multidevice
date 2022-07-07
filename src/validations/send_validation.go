@@ -99,3 +99,17 @@ func ValidateSendVideo(request structs.SendVideoRequest) {
 		})
 	}
 }
+
+func ValidateSendContact(request structs.SendContactRequest) {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
+		validation.Field(&request.ContactName, validation.Required),
+		validation.Field(&request.ContactPhone, validation.Required),
+	)
+
+	if err != nil {
+		panic(utils.ValidationError{
+			Message: err.Error(),
+		})
+	}
+}

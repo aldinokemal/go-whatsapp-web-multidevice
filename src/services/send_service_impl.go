@@ -286,3 +286,25 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		return response, nil
 	}
 }
+
+func (service SendServiceImpl) SendContact(_ *fiber.Ctx, request structs.SendContactRequest) (response structs.SendContactResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
+	recipient, ok := utils.ParseJID(request.Phone)
+	if !ok {
+		return response, errors.New("invalid JID " + request.Phone)
+	}
+	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
+		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
+	msg := &waProto.Message{ContactMessage: &waProto.ContactMessage{
+		DisplayName: proto.String(request.ContactName),
+		Vcard:       proto.String(msgVCard),
+	}}
+	ts, err := service.WaCli.SendMessage(recipient, "", msg)
+	if err != nil {
+		return response, err
+	} else {
+		response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts)
+	}
+	return response, nil
+}
