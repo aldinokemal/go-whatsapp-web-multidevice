@@ -27,6 +27,11 @@
     <h1 class="ui dividing header">[[ app_name ]]</h1>
 
     <h3 class="first">Features</h3>
+
+    <div class="ui horizontal divider">
+        App
+    </div>
+
     <div class="ui three column stackable grid cards">
         <div class="green card" @click="loginModal" style="cursor: pointer">
             <div class="content">
@@ -55,42 +60,11 @@
         </div>
     </div>
 
-    <div class="ui four column doubling grid cards">
-        <div class="green card" @click="infoModal" style="cursor: pointer;">
-            <div class="content">
-                <div class="header">User Info</div>
-                <div class="description">
-                    You can search someone user info by phone
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="avatarModal" style="cursor: pointer;">
-            <div class="content">
-                <div class="header">User Avatar</div>
-                <div class="description">
-                    You can search someone avatar by phone
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="groupModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">User List Groups</div>
-                <div class="description">
-                    Display all groups you joined
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="privacyModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">User Privacy Setting</div>
-                <div class="description">
-                    Get your privacy settings
-                </div>
-            </div>
-        </div>
+    <div class="ui horizontal divider">
+        Send Private Message
     </div>
 
-    <div class="ui four column doubling grid cards">
+    <div class="ui three column doubling grid cards">
         <div class="green card" @click="sendMessageModal('user')" style="cursor: pointer">
             <div class="content">
                 <a class="ui blue right ribbon label">Private</a>
@@ -133,9 +107,22 @@
                 </div>
             </div>
         </div>
+        <div class="green card" @click="sendContactModal('user')" style="cursor: pointer">
+            <div class="content">
+                <a class="ui blue right ribbon label">Contact</a>
+                <div class="header">Send Contact</div>
+                <div class="description">
+                    Send contact to any whatsapp number
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="ui four column doubling grid cards">
+    <div class="ui horizontal divider">
+        Send Group Message
+    </div>
+
+    <div class="ui three column doubling grid cards">
         <div class="green card" @click="sendMessageModal('group')" style="cursor: pointer">
             <div class="content">
                 <a class="ui teal right ribbon label">Group</a>
@@ -175,6 +162,54 @@
                     <div class="ui teal horizontal label">mp4</div>
                     up to
                     <div class="ui teal horizontal label">{{ .MaxVideoSize }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="sendContactModal('group')" style="cursor: pointer">
+            <div class="content">
+                <a class="ui teal right ribbon label">Contact</a>
+                <div class="header">Send Contact</div>
+                <div class="description">
+                    Send contact to any whatsapp number
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui horizontal divider">
+        User
+    </div>
+
+    <div class="ui four column doubling grid cards">
+        <div class="green card" @click="infoModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Info</div>
+                <div class="description">
+                    You can search someone user info by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="avatarModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">User Avatar</div>
+                <div class="description">
+                    You can search someone avatar by phone
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="groupModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User List Groups</div>
+                <div class="description">
+                    Display all groups you joined
+                </div>
+            </div>
+        </div>
+        <div class="green card" @click="privacyModal" style="cursor: pointer">
+            <div class="content">
+                <div class="header">User Privacy Setting</div>
+                <div class="description">
+                    Get your privacy settings
                 </div>
             </div>
         </div>
@@ -363,6 +398,39 @@
         </div>
         <div class="actions">
             <div class="ui positive right labeled icon button" @click="sendVideoProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendContact  -->
+    <div class="ui small modal" id="modalSendContact">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Contact
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="contact_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                </div>
+                <div class="field">
+                    <label>Contact Name</label>
+                    <input v-model="contact_card_name" type="text" placeholder="Please enter contact name"
+                           aria-label="card_name">
+                </div>
+                <div class="field">
+                    <label>Contact Phone</label>
+                    <input v-model="contact_card_phone" type="text" placeholder="Please enter contact phone"
+                           aria-label="card_phone">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendContactProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -823,6 +891,63 @@
         }
     }
 
+    const sendContact = {
+        data() {
+            return {
+                contact_type: 'user',
+                contact_phone: '',
+                contact_card_name: '',
+                contact_card_phone: '',
+            }
+        },
+        methods: {
+            sendContactModal(type) {
+                this.contact_type = type
+                $('#modalSendContact').modal('show');
+            },
+            async sendContactProcess() {
+                try {
+                    let response = await this.sendContactApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendContactApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.contact_phone)
+                        payload.append("contact_name", this.contact_card_name)
+                        payload.append("contact_phone", this.contact_card_phone)
+                        payload.append("type", this.contact_type)
+                        let response = await axios.post(`${this.app_host}/send/contact`, payload, {
+                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
+                            transformRequest: (data, headers) => {
+                                delete headers.post['Content-Type'];
+                                return data;
+                            }
+                        })
+                        this.sendContactReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendContactReset() {
+                this.contact_phone = '';
+                this.contact_card_name = '';
+                this.contact_card_phone = '';
+                this.message_type = 'user';
+            },
+        }
+    }
+
     const userGroups = {
         data() {
             return {
@@ -1003,7 +1128,7 @@
                 app_name: 'Whatsapp API Multi Device (v{{ .AppVersion }})'
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, userGroups, userPrivacy, userAvatar, userInfo]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, userGroups, userPrivacy, userAvatar, userInfo]
     }).mount('#app')
 </script>
 </body>

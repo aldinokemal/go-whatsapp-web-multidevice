@@ -791,4 +791,100 @@ paths:
                 code: 500
                 message: you are not loggin
                 results: null
+  /send/contact:
+    post:
+      tags:
+        - send
+      summary: Send Contact
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: integer
+                  example: '6289685024051'
+                contact_name:
+                  type: string
+                  example: Aldino Kemal
+                contact_phone:
+                  type: string
+                  example: '6289685024992'
+                type:
+                  type: string
+                  example: 'user'
+                  description: 'user/group | default: user'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:42:57 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '123'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  status: >-
+                    Contact sent to 6289685024051@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:17 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '70'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:48 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
 
