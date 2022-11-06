@@ -685,13 +685,7 @@
                         payload.append("phone", this.message_phone)
                         payload.append("message", this.message_text)
                         payload.append("type", this.message_type)
-                        let response = await axios.post(`${this.app_host}/send/message`, payload, {
-                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
-                            transformRequest: (data, headers) => {
-                                delete headers.post['Content-Type'];
-                                return data;
-                            }
-                        })
+                        let response = await axios.post(`${this.app_host}/send/message`, payload)
                         this.sendMessageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -744,13 +738,7 @@
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
                         payload.append("type", this.image_type)
-                        let response = await axios.post(`${this.app_host}/send/image`, payload, {
-                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
-                            transformRequest: (data, headers) => {
-                                delete headers.post['Content-Type'];
-                                return data;
-                            }
-                        })
+                        let response = await axios.post(`${this.app_host}/send/image`, payload)
                         this.sendImageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -802,13 +790,7 @@
                         payload.append("phone", this.file_phone)
                         payload.append("file", $("#file_file")[0].files[0])
                         payload.append("type", this.file_type)
-                        let response = await axios.post(`${this.app_host}/send/file`, payload, {
-                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
-                            transformRequest: (data, headers) => {
-                                delete headers.post['Content-Type'];
-                                return data;
-                            }
-                        })
+                        let response = await axios.post(`${this.app_host}/send/file`, payload)
                         this.sendFileReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -862,13 +844,7 @@
                         payload.append("compress", this.video_compress)
                         payload.append("video", $("#video_file")[0].files[0])
                         payload.append("type", this.video_type)
-                        let response = await axios.post(`${this.app_host}/send/video`, payload, {
-                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
-                            transformRequest: (data, headers) => {
-                                delete headers.post['Content-Type'];
-                                return data;
-                            }
-                        })
+                        let response = await axios.post(`${this.app_host}/send/video`, payload)
                         this.sendVideoReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -921,13 +897,7 @@
                         payload.append("contact_name", this.contact_card_name)
                         payload.append("contact_phone", this.contact_card_phone)
                         payload.append("type", this.contact_type)
-                        let response = await axios.post(`${this.app_host}/send/contact`, payload, {
-                            // Axios Bug, always content-type that make boundary not set default by browser https://github.com/axios/axios/issues/1603
-                            transformRequest: (data, headers) => {
-                                delete headers.post['Content-Type'];
-                                return data;
-                            }
-                        })
+                        let response = await axios.post(`${this.app_host}/send/contact`, payload)
                         this.sendContactReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -1125,7 +1095,7 @@
         data() {
             return {
                 app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device (v{{ .AppVersion }})'
+                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})'
             }
         },
         mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, userGroups, userPrivacy, userAvatar, userInfo]
