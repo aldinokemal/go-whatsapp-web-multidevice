@@ -9,6 +9,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/basicauth"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html"
@@ -16,6 +17,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -32,6 +34,7 @@ func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVarP(&config.AppPort, "port", "p", config.AppPort, "change port number with --port <number> | example: --port=8080")
 	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
+	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
 }
 
@@ -74,6 +77,19 @@ func runRest(cmd *cobra.Command, args []string) {
 	appController := controllers.NewAppController(appService)
 	sendController := controllers.NewSendController(sendService)
 	userController := controllers.NewUserController(userService)
+
+	if config.AppBasicAuthCredential != "" {
+		ba := strings.Split(config.AppBasicAuthCredential, ":")
+		if len(ba) != 2 {
+			log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
+		}
+
+		app.Use(basicauth.New(basicauth.Config{
+			Users: map[string]string{
+				ba[0]: ba[1],
+			},
+		}))
+	}
 
 	appController.Route(app)
 	sendController.Route(app)

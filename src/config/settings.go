@@ -8,11 +8,12 @@ import (
 type Browser string
 
 var (
-	AppVersion  string                           = "v3.4.1"
-	AppPort     string                           = "3000"
-	AppDebug    bool                             = false
-	AppOs       string                           = fmt.Sprintf("AldinoKemal")
-	AppPlatform waProto.DeviceProps_PlatformType = waProto.DeviceProps_PlatformType(1)
+	AppVersion             string = "v3.5.0"
+	AppPort                string = "3000"
+	AppDebug               bool   = false
+	AppOs                  string = fmt.Sprintf("AldinoKemal")
+	AppBasicAuthCredential string
+	AppPlatform            waProto.DeviceProps_PlatformType = waProto.DeviceProps_PlatformType(1)
 
 	PathQrCode    string = "statics/qrcode"
 	PathSendItems string = "statics/senditems"
