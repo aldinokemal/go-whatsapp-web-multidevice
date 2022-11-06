@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/controllers"
@@ -51,6 +52,9 @@ func runRest(cmd *cobra.Command, args []string) {
 	}
 
 	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
+	engine.AddFunc("isEnableBasicAuth", func(token string) bool {
+		return token != ""
+	})
 	app := fiber.New(fiber.Config{
 		Views:     engine,
 		BodyLimit: 50 * 1024 * 1024,
@@ -97,10 +101,11 @@ func runRest(cmd *cobra.Command, args []string) {
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
 		return ctx.Render("index", fiber.Map{
-			"AppHost":      fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
-			"AppVersion":   config.AppVersion,
-			"MaxFileSize":  humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize": humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			"AppHost":        fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
+			"AppVersion":     config.AppVersion,
+			"BasicAuthToken": base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
+			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
 	})
 
