@@ -13,7 +13,8 @@
     <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.js"></script>
     <script src="https://unpkg.com/vue@3"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/axios@1.1.2/dist/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
     <title>Whatsapp Web Multi</title>
 
     <style>
@@ -24,9 +25,7 @@
 </head>
 <body>
 <div class="ui container" id="app">
-    <h1 class="ui dividing header">[[ app_name ]]</h1>
-
-    <h3 class="first">Features</h3>
+    <h1 class="ui header center aligned">[[ app_name ]]</h1>
 
     <div class="ui horizontal divider">
         App
@@ -448,17 +447,17 @@
                 <thead>
                 <tr>
                     <th>Group ID</th>
-                    <th>Group Name</th>
-                    <th>Group Participants</th>
-                    <th>Group Created At</th>
+                    <th>Name</th>
+                    <th>Participants</th>
+                    <th>Created At</th>
                 </tr>
                 </thead>
                 <tbody v-if="data_groups != null">
                 <tr v-for="g in data_groups">
-                    <td data-label="GID">[[ g.JID.split('@')[0] ]]</td>
-                    <td data-label="Name">[[ g.Name ]]</td>
-                    <td data-label="Age">[[ g.Participants.length ]]</td>
-                    <td data-label="Job">[[ g.GroupCreated ]]</td>
+                    <td>[[ g.JID.split('@')[0] ]]</td>
+                    <td>[[ g.Name ]]</td>
+                    <td>[[ g.Participants.length ]]</td>
+                    <td>[[ formatDate(g.GroupCreated) ]]</td>
                 </tr>
                 </tbody>
             </table>
@@ -546,6 +545,13 @@
 </div>
 
 <script>
+    const http = axios.create({
+        baseURL: {{ .AppHost }}
+    });
+    {{ if isEnableBasicAuth .BasicAuthToken }}
+    const token = {{ .BasicAuthToken }};
+    http.defaults.headers.common['Authorization'] = `Basic ${token}`;
+    {{ end }}
     const showErrorInfo = (message) => {
         $('body').toast({
             position: 'bottom right',
@@ -584,7 +590,7 @@
             loginApiGetQrCode() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await axios.get(`${this.app_host}/app/login`)
+                        let response = await http.get(`/app/login`)
                         let results = response.data.results;
                         this.login_link = results.qr_link;
                         this.login_duration_sec = results.qr_duration;
@@ -615,7 +621,7 @@
             logoutApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        await axios.get(`${this.app_host}/app/logout`)
+                        await http.get(`/app/logout`)
                         resolve()
                     } catch (error) {
                         if (error.response) {
@@ -643,7 +649,7 @@
             reconnectApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        await axios.get(`${this.app_host}/app/reconnect`)
+                        await http.get(`/app/reconnect`)
                         resolve()
                     } catch (error) {
                         if (error.response) {
@@ -685,7 +691,7 @@
                         payload.append("phone", this.message_phone)
                         payload.append("message", this.message_text)
                         payload.append("type", this.message_type)
-                        let response = await axios.post(`${this.app_host}/send/message`, payload)
+                        let response = await http.post(`/send/message`, payload)
                         this.sendMessageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -738,7 +744,7 @@
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
                         payload.append("type", this.image_type)
-                        let response = await axios.post(`${this.app_host}/send/image`, payload)
+                        let response = await http.post(`/send/image`, payload)
                         this.sendImageReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -790,7 +796,7 @@
                         payload.append("phone", this.file_phone)
                         payload.append("file", $("#file_file")[0].files[0])
                         payload.append("type", this.file_type)
-                        let response = await axios.post(`${this.app_host}/send/file`, payload)
+                        let response = await http.post(`/send/file`, payload)
                         this.sendFileReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -844,7 +850,7 @@
                         payload.append("compress", this.video_compress)
                         payload.append("video", $("#video_file")[0].files[0])
                         payload.append("type", this.video_type)
-                        let response = await axios.post(`${this.app_host}/send/video`, payload)
+                        let response = await http.post(`/send/video`, payload)
                         this.sendVideoReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -897,7 +903,7 @@
                         payload.append("contact_name", this.contact_card_name)
                         payload.append("contact_phone", this.contact_card_phone)
                         payload.append("type", this.contact_type)
-                        let response = await axios.post(`${this.app_host}/send/contact`, payload)
+                        let response = await http.post(`/send/contact`, payload)
                         this.sendContactReset();
                         resolve(response.data.message)
                     } catch (error) {
@@ -941,7 +947,7 @@
             groupApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await axios.get(`${this.app_host}/user/my/groups`)
+                        let response = await http.get(`/user/my/groups`)
                         this.data_groups = response.data.results.data;
                         resolve()
                     } catch (error) {
@@ -975,7 +981,7 @@
             privacyApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await axios.get(`${this.app_host}/user/my/privacy`)
+                        let response = await http.get(`/user/my/privacy`)
                         this.data_privacy = response.data.results;
                         resolve()
                     } catch (error) {
@@ -1017,7 +1023,7 @@
             avatarApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await axios.get(`${this.app_host}/user/avatar?phone=${this.avatar_phone}`)
+                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone}`)
                         this.avatar_image = response.data.results.url;
                         resolve()
                     } catch (error) {
@@ -1067,7 +1073,7 @@
             infoApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await axios.get(`${this.app_host}/user/info?phone=${this.info_phone}`)
+                        let response = await http.get(`/user/info?phone=${this.info_phone}`)
                         this.info_name = response.data.results.verified_name;
                         this.info_status = response.data.results.status;
                         this.info_devices = response.data.results.devices;
@@ -1096,6 +1102,13 @@
             return {
                 app_host: {{ .AppHost }},
                 app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})'
+            }
+        },
+        methods: {
+            formatDate: function (value) {
+                if (!value) return ''
+                const tanggal = moment(value)
+                return tanggal.format('LLL');
             }
         },
         mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, userGroups, userPrivacy, userAvatar, userInfo]
