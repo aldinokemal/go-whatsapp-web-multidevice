@@ -8,7 +8,7 @@ import (
 type Browser string
 
 var (
-	AppVersion  string                           = "v3.4.0"
+	AppVersion  string                           = "v3.4.1"
 	AppPort     string                           = "3000"
 	AppDebug    bool                             = false
 	AppOs       string                           = fmt.Sprintf("AldinoKemal")
