@@ -4,6 +4,9 @@
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
+- Basic Auth 
+  - `--basic-auth=kemal:secret`, or you can simplify
+  - `-b=kemal:secret`
 - Customizable port and debug mode
   - `--port 8000`
   - `--debug true`
@@ -91,18 +94,19 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 
 ### App User Interface
 
-1. Homepage  ![Homepage](https://i.ibb.co/ScYLjw8/Screen-Shot-2022-07-07-at-07-57-46.png)
+1. Homepage  ![Homepage](https://i.ibb.co/GR0MN9g/Screenshot-2022-11-06-at-14-02-39.png)
 2. Login  ![Login](https://i.ibb.co/Yp3YJKM/Screen-Shot-2022-02-13-at-12-55-54.png)
 3. Send Message ![Send Message](https://i.ibb.co/Bng57Ry/Screen-Shot-2022-05-22-at-13-51-13.png)
 4. Send Image ![Send Image](https://i.ibb.co/gJj3SrQ/Screen-Shot-2022-05-22-at-13-49-21.png)
 5. Send File ![Send File](https://i.ibb.co/nCwhysd/Screen-Shot-2022-05-22-at-13-43-16.png)
 6. Send Video ![Send File](https://i.ibb.co/yBXsWXX/Screen-Shot-2022-05-22-at-13-43-24.png)
-6. Send Contact ![Send File](https://i.ibb.co/fqwwGK5/Screen-Shot-2022-07-07-at-07-59-26.png)
-7. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
-8. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
-9. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
-10. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
-11. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+7. Send Contact ![Send File](https://i.ibb.co/fqwwGK5/Screen-Shot-2022-07-07-at-07-59-26.png)
+8. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
+9. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
+10. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
+11. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
+12. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+13. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
 
 ### Mac OS NOTE
 
