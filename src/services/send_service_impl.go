@@ -28,7 +28,7 @@ func NewSendService(waCli *whatsmeow.Client) SendService {
 	}
 }
 
-func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
+func (service SendServiceImpl) SendText(c *fiber.Ctx, request structs.SendMessageRequest) (response structs.SendMessageResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	recipient, ok := utils.ParseJID(request.Phone)
@@ -36,7 +36,7 @@ func (service SendServiceImpl) SendText(_ *fiber.Ctx, request structs.SendMessag
 		return response, errors.New("invalid JID " + request.Phone)
 	}
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(c.Context(), recipient, "", msg)
 	if err != nil {
 		return response, err
 	} else {
@@ -123,7 +123,7 @@ func (service SendServiceImpl) SendImage(c *fiber.Ctx, request structs.SendImage
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
-	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -173,7 +173,7 @@ func (service SendServiceImpl) SendFile(c *fiber.Ctx, request structs.SendFileRe
 		FileEncSha256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 	}}
-	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, oriFilePath)
 		if errDelete != nil {
@@ -272,7 +272,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 		ViewOnce:      proto.Bool(request.ViewOnce),
 		JpegThumbnail: dataWaThumbnail,
 	}}
-	ts, err := service.WaCli.SendMessage(dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -287,7 +287,7 @@ func (service SendServiceImpl) SendVideo(c *fiber.Ctx, request structs.SendVideo
 	}
 }
 
-func (service SendServiceImpl) SendContact(_ *fiber.Ctx, request structs.SendContactRequest) (response structs.SendContactResponse, err error) {
+func (service SendServiceImpl) SendContact(c *fiber.Ctx, request structs.SendContactRequest) (response structs.SendContactResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	recipient, ok := utils.ParseJID(request.Phone)
@@ -300,7 +300,7 @@ func (service SendServiceImpl) SendContact(_ *fiber.Ctx, request structs.SendCon
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
-	ts, err := service.WaCli.SendMessage(recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(c.Context(), recipient, "", msg)
 	if err != nil {
 		return response, err
 	} else {

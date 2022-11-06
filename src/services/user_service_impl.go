@@ -61,14 +61,14 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 	return response, nil
 }
 
-func (service UserServiceImpl) UserAvatar(_ *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
+func (service UserServiceImpl) UserAvatar(c *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	jid, ok := utils.ParseJID(request.Phone)
 	if !ok {
 		return response, errors.New("invalid JID " + request.Phone)
 	}
-	pic, err := service.WaCli.GetProfilePictureInfo(jid, false)
+	pic, err := service.WaCli.GetProfilePictureInfo(jid, false, "")
 	if err != nil {
 		return response, err
 	} else if pic == nil {

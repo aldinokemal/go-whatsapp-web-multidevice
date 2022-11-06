@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -29,28 +30,34 @@ var (
 
 func GetPlatformName(deviceID int) string {
 	switch deviceID {
-	case 2:
+	case 0:
 		return "UNKNOWN"
-	case 3:
+	case 1:
 		return "CHROME"
-	case 4:
+	case 2:
 		return "FIREFOX"
-	case 5:
+	case 3:
 		return "IE"
-	case 6:
+	case 4:
 		return "OPERA"
-	case 7:
+	case 5:
 		return "SAFARI"
-	case 8:
+	case 6:
 		return "EDGE"
-	case 9:
+	case 7:
 		return "DESKTOP"
-	case 10:
+	case 8:
 		return "IPAD"
-	case 11:
+	case 9:
 		return "ANDROID_TABLET"
-	case 12:
+	case 10:
 		return "OHANA"
+	case 11:
+		return "ALOHA"
+	case 12:
+		return "CATALINA"
+	case 13:
+		return "TCL_TV"
 	default:
 		return "UNKNOWN"
 	}
@@ -95,8 +102,9 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 		panic(err)
 	}
 
-	store.CompanionProps.PlatformType = waProto.CompanionProps_CHROME.Enum()
-	store.CompanionProps.Os = proto.String("AldinoKemal")
+	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
+	store.DeviceProps.PlatformType = &config.AppPlatform
+	store.DeviceProps.Os = &osName
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.AddEventHandler(handler)
 
@@ -171,7 +179,7 @@ func handler(rawEvt interface{}) {
 		}
 
 		if config.WhatsappAutoReplyMessage != "" {
-			_, _ = cli.SendMessage(evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 	case *events.Receipt:
 		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
