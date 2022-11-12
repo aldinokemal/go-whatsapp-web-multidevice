@@ -184,7 +184,7 @@ func handler(rawEvt interface{}) {
 			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 
-		if config.WhatsappAutoReplyCallbackEndpoint != "" {
+		if config.WhatsappAutoReplyWebhook != "" {
 			go func() {
 				_ = sendAutoReplyCallback(evt)
 			}()
@@ -251,7 +251,7 @@ func sendAutoReplyCallback(evt *events.Message) error {
 		"forwarded":     evt.Message.GetGroupInviteMessage(),
 	}
 	postBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyCallbackEndpoint, bytes.NewBuffer(postBody))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
 	if err != nil {
 		log.Errorf("error when create http object %v", err)
 		return err
