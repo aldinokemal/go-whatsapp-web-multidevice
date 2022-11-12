@@ -20,8 +20,9 @@ var (
 
 	DBName string = "hydrogenWaCli.db"
 
-	WhatsappLogLevel            string = "ERROR"
-	WhatsappAutoReplyMessage    string
-	WhatsappSettingMaxFileSize  int64 = 30000000 // 10MB
-	WhatsappSettingMaxVideoSize int64 = 30000000 // 30MB
+	WhatsappLogLevel                  string = "ERROR"
+	WhatsappAutoReplyMessage          string
+	WhatsappAutoReplyCallbackEndpoint string
+	WhatsappSettingMaxFileSize        int64 = 30000000 // 10MB
+	WhatsappSettingMaxVideoSize       int64 = 30000000 // 30MB
 )
