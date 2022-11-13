@@ -13,7 +13,7 @@
     - `--debug true`
 - Auto reply message
     - `--autoreply="Don't reply this message"`
-- Weebhook for receive message 
+- Webhook for received message 
     - --webhook="http://yourwebhook.site/handler"
 
 ### Required (without docker)
