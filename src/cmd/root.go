@@ -37,6 +37,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
 	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
+	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyWebhook, "webhook", "w", config.WhatsappAutoReplyMessage, `auto reply when received message --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 }
 
 func runRest(cmd *cobra.Command, args []string) {

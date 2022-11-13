@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 	"mime"
+	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -181,6 +183,12 @@ func handler(rawEvt interface{}) {
 		if config.WhatsappAutoReplyMessage != "" {
 			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
+
+		if config.WhatsappAutoReplyWebhook != "" {
+			go func() {
+				_ = sendAutoReplyWebhook(evt)
+			}()
+		}
 	case *events.Receipt:
 		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
 			log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
@@ -217,4 +225,38 @@ func handler(rawEvt interface{}) {
 	case *events.AppState:
 		log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 	}
+}
+
+func sendAutoReplyWebhook(evt *events.Message) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	body := map[string]interface{}{
+		"from":          evt.Info.SourceString(),
+		"message":       evt.Message.GetConversation(),
+		"image":         evt.Message.GetImageMessage(),
+		"video":         evt.Message.GetVideoMessage(),
+		"audio":         evt.Message.GetAudioMessage(),
+		"document":      evt.Message.GetDocumentMessage(),
+		"location":      evt.Message.GetLocationMessage(),
+		"sticker":       evt.Message.GetStickerMessage(),
+		"live_location": evt.Message.GetLiveLocationMessage(),
+		"view_once":     evt.Message.GetViewOnceMessage(),
+		"list":          evt.Message.GetListMessage(),
+		"order":         evt.Message.GetOrderMessage(),
+		"contact":       evt.Message.GetContactMessage(),
+		"forwarded":     evt.Message.GetGroupInviteMessage(),
+	}
+	postBody, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+	if err != nil {
+		log.Errorf("error when create http object %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Errorf("error when submit webhook %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
