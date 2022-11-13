@@ -47,7 +47,7 @@ func runRest(cmd *cobra.Command, args []string) {
 
 	// TODO: Init Rest App
 	//preparing folder if not exist
-	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems)
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages)
 	if err != nil {
 		log.Fatalln(err)
 	}
