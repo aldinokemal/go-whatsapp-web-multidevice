@@ -186,7 +186,7 @@ func handler(rawEvt interface{}) {
 
 		if config.WhatsappAutoReplyWebhook != "" {
 			go func() {
-				_ = sendAutoReplyCallback(evt)
+				_ = sendAutoReplyWebhook(evt)
 			}()
 		}
 	case *events.Receipt:
@@ -227,12 +227,7 @@ func handler(rawEvt interface{}) {
 	}
 }
 
-type AutoReplyCallbackBody struct {
-	From    string `json:"from"`
-	Message string `json:"message"`
-}
-
-func sendAutoReplyCallback(evt *events.Message) error {
+func sendAutoReplyWebhook(evt *events.Message) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	body := map[string]interface{}{
 		"from":          evt.Info.SourceString(),
