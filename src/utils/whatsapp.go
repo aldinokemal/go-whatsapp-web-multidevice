@@ -88,7 +88,7 @@ func InitWaDB() *sqlstore.Container {
 	// Running Whatsapp
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
-	storeContainer, err := sqlstore.New("sqlite3", fmt.Sprintf("file:%s?_foreign_keys=off", config.DBName), dbLog)
+	storeContainer, err := sqlstore.New("sqlite3", fmt.Sprintf("file:%s/%s?_foreign_keys=off", config.PathStorages, config.DBName), dbLog)
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
 		panic(err)
@@ -171,7 +171,7 @@ func handler(rawEvt interface{}) {
 				return
 			}
 			exts, _ := mime.ExtensionsByType(img.GetMimetype())
-			path := fmt.Sprintf("%s%s", evt.Info.ID, exts[0])
+			path := fmt.Sprintf("%s/%s%s", config.PathStorages, evt.Info.ID, exts[0])
 			err = os.WriteFile(path, data, 0600)
 			if err != nil {
 				log.Errorf("Failed to save image: %v", err)
@@ -207,7 +207,7 @@ func handler(rawEvt interface{}) {
 		}
 	case *events.HistorySync:
 		id := atomic.AddInt32(&historySyncID, 1)
-		fileName := fmt.Sprintf("history-%d-%d.json", startupTime, id)
+		fileName := fmt.Sprintf("%s/history-%d-%d.json", config.PathStorages, startupTime, id)
 		file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0600)
 		if err != nil {
 			log.Errorf("Failed to open file to write history sync: %v", err)

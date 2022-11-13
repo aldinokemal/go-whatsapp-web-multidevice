@@ -67,7 +67,7 @@
 
 ### Production Mode (docker)
 
-- `docker run --publish=3000:3000 --name=whatsapp --restart=always --detach aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
+- `docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
 
 ### Production Mode (binary | not distributed again since v3.5.0)
 

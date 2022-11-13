@@ -5,22 +5,21 @@ import (
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 )
 
-type Browser string
-
 var (
-	AppVersion             string = "v3.6.0"
-	AppPort                string = "3000"
-	AppDebug               bool   = false
-	AppOs                  string = fmt.Sprintf("AldinoKemal")
+	AppVersion             = "v3.7.0"
+	AppPort                = "3000"
+	AppDebug               = false
+	AppOs                  = fmt.Sprintf("AldinoKemal")
+	AppPlatform            = waProto.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential string
-	AppPlatform            waProto.DeviceProps_PlatformType = waProto.DeviceProps_PlatformType(1)
 
-	PathQrCode    string = "statics/qrcode"
-	PathSendItems string = "statics/senditems"
+	PathQrCode    = "statics/qrcode"
+	PathSendItems = "statics/senditems"
+	PathStorages  = "storages"
 
-	DBName string = "hydrogenWaCli.db"
+	DBName = "hydrogenWaCli.db"
 
-	WhatsappLogLevel            string = "ERROR"
+	WhatsappLogLevel            = "ERROR"
 	WhatsappAutoReplyMessage    string
 	WhatsappAutoReplyWebhook    string
 	WhatsappSettingMaxFileSize  int64 = 30000000 // 10MB
