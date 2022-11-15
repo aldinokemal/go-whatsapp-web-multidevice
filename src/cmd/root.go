@@ -35,6 +35,7 @@ func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVarP(&config.AppPort, "port", "p", config.AppPort, "change port number with --port <number> | example: --port=8080")
 	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
+	rootCmd.PersistentFlags().StringVarP(&config.AppOs, "os", "", config.AppOs, `os name --os <string> | example: --os="Chrome"`)
 	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyWebhook, "webhook", "w", config.WhatsappAutoReplyMessage, `auto reply when received message --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
