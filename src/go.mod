@@ -5,15 +5,15 @@ go 1.17
 require (
 	github.com/dustin/go-humanize v1.0.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/gofiber/fiber/v2 v2.39.0
-	github.com/gofiber/template v1.7.1
+	github.com/gofiber/fiber/v2 v2.40.0
+	github.com/gofiber/template v1.7.2
 	github.com/h2non/bimg v1.1.9
 	github.com/markbates/pkger v0.17.1
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.6.1
 	github.com/stretchr/testify v1.8.0
-	go.mau.fi/whatsmeow v0.0.0-20221104090956-123ccfa04185
+	go.mau.fi/whatsmeow v0.0.0-20221117205735-357841c4ff30
 	google.golang.org/protobuf v1.28.1
 )
 
