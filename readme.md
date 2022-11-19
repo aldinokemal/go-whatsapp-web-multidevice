@@ -2,7 +2,7 @@
 [![buddy pipeline](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077/badge.svg?token=a951a4546fe3f54079e678cc9d0eea12069fbdc21f8ed5ea22e1e95c4f63215f "buddy pipeline")](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077)
 [![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
 [![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg "release linux")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml)
-[![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg "release macos")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-macos.yml)
+[![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg "release macos")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml)
 
 ### Feature
 
