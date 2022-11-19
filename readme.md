@@ -74,7 +74,7 @@
 
 - `docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
 
-### Production Mode (binary | not distributed again since v3.5.0)
+### Production Mode (binary)
 
 - download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
 

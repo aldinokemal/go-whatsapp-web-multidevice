@@ -1,0 +1,52 @@
+name: Release Windows Version
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    branches-ignore:
+      - '*'
+
+jobs:
+  release-windows:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install pkgconfig
+        uses: crazy-max/ghaction-chocolatey@v2.1.0
+        with:
+          ref: ${{ github.ref_name }}
+          args: install pkgconfiglite
+      - name: Vips download
+        run: curl -LO https://hydrogendioxide.net/vips-dev-8.12.zip
+      - name: Vips Extract
+        run: |
+          7z x .\vips-dev-8.12.zip
+      - name: Vips add to path
+        shell: pwsh
+        run: |
+          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\lib\pkgconfig\* -Destination C:/Strawberry/c/lib/pkgconfig -force -recurse
+          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\bin\* -Destination C:/Strawberry/c/bin -force -recurse
+          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\include\* -Destination C:/Strawberry/c/include -force -recurse
+      - name: Golang Installation
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.18'
+      - name: Golang setup dependency
+        run: |
+          go version
+          go install github.com/markbates/pkger/cmd/pkger@latest
+      - name: Golang build
+        run: |
+          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${{ github.workspace }}\vips-dev-8.12\bin")
+          [Environment]::SetEnvironmentVariable("PKG_CONFIG_PATH", "${{ github.workspace }}\vips-dev-8.12\lib\pkgconfig")
+          cd src && pkger.exe && go build -o windows-amd64.exe
+      - name: Deploy artifact to release ${{ github.ref_name }}
+        uses: AButler/upload-release-assets@v2.0
+        with:
+          files: 'src/windows-amd64.exe'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          release-tag: ${{ github.ref_name }}
