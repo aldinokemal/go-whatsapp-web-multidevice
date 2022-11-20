@@ -11,17 +11,19 @@ var (
 	AppDebug               = false
 	AppOs                  = fmt.Sprintf("AldinoKemal")
 	AppPlatform            = waProto.DeviceProps_PlatformType(1)
+	AppSelectedDeviceKey   = "deviceID"
+	AppDefaultDevice       = "default"
 	AppBasicAuthCredential string
 
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
 	PathStorages  = "storages"
 
-	DBName = "hydrogenWaCli.db"
+	DBName = "whatsapp.db"
 
 	WhatsappLogLevel            = "ERROR"
 	WhatsappAutoReplyMessage    string
 	WhatsappAutoReplyWebhook    string
-	WhatsappSettingMaxFileSize  int64 = 30000000 // 10MB
-	WhatsappSettingMaxVideoSize int64 = 30000000 // 30MB
+	WhatsappSettingMaxFileSize  int64 = 50000000  // 50MB
+	WhatsappSettingMaxVideoSize int64 = 100000000 // 100MB
 )

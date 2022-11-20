@@ -67,7 +67,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 }
 
 func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
-	response, err := controller.Service.MyPrivacySetting(c.Context())
+	response, err := controller.Service.MyPrivacySetting(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -78,7 +78,7 @@ func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 }
 
 func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
-	response, err := controller.Service.MyListGroups(c.Context())
+	response, err := controller.Service.MyListGroups(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

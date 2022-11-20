@@ -36,7 +36,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 		request.Phone = request.Phone + "@s.whatsapp.net"
 	}
 
-	response, err := controller.Service.SendText(c.Context(), request)
+	response, err := controller.Service.SendText(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -67,7 +67,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 		request.Phone = request.Phone + "@s.whatsapp.net"
 	}
 
-	response, err := controller.Service.SendImage(c.Context(), request)
+	response, err := controller.Service.SendImage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -96,7 +96,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 		request.Phone = request.Phone + "@s.whatsapp.net"
 	}
 
-	response, err := controller.Service.SendFile(c.Context(), request)
+	response, err := controller.Service.SendFile(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -125,7 +125,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 		request.Phone = request.Phone + "@s.whatsapp.net"
 	}
 
-	response, err := controller.Service.SendVideo(c.Context(), request)
+	response, err := controller.Service.SendVideo(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -149,7 +149,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 		request.Phone = request.Phone + "@s.whatsapp.net"
 	}
 
-	response, err := controller.Service.SendContact(c.Context(), request)
+	response, err := controller.Service.SendContact(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

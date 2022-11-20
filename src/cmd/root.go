@@ -63,6 +63,7 @@ func runRest(cmd *cobra.Command, args []string) {
 	})
 	app.Static("/statics", "./statics")
 	app.Use(middleware.Recovery())
+	app.Use(middleware.SelectJid())
 	if config.AppDebug {
 		app.Use(logger.New())
 	}

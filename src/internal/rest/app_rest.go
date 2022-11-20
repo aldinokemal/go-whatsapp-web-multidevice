@@ -22,7 +22,7 @@ func InitRestApp(app *fiber.App, service domainApp.IAppService) App {
 }
 
 func (controller *App) Login(c *fiber.Ctx) error {
-	response, err := controller.Service.Login(c.Context())
+	response, err := controller.Service.Login(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -36,7 +36,7 @@ func (controller *App) Login(c *fiber.Ctx) error {
 }
 
 func (controller *App) Logout(c *fiber.Ctx) error {
-	err := controller.Service.Logout(c.Context())
+	err := controller.Service.Logout(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -47,7 +47,7 @@ func (controller *App) Logout(c *fiber.Ctx) error {
 }
 
 func (controller *App) Reconnect(c *fiber.Ctx) error {
-	err := controller.Service.Reconnect(c.Context())
+	err := controller.Service.Reconnect(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -58,7 +58,7 @@ func (controller *App) Reconnect(c *fiber.Ctx) error {
 }
 
 func (controller *App) Devices(c *fiber.Ctx) error {
-	devices, err := controller.Service.FetchDevices(c.Context())
+	devices, err := controller.Service.FetchDevices(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
