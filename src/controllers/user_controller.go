@@ -1,18 +1,17 @@
 package controllers
 
 import (
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
 
 type UserController struct {
-	Service services.UserService
+	Service domainUser.IUserService
 }
 
-func NewUserController(service services.UserService) UserController {
+func NewUserController(service domainUser.IUserService) UserController {
 	return UserController{Service: service}
 }
 
@@ -24,7 +23,7 @@ func (controller *UserController) Route(app *fiber.App) {
 }
 
 func (controller *UserController) UserInfo(c *fiber.Ctx) error {
-	var request structs.UserInfoRequest
+	var request domainUser.InfoRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -32,7 +31,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	validations.ValidateUserInfo(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.UserInfo(c, request)
+	response, err := controller.Service.Info(c, request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -43,7 +42,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 }
 
 func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
-	var request structs.UserAvatarRequest
+	var request domainUser.AvatarRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -51,7 +50,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 	validations.ValidateUserAvatar(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.UserAvatar(c, request)
+	response, err := controller.Service.Avatar(c, request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -62,7 +61,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 }
 
 func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
-	response, err := controller.Service.UserMyPrivacySetting(c)
+	response, err := controller.Service.MyPrivacySetting(c)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -73,7 +72,7 @@ func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
 }
 
 func (controller *UserController) UserMyListGroups(c *fiber.Ctx) error {
-	response, err := controller.Service.UserMyListGroups(c)
+	response, err := controller.Service.MyListGroups(c)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

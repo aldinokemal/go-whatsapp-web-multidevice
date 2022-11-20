@@ -1,18 +1,17 @@
 package controllers
 
 import (
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
 
 type SendController struct {
-	Service services.SendService
+	Service domainSend.ISendService
 }
 
-func NewSendController(service services.SendService) SendController {
+func NewSendController(service domainSend.ISendService) SendController {
 	return SendController{Service: service}
 }
 
@@ -25,14 +24,14 @@ func (controller *SendController) Route(app *fiber.App) {
 }
 
 func (controller *SendController) SendText(c *fiber.Ctx) error {
-	var request structs.SendMessageRequest
+	var request domainSend.MessageRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
 	// add validation send message
 	validations.ValidateSendMessage(request)
 
-	if request.Type == structs.TypeGroup {
+	if request.Type == domainSend.TypeGroup {
 		request.Phone = request.Phone + "@g.us"
 	} else {
 		request.Phone = request.Phone + "@s.whatsapp.net"
@@ -49,7 +48,7 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 }
 
 func (controller *SendController) SendImage(c *fiber.Ctx) error {
-	var request structs.SendImageRequest
+	var request domainSend.ImageRequest
 	request.Compress = true
 
 	err := c.BodyParser(&request)
@@ -63,7 +62,7 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendImage(request)
 
-	if request.Type == structs.TypeGroup {
+	if request.Type == domainSend.TypeGroup {
 		request.Phone = request.Phone + "@g.us"
 	} else {
 		request.Phone = request.Phone + "@s.whatsapp.net"
@@ -80,7 +79,7 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 }
 
 func (controller *SendController) SendFile(c *fiber.Ctx) error {
-	var request structs.SendFileRequest
+	var request domainSend.FileRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -92,7 +91,7 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendFile(request)
 
-	if request.Type == structs.TypeGroup {
+	if request.Type == domainSend.TypeGroup {
 		request.Phone = request.Phone + "@g.us"
 	} else {
 		request.Phone = request.Phone + "@s.whatsapp.net"
@@ -109,7 +108,7 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 }
 
 func (controller *SendController) SendVideo(c *fiber.Ctx) error {
-	var request structs.SendVideoRequest
+	var request domainSend.VideoRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -121,7 +120,7 @@ func (controller *SendController) SendVideo(c *fiber.Ctx) error {
 	//add validation send image
 	validations.ValidateSendVideo(request)
 
-	if request.Type == structs.TypeGroup {
+	if request.Type == domainSend.TypeGroup {
 		request.Phone = request.Phone + "@g.us"
 	} else {
 		request.Phone = request.Phone + "@s.whatsapp.net"
@@ -137,15 +136,15 @@ func (controller *SendController) SendVideo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller SendController) SendContact(c *fiber.Ctx) error {
-	var request structs.SendContactRequest
+func (controller *SendController) SendContact(c *fiber.Ctx) error {
+	var request domainSend.ContactRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
 	// add validation send contect
 	validations.ValidateSendContact(request)
 
-	if request.Type == structs.TypeGroup {
+	if request.Type == domainSend.TypeGroup {
 		request.Phone = request.Phone + "@g.us"
 	} else {
 		request.Phone = request.Phone + "@s.whatsapp.net"

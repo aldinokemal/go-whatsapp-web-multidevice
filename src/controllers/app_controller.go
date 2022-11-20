@@ -2,16 +2,16 @@ package controllers
 
 import (
 	"fmt"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/gofiber/fiber/v2"
 )
 
 type AppController struct {
-	Service services.AppService
+	Service domainApp.IAppService
 }
 
-func NewAppController(service services.AppService) AppController {
+func NewAppController(service domainApp.IAppService) AppController {
 	return AppController{Service: service}
 }
 

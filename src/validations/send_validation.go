@@ -3,13 +3,13 @@ package validations
 import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/dustin/go-humanize"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-func ValidateSendMessage(request structs.SendMessageRequest) {
+func ValidateSendMessage(request domainSend.MessageRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Message, validation.Required, validation.Length(1, 1000)),
@@ -22,7 +22,7 @@ func ValidateSendMessage(request structs.SendMessageRequest) {
 	}
 }
 
-func ValidateSendImage(request structs.SendImageRequest) {
+func ValidateSendImage(request domainSend.ImageRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Caption, validation.When(true, validation.Length(1, 1000))),
@@ -48,7 +48,7 @@ func ValidateSendImage(request structs.SendImageRequest) {
 	}
 }
 
-func ValidateSendFile(request structs.SendFileRequest) {
+func ValidateSendFile(request domainSend.FileRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.File, validation.Required),
@@ -68,7 +68,7 @@ func ValidateSendFile(request structs.SendFileRequest) {
 	}
 }
 
-func ValidateSendVideo(request structs.SendVideoRequest) {
+func ValidateSendVideo(request domainSend.VideoRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Video, validation.Required),
@@ -100,7 +100,7 @@ func ValidateSendVideo(request structs.SendVideoRequest) {
 	}
 }
 
-func ValidateSendContact(request structs.SendContactRequest) {
+func ValidateSendContact(request domainSend.ContactRequest) {
 	err := validation.ValidateStruct(&request,
 		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.ContactName, validation.Required),

@@ -1,6 +1,15 @@
-package structs
+package app
 
-import "go.mau.fi/whatsmeow/types"
+import (
+	"github.com/gofiber/fiber/v2"
+	"go.mau.fi/whatsmeow/types"
+)
+
+type IAppService interface {
+	Login(c *fiber.Ctx) (response LoginResponse, err error)
+	Logout(c *fiber.Ctx) (err error)
+	Reconnect(c *fiber.Ctx) (err error)
+}
 
 type UserInfoRequest struct {
 	Phone string `json:"phone" query:"phone"`

@@ -3,7 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/gofiber/fiber/v2"
 	"go.mau.fi/whatsmeow"
@@ -14,13 +14,13 @@ type UserServiceImpl struct {
 	WaCli *whatsmeow.Client
 }
 
-func NewUserService(waCli *whatsmeow.Client) UserService {
+func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
 	return &UserServiceImpl{
 		WaCli: waCli,
 	}
 }
 
-func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRequest) (response structs.UserInfoResponse, err error) {
+func (service UserServiceImpl) Info(_ *fiber.Ctx, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	var jids []types.JID
@@ -36,9 +36,9 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 	}
 
 	for _, userInfo := range resp {
-		var device []structs.UserInfoResponseDataDevice
+		var device []domainUser.InfoResponseDataDevice
 		for _, j := range userInfo.Devices {
-			device = append(device, structs.UserInfoResponseDataDevice{
+			device = append(device, domainUser.InfoResponseDataDevice{
 				User:   j.User,
 				Agent:  j.Agent,
 				Device: utils.GetPlatformName(int(j.Device)),
@@ -47,7 +47,7 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 			})
 		}
 
-		data := structs.UserInfoResponseData{
+		data := domainUser.InfoResponseData{
 			Status:    userInfo.Status,
 			PictureID: userInfo.PictureID,
 			Devices:   device,
@@ -61,7 +61,7 @@ func (service UserServiceImpl) UserInfo(_ *fiber.Ctx, request structs.UserInfoRe
 	return response, nil
 }
 
-func (service UserServiceImpl) UserAvatar(c *fiber.Ctx, request structs.UserAvatarRequest) (response structs.UserAvatarResponse, err error) {
+func (service UserServiceImpl) Avatar(c *fiber.Ctx, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	jid, ok := utils.ParseJID(request.Phone)
@@ -82,7 +82,7 @@ func (service UserServiceImpl) UserAvatar(c *fiber.Ctx, request structs.UserAvat
 	}
 }
 
-func (service UserServiceImpl) UserMyListGroups(_ *fiber.Ctx) (response structs.UserMyListGroupsResponse, err error) {
+func (service UserServiceImpl) MyListGroups(_ *fiber.Ctx) (response domainUser.MyListGroupsResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	groups, err := service.WaCli.GetJoinedGroups()
@@ -98,7 +98,7 @@ func (service UserServiceImpl) UserMyListGroups(_ *fiber.Ctx) (response structs.
 	return response, nil
 }
 
-func (service UserServiceImpl) UserMyPrivacySetting(_ *fiber.Ctx) (response structs.UserMyPrivacySettingResponse, err error) {
+func (service UserServiceImpl) MyPrivacySetting(_ *fiber.Ctx) (response domainUser.MyPrivacySettingResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	resp, err := service.WaCli.TryFetchPrivacySettings(false)
