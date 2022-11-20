@@ -15,4 +15,5 @@ type ISendService interface {
 	SendFile(ctx context.Context, request FileRequest) (response FileResponse, err error)
 	SendVideo(ctx context.Context, request VideoRequest) (response VideoResponse, err error)
 	SendContact(ctx context.Context, request ContactRequest) (response ContactResponse, err error)
+	SendLink(ctx context.Context, request LinkRequest) (response LinkResponse, err error)
 }

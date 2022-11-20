@@ -1,12 +1,13 @@
 package send
 
-type MessageRequest struct {
+type LinkRequest struct {
 	Phone   string `json:"phone" form:"phone"`
-	Message string `json:"message" form:"message"`
+	Caption string `json:"caption"`
+	Link    string `json:"link"`
 	Type    Type   `json:"type" form:"type"`
 }
 
-type MessageResponse struct {
+type LinkResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
 }

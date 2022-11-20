@@ -8,5 +8,6 @@ type ContactRequest struct {
 }
 
 type ContactResponse struct {
-	Status string `json:"status"`
+	MessageID string `json:"message_id"`
+	Status    string `json:"status"`
 }

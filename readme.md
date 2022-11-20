@@ -1,4 +1,5 @@
 ## Go Whatsapp API Multi Device Version
+
 [![buddy pipeline](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077/badge.svg?token=a951a4546fe3f54079e678cc9d0eea12069fbdc21f8ed5ea22e1e95c4f63215f "buddy pipeline")](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077)
 [![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
 [![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg "release linux")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml)
@@ -10,7 +11,7 @@
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
-  - `--os=Chrome` or `--os=MyApplication`
+    - `--os=Chrome` or `--os=MyApplication`
 - Basic Auth
     - `--basic-auth=kemal:secret`, or you can simplify
     - `-b=kemal:secret`
@@ -19,7 +20,7 @@
     - `--debug true`
 - Auto reply message
     - `--autoreply="Don't reply this message"`
-- Webhook for received message 
+- Webhook for received message
     - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
     - `-w="http://yourwebhook.site/handler"`
 - For more command `./main --help`
@@ -100,7 +101,8 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 | ✅       | Send Image              | POST   | /send/image      | 
 | ✅       | Send File               | POST   | /send/file       | 
 | ✅       | Send Video              | POST   | /send/video      | 
-| ✅       | Send Contact            | POST   | /send/contact    | 
+| ✅       | Send Contact            | POST   | /send/contact    |
+| ✅       | Send Link               | POST   | /send/link       |
 
 ```
 ✅ = Available

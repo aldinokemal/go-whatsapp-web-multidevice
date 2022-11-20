@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 2.3.0
+  version: 2.4.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -15,6 +15,7 @@ tags:
 paths:
   /app/login:
     get:
+      operationId: authLogin
       tags:
         - auth
       summary: Login to whatsapp server
@@ -47,6 +48,7 @@ paths:
                     http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png
   /app/logout:
     get:
+      operationId: authLogout
       tags:
         - auth
       summary: Remove database and logout
@@ -96,6 +98,7 @@ paths:
               example: the store doesn't contain a device JID
   /app/reconnect:
     get:
+      operationId: authReconnect
       tags:
         - auth
       summary: Reconnecting to whatsapp server
@@ -125,6 +128,7 @@ paths:
                 results: null
   /user/info:
     get:
+      operationId: userInfo
       tags:
         - user
       summary: User Info
@@ -241,6 +245,7 @@ paths:
                 results: null
   /user/avatar:
     get:
+      operationId: userAvatar
       tags:
         - user
       summary: User Avatar
@@ -303,6 +308,7 @@ paths:
                 results: null
   /user/my/privacy:
     get:
+      operationId: userMyPrivacy
       tags:
         - user
       summary: User My Privacy Setting
@@ -368,6 +374,7 @@ paths:
                 results: null
   /user/my/groups:
     get:
+      operationId: userMyGroups
       tags:
         - user
       summary: User My List Groups
@@ -397,6 +404,7 @@ paths:
                 results: null
   /send/message:
     post:
+      operationId: sendMessage
       tags:
         - send
       summary: Send Message
@@ -491,6 +499,7 @@ paths:
                 results: null
   /send/image:
     post:
+      operationId: sendImage
       tags:
         - send
       summary: Send Image
@@ -594,6 +603,7 @@ paths:
                 results: null
   /send/file:
     post:
+      operationId: sendFile
       tags:
         - send
       summary: Send File
@@ -691,6 +701,7 @@ paths:
                 results: null
   /send/video:
     post:
+      operationId: sendVideo
       tags:
         - send
       summary: Send Video
@@ -793,6 +804,7 @@ paths:
                 results: null
   /send/contact:
     post:
+      operationId: sendContact
       tags:
         - send
       summary: Send Contact
@@ -841,6 +853,103 @@ paths:
                 results:
                   status: >-
                     Contact sent to 6289685024051@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
+        '400':
+          description: Bad Request
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:17 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '70'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 400
+                message: 'phone: cannot be blank.'
+                results: null
+        '500':
+          description: Internal Server Error
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:02:48 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '58'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 500
+                message: you are not loggin
+                results: null
+  /send/link:
+    post:
+      operationId: sendLink
+      tags:
+        - send
+      summary: Send Link
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: integer
+                  example: '6289685024051'
+                link:
+                  type: string
+                  example: "https://google.com"
+                caption:
+                  type: string
+                  example: 'Halo ini contoh caption'
+                type:
+                  type: string
+                  example: 'user'
+                  description: 'user/group | default: user'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Date:
+              schema:
+                type: string
+                example: Fri, 11 Feb 2022 03:42:57 GMT
+            Content-Type:
+              schema:
+                type: string
+                example: application/json
+            Content-Length:
+              schema:
+                type: integer
+                example: '123'
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                code: 200
+                message: Success
+                results:
+                  status: >-
+                    Link sent to 6289685024051@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
         '400':
           description: Bad Request
           headers:

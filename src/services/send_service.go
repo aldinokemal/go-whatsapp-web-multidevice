@@ -35,13 +35,16 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if !ok {
 		return response, errors.New("invalid JID " + request.Phone)
 	}
+
+	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(ctx, recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, recipient, msgId, msg)
 	if err != nil {
 		return response, err
-	} else {
-		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
 
@@ -111,6 +114,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
 
+	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{ImageMessage: &waProto.ImageMessage{
 		JpegThumbnail: dataWaThumbnail,
 		Caption:       proto.String(dataWaCaption),
@@ -123,7 +127,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -132,10 +136,11 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}()
 	if err != nil {
 		return response, err
-	} else {
-		response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
-		return response, nil
 	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
 }
 
 func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
@@ -162,6 +167,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
+	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
 		Url:           proto.String(uploadedFile.URL),
 		Mimetype:      proto.String(http.DetectContentType(dataWaFile)),
@@ -173,7 +179,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		FileEncSha256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, oriFilePath)
 		if errDelete != nil {
@@ -182,10 +188,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}()
 	if err != nil {
 		return response, err
-	} else {
-		response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts)
-		return response, nil
 	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
@@ -250,7 +257,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaVideo, whatsmeow.MediaVideo)
+	uploaded, err := service.WaCli.Upload(context.Background(), dataWaVideo, whatsmeow.MediaVideo)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
@@ -260,19 +267,20 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, err
 	}
 
+	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
-		Url:           proto.String(uploadedFile.URL),
+		Url:           proto.String(uploaded.URL),
 		Mimetype:      proto.String(http.DetectContentType(dataWaVideo)),
 		Caption:       proto.String(request.Caption),
-		FileLength:    proto.Uint64(uploadedFile.FileLength),
-		FileSha256:    uploadedFile.FileSHA256,
-		FileEncSha256: uploadedFile.FileEncSHA256,
-		MediaKey:      uploadedFile.MediaKey,
-		DirectPath:    proto.String(uploadedFile.DirectPath),
+		FileLength:    proto.Uint64(uploaded.FileLength),
+		FileSha256:    uploaded.FileSHA256,
+		FileEncSha256: uploaded.FileEncSHA256,
+		MediaKey:      uploaded.MediaKey,
+		DirectPath:    proto.String(uploaded.DirectPath),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 		JpegThumbnail: dataWaThumbnail,
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -281,10 +289,11 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}()
 	if err != nil {
 		return response, err
-	} else {
-		response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts)
-		return response, nil
 	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
 }
 
 func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
@@ -296,6 +305,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	}
 	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
 		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
+	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{ContactMessage: &waProto.ContactMessage{
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
@@ -303,8 +313,39 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	ts, err := service.WaCli.SendMessage(ctx, recipient, "", msg)
 	if err != nil {
 		return response, err
-	} else {
-		response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts)
 	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}
+
+func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.LinkResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
+	recipient, ok := utils.ParseJID(request.Phone)
+	if !ok {
+		return response, errors.New("invalid JID " + request.Phone)
+	}
+
+	msgId := whatsmeow.GenerateMessageID()
+	msg := &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{
+		Text:         proto.String(request.Caption),
+		MatchedText:  proto.String(request.Caption),
+		CanonicalUrl: proto.String(request.Link),
+		ContextInfo: &waProto.ContextInfo{
+			ActionLink: &waProto.ActionLink{
+				Url:         proto.String(request.Link),
+				ButtonTitle: proto.String(request.Caption),
+			},
+		},
+	}}
+	ts, err := service.WaCli.SendMessage(ctx, recipient, msgId, msg)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
