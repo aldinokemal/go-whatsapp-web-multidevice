@@ -19,6 +19,7 @@ func (controller *AppController) Route(app *fiber.App) {
 	app.Get("/app/login", controller.Login)
 	app.Get("/app/logout", controller.Logout)
 	app.Get("/app/reconnect", controller.Reconnect)
+	app.Get("/app/devices", controller.Devices)
 }
 
 func (controller *AppController) Login(c *fiber.Ctx) error {
@@ -54,5 +55,16 @@ func (controller *AppController) Reconnect(c *fiber.Ctx) error {
 		Code:    200,
 		Message: "Reconnect success",
 		Results: nil,
+	})
+}
+
+func (controller *AppController) Devices(c *fiber.Ctx) error {
+	devices, err := controller.Service.FetchDevices(c.Context())
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Code:    200,
+		Message: "Fetch device success",
+		Results: devices,
 	})
 }

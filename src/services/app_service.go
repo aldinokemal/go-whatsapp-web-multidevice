@@ -9,6 +9,7 @@ import (
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,11 +17,13 @@ import (
 
 type serviceApp struct {
 	WaCli *whatsmeow.Client
+	db    *sqlstore.Container
 }
 
-func NewAppService(waCli *whatsmeow.Client) domainApp.IAppService {
+func NewAppService(waCli *whatsmeow.Client, db *sqlstore.Container) domainApp.IAppService {
 	return &serviceApp{
 		WaCli: waCli,
+		db:    db,
 	}
 }
 
@@ -85,7 +88,7 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete history
 	files, err := filepath.Glob("./history-*")
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, f := range files {
@@ -97,7 +100,7 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete qr images
 	qrImages, err := filepath.Glob("./statics/images/qrcode/scan-*")
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, f := range qrImages {
@@ -114,4 +117,29 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 func (service serviceApp) Reconnect(_ context.Context) (err error) {
 	service.WaCli.Disconnect()
 	return service.WaCli.Connect()
+}
+
+func (service serviceApp) FetchDevices(ctx context.Context) (response []domainApp.FetchDevicesResponse, err error) {
+	if service.WaCli == nil {
+		return response, errors.New("wa cli nil cok")
+	}
+
+	devices, err := service.db.GetAllDevices()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, device := range devices {
+		var d domainApp.FetchDevicesResponse
+		d.Device = device.ID.String()
+		if device.PushName != "" {
+			d.Name = device.PushName
+		} else {
+			d.Name = device.BusinessName
+		}
+
+		response = append(response, d)
+	}
+
+	return response, nil
 }

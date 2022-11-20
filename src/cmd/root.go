@@ -75,7 +75,7 @@ func runRest(cmd *cobra.Command, args []string) {
 	cli := utils.InitWaCLI(db)
 
 	// Service
-	appService := services.NewAppService(cli)
+	appService := services.NewAppService(cli, db)
 	sendService := services.NewSendService(cli)
 	userService := services.NewUserService(cli)
 
