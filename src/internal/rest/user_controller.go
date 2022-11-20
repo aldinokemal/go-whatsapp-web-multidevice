@@ -1,30 +1,35 @@
-package controllers
+package rest
 
 import (
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
 
-type UserController struct {
-	Service services.UserService
+type User struct {
+	Service domainUser.IUserService
 }
 
-func NewUserController(service services.UserService) UserController {
-	return UserController{Service: service}
+func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
+	rest := User{Service: service}
+	app.Get("/user/info", rest.UserInfo)
+	app.Get("/user/avatar", rest.UserAvatar)
+	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
+	app.Get("/user/my/groups", rest.UserMyListGroups)
+
+	return rest
 }
 
-func (controller *UserController) Route(app *fiber.App) {
+func (controller *User) Route(app *fiber.App) {
 	app.Get("/user/info", controller.UserInfo)
 	app.Get("/user/avatar", controller.UserAvatar)
 	app.Get("/user/my/privacy", controller.UserMyPrivacySetting)
 	app.Get("/user/my/groups", controller.UserMyListGroups)
 }
 
-func (controller *UserController) UserInfo(c *fiber.Ctx) error {
-	var request structs.UserInfoRequest
+func (controller *User) UserInfo(c *fiber.Ctx) error {
+	var request domainUser.InfoRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -32,7 +37,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	validations.ValidateUserInfo(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.UserInfo(c, request)
+	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -42,8 +47,8 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
-	var request structs.UserAvatarRequest
+func (controller *User) UserAvatar(c *fiber.Ctx) error {
+	var request domainUser.AvatarRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -51,7 +56,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 	validations.ValidateUserAvatar(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.UserAvatar(c, request)
+	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -61,8 +66,8 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
-	response, err := controller.Service.UserMyPrivacySetting(c)
+func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
+	response, err := controller.Service.MyPrivacySetting(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -72,8 +77,8 @@ func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserMyListGroups(c *fiber.Ctx) error {
-	response, err := controller.Service.UserMyListGroups(c)
+func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
+	response, err := controller.Service.MyListGroups(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

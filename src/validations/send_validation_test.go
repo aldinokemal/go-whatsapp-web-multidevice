@@ -1,14 +1,14 @@
 package validations
 
 import (
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/structs"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestValidateSendMessage(t *testing.T) {
 	type args struct {
-		request structs.SendMessageRequest
+		request domainSend.MessageRequest
 	}
 	tests := []struct {
 		name string
@@ -17,7 +17,7 @@ func TestValidateSendMessage(t *testing.T) {
 	}{
 		{
 			name: "success phone & message normal",
-			args: args{request: structs.SendMessageRequest{
+			args: args{request: domainSend.MessageRequest{
 				Phone:   "6289685024091",
 				Message: "Hello this is testing",
 			}},

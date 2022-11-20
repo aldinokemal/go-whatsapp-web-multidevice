@@ -140,13 +140,9 @@ github.com/gobuffalo/here v0.6.0/go.mod h1:wAG085dHOYqUpf+Ap+WOdrPTp5IYcDAs/x7PL
 github.com/gobuffalo/here v0.6.7 h1:hpfhh+kt2y9JLDfhYUxxCRxQol540jsVfKUZzjlbp8o=
 github.com/gobuffalo/here v0.6.7/go.mod h1:vuCfanjqckTuRlqAitJz6QC4ABNnS27wLb816UhsPcc=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
-github.com/gofiber/fiber/v2 v2.37.1/go.mod h1:j3UslgQeJQP3mNhBxHnLLE8TPqA1Fd/lrl4gD25rRUY=
-github.com/gofiber/fiber/v2 v2.39.0 h1:uhWpYQ6EHN8J7FOPYbI2hrdBD/KNZBC5CjbuOd4QUt4=
 github.com/gofiber/fiber/v2 v2.39.0/go.mod h1:Cmuu+elPYGqlvQvdKyjtYsjGMi69PDp8a1AY2I5B2gM=
 github.com/gofiber/fiber/v2 v2.40.0 h1:fdU7w5hT6PLL7jiWIhtQ+S/k5WEFYoUZidptlPu8GBo=
 github.com/gofiber/fiber/v2 v2.40.0/go.mod h1:Gko04sLksnHbzLSRBFWPFdzM9Ws9pRxvvIaohJK1dsk=
-github.com/gofiber/template v1.7.1 h1:QCRChZA6UrLROgMbzCMKm4a1yqM/5S8RTBKYWZ9GfL4=
-github.com/gofiber/template v1.7.1/go.mod h1:l3ZOSp8yrMvROzqyh0QTCw7MHet/yLBzaRX+wsiw+gM=
 github.com/gofiber/template v1.7.2 h1:sCHY5WcvmLtR7t8ihXCs5HRdYv4W9EzgBIMbUl4a5zw=
 github.com/gofiber/template v1.7.2/go.mod h1:uk/mUKTXJMBMoETvo/5CA/QlTFERHMooOm0pJPGDGVA=
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
@@ -408,8 +404,6 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.1/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3
 go.etcd.io/etcd/client/v2 v2.305.1/go.mod h1:pMEacxZW7o8pg4CrFE7pquyCJJzZvkvdD2RibOCCCGs=
 go.mau.fi/libsignal v0.0.0-20221015105917-d970e7c3c9cf h1:mzPxXBgDPHKDHMVV1tIWh7lwCiRpzCsXC0gNRX+K07c=
 go.mau.fi/libsignal v0.0.0-20221015105917-d970e7c3c9cf/go.mod h1:XCjaU93vl71YNRPn059jMrK0xRDwVO5gKbxoPxow9mQ=
-go.mau.fi/whatsmeow v0.0.0-20221104090956-123ccfa04185 h1:TTya4FuY3E8s+Dl7Srzv9fKbhvJeaWEcpQqa/WadsKo=
-go.mau.fi/whatsmeow v0.0.0-20221104090956-123ccfa04185/go.mod h1:elpwNbr2EwG1kadbswg+fKjlWffYUmOxqvx7Q8uX9YE=
 go.mau.fi/whatsmeow v0.0.0-20221117205735-357841c4ff30 h1:AVHEkGJSI6NsdbxVs9YEGPFR68uru1Ke/hH72EqzGpk=
 go.mau.fi/whatsmeow v0.0.0-20221117205735-357841c4ff30/go.mod h1:2yweL8nczvtlIxkrvCb0y8xiO13rveX9lJPambwYV/E=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=

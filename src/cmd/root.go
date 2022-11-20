@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/controllers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
@@ -63,6 +63,7 @@ func runRest(cmd *cobra.Command, args []string) {
 	})
 	app.Static("/statics", "./statics")
 	app.Use(middleware.Recovery())
+	app.Use(middleware.SelectJid())
 	if config.AppDebug {
 		app.Use(logger.New())
 	}
@@ -70,19 +71,6 @@ func runRest(cmd *cobra.Command, args []string) {
 		AllowOrigins: "*",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
-
-	db := utils.InitWaDB()
-	cli := utils.InitWaCLI(db)
-
-	// Service
-	appService := services.NewAppService(cli)
-	sendService := services.NewSendService(cli)
-	userService := services.NewUserService(cli)
-
-	// Controller
-	appController := controllers.NewAppController(appService)
-	sendController := controllers.NewSendController(sendService)
-	userController := controllers.NewUserController(userService)
 
 	if config.AppBasicAuthCredential != "" {
 		ba := strings.Split(config.AppBasicAuthCredential, ":")
@@ -97,9 +85,18 @@ func runRest(cmd *cobra.Command, args []string) {
 		}))
 	}
 
-	appController.Route(app)
-	sendController.Route(app)
-	userController.Route(app)
+	db := utils.InitWaDB()
+	cli := utils.InitWaCLI(db)
+
+	// Service
+	appService := services.NewAppService(cli, db)
+	sendService := services.NewSendService(cli)
+	userService := services.NewUserService(cli)
+
+	// Rest
+	rest.InitRestApp(app, appService)
+	rest.InitRestSend(app, sendService)
+	rest.InitRestUser(app, userService)
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
 		return ctx.Render("index", fiber.Map{

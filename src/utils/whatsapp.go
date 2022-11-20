@@ -108,6 +108,8 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
+	cli.EnableAutoReconnect = true
+	cli.AutoTrustIdentity = true
 	cli.AddEventHandler(handler)
 
 	return cli
