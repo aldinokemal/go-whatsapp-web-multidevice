@@ -9,7 +9,7 @@
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
-- Change OS name become your app (this is the app name when connect via mobile)
+- Change OS name become your app (it's the device name when connect via mobile)
   - `--os=Chrome` or `--os=MyApplication`
 - Basic Auth
     - `--basic-auth=kemal:secret`, or you can simplify
