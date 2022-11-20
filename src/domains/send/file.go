@@ -11,5 +11,4 @@ type FileRequest struct {
 type FileResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
-	Url       string `json:"url"`
 }

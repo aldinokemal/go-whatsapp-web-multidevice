@@ -139,7 +139,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 
 	response.MessageID = msgId
-	response.Url = uploadedImage.URL
 	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
@@ -192,7 +191,6 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	response.MessageID = msgId
-	response.Url = uploadedFile.URL
 	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
@@ -294,7 +292,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	response.MessageID = msgId
-	response.Url = uploaded.URL
 	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }

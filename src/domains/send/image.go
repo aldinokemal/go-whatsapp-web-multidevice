@@ -14,5 +14,4 @@ type ImageRequest struct {
 type ImageResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
-	Url       string `json:"url"`
 }

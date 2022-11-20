@@ -14,5 +14,4 @@ type VideoRequest struct {
 type VideoResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
-	Url       string `json:"url"`
 }
