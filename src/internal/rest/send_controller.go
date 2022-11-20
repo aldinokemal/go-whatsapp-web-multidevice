@@ -1,4 +1,4 @@
-package controllers
+package rest
 
 import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -7,23 +7,22 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type SendController struct {
+type Send struct {
 	Service domainSend.ISendService
 }
 
-func NewSendController(service domainSend.ISendService) SendController {
-	return SendController{Service: service}
+func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
+	rest := Send{Service: service}
+	app.Post("/send/message", rest.SendText)
+	app.Post("/send/image", rest.SendImage)
+	app.Post("/send/file", rest.SendFile)
+	app.Post("/send/video", rest.SendVideo)
+	app.Post("/send/contact", rest.SendContact)
+
+	return rest
 }
 
-func (controller *SendController) Route(app *fiber.App) {
-	app.Post("/send/message", controller.SendText)
-	app.Post("/send/image", controller.SendImage)
-	app.Post("/send/file", controller.SendFile)
-	app.Post("/send/video", controller.SendVideo)
-	app.Post("/send/contact", controller.SendContact)
-}
-
-func (controller *SendController) SendText(c *fiber.Ctx) error {
+func (controller *Send) SendText(c *fiber.Ctx) error {
 	var request domainSend.MessageRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
@@ -47,7 +46,7 @@ func (controller *SendController) SendText(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *SendController) SendImage(c *fiber.Ctx) error {
+func (controller *Send) SendImage(c *fiber.Ctx) error {
 	var request domainSend.ImageRequest
 	request.Compress = true
 
@@ -78,7 +77,7 @@ func (controller *SendController) SendImage(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *SendController) SendFile(c *fiber.Ctx) error {
+func (controller *Send) SendFile(c *fiber.Ctx) error {
 	var request domainSend.FileRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
@@ -107,7 +106,7 @@ func (controller *SendController) SendFile(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *SendController) SendVideo(c *fiber.Ctx) error {
+func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	var request domainSend.VideoRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
@@ -136,7 +135,7 @@ func (controller *SendController) SendVideo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *SendController) SendContact(c *fiber.Ctx) error {
+func (controller *Send) SendContact(c *fiber.Ctx) error {
 	var request domainSend.ContactRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)

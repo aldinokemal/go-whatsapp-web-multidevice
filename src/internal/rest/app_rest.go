@@ -1,4 +1,4 @@
-package controllers
+package rest
 
 import (
 	"fmt"
@@ -7,22 +7,21 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type AppController struct {
+type App struct {
 	Service domainApp.IAppService
 }
 
-func NewAppController(service domainApp.IAppService) AppController {
-	return AppController{Service: service}
+func InitRestApp(app *fiber.App, service domainApp.IAppService) App {
+	rest := App{Service: service}
+	app.Get("/app/login", rest.Login)
+	app.Get("/app/logout", rest.Logout)
+	app.Get("/app/reconnect", rest.Reconnect)
+	app.Get("/app/devices", rest.Devices)
+
+	return App{Service: service}
 }
 
-func (controller *AppController) Route(app *fiber.App) {
-	app.Get("/app/login", controller.Login)
-	app.Get("/app/logout", controller.Logout)
-	app.Get("/app/reconnect", controller.Reconnect)
-	app.Get("/app/devices", controller.Devices)
-}
-
-func (controller *AppController) Login(c *fiber.Ctx) error {
+func (controller *App) Login(c *fiber.Ctx) error {
 	response, err := controller.Service.Login(c.Context())
 	utils.PanicIfNeeded(err)
 
@@ -36,7 +35,7 @@ func (controller *AppController) Login(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *AppController) Logout(c *fiber.Ctx) error {
+func (controller *App) Logout(c *fiber.Ctx) error {
 	err := controller.Service.Logout(c.Context())
 	utils.PanicIfNeeded(err)
 
@@ -47,7 +46,7 @@ func (controller *AppController) Logout(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *AppController) Reconnect(c *fiber.Ctx) error {
+func (controller *App) Reconnect(c *fiber.Ctx) error {
 	err := controller.Service.Reconnect(c.Context())
 	utils.PanicIfNeeded(err)
 
@@ -58,7 +57,7 @@ func (controller *AppController) Reconnect(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *AppController) Devices(c *fiber.Ctx) error {
+func (controller *App) Devices(c *fiber.Ctx) error {
 	devices, err := controller.Service.FetchDevices(c.Context())
 	utils.PanicIfNeeded(err)
 

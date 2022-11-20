@@ -1,4 +1,4 @@
-package controllers
+package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
@@ -7,22 +7,28 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type UserController struct {
+type User struct {
 	Service domainUser.IUserService
 }
 
-func NewUserController(service domainUser.IUserService) UserController {
-	return UserController{Service: service}
+func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
+	rest := User{Service: service}
+	app.Get("/user/info", rest.UserInfo)
+	app.Get("/user/avatar", rest.UserAvatar)
+	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
+	app.Get("/user/my/groups", rest.UserMyListGroups)
+
+	return rest
 }
 
-func (controller *UserController) Route(app *fiber.App) {
+func (controller *User) Route(app *fiber.App) {
 	app.Get("/user/info", controller.UserInfo)
 	app.Get("/user/avatar", controller.UserAvatar)
 	app.Get("/user/my/privacy", controller.UserMyPrivacySetting)
 	app.Get("/user/my/groups", controller.UserMyListGroups)
 }
 
-func (controller *UserController) UserInfo(c *fiber.Ctx) error {
+func (controller *User) UserInfo(c *fiber.Ctx) error {
 	var request domainUser.InfoRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
@@ -41,7 +47,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
+func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	var request domainUser.AvatarRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
@@ -60,7 +66,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
+func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 	response, err := controller.Service.MyPrivacySetting(c.Context())
 	utils.PanicIfNeeded(err)
 
@@ -71,7 +77,7 @@ func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *UserController) UserMyListGroups(c *fiber.Ctx) error {
+func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
 	response, err := controller.Service.MyListGroups(c.Context())
 	utils.PanicIfNeeded(err)
 
