@@ -111,7 +111,7 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 
 ### App User Interface
 
-1. Homepage  ![Homepage](https://i.ibb.co/GR0MN9g/Screenshot-2022-11-06-at-14-02-39.png)
+1. Homepage  ![Homepage](https://i.ibb.co/xjZ7KLr/Screenshot-2022-11-20-at-20-54-52.png)
 2. Login  ![Login](https://i.ibb.co/Yp3YJKM/Screen-Shot-2022-02-13-at-12-55-54.png)
 3. Send Message ![Send Message](https://i.ibb.co/Bng57Ry/Screen-Shot-2022-05-22-at-13-51-13.png)
 4. Send Image ![Send Image](https://i.ibb.co/gJj3SrQ/Screen-Shot-2022-05-22-at-13-49-21.png)
