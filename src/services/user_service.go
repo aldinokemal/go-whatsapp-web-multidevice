@@ -10,17 +10,17 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-type UserServiceImpl struct {
+type userService struct {
 	WaCli *whatsmeow.Client
 }
 
 func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
-	return &UserServiceImpl{
+	return &userService{
 		WaCli: waCli,
 	}
 }
 
-func (service UserServiceImpl) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
+func (service userService) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	var jids []types.JID
@@ -61,7 +61,7 @@ func (service UserServiceImpl) Info(_ context.Context, request domainUser.InfoRe
 	return response, nil
 }
 
-func (service UserServiceImpl) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
+func (service userService) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	jid, ok := utils.ParseJID(request.Phone)
@@ -82,7 +82,7 @@ func (service UserServiceImpl) Avatar(_ context.Context, request domainUser.Avat
 	}
 }
 
-func (service UserServiceImpl) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
+func (service userService) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	groups, err := service.WaCli.GetJoinedGroups()
@@ -98,7 +98,7 @@ func (service UserServiceImpl) MyListGroups(_ context.Context) (response domainU
 	return response, nil
 }
 
-func (service UserServiceImpl) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
+func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	resp, err := service.WaCli.TryFetchPrivacySettings(false)
