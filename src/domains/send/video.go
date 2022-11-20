@@ -12,5 +12,7 @@ type VideoRequest struct {
 }
 
 type VideoResponse struct {
-	Status string `json:"status"`
+	MessageID string `json:"message_id"`
+	Status    string `json:"status"`
+	Url       string `json:"url"`
 }

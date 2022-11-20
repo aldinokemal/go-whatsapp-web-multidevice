@@ -18,6 +18,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/file", rest.SendFile)
 	app.Post("/send/video", rest.SendVideo)
 	app.Post("/send/contact", rest.SendContact)
+	app.Post("/send/link", rest.SendLink)
 
 	return rest
 }
@@ -150,6 +151,30 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 	}
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Code:    200,
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) SendLink(c *fiber.Ctx) error {
+	var request domainSend.LinkRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	err = validations.ValidateSendLink(request)
+	utils.PanicIfNeeded(err)
+
+	if request.Type == domainSend.TypeGroup {
+		request.Phone = request.Phone + "@g.us"
+	} else {
+		request.Phone = request.Phone + "@s.whatsapp.net"
+	}
+
+	response, err := controller.Service.SendLink(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

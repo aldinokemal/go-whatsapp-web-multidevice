@@ -113,3 +113,19 @@ func ValidateSendContact(request domainSend.ContactRequest) {
 		})
 	}
 }
+
+func ValidateSendLink(request domainSend.LinkRequest) error {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
+		validation.Field(&request.Link, validation.Required),
+		validation.Field(&request.Caption, validation.Required),
+	)
+
+	if err != nil {
+		return utils.ValidationError{
+			Message: err.Error(),
+		}
+	}
+
+	return nil
+}
