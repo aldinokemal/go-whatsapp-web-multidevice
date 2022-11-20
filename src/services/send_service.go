@@ -7,9 +7,9 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
-	"github.com/gofiber/fiber/v2"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/h2non/bimg"
+	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
@@ -28,7 +28,7 @@ func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
 	}
 }
 
-func (service serviceSend) SendText(c *fiber.Ctx, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
+func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	recipient, ok := utils.ParseJID(request.Phone)
@@ -36,7 +36,7 @@ func (service serviceSend) SendText(c *fiber.Ctx, request domainSend.MessageRequ
 		return response, errors.New("invalid JID " + request.Phone)
 	}
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(c.Context(), recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, recipient, "", msg)
 	if err != nil {
 		return response, err
 	} else {
@@ -45,7 +45,7 @@ func (service serviceSend) SendText(c *fiber.Ctx, request domainSend.MessageRequ
 	return response, nil
 }
 
-func (service serviceSend) SendImage(c *fiber.Ctx, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
+func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	var (
@@ -56,7 +56,7 @@ func (service serviceSend) SendImage(c *fiber.Ctx, request domainSend.ImageReque
 
 	// Save image to server
 	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
-	err = c.SaveFile(request.Image, oriImagePath)
+	err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
 	if err != nil {
 		return response, err
 	}
@@ -123,7 +123,7 @@ func (service serviceSend) SendImage(c *fiber.Ctx, request domainSend.ImageReque
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
-	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -138,11 +138,11 @@ func (service serviceSend) SendImage(c *fiber.Ctx, request domainSend.ImageReque
 	}
 }
 
-func (service serviceSend) SendFile(c *fiber.Ctx, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
+func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
-	err = c.SaveFile(request.File, oriFilePath)
+	err = fasthttp.SaveMultipartFile(request.File, oriFilePath)
 	if err != nil {
 		return response, err
 	}
@@ -173,7 +173,7 @@ func (service serviceSend) SendFile(c *fiber.Ctx, request domainSend.FileRequest
 		FileEncSha256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 	}}
-	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, oriFilePath)
 		if errDelete != nil {
@@ -188,7 +188,7 @@ func (service serviceSend) SendFile(c *fiber.Ctx, request domainSend.FileRequest
 	}
 }
 
-func (service serviceSend) SendVideo(c *fiber.Ctx, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
+func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	var (
@@ -200,7 +200,7 @@ func (service serviceSend) SendVideo(c *fiber.Ctx, request domainSend.VideoReque
 	generateUUID := fiberUtils.UUIDv4()
 	// Save video to server
 	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
-	err = c.SaveFile(request.Video, oriVideoPath)
+	err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
 	if err != nil {
 		return response, err
 	}
@@ -272,7 +272,7 @@ func (service serviceSend) SendVideo(c *fiber.Ctx, request domainSend.VideoReque
 		ViewOnce:      proto.Bool(request.ViewOnce),
 		JpegThumbnail: dataWaThumbnail,
 	}}
-	ts, err := service.WaCli.SendMessage(c.Context(), dataWaRecipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -287,7 +287,7 @@ func (service serviceSend) SendVideo(c *fiber.Ctx, request domainSend.VideoReque
 	}
 }
 
-func (service serviceSend) SendContact(c *fiber.Ctx, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
+func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	recipient, ok := utils.ParseJID(request.Phone)
@@ -300,7 +300,7 @@ func (service serviceSend) SendContact(c *fiber.Ctx, request domainSend.ContactR
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
-	ts, err := service.WaCli.SendMessage(c.Context(), recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, recipient, "", msg)
 	if err != nil {
 		return response, err
 	} else {

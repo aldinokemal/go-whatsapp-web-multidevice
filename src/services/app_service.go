@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"github.com/gofiber/fiber/v2"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -25,7 +24,7 @@ func NewAppService(waCli *whatsmeow.Client) domainApp.IAppService {
 	}
 }
 
-func (service serviceApp) Login(c *fiber.Ctx) (response domainApp.LoginResponse, err error) {
+func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResponse, err error) {
 	if service.WaCli == nil {
 		return response, errors.New("wa cli nil cok")
 	}
@@ -82,7 +81,7 @@ func (service serviceApp) Login(c *fiber.Ctx) (response domainApp.LoginResponse,
 	return response, nil
 }
 
-func (service serviceApp) Logout(c *fiber.Ctx) (err error) {
+func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete history
 	files, err := filepath.Glob("./history-*")
 	if err != nil {
@@ -112,7 +111,7 @@ func (service serviceApp) Logout(c *fiber.Ctx) (err error) {
 	return
 }
 
-func (service serviceApp) Reconnect(c *fiber.Ctx) (err error) {
+func (service serviceApp) Reconnect(_ context.Context) (err error) {
 	service.WaCli.Disconnect()
 	return service.WaCli.Connect()
 }

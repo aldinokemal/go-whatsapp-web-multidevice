@@ -1,12 +1,12 @@
 package user
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"context"
 )
 
 type IUserService interface {
-	Info(c *fiber.Ctx, request InfoRequest) (response InfoResponse, err error)
-	Avatar(c *fiber.Ctx, request AvatarRequest) (response AvatarResponse, err error)
-	MyListGroups(c *fiber.Ctx) (response MyListGroupsResponse, err error)
-	MyPrivacySetting(c *fiber.Ctx) (response MyPrivacySettingResponse, err error)
+	Info(ctx context.Context, request InfoRequest) (response InfoResponse, err error)
+	Avatar(ctx context.Context, request AvatarRequest) (response AvatarResponse, err error)
+	MyListGroups(ctx context.Context) (response MyListGroupsResponse, err error)
+	MyPrivacySetting(ctx context.Context) (response MyPrivacySettingResponse, err error)
 }

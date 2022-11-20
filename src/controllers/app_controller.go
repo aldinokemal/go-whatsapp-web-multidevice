@@ -22,7 +22,7 @@ func (controller *AppController) Route(app *fiber.App) {
 }
 
 func (controller *AppController) Login(c *fiber.Ctx) error {
-	response, err := controller.Service.Login(c)
+	response, err := controller.Service.Login(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -36,7 +36,7 @@ func (controller *AppController) Login(c *fiber.Ctx) error {
 }
 
 func (controller *AppController) Logout(c *fiber.Ctx) error {
-	err := controller.Service.Logout(c)
+	err := controller.Service.Logout(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -47,7 +47,7 @@ func (controller *AppController) Logout(c *fiber.Ctx) error {
 }
 
 func (controller *AppController) Reconnect(c *fiber.Ctx) error {
-	err := controller.Service.Reconnect(c)
+	err := controller.Service.Reconnect(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

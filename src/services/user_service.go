@@ -1,11 +1,11 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
-	"github.com/gofiber/fiber/v2"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -20,7 +20,7 @@ func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
 	}
 }
 
-func (service UserServiceImpl) Info(_ *fiber.Ctx, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
+func (service UserServiceImpl) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	var jids []types.JID
@@ -61,7 +61,7 @@ func (service UserServiceImpl) Info(_ *fiber.Ctx, request domainUser.InfoRequest
 	return response, nil
 }
 
-func (service UserServiceImpl) Avatar(c *fiber.Ctx, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
+func (service UserServiceImpl) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	jid, ok := utils.ParseJID(request.Phone)
@@ -82,7 +82,7 @@ func (service UserServiceImpl) Avatar(c *fiber.Ctx, request domainUser.AvatarReq
 	}
 }
 
-func (service UserServiceImpl) MyListGroups(_ *fiber.Ctx) (response domainUser.MyListGroupsResponse, err error) {
+func (service UserServiceImpl) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	groups, err := service.WaCli.GetJoinedGroups()
@@ -98,7 +98,7 @@ func (service UserServiceImpl) MyListGroups(_ *fiber.Ctx) (response domainUser.M
 	return response, nil
 }
 
-func (service UserServiceImpl) MyPrivacySetting(_ *fiber.Ctx) (response domainUser.MyPrivacySettingResponse, err error) {
+func (service UserServiceImpl) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	utils.MustLogin(service.WaCli)
 
 	resp, err := service.WaCli.TryFetchPrivacySettings(false)

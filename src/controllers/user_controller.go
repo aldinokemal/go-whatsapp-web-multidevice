@@ -31,7 +31,7 @@ func (controller *UserController) UserInfo(c *fiber.Ctx) error {
 	validations.ValidateUserInfo(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.Info(c, request)
+	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -50,7 +50,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 	validations.ValidateUserAvatar(request)
 
 	request.Phone = request.Phone + "@s.whatsapp.net"
-	response, err := controller.Service.Avatar(c, request)
+	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -61,7 +61,7 @@ func (controller *UserController) UserAvatar(c *fiber.Ctx) error {
 }
 
 func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
-	response, err := controller.Service.MyPrivacySetting(c)
+	response, err := controller.Service.MyPrivacySetting(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -72,7 +72,7 @@ func (controller *UserController) UserMyPrivacySetting(c *fiber.Ctx) error {
 }
 
 func (controller *UserController) UserMyListGroups(c *fiber.Ctx) error {
-	response, err := controller.Service.MyListGroups(c)
+	response, err := controller.Service.MyListGroups(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

@@ -1,7 +1,7 @@
 package send
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"context"
 )
 
 type Type string
@@ -10,9 +10,9 @@ const TypeUser Type = "user"
 const TypeGroup Type = "group"
 
 type ISendService interface {
-	SendText(c *fiber.Ctx, request MessageRequest) (response MessageResponse, err error)
-	SendImage(c *fiber.Ctx, request ImageRequest) (response ImageResponse, err error)
-	SendFile(c *fiber.Ctx, request FileRequest) (response FileResponse, err error)
-	SendVideo(c *fiber.Ctx, request VideoRequest) (response VideoResponse, err error)
-	SendContact(c *fiber.Ctx, request ContactRequest) (response ContactResponse, err error)
+	SendText(ctx context.Context, request MessageRequest) (response MessageResponse, err error)
+	SendImage(ctx context.Context, request ImageRequest) (response ImageResponse, err error)
+	SendFile(ctx context.Context, request FileRequest) (response FileResponse, err error)
+	SendVideo(ctx context.Context, request VideoRequest) (response VideoResponse, err error)
+	SendContact(ctx context.Context, request ContactRequest) (response ContactResponse, err error)
 }
