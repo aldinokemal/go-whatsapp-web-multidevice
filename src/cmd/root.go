@@ -17,8 +17,10 @@ import (
 	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -108,6 +110,11 @@ func runRest(cmd *cobra.Command, args []string) {
 		})
 	})
 
+	// Set auto reconnect to whatsapp server after booting
+	go func() {
+		time.Sleep(2 * time.Second)
+		_, _ = http.Get(fmt.Sprintf("http://localhost:%s/app/reconnect", config.AppPort))
+	}()
 	err = app.Listen(":" + config.AppPort)
 	if err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
