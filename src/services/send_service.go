@@ -12,6 +12,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
@@ -347,5 +348,24 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 
 	response.MessageID = msgId
 	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}
+
+func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
+	recipient, ok := utils.ParseJID(request.Phone)
+	if !ok {
+		return response, errors.New("invalid JID " + request.Phone)
+	}
+
+	msgId := whatsmeow.GenerateMessageID()
+	ts, err := service.WaCli.SendMessage(context.Background(), recipient, msgId, service.WaCli.BuildRevoke(recipient, types.EmptyJID, request.MessageID))
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Revoke success %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }

@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
@@ -19,7 +20,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/video", rest.SendVideo)
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
-
+	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
 	return rest
 }
 
@@ -175,6 +176,26 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 	}
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Code:    200,
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) RevokeMessage(c *fiber.Ctx) error {
+	var request domainSend.RevokeRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+	request.MessageID = c.Params("message_id")
+
+	err = validations.ValidateRevokeMessage(request)
+	utils.PanicIfNeeded(err)
+	fmt.Println(request)
+
+	response, err := controller.Service.Revoke(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

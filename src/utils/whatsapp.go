@@ -74,10 +74,10 @@ func ParseJID(arg string) (types.JID, bool) {
 	} else {
 		recipient, err := types.ParseJID(arg)
 		if err != nil {
-			_ = fmt.Errorf("Invalid JID %s: %v", arg, err)
+			_ = fmt.Errorf("invalid JID %s: %v", arg, err)
 			return recipient, false
 		} else if recipient.User == "" {
-			_ = fmt.Errorf("Invalid JID %s: no server specified", arg)
+			_ = fmt.Errorf("invalid JID %s: no server specified", arg)
 			return recipient, false
 		}
 		return recipient, true
