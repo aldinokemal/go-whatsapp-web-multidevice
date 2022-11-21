@@ -369,3 +369,23 @@ func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRe
 	response.Status = fmt.Sprintf("Revoke success %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
+
+func (service serviceSend) UpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) (response domainSend.UpdateMessageResponse, err error) {
+	utils.MustLogin(service.WaCli)
+
+	recipient, ok := utils.ParseJID(request.Phone)
+	if !ok {
+		return response, errors.New("invalid JID " + request.Phone)
+	}
+
+	msgId := whatsmeow.GenerateMessageID()
+	msg := &waProto.Message{Conversation: proto.String(request.Message)}
+	ts, err := service.WaCli.SendMessage(context.Background(), recipient, msgId, service.WaCli.BuildEdit(recipient, request.MessageID, msg))
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}

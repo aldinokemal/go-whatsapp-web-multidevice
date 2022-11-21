@@ -17,4 +17,5 @@ type ISendService interface {
 	SendContact(ctx context.Context, request ContactRequest) (response ContactResponse, err error)
 	SendLink(ctx context.Context, request LinkRequest) (response LinkResponse, err error)
 	Revoke(ctx context.Context, request RevokeRequest) (response RevokeResponse, err error)
+	UpdateMessage(ctx context.Context, request UpdateMessageRequest) (response UpdateMessageResponse, err error)
 }
