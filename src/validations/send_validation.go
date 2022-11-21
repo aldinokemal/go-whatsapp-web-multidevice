@@ -129,3 +129,18 @@ func ValidateSendLink(request domainSend.LinkRequest) error {
 
 	return nil
 }
+
+func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
+		validation.Field(&request.MessageID, validation.Required, validation.Length(20, 25)),
+	)
+
+	if err != nil {
+		return utils.ValidationError{
+			Message: err.Error(),
+		}
+	}
+
+	return nil
+}
