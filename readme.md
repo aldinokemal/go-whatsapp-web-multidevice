@@ -12,9 +12,9 @@
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
     - `--os=Chrome` or `--os=MyApplication`
-- Basic Auth
-    - `--basic-auth=kemal:secret`, or you can simplify
-    - `-b=kemal:secret`
+- Basic Auth (able to add multi account)
+    - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
+    - `-b=kemal:secret,toni:password,userName:secretPassword`
 - Customizable port and debug mode
     - `--port 8000`
     - `--debug true`

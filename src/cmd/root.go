@@ -74,16 +74,21 @@ func runRest(_ *cobra.Command, _ []string) {
 	}))
 
 	if config.AppBasicAuthCredential != "" {
-		ba := strings.Split(config.AppBasicAuthCredential, ":")
-		if len(ba) != 2 {
-			log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
+		account := make(map[string]string, 0)
+		multipleBA := strings.Split(config.AppBasicAuthCredential, ",")
+		for _, basicAuth := range multipleBA {
+			ba := strings.Split(basicAuth, ":")
+			if len(ba) != 2 {
+				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
+			}
+			account[ba[0]] = ba[1]
 		}
 
-		app.Use(basicauth.New(basicauth.Config{
-			Users: map[string]string{
-				ba[0]: ba[1],
-			},
-		}))
+		if account != nil {
+			app.Use(basicauth.New(basicauth.Config{
+				Users: account,
+			}))
+		}
 	}
 
 	db := utils.InitWaDB()
