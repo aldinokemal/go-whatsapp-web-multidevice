@@ -1113,9 +1113,6 @@
             if (window["WebSocket"]) {
                 let wsType = location.protocol !== 'https:' ? 'ws://' : 'wss://';
                 let conn = new WebSocket(wsType + document.location.host + "/ws");
-                conn.onclose = function (evt) {
-                    console.log(evt)
-                };
                 conn.onmessage = function (evt) {
                     const message = JSON.parse(evt.data)
                     switch (message.code) {
@@ -1129,7 +1126,7 @@
                     }
                 };
             } else {
-                console.log('Your browser does not support WebSockets');
+                console.error('Your browser does not support WebSockets');
             }
         },
         methods: {
