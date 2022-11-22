@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
@@ -81,10 +80,6 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 		return response, errors.New("Failed to connect bro " + err.Error())
 	}
 	response.ImagePath = <-chImage
-
-	// Set in event
-	utils.LoginTime = time.Now()
-	utils.LoginIsNotified = false
 
 	return response, nil
 }

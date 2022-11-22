@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
@@ -16,16 +15,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html"
-	"github.com/gofiber/websocket/v2"
 	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/spf13/cobra"
 	"log"
-	"net/http"
 	"os"
 	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -105,61 +100,19 @@ func runRest(_ *cobra.Command, _ []string) {
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
 		return ctx.Render("index", fiber.Map{
-			"AppHost":          fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
-			"AppVersion":       config.AppVersion,
-			"QRRefreshSeconds": config.AppRefreshQRCodeSeconds * 1000,
-			"BasicAuthToken":   base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
-			"MaxFileSize":      humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":     humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			"AppHost":        fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
+			"AppVersion":     config.AppVersion,
+			"BasicAuthToken": base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
+			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
 	})
 
-	app.Use("/ws", func(c *fiber.Ctx) error {
-		if websocket.IsWebSocketUpgrade(c) { // Returns true if the client requested upgrade to the WebSocket protocol
-			return c.Next()
-		}
-		return c.SendStatus(fiber.StatusUpgradeRequired)
-	})
+	helpers.WsRegisterRoutes(app, cli)
 	go helpers.WsRunHub()
-	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
-		// When the function returns, unregister the client and close the connection
-		defer func() {
-			helpers.WsUnregister <- c
-			c.Close()
-		}()
-
-		// Register the client
-		helpers.WsRegister <- c
-
-		for {
-			messageType, message, err := c.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Println("read error:", err)
-				}
-				return // Calls the deferred function, i.e. closes the connection on error
-			}
-
-			if messageType == websocket.TextMessage {
-				// Broadcast the received message
-				var messageData helpers.WsBroadcastMessage
-				err := json.Unmarshal(message, &messageData)
-				if err != nil {
-					log.Println("error unmarshal message:", err)
-					return
-				}
-				helpers.WsBroadcast <- messageData
-			} else {
-				log.Println("websocket message received of type", messageType)
-			}
-		}
-	}))
 
 	// Set auto reconnect to whatsapp server after booting
-	go func() {
-		time.Sleep(2 * time.Second)
-		_, _ = http.Get(fmt.Sprintf("http://localhost:%s/app/reconnect", config.AppPort))
-	}()
+	go helpers.SetAutoConnectAfterBooting()
 	err = app.Listen(":" + config.AppPort)
 	if err != nil {
 		log.Fatalln("Failed to start: ", err.Error())

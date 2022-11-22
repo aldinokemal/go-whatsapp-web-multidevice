@@ -25,12 +25,10 @@ import (
 )
 
 var (
-	cli             *whatsmeow.Client
-	log             waLog.Logger
-	historySyncID   int32
-	LoginTime       time.Time
-	LoginIsNotified bool
-	startupTime     = time.Now().Unix()
+	cli           *whatsmeow.Client
+	log           waLog.Logger
+	historySyncID int32
+	startupTime   = time.Now().Unix()
 )
 
 func GetPlatformName(deviceID int) string {
@@ -137,16 +135,14 @@ func handler(rawEvt interface{}) {
 				log.Infof("Marked self as available")
 			}
 		}
+	case *events.PairSuccess:
+		helpers.WsBroadcast <- helpers.WsBroadcastMessage{
+			Code:    "LOGIN_SUCCESS",
+			Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
+		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(cli.Store.PushName) == 0 {
 			return
-		}
-		if cli.LastSuccessfulConnect.Before(LoginTime.Add(time.Duration(config.AppRefreshQRCodeSeconds)*time.Second)) && !LoginIsNotified {
-			LoginIsNotified = true
-			helpers.WsBroadcast <- helpers.WsBroadcastMessage{
-				Code:    "LOGIN_SUCCESS",
-				Message: "Login Success",
-			}
 		}
 
 		// Send presence available when connecting and when the pushname is changed.

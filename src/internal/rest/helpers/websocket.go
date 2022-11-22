@@ -2,7 +2,9 @@ package helpers
 
 import (
 	"encoding/json"
+	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"go.mau.fi/whatsmeow"
 	"log"
 )
 
@@ -58,4 +60,47 @@ func WsRunHub() {
 			log.Println("connection unregistered")
 		}
 	}
+}
+
+func WsRegisterRoutes(app *fiber.App, cli *whatsmeow.Client) {
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) { // Returns true if the client requested upgrade to the WebSocket protocol
+			return c.Next()
+		}
+		return c.SendStatus(fiber.StatusUpgradeRequired)
+	})
+
+	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
+		// When the function returns, unregister the client and close the connection
+		defer func() {
+			WsUnregister <- c
+			_ = c.Close()
+		}()
+
+		// Register the client
+		WsRegister <- c
+
+		for {
+			messageType, message, err := c.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Println("read error:", err)
+				}
+				return // Calls the deferred function, i.e. closes the connection on error
+			}
+
+			if messageType == websocket.TextMessage {
+				// Broadcast the received message
+				var messageData WsBroadcastMessage
+				err := json.Unmarshal(message, &messageData)
+				if err != nil {
+					log.Println("error unmarshal message:", err)
+					return
+				}
+				WsBroadcast <- messageData
+			} else {
+				log.Println("websocket message received of type", messageType)
+			}
+		}
+	}))
 }
