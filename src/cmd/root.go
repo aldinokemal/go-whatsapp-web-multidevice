@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
@@ -16,13 +18,10 @@ import (
 	"github.com/gofiber/template/html"
 	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/spf13/cobra"
 	"log"
-	"net/http"
 	"os"
 	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -43,7 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyWebhook, "webhook", "w", config.WhatsappAutoReplyMessage, `auto reply when received message --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 }
 
-func runRest(cmd *cobra.Command, args []string) {
+func runRest(_ *cobra.Command, _ []string) {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
 	}
@@ -110,21 +109,19 @@ func runRest(cmd *cobra.Command, args []string) {
 		})
 	})
 
+	websocket.RegisterRoutes(app)
+	go websocket.RunHub()
+
 	// Set auto reconnect to whatsapp server after booting
-	go func() {
-		time.Sleep(2 * time.Second)
-		_, _ = http.Get(fmt.Sprintf("http://localhost:%s/app/reconnect", config.AppPort))
-	}()
-	err = app.Listen(":" + config.AppPort)
-	if err != nil {
+	go helpers.SetAutoConnectAfterBooting()
+	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

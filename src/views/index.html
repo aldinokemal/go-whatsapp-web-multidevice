@@ -228,12 +228,15 @@
             <div class="description">
                 <div class="ui header">Please scan to connect</div>
                 <p>Open Setting > Linked Devices > Link Device</p>
+                <div style="padding-top: 50px;">
+                    <i>Refresh QR Code in [[ login_duration_sec ]] seconds to avoid link expiration</i>
+                </div>
             </div>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button">
-                Done
-                <i class="checkmark icon"></i>
+            <div class="ui approve positive right labeled icon button" @click="loginApiGetQrCode">
+                Refresh QR Code
+                <i class="refresh icon"></i>
             </div>
         </div>
     </div>
@@ -576,13 +579,18 @@
             return {
                 login_link: '',
                 login_duration_sec: 0,
+                autoUpdateQRCode: null,
             }
         },
         methods: {
             async loginModal() {
                 try {
                     await this.loginApiGetQrCode();
-                    $('#modalLogin').modal('show');
+                    $('#modalLogin').modal({
+                        onApprove: function () {
+                            return false;
+                        }
+                    }).modal('show');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -1101,7 +1109,33 @@
         data() {
             return {
                 app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})'
+                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})',
+                is_logged_in: false,
+            }
+        },
+        mounted() {
+            if (window["WebSocket"]) {
+                let wsType = location.protocol !== 'https:' ? 'ws://' : 'wss://';
+                let conn = new WebSocket(wsType + document.location.host + "/ws");
+
+                conn.onclose = (evt) => {
+                    console.log(evt)
+                };
+
+                conn.onmessage = (evt) => {
+                    console.log(evt)
+                    const message = JSON.parse(evt.data)
+                    switch (message.code) {
+                        case 'LOGIN_SUCCESS':
+                            showSuccessInfo(message.message)
+                            $('#modalLogin').modal('hide');
+                            break;
+                        default:
+                            console.log(message)
+                    }
+                };
+            } else {
+                console.error('Your browser does not support WebSockets');
             }
         },
         methods: {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -134,10 +135,16 @@ func handler(rawEvt interface{}) {
 				log.Infof("Marked self as available")
 			}
 		}
+	case *events.PairSuccess:
+		websocket.Broadcast <- websocket.BroadcastMessage{
+			Code:    "LOGIN_SUCCESS",
+			Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
+		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(cli.Store.PushName) == 0 {
 			return
 		}
+
 		// Send presence available when connecting and when the pushname is changed.
 		// This makes sure that outgoing messages always have the right pushname.
 		err := cli.SendPresence(types.PresenceAvailable)
