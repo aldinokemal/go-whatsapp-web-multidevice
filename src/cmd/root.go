@@ -6,6 +6,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
@@ -108,8 +109,8 @@ func runRest(_ *cobra.Command, _ []string) {
 		})
 	})
 
-	helpers.WsRegisterRoutes(app, cli)
-	go helpers.WsRunHub()
+	websocket.RegisterRoutes(app)
+	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting()

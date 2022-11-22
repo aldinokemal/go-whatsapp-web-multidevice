@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -136,7 +136,7 @@ func handler(rawEvt interface{}) {
 			}
 		}
 	case *events.PairSuccess:
-		helpers.WsBroadcast <- helpers.WsBroadcastMessage{
+		websocket.Broadcast <- websocket.BroadcastMessage{
 			Code:    "LOGIN_SUCCESS",
 			Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 		}

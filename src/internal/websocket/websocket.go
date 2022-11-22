@@ -1,32 +1,31 @@
-package helpers
+package websocket
 
 import (
 	"encoding/json"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
-	"go.mau.fi/whatsmeow"
 	"log"
 )
 
 type client struct{} // Add more data to this type if needed
-type WsBroadcastMessage struct {
+type BroadcastMessage struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-var WsClients = make(map[*websocket.Conn]client) // Note: although large maps with pointer-like types (e.g. strings) as keys are slow, using pointers themselves as keys is acceptable and fast
-var WsRegister = make(chan *websocket.Conn)
-var WsBroadcast = make(chan WsBroadcastMessage)
-var WsUnregister = make(chan *websocket.Conn)
+var Clients = make(map[*websocket.Conn]client) // Note: although large maps with pointer-like types (e.g. strings) as keys are slow, using pointers themselves as keys is acceptable and fast
+var Register = make(chan *websocket.Conn)
+var Broadcast = make(chan BroadcastMessage)
+var Unregister = make(chan *websocket.Conn)
 
-func WsRunHub() {
+func RunHub() {
 	for {
 		select {
-		case connection := <-WsRegister:
-			WsClients[connection] = client{}
+		case connection := <-Register:
+			Clients[connection] = client{}
 			log.Println("connection registered")
 
-		case message := <-WsBroadcast:
+		case message := <-Broadcast:
 			log.Println("message received:", message)
 			marshalMessage, err := json.Marshal(message)
 			if err != nil {
@@ -35,7 +34,7 @@ func WsRunHub() {
 			}
 
 			// Send the message to all clients
-			for connection := range WsClients {
+			for connection := range Clients {
 				if err := connection.WriteMessage(websocket.TextMessage, marshalMessage); err != nil {
 					log.Println("write error:", err)
 
@@ -49,20 +48,20 @@ func WsRunHub() {
 						log.Println("close error:", err)
 						return
 					}
-					delete(WsClients, connection)
+					delete(Clients, connection)
 				}
 			}
 
-		case connection := <-WsUnregister:
+		case connection := <-Unregister:
 			// Remove the client from the hub
-			delete(WsClients, connection)
+			delete(Clients, connection)
 
 			log.Println("connection unregistered")
 		}
 	}
 }
 
-func WsRegisterRoutes(app *fiber.App, cli *whatsmeow.Client) {
+func RegisterRoutes(app *fiber.App) {
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) { // Returns true if the client requested upgrade to the WebSocket protocol
 			return c.Next()
@@ -73,12 +72,12 @@ func WsRegisterRoutes(app *fiber.App, cli *whatsmeow.Client) {
 	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
 		// When the function returns, unregister the client and close the connection
 		defer func() {
-			WsUnregister <- c
+			Unregister <- c
 			_ = c.Close()
 		}()
 
 		// Register the client
-		WsRegister <- c
+		Register <- c
 
 		for {
 			messageType, message, err := c.ReadMessage()
@@ -91,13 +90,13 @@ func WsRegisterRoutes(app *fiber.App, cli *whatsmeow.Client) {
 
 			if messageType == websocket.TextMessage {
 				// Broadcast the received message
-				var messageData WsBroadcastMessage
+				var messageData BroadcastMessage
 				err := json.Unmarshal(message, &messageData)
 				if err != nil {
 					log.Println("error unmarshal message:", err)
 					return
 				}
-				WsBroadcast <- messageData
+				Broadcast <- messageData
 			} else {
 				log.Println("websocket message received of type", messageType)
 			}
