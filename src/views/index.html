@@ -576,6 +576,7 @@
             return {
                 login_link: '',
                 login_duration_sec: 0,
+                autoUpdateQRCode: null,
             }
         },
         methods: {
@@ -583,6 +584,9 @@
                 try {
                     await this.loginApiGetQrCode();
                     $('#modalLogin').modal('show');
+                    this.autoUpdateQRCode = setInterval(async () => {
+                        await this.loginApiGetQrCode();
+                    }, {{.QRRefreshSeconds}} );
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -1101,7 +1105,31 @@
         data() {
             return {
                 app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})'
+                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})',
+                is_logged_in: false,
+            }
+        },
+        mounted() {
+            if (window["WebSocket"]) {
+                let wsType = location.protocol !== 'https:' ? 'ws://' : 'wss://';
+                let conn = new WebSocket(wsType + document.location.host + "/ws");
+                conn.onclose = function (evt) {
+                    console.log(evt)
+                };
+                conn.onmessage = function (evt) {
+                    const message = JSON.parse(evt.data)
+                    switch (message.code) {
+                        case 'LOGIN_SUCCESS':
+                            showSuccessInfo(message.message)
+                            $('#modalLogin').modal('hide');
+                            location.reload()
+                            break;
+                        default:
+                            console.log(message)
+                    }
+                };
+            } else {
+                console.log('Your browser does not support WebSockets');
             }
         },
         methods: {

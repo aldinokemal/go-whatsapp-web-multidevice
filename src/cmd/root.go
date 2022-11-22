@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
@@ -14,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html"
+	"github.com/gofiber/websocket/v2"
 	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
 	"log"
@@ -43,7 +46,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyWebhook, "webhook", "w", config.WhatsappAutoReplyMessage, `auto reply when received message --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 }
 
-func runRest(cmd *cobra.Command, args []string) {
+func runRest(_ *cobra.Command, _ []string) {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
 	}
@@ -102,13 +105,55 @@ func runRest(cmd *cobra.Command, args []string) {
 
 	app.Get("/", func(ctx *fiber.Ctx) error {
 		return ctx.Render("index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
-			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
-			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			"AppHost":          fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
+			"AppVersion":       config.AppVersion,
+			"QRRefreshSeconds": config.AppRefreshQRCodeSeconds * 1000,
+			"BasicAuthToken":   base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
+			"MaxFileSize":      humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+			"MaxVideoSize":     humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
 	})
+
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) { // Returns true if the client requested upgrade to the WebSocket protocol
+			return c.Next()
+		}
+		return c.SendStatus(fiber.StatusUpgradeRequired)
+	})
+	go helpers.WsRunHub()
+	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
+		// When the function returns, unregister the client and close the connection
+		defer func() {
+			helpers.WsUnregister <- c
+			c.Close()
+		}()
+
+		// Register the client
+		helpers.WsRegister <- c
+
+		for {
+			messageType, message, err := c.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Println("read error:", err)
+				}
+				return // Calls the deferred function, i.e. closes the connection on error
+			}
+
+			if messageType == websocket.TextMessage {
+				// Broadcast the received message
+				var messageData helpers.WsBroadcastMessage
+				err := json.Unmarshal(message, &messageData)
+				if err != nil {
+					log.Println("error unmarshal message:", err)
+					return
+				}
+				helpers.WsBroadcast <- messageData
+			} else {
+				log.Println("websocket message received of type", messageType)
+			}
+		}
+	}))
 
 	// Set auto reconnect to whatsapp server after booting
 	go func() {

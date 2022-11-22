@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -24,10 +25,12 @@ import (
 )
 
 var (
-	cli           *whatsmeow.Client
-	log           waLog.Logger
-	historySyncID int32
-	startupTime   = time.Now().Unix()
+	cli             *whatsmeow.Client
+	log             waLog.Logger
+	historySyncID   int32
+	LoginTime       time.Time
+	LoginIsNotified bool
+	startupTime     = time.Now().Unix()
 )
 
 func GetPlatformName(deviceID int) string {
@@ -138,6 +141,14 @@ func handler(rawEvt interface{}) {
 		if len(cli.Store.PushName) == 0 {
 			return
 		}
+		if cli.LastSuccessfulConnect.Before(LoginTime.Add(time.Duration(config.AppRefreshQRCodeSeconds)*time.Second)) && !LoginIsNotified {
+			LoginIsNotified = true
+			helpers.WsBroadcast <- helpers.WsBroadcastMessage{
+				Code:    "LOGIN_SUCCESS",
+				Message: "Login Success",
+			}
+		}
+
 		// Send presence available when connecting and when the pushname is changed.
 		// This makes sure that outgoing messages always have the right pushname.
 		err := cli.SendPresence(types.PresenceAvailable)
