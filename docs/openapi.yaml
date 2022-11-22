@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 2.4.0
+  version: 2.5.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -46,6 +46,12 @@ paths:
                   qr_duration: 30
                   qr_link: >-
                     http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /app/logout:
     get:
       operationId: authLogout
@@ -78,24 +84,10 @@ paths:
                 results: null
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 02:39:02 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: text/plain; charset=utf-8
-            Content-Length:
-              schema:
-                type: integer
-                example: '38'
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-              example: the store doesn't contain a device JID
+                $ref: '#/components/schemas/ErrorInternalServer'
   /app/reconnect:
     get:
       operationId: authReconnect
@@ -105,27 +97,16 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 02:38:10 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '57'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Reconnect success
-                results: null
+                $ref: '#/components/schemas/SendResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/info:
     get:
       operationId: userInfo
@@ -191,58 +172,16 @@ paths:
                       AD: true
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Sun, 13 Feb 2022 05:04:20 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '63'
-            Vary:
-              schema:
-                type: string
-                example: Origin
-            Access-Control-Allow-Origin:
-              schema:
-                type: string
-                example: '*'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:03:21 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/avatar:
     get:
       operationId: userAvatar
@@ -283,29 +222,18 @@ paths:
                     https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726
                   id: '1635239861'
                   type: image
-        '500':
-          description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:03:29 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
+        '400':
+          description: Bad Request
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/my/privacy:
     get:
       operationId: userMyPrivacy
@@ -351,27 +279,10 @@ paths:
                   read_receipts: all
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:03:29 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/my/groups:
     get:
       operationId: userMyGroups
@@ -381,27 +292,10 @@ paths:
       responses:
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:03:29 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/message:
     post:
       operationId: sendMessage
@@ -427,76 +321,22 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:43:28 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '118'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    Message sent (server timestamp: 2022-02-11 10:43:29 +0700
-                    WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:58 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:22 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/image:
     post:
       operationId: sendImage
@@ -531,76 +371,22 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:26:22 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '124'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    Image message sent (server timestamp: 2022-02-11 10:26:22
-                    +0700 WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:17 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:48 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/file:
     post:
       operationId: sendFile
@@ -629,76 +415,22 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:42:57 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '123'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    File message sent (server timestamp: 2022-02-11 10:42:57
-                    +0700 WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:17 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:48 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/video:
     post:
       operationId: sendVideo
@@ -733,75 +465,22 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:42:57 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '123'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    Video sent to 6289685024091@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:17 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:48 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/contact:
     post:
       operationId: sendContact
@@ -830,75 +509,22 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:42:57 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '123'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    Contact sent to 6289685024051@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:17 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:48 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/link:
     post:
       operationId: sendLink
@@ -927,73 +553,68 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:42:57 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '123'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  status: >-
-                    Link sent to 6289685024051@s.whatsapp.net (server timestamp: 2022-05-17 14:39:29 +0700 WIB)
+                $ref: '#/components/schemas/SendResponse'
         '400':
           description: Bad Request
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:17 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '70'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 400
-                message: 'phone: cannot be blank.'
-                results: null
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:02:48 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '58'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 500
-                message: you are not loggin
-                results: null
+                $ref: '#/components/schemas/ErrorInternalServer'
 
+components:
+  schemas:
+    SendResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: Success
+        results:
+          type: object
+          properties:
+            message_id:
+              type: string
+              example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+            status:
+              type: string
+              example: '<feature> success ....'
+    ErrorInternalServer:
+      properties:
+        code:
+          type: integer
+          example: 500
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: you are not loggin
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'
+    ErrorBadRequest:
+      properties:
+        code:
+          type: integer
+          example: 400
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: phone cannot be blank
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'

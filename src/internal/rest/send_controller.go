@@ -21,6 +21,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
+	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	return rest
 }
 
@@ -196,6 +197,26 @@ func (controller *Send) RevokeMessage(c *fiber.Ctx) error {
 	fmt.Println(request)
 
 	response, err := controller.Service.Revoke(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Code:    200,
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) UpdateMessage(c *fiber.Ctx) error {
+	var request domainSend.UpdateMessageRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+	request.MessageID = c.Params("message_id")
+
+	err = validations.ValidateUpdateMessage(request)
+	utils.PanicIfNeeded(err)
+	fmt.Println(request)
+
+	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

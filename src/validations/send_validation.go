@@ -144,3 +144,19 @@ func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
 
 	return nil
 }
+
+func ValidateUpdateMessage(request domainSend.UpdateMessageRequest) error {
+	err := validation.ValidateStruct(&request,
+		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
+		validation.Field(&request.MessageID, validation.Required, validation.Length(20, 25)),
+		validation.Field(&request.Message, validation.Required, validation.Length(1, 1000)),
+	)
+
+	if err != nil {
+		return utils.ValidationError{
+			Message: err.Error(),
+		}
+	}
+
+	return nil
+}
