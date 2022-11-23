@@ -35,8 +35,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 
 	// add validation send message
 	validations.ValidateUserInfo(request)
-
-	request.Phone = request.Phone + "@s.whatsapp.net"
+	
 	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
@@ -55,7 +54,6 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	// add validation send message
 	validations.ValidateUserAvatar(request)
 
-	request.Phone = request.Phone + "@s.whatsapp.net"
 	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)
 

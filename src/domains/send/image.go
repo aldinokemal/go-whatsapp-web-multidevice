@@ -7,7 +7,6 @@ type ImageRequest struct {
 	Caption  string                `json:"caption" form:"caption"`
 	Image    *multipart.FileHeader `json:"image" form:"image"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
-	Type     Type                  `json:"type" form:"type"`
 	Compress bool                  `json:"compress"`
 }
 

@@ -1,6 +1,8 @@
 ## Go Whatsapp API Multi Device Version
 
 [![buddy pipeline](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077/badge.svg?token=a951a4546fe3f54079e678cc9d0eea12069fbdc21f8ed5ea22e1e95c4f63215f "buddy pipeline")](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077)
+[![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice "release version")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
+<br>
 [![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
 [![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg "release linux")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml)
 [![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg "release macos")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml)
@@ -86,23 +88,25 @@ You can fork or edit this source code !
 
 ### Current API
 
-You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
+You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API, furthermore you can generate HTTP Client from this
+API using [openapi-generator](https://openapi-generator.tech/#try)
 
-| Feature | Menu                    | Method | URL              | 
-|---------|-------------------------|--------|------------------|
-| ✅       | Login                   | GET    | /app/login       |
-| ✅       | Logout                  | GET    | /app/logout      |  
-| ✅       | Reconnect               | GET    | /app/reconnect   | 
-| ✅       | User Info               | GET    | /user/info       |
-| ✅       | User Avatar             | GET    | /user/avatar     |
-| ✅       | User My Group List      | GET    | /user/my/groups  |
-| ✅       | User My Privacy Setting | GET    | /user/my/privacy |
-| ✅       | Send Message            | POST   | /send/message    |
-| ✅       | Send Image              | POST   | /send/image      | 
-| ✅       | Send File               | POST   | /send/file       | 
-| ✅       | Send Video              | POST   | /send/video      | 
-| ✅       | Send Contact            | POST   | /send/contact    |
-| ✅       | Send Link               | POST   | /send/link       |
+| Feature | Menu                    | Method | URL                         | 
+|---------|-------------------------|--------|-----------------------------|
+| ✅       | Login                   | GET    | /app/login                  |
+| ✅       | Logout                  | GET    | /app/logout                 |  
+| ✅       | Reconnect               | GET    | /app/reconnect              | 
+| ✅       | User Info               | GET    | /user/info                  |
+| ✅       | User Avatar             | GET    | /user/avatar                |
+| ✅       | User My Group List      | GET    | /user/my/groups             |
+| ✅       | User My Privacy Setting | GET    | /user/my/privacy            |
+| ✅       | Send Message            | POST   | /send/message               |
+| ✅       | Send Image              | POST   | /send/image                 | 
+| ✅       | Send File               | POST   | /send/file                  | 
+| ✅       | Send Video              | POST   | /send/video                 | 
+| ✅       | Send Contact            | POST   | /send/contact               |
+| ✅       | Send Link               | POST   | /send/link                  |
+| ✅       | Revoke Messave          | POST   | /message/:message_id/revoke |
 
 ```
 ✅ = Available
@@ -111,19 +115,20 @@ You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API
 
 ### App User Interface
 
-1. Homepage  ![Homepage](https://i.ibb.co/xjZ7KLr/Screenshot-2022-11-20-at-20-54-52.png)
-2. Login  ![Login](https://i.ibb.co/Yp3YJKM/Screen-Shot-2022-02-13-at-12-55-54.png)
-3. Send Message ![Send Message](https://i.ibb.co/Bng57Ry/Screen-Shot-2022-05-22-at-13-51-13.png)
-4. Send Image ![Send Image](https://i.ibb.co/gJj3SrQ/Screen-Shot-2022-05-22-at-13-49-21.png)
-5. Send File ![Send File](https://i.ibb.co/nCwhysd/Screen-Shot-2022-05-22-at-13-43-16.png)
-6. Send Video ![Send File](https://i.ibb.co/yBXsWXX/Screen-Shot-2022-05-22-at-13-43-24.png)
-7. Send Contact ![Send File](https://i.ibb.co/fqwwGK5/Screen-Shot-2022-07-07-at-07-59-26.png)
-8. User Info  ![User Info](https://i.ibb.co/BC0mNT7/Screen-Shot-2022-02-13-at-13-00-57.png)
-9. User Avatar  ![User Avatar](https://i.ibb.co/TkzPbLZ/Screen-Shot-2022-02-13-at-13-01-39.png)
-10. User Privacy ![User My Privacy](https://i.ibb.co/RQcC5m9/Screen-Shot-2022-02-13-at-12-58-47.png)
-11. User Group  ![List Group](https://i.ibb.co/jfkgKdG/Screen-Shot-2022-05-12-at-21-12-06.png)
-12. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
-13. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
+1. Homepage  ![Homepage](https://i.ibb.co/NNX2wWY/home.png)
+2. Login  ![Login](https://i.ibb.co/jkcB15R/login.png)
+3. Send Message ![Send Message](https://i.ibb.co/DrCVXS7/send-message.png)
+4. Send Image ![Send Image](https://i.ibb.co/WykfQc8/send-image.png)
+5. Send File ![Send File](https://i.ibb.co/wC4SfRp/send-file.png)
+6. Send Video ![Send Video](https://i.ibb.co/VDCRH3G/send-video.png)
+7. Send Contact ![Send Contact](https://i.ibb.co/4810H7N/send-contact.png)
+8. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png)
+9. User Info  ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
+10. User Avatar  ![User Avatar](https://i.ibb.co/cysjmjT/user-avatar.png)
+11. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
+12. My Group  ![My Group](https://i.ibb.co/B6rW8Sh/list-group.png)
+13. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+14. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
 
 ### Mac OS NOTE
 

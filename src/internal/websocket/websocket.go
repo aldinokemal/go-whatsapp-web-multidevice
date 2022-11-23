@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
 	"log"
@@ -11,6 +13,7 @@ type client struct{} // Add more data to this type if needed
 type BroadcastMessage struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Result  any    `json:"result"`
 }
 
 var Clients = make(map[*websocket.Conn]client) // Note: although large maps with pointer-like types (e.g. strings) as keys are slow, using pointers themselves as keys is acceptable and fast
@@ -61,7 +64,7 @@ func RunHub() {
 	}
 }
 
-func RegisterRoutes(app *fiber.App) {
+func RegisterRoutes(app *fiber.App, service domainApp.IAppService) {
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) { // Returns true if the client requested upgrade to the WebSocket protocol
 			return c.Next()
@@ -96,7 +99,15 @@ func RegisterRoutes(app *fiber.App) {
 					log.Println("error unmarshal message:", err)
 					return
 				}
-				Broadcast <- messageData
+				if messageData.Code == "FETCH_DEVICES" {
+					devices, _ := service.FetchDevices(context.Background())
+					Broadcast <- BroadcastMessage{
+						Code:    "LIST_DEVICES",
+						Message: "Device found",
+						Result:  devices,
+					}
+				}
+
 			} else {
 				log.Println("websocket message received of type", messageType)
 			}
