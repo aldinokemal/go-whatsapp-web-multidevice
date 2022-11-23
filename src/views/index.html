@@ -221,7 +221,8 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendMessageProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.message_loading}"
+                 @click="sendMessageProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -280,7 +281,8 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendImageProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.image_loading}"
+                 @click="sendImageProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -324,14 +326,15 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendFileProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.file_loading}"
+                 @click="sendFileProcess">
                 Send
                 <i class="send icon"></i>
             </div>
         </div>
     </div>
 
-    <!--  Modal SendFile  -->
+    <!--  Modal SendVideo  -->
     <div class="ui small modal" id="modalSendVideo">
         <i class="close icon"></i>
         <div class="header">
@@ -382,7 +385,8 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendVideoProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.video_loading}"
+                 @click="sendVideoProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -423,7 +427,8 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendContactProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.contact_loading}"
+                 @click="sendContactProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -459,7 +464,8 @@
             </form>
         </div>
         <div class="actions">
-            <div class="ui positive right labeled icon button" @click="sendRevokeProcess">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.revoke_loading}"
+                 @click="sendRevokeProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -718,6 +724,7 @@
                 message_type: 'user',
                 message_phone: '',
                 message_text: '',
+                message_loading: false,
             }
         },
         computed: {
@@ -727,12 +734,17 @@
         },
         methods: {
             sendMessageModal() {
-                $('#modalSendMessage').modal('show');
+                $('#modalSendMessage').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendMessageProcess() {
                 try {
                     let response = await this.sendMessageApi()
                     showSuccessInfo(response)
+                    $('#modalSendMessage').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -740,6 +752,7 @@
             sendMessageApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
+                        this.message_loading = true;
                         let payload = new FormData();
                         payload.append("phone", this.message_phone_id)
                         payload.append("message", this.message_text)
@@ -752,6 +765,8 @@
                         } else {
                             reject(error.message)
                         }
+                    } finally {
+                        this.message_loading = false;
                     }
                 })
             },
@@ -771,6 +786,7 @@
                 image_compress: false,
                 image_caption: '',
                 image_type: 'user',
+                image_loading: false,
             }
         },
         computed: {
@@ -780,12 +796,17 @@
         },
         methods: {
             sendImageModal() {
-                $('#modalSendImage').modal('show');
+                $('#modalSendImage').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendImageProcess() {
                 try {
                     let response = await this.sendImageApi()
                     showSuccessInfo(response)
+                    $('#modalSendImage').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -793,6 +814,7 @@
             sendImageApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
+                        this.image_loading = true;
                         let payload = new FormData();
                         payload.append("phone", this.image_phone_id)
                         payload.append("view_once", this.image_view_once)
@@ -808,6 +830,8 @@
                         } else {
                             reject(error.message)
                         }
+                    } finally {
+                        this.image_loading = false;
                     }
                 })
             },
@@ -828,6 +852,7 @@
                 file_caption: '',
                 file_type: 'user',
                 file_phone: '',
+                file_loading: false,
             }
         },
         computed: {
@@ -837,12 +862,17 @@
         },
         methods: {
             sendFileModal() {
-                $('#modalSendFile').modal('show');
+                $('#modalSendFile').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendFileProcess() {
                 try {
                     let response = await this.sendFileApi()
                     showSuccessInfo(response)
+                    $('#modalSendFile').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -850,6 +880,7 @@
             sendFileApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
+                        this.file_loading = true;
                         let payload = new FormData();
                         payload.append("caption", this.file_caption)
                         payload.append("phone", this.file_phone_id)
@@ -863,6 +894,8 @@
                         } else {
                             reject(error.message)
                         }
+                    } finally {
+                        this.file_loading = false;
                     }
                 })
             },
@@ -883,6 +916,7 @@
                 video_compress: false,
                 video_type: 'user',
                 video_phone: '',
+                video_loading: false,
             }
         },
         computed: {
@@ -892,12 +926,17 @@
         },
         methods: {
             sendVideoModal() {
-                $('#modalSendVideo').modal('show');
+                $('#modalSendVideo').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendVideoProcess() {
                 try {
                     let response = await this.sendVideoApi()
                     showSuccessInfo(response)
+                    $('#modalSendVideo').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -905,6 +944,7 @@
             sendVideoApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
+                        this.video_loading = true;
                         let payload = new FormData();
                         payload.append("phone", this.video_phone_id)
                         payload.append("caption", this.video_caption)
@@ -920,6 +960,8 @@
                         } else {
                             reject(error.message)
                         }
+                    } finally {
+                        this.video_loading = false;
                     }
                 })
             },
@@ -941,6 +983,7 @@
                 contact_phone: '',
                 contact_card_name: '',
                 contact_card_phone: '',
+                contact_loading: false,
             }
         },
         computed: {
@@ -951,14 +994,22 @@
         methods: {
             sendContactModal() {
                 this.contact_type =
-                    $('#modalSendContact').modal('show');
+                    $('#modalSendContact').modal({
+                        onApprove: function () {
+                            return false;
+                        }
+                    }).modal('show');
             },
             async sendContactProcess() {
                 try {
+                    this.contact_loading = true;
                     let response = await this.sendContactApi()
                     showSuccessInfo(response)
+                    $('#modalSendContact').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
+                } finally {
+                    this.contact_loading = false;
                 }
             },
             sendContactApi() {
@@ -995,6 +1046,7 @@
                 revoke_type: 'user',
                 revoke_phone: '',
                 revoke_message_id: '',
+                revoke_loading: false,
             }
         },
         computed: {
@@ -1004,12 +1056,17 @@
         },
         methods: {
             sendRevokeModal() {
-                $('#modalSendRevoke').modal('show');
+                $('#modalSendRevoke').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendRevokeProcess() {
                 try {
                     let response = await this.sendRevokeApi()
                     showSuccessInfo(response)
+                    $('#modalSendRevoke').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
@@ -1017,6 +1074,7 @@
             sendRevokeApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
+                        this.revoke_loading = true;
                         let payload = new FormData();
                         payload.append("phone", this.revoke_phone_id)
                         let response = await http.post(`/message/${this.revoke_message_id}/revoke`, payload)
@@ -1028,6 +1086,8 @@
                         } else {
                             reject(error.message)
                         }
+                    } finally {
+                        this.revoke_loading = false;
                     }
                 })
             },
