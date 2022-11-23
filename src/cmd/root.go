@@ -113,7 +113,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		})
 	})
 
-	websocket.RegisterRoutes(app)
+	websocket.RegisterRoutes(app, appService)
 	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting

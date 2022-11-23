@@ -119,7 +119,7 @@ func (service serviceApp) Reconnect(_ context.Context) (err error) {
 	return service.WaCli.Connect()
 }
 
-func (service serviceApp) FetchDevices(ctx context.Context) (response []domainApp.FetchDevicesResponse, err error) {
+func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.FetchDevicesResponse, err error) {
 	if service.WaCli == nil {
 		return response, errors.New("wa cli nil cok")
 	}

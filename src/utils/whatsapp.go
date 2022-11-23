@@ -140,6 +140,11 @@ func handler(rawEvt interface{}) {
 			Code:    "LOGIN_SUCCESS",
 			Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 		}
+	case *events.LoggedOut:
+		websocket.Broadcast <- websocket.BroadcastMessage{
+			Code:   "LIST_DEVICES",
+			Result: nil,
+		}
 	case *events.Connected, *events.PushNameSetting:
 		if len(cli.Store.PushName) == 0 {
 			return

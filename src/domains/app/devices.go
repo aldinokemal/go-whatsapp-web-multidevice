@@ -1,6 +1,6 @@
 package app
 
 type FetchDevicesResponse struct {
-	Name   string
-	Device string
+	Name   string `json:"name"`
+	Device string `json:"device"`
 }
