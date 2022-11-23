@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 2.5.0
+  version: 3.0.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -10,8 +10,8 @@ tags:
     description: Initial Connection to Whatsapp server
   - name: user
     description: Getting information
-  - name: send
-    description: Send Message (Text/Image/File/Video)
+  - name: message
+    description: Send or Manipulate Message (Text/Image/File/Video).
 paths:
   /app/login:
     get:
@@ -118,7 +118,7 @@ paths:
           in: query
           schema:
             type: integer
-          example: '6289685024091'
+          example: '6289685028129@s.whatsapp.net'
       responses:
         '200':
           description: OK
@@ -155,17 +155,17 @@ paths:
                   status: you are blocked
                   picture_id: '1635239861'
                   devices:
-                    - User: '6289685024091'
+                    - User: '6289685028129@s.whatsapp.net'
                       Agent: 0
                       Device: UNKNOWN
                       Server: s.whatsapp.net
                       AD: true
-                    - User: '6289685024091'
+                    - User: '6289685028129@s.whatsapp.net'
                       Agent: 0
                       Device: SAFARI
                       Server: s.whatsapp.net
                       AD: true
-                    - User: '6289685024091'
+                    - User: '6289685028129@s.whatsapp.net'
                       Agent: 0
                       Device: IPAD
                       Server: s.whatsapp.net
@@ -193,7 +193,7 @@ paths:
           in: query
           schema:
             type: integer
-          example: '6289685024091'
+          example: '6289685028129@s.whatsapp.net'
       responses:
         '200':
           description: OK
@@ -300,7 +300,7 @@ paths:
     post:
       operationId: sendMessage
       tags:
-        - send
+        - message
       summary: Send Message
       requestBody:
         content:
@@ -310,14 +310,12 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024091'
+                  example: '6289685028129@s.whatsapp.net'
+                  description: Phone number with country code
                 message:
                   type: string
                   example: selamat malam
-                type:
-                  type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  description: Message to send
       responses:
         '200':
           description: OK
@@ -341,7 +339,7 @@ paths:
     post:
       operationId: sendImage
       tags:
-        - send
+        - message
       summary: Send Image
       requestBody:
         content:
@@ -351,23 +349,24 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024091'
+                  example: '6289685028129@s.whatsapp.net'
+                  description: Phone number with country code
                 caption:
                   type: string
                   example: selamat malam
+                  description: Caption to send
                 view_once:
                   type: boolean
                   example: false
+                  description: View once
                 image:
                   type: string
                   format: binary
-                type:
-                  type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  description: Image to send
                 compress:
                   type: boolean
                   example: false
+                  description: Compress image
       responses:
         '200':
           description: OK
@@ -391,7 +390,7 @@ paths:
     post:
       operationId: sendFile
       tags:
-        - send
+        - message
       summary: Send File
       requestBody:
         content:
@@ -401,17 +400,16 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024091'
+                  example: '6289685028129@s.whatsapp.net'
+                  description: Phone number with country code
                 caption:
                   type: string
                   example: selamat malam
+                  description: Caption to send
                 file:
                   type: string
                   format: binary
-                type:
-                  type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  description: File to send
       responses:
         '200':
           description: OK
@@ -435,7 +433,7 @@ paths:
     post:
       operationId: sendVideo
       tags:
-        - send
+        - message
       summary: Send Video
       requestBody:
         content:
@@ -445,23 +443,24 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024091'
+                  example: '6289685028129@s.whatsapp.net'
+                  description: Phone number with country code
                 caption:
                   type: string
                   example: ini contoh caption video
+                  description: Caption to send
                 view_once:
                   type: boolean
                   example: 'false'
+                  description: View once
                 video:
                   type: string
                   format: binary
-                type:
-                  type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  description: Video to send
                 compress:
                   type: boolean
                   example: 'false'
+                  description: Compress video
       responses:
         '200':
           description: OK
@@ -485,7 +484,7 @@ paths:
     post:
       operationId: sendContact
       tags:
-        - send
+        - message
       summary: Send Contact
       requestBody:
         content:
@@ -495,17 +494,16 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024051'
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
                 contact_name:
                   type: string
                   example: Aldino Kemal
+                  description: Contact name
                 contact_phone:
                   type: string
                   example: '6289685024992'
-                type:
-                  type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  description: Contact phone number
       responses:
         '200':
           description: OK
@@ -529,7 +527,7 @@ paths:
     post:
       operationId: sendLink
       tags:
-        - send
+        - message
       summary: Send Link
       requestBody:
         content:
@@ -539,17 +537,55 @@ paths:
               properties:
                 phone:
                   type: integer
-                  example: '6289685024051'
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
                 link:
                   type: string
                   example: "https://google.com"
+                  description: Link to send
                 caption:
                   type: string
                   example: 'Halo ini contoh caption'
-                type:
+                  description: Caption to send
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/:message_id/revoke:
+    post:
+      operationId: revokeMessage
+      tags:
+        - message
+      summary: Send Link
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: integer
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
+                message_id:
                   type: string
-                  example: 'user'
-                  description: 'user/group | default: user'
+                  example: "3EB007D87686670344D7"
+                  description: Message ID
       responses:
         '200':
           description: OK
