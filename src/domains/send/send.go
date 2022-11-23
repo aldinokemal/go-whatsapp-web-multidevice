@@ -4,11 +4,6 @@ import (
 	"context"
 )
 
-type Type string
-
-const TypeUser Type = "user"
-const TypeGroup Type = "group"
-
 type ISendService interface {
 	SendText(ctx context.Context, request MessageRequest) (response MessageResponse, err error)
 	SendImage(ctx context.Context, request ImageRequest) (response ImageResponse, err error)

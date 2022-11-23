@@ -13,12 +13,12 @@ func TestValidateSendMessage(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		err  interface{}
+		err  any
 	}{
 		{
 			name: "success phone & message normal",
 			args: args{request: domainSend.MessageRequest{
-				Phone:   "6289685024091",
+				Phone:   "1728937129312@s.whatsapp.net",
 				Message: "Hello this is testing",
 			}},
 			err: nil,

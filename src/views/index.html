@@ -60,22 +60,22 @@
     </div>
 
     <div class="ui horizontal divider">
-        Send Private Message
+        Message
     </div>
 
     <div class="ui three column doubling grid cards">
-        <div class="green card" @click="sendMessageModal('user')" style="cursor: pointer">
+        <div class="blue card" @click="sendMessageModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui blue right ribbon label">Private</a>
+                <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Message</div>
                 <div class="description">
                     Send any message to any whatsapp number
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendImageModal('user')" style="cursor:pointer;">
+        <div class="blue card" @click="sendImageModal()" style="cursor:pointer;">
             <div class="content">
-                <a class="ui blue right ribbon label">Private</a>
+                <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Image</div>
                 <div class="description">
                     Send image with
@@ -84,9 +84,9 @@
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendFileModal('user')" style="cursor: pointer">
+        <div class="blue card" @click="sendFileModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui blue right ribbon label">Private</a>
+                <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send File</div>
                 <div class="description">
                     Send any file up to
@@ -94,9 +94,9 @@
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendVideoModal('user')" style="cursor: pointer">
+        <div class="blue card" @click="sendVideoModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui blue right ribbon label">Private</a>
+                <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Video</div>
                 <div class="description">
                     Send video
@@ -106,80 +106,39 @@
                 </div>
             </div>
         </div>
-        <div class="green card" @click="sendContactModal('user')" style="cursor: pointer">
+        <div class="blue card" @click="sendContactModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui blue right ribbon label">Private</a>
+                <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Contact</div>
                 <div class="description">
                     Send contact to any whatsapp number
                 </div>
             </div>
         </div>
-    </div>
-
-    <div class="ui horizontal divider">
-        Send Group Message
-    </div>
-
-    <div class="ui three column doubling grid cards">
-        <div class="green card" @click="sendMessageModal('group')" style="cursor: pointer">
+        <div class="red card" @click="sendRevokeModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui teal right ribbon label">Group</a>
-                <div class="header">Send Message</div>
+                <a class="ui red right ribbon label">Revoke</a>
+                <div class="header">Revoke Message</div>
                 <div class="description">
-                    Send any message to any whatsapp number
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="sendImageModal('group')" style="cursor:pointer;">
-            <div class="content">
-                <a class="ui teal right ribbon label">Group</a>
-                <div class="header">Send Image</div>
-                <div class="description">
-                    Send image with
-                    <div class="ui teal horizontal label">jpg/jpeg/png</div>
-                    type
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="sendFileModal('group')" style="cursor: pointer">
-            <div class="content">
-                <a class="ui teal right ribbon label">Group</a>
-                <div class="header">Send File</div>
-                <div class="description">
-                    Send any file up to
-                    <div class="ui teal horizontal label">{{ .MaxFileSize }}</div>
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="sendVideoModal('group')" style="cursor: pointer">
-            <div class="content">
-                <a class="ui teal right ribbon label">Group</a>
-                <div class="header">Send Video</div>
-                <div class="description">
-                    Send video
-                    <div class="ui teal horizontal label">mp4</div>
-                    up to
-                    <div class="ui teal horizontal label">{{ .MaxVideoSize }}</div>
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="sendContactModal('group')" style="cursor: pointer">
-            <div class="content">
-                <a class="ui teal right ribbon label">Group</a>
-                <div class="header">Send Contact</div>
-                <div class="description">
-                    Send contact to any whatsapp number
+                    Revoke any message in private or group chat
                 </div>
             </div>
         </div>
     </div>
 
     <div class="ui horizontal divider">
-        User
+        Account
     </div>
 
     <div class="ui four column doubling grid cards">
+        <div class="green card" @click="avatarModal" style="cursor: pointer;">
+            <div class="content">
+                <div class="header">Avatar</div>
+                <div class="description">
+                    You can search someone avatar by phone
+                </div>
+            </div>
+        </div>
         <div class="green card" @click="infoModal" style="cursor: pointer;">
             <div class="content">
                 <div class="header">User Info</div>
@@ -188,17 +147,9 @@
                 </div>
             </div>
         </div>
-        <div class="green card" @click="avatarModal" style="cursor: pointer;">
-            <div class="content">
-                <div class="header">User Avatar</div>
-                <div class="description">
-                    You can search someone avatar by phone
-                </div>
-            </div>
-        </div>
         <div class="green card" @click="groupModal" style="cursor: pointer">
             <div class="content">
-                <div class="header">User List Groups</div>
+                <div class="header">My List Groups</div>
                 <div class="description">
                     Display all groups you joined
                 </div>
@@ -206,7 +157,7 @@
         </div>
         <div class="green card" @click="privacyModal" style="cursor: pointer">
             <div class="content">
-                <div class="header">User Privacy Setting</div>
+                <div class="header">My Privacy Setting</div>
                 <div class="description">
                     Get your privacy settings
                 </div>
@@ -250,9 +201,17 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="message_type" v-model="message_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone / Group ID</label>
                     <input v-model="message_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="message_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>Message</label>
@@ -278,9 +237,17 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="image_type" v-model="image_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone / Group ID</label>
                     <input v-model="image_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="image_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>Caption</label>
@@ -329,9 +296,17 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="file_type" v-model="file_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone / Group ID</label>
                     <input v-model="file_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="file_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>Caption</label>
@@ -365,6 +340,13 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="video_type" v-model="video_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone / Group ID</label>
                     <input v-model="video_phone" type="text" placeholder="6289..."
                            aria-label="phone">
@@ -373,6 +355,7 @@
                     <label>Caption</label>
                     <input v-model="video_caption" type="text" placeholder="Type some caption (optional)..."
                            aria-label="caption">
+                    <input :value="video_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>View Once</label>
@@ -415,9 +398,17 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="contact_type" v-model="contact_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone / Group ID</label>
                     <input v-model="contact_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="contact_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>Contact Name</label>
@@ -433,6 +424,42 @@
         </div>
         <div class="actions">
             <div class="ui positive right labeled icon button" @click="sendContactProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendRevoke  -->
+    <div class="ui small modal" id="modalSendRevoke">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Revoke
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Type</label>
+                    <select name="revoke_type" v-model="revoke_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="revoke_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                    <input :value="revoke_phone_id" disabled aria-label="whatsapp_id">
+                </div>
+                <div class="field">
+                    <label>Revoke Message ID</label>
+                    <input v-model="revoke_message_id" type="text" placeholder="Please enter your message id"
+                           aria-label="card_phone">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui positive right labeled icon button" @click="sendRevokeProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -493,9 +520,17 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="avatar_type" v-model="avatar_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone</label>
                     <input v-model="avatar_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="avatar_phone_id" disabled aria-label="whatsapp_id">
                 </div>
 
                 <button type="button" class="ui primary button" :class="{'loading': avatar_loading}"
@@ -519,9 +554,16 @@
         <div class="content">
             <form class="ui form">
                 <div class="field">
+                    <label>Type</label>
+                    <select name="info_type" v-model="info_type" aria-label="type">
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Phone</label>
                     <input v-model="info_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="info_phone_id" disabled aria-label="whatsapp_id">
                 </div>
 
                 <button type="button" class="ui primary button" :class="{'loading': info_loading}"
@@ -678,9 +720,13 @@
                 message_text: '',
             }
         },
+        computed: {
+            message_phone_id() {
+                return this.message_type === 'user' ? `${this.message_phone}@${this.type_user}` : `${this.message_phone}@${this.type_group}`
+            }
+        },
         methods: {
-            sendMessageModal(type) {
-                this.message_type = type
+            sendMessageModal() {
                 $('#modalSendMessage').modal('show');
             },
             async sendMessageProcess() {
@@ -695,9 +741,8 @@
                 return new Promise(async (resolve, reject) => {
                     try {
                         let payload = new FormData();
-                        payload.append("phone", this.message_phone)
+                        payload.append("phone", this.message_phone_id)
                         payload.append("message", this.message_text)
-                        payload.append("type", this.message_type)
                         let response = await http.post(`/send/message`, payload)
                         this.sendMessageReset();
                         resolve(response.data.message)
@@ -728,9 +773,13 @@
                 image_type: 'user',
             }
         },
+        computed: {
+            image_phone_id() {
+                return this.image_type === 'user' ? `${this.image_phone}@${this.type_user}` : `${this.image_phone}@${this.type_group}`
+            }
+        },
         methods: {
-            sendImageModal(type) {
-                this.image_type = type
+            sendImageModal() {
                 $('#modalSendImage').modal('show');
             },
             async sendImageProcess() {
@@ -745,12 +794,11 @@
                 return new Promise(async (resolve, reject) => {
                     try {
                         let payload = new FormData();
-                        payload.append("phone", this.image_phone)
+                        payload.append("phone", this.image_phone_id)
                         payload.append("view_once", this.image_view_once)
                         payload.append("compress", this.image_compress)
                         payload.append("caption", this.image_caption)
                         payload.append("image", $("#image_file")[0].files[0])
-                        payload.append("type", this.image_type)
                         let response = await http.post(`/send/image`, payload)
                         this.sendImageReset();
                         resolve(response.data.message)
@@ -782,9 +830,13 @@
                 file_phone: '',
             }
         },
+        computed: {
+            file_phone_id() {
+                return this.file_type === 'user' ? `${this.file_phone}@${this.type_user}` : `${this.file_phone}@${this.type_group}`
+            }
+        },
         methods: {
-            sendFileModal(type) {
-                this.file_type = type
+            sendFileModal() {
                 $('#modalSendFile').modal('show');
             },
             async sendFileProcess() {
@@ -800,9 +852,8 @@
                     try {
                         let payload = new FormData();
                         payload.append("caption", this.file_caption)
-                        payload.append("phone", this.file_phone)
+                        payload.append("phone", this.file_phone_id)
                         payload.append("file", $("#file_file")[0].files[0])
-                        payload.append("type", this.file_type)
                         let response = await http.post(`/send/file`, payload)
                         this.sendFileReset();
                         resolve(response.data.message)
@@ -834,9 +885,13 @@
                 video_phone: '',
             }
         },
+        computed: {
+            video_phone_id() {
+                return this.video_type === 'user' ? `${this.video_phone}@${this.type_user}` : `${this.video_phone}@${this.type_group}`
+            }
+        },
         methods: {
-            sendVideoModal(type) {
-                this.video_type = type
+            sendVideoModal() {
                 $('#modalSendVideo').modal('show');
             },
             async sendVideoProcess() {
@@ -851,12 +906,11 @@
                 return new Promise(async (resolve, reject) => {
                     try {
                         let payload = new FormData();
-                        payload.append("phone", this.video_phone)
+                        payload.append("phone", this.video_phone_id)
                         payload.append("caption", this.video_caption)
                         payload.append("view_once", this.video_view_once)
                         payload.append("compress", this.video_compress)
                         payload.append("video", $("#video_file")[0].files[0])
-                        payload.append("type", this.video_type)
                         let response = await http.post(`/send/video`, payload)
                         this.sendVideoReset();
                         resolve(response.data.message)
@@ -889,10 +943,15 @@
                 contact_card_phone: '',
             }
         },
+        computed: {
+            contact_phone_id() {
+                return this.contact_type === 'user' ? `${this.contact_phone}@${this.type_user}` : `${this.contact_phone}@${this.type_group}`
+            }
+        },
         methods: {
-            sendContactModal(type) {
-                this.contact_type = type
-                $('#modalSendContact').modal('show');
+            sendContactModal() {
+                this.contact_type =
+                    $('#modalSendContact').modal('show');
             },
             async sendContactProcess() {
                 try {
@@ -906,10 +965,9 @@
                 return new Promise(async (resolve, reject) => {
                     try {
                         let payload = new FormData();
-                        payload.append("phone", this.contact_phone)
+                        payload.append("phone", this.contact_phone_id)
                         payload.append("contact_name", this.contact_card_name)
                         payload.append("contact_phone", this.contact_card_phone)
-                        payload.append("type", this.contact_type)
                         let response = await http.post(`/send/contact`, payload)
                         this.sendContactReset();
                         resolve(response.data.message)
@@ -927,6 +985,56 @@
                 this.contact_card_name = '';
                 this.contact_card_phone = '';
                 this.message_type = 'user';
+            },
+        }
+    }
+
+    const sendRevoke = {
+        data() {
+            return {
+                revoke_type: 'user',
+                revoke_phone: '',
+                revoke_message_id: '',
+            }
+        },
+        computed: {
+            revoke_phone_id() {
+                return this.revoke_type === 'user' ? `${this.revoke_phone}@${this.type_user}` : `${this.revoke_phone}@${this.type_group}`
+            }
+        },
+        methods: {
+            sendRevokeModal() {
+                $('#modalSendRevoke').modal('show');
+            },
+            async sendRevokeProcess() {
+                try {
+                    let response = await this.sendRevokeApi()
+                    showSuccessInfo(response)
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendRevokeApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("phone", this.revoke_phone_id)
+                        let response = await http.post(`/message/${this.revoke_message_id}/revoke`, payload)
+                        this.sendRevokeReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
+            },
+            sendRevokeReset() {
+                this.revoke_phone = '';
+                this.revoke_message_id = '';
+                this.revoke_type = 'user';
             },
         }
     }
@@ -1006,9 +1114,15 @@
     const userAvatar = {
         data() {
             return {
+                avatar_type: 'user',
                 avatar_phone: '',
                 avatar_image: null,
                 avatar_loading: false,
+            }
+        },
+        computed: {
+            avatar_phone_id() {
+                return this.avatar_type === 'user' ? `${this.avatar_phone}@${this.type_user}` : `${this.avatar_phone}@${this.type_group}`
             }
         },
         methods: {
@@ -1030,7 +1144,7 @@
             avatarApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone}`)
+                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone_id}`)
                         this.avatar_image = response.data.results.url;
                         resolve()
                     } catch (error) {
@@ -1052,6 +1166,7 @@
     const userInfo = {
         data() {
             return {
+                info_type: 'user',
                 info_phone: '',
                 //
                 info_name: null,
@@ -1059,6 +1174,12 @@
                 info_devices: [],
                 //
                 info_loading: false,
+            }
+        },
+
+        computed: {
+            info_phone_id() {
+                return this.info_type === 'user' ? `${this.info_phone}@${this.type_user}` : `${this.info_phone}@${this.type_group}`
             }
         },
         methods: {
@@ -1080,7 +1201,7 @@
             infoApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await http.get(`/user/info?phone=${this.info_phone}`)
+                        let response = await http.get(`/user/info?phone=${this.info_phone_id}`)
                         this.info_name = response.data.results.verified_name;
                         this.info_status = response.data.results.status;
                         this.info_devices = response.data.results.devices;
@@ -1110,6 +1231,8 @@
                 app_host: {{ .AppHost }},
                 app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})',
                 is_logged_in: false,
+                type_group: "g.us",
+                type_user: "s.whatsapp.net"
             }
         },
         mounted() {
@@ -1144,7 +1267,7 @@
                 return tanggal.format('LLL');
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, userGroups, userPrivacy, userAvatar, userInfo]
+        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, sendRevoke, userGroups, userPrivacy, userAvatar, userInfo]
     }).mount('#app')
 </script>
 </body>

@@ -238,7 +238,7 @@ func handler(rawEvt interface{}) {
 
 func sendAutoReplyWebhook(evt *events.Message) error {
 	client := &http.Client{Timeout: 10 * time.Second}
-	body := map[string]interface{}{
+	body := map[string]any{
 		"from":          evt.Info.SourceString(),
 		"message":       evt.Message.GetConversation(),
 		"image":         evt.Message.GetImageMessage(),

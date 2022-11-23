@@ -11,8 +11,7 @@ import (
 
 func ValidateSendMessage(request domainSend.MessageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
-		validation.Field(&request.Message, validation.Required, validation.Length(1, 1000)),
+		validation.Field(&request.Message, validation.Required),
 	)
 
 	if err != nil {
@@ -24,8 +23,6 @@ func ValidateSendMessage(request domainSend.MessageRequest) {
 
 func ValidateSendImage(request domainSend.ImageRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
-		validation.Field(&request.Caption, validation.When(true, validation.Length(1, 1000))),
 		validation.Field(&request.Image, validation.Required),
 	)
 
@@ -50,7 +47,6 @@ func ValidateSendImage(request domainSend.ImageRequest) {
 
 func ValidateSendFile(request domainSend.FileRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.File, validation.Required),
 	)
 
@@ -70,7 +66,6 @@ func ValidateSendFile(request domainSend.FileRequest) {
 
 func ValidateSendVideo(request domainSend.VideoRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Video, validation.Required),
 	)
 
@@ -102,7 +97,6 @@ func ValidateSendVideo(request domainSend.VideoRequest) {
 
 func ValidateSendContact(request domainSend.ContactRequest) {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.ContactName, validation.Required),
 		validation.Field(&request.ContactPhone, validation.Required),
 	)
@@ -116,7 +110,6 @@ func ValidateSendContact(request domainSend.ContactRequest) {
 
 func ValidateSendLink(request domainSend.LinkRequest) error {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
 		validation.Field(&request.Link, validation.Required),
 		validation.Field(&request.Caption, validation.Required),
 	)
@@ -132,8 +125,7 @@ func ValidateSendLink(request domainSend.LinkRequest) error {
 
 func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
-		validation.Field(&request.MessageID, validation.Required, validation.Length(20, 25)),
+		validation.Field(&request.MessageID, validation.Required),
 	)
 
 	if err != nil {
@@ -147,9 +139,8 @@ func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
 
 func ValidateUpdateMessage(request domainSend.UpdateMessageRequest) error {
 	err := validation.ValidateStruct(&request,
-		validation.Field(&request.Phone, validation.Required, validation.Length(10, 25)),
-		validation.Field(&request.MessageID, validation.Required, validation.Length(20, 25)),
-		validation.Field(&request.Message, validation.Required, validation.Length(1, 1000)),
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.Message, validation.Required),
 	)
 
 	if err != nil {

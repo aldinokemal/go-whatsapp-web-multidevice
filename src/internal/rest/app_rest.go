@@ -28,7 +28,7 @@ func (controller *App) Login(c *fiber.Ctx) error {
 	return c.JSON(utils.ResponseData{
 		Code:    200,
 		Message: "Success",
-		Results: map[string]interface{}{
+		Results: map[string]any{
 			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
 			"qr_duration": response.Duration,
 		},
