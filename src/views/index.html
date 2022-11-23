@@ -552,8 +552,7 @@
         baseURL: {{ .AppHost }}
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
-    const token = {{ .BasicAuthToken }};
-    http.defaults.headers.common['Authorization'] = `Basic ${token}`;
+    http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
     {{ end }}
     const showErrorInfo = (message) => {
         $('body').toast({
