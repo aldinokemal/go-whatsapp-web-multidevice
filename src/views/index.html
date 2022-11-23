@@ -546,7 +546,7 @@
             </form>
 
             <div v-if="avatar_image != null" class="center">
-                <img :src="avatar_image" alt="profile picture" style="padding-top: 10px;">
+                <img :src="avatar_image" alt="profile picture" style="padding-top: 10px; max-height: 200px">
             </div>
         </div>
     </div>
@@ -993,12 +993,11 @@
         },
         methods: {
             sendContactModal() {
-                this.contact_type =
-                    $('#modalSendContact').modal({
-                        onApprove: function () {
-                            return false;
-                        }
-                    }).modal('show');
+                $('#modalSendContact').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
             },
             async sendContactProcess() {
                 try {
@@ -1035,7 +1034,7 @@
                 this.contact_phone = '';
                 this.contact_card_name = '';
                 this.contact_card_phone = '';
-                this.message_type = 'user';
+                this.contact_type = 'user';
             },
         }
     }
@@ -1219,6 +1218,7 @@
             avatarReset() {
                 this.avatar_phone = '';
                 this.avatar_image = null;
+                this.avatar_type = 'user';
             }
         }
     }
@@ -1280,6 +1280,7 @@
                 this.info_name = null;
                 this.info_status = null;
                 this.info_devices = [];
+                this.info_type = 'user';
             }
         }
     }
