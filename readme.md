@@ -115,7 +115,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 
 ### App User Interface
 
-1. Homepage  ![Homepage](https://i.ibb.co/nDVz5mf/Screenshot-2022-11-23-at-09-27-43.png)
+1. Homepage  ![Homepage](https://i.ibb.co/NNX2wWY/home.png)
 2. Login  ![Login](https://i.ibb.co/jkcB15R/login.png)
 3. Send Message ![Send Message](https://i.ibb.co/DrCVXS7/send-message.png)
 4. Send Image ![Send Image](https://i.ibb.co/WykfQc8/send-image.png)
