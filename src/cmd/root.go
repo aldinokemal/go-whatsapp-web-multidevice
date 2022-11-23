@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
@@ -55,8 +54,8 @@ func runRest(_ *cobra.Command, _ []string) {
 	}
 
 	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
-	engine.AddFunc("isEnableBasicAuth", func(token string) bool {
-		return token != ""
+	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
+		return token != nil
 	})
 	app := fiber.New(fiber.Config{
 		Views:     engine,
@@ -64,7 +63,7 @@ func runRest(_ *cobra.Command, _ []string) {
 	})
 	app.Static("/statics", "./statics")
 	app.Use(middleware.Recovery())
-	app.Use(middleware.SelectJid())
+	app.Use(middleware.BasicAuth())
 	if config.AppDebug {
 		app.Use(logger.New())
 	}
@@ -74,19 +73,18 @@ func runRest(_ *cobra.Command, _ []string) {
 	}))
 
 	if config.AppBasicAuthCredential != "" {
-		account := make(map[string]string, 0)
 		multipleBA := strings.Split(config.AppBasicAuthCredential, ",")
 		for _, basicAuth := range multipleBA {
 			ba := strings.Split(basicAuth, ":")
 			if len(ba) != 2 {
 				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
 			}
-			account[ba[0]] = ba[1]
+			config.AppBasicAuthAccount[ba[0]] = ba[1]
 		}
 
-		if account != nil {
+		if config.AppBasicAuthAccount != nil {
 			app.Use(basicauth.New(basicauth.Config{
-				Users: account,
+				Users: config.AppBasicAuthAccount,
 			}))
 		}
 	}
@@ -104,11 +102,11 @@ func runRest(_ *cobra.Command, _ []string) {
 	rest.InitRestSend(app, sendService)
 	rest.InitRestUser(app, userService)
 
-	app.Get("/", func(ctx *fiber.Ctx) error {
-		return ctx.Render("index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", ctx.Protocol(), ctx.Hostname()),
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.Render("index", fiber.Map{
+			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": base64.StdEncoding.EncodeToString([]byte(config.AppBasicAuthCredential)),
+			"BasicAuthToken": c.UserContext().Value("token"),
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
