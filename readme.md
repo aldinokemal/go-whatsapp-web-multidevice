@@ -115,19 +115,19 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 
 ### App User Interface
 
-1. Homepage  ![Homepage](https://i.ibb.co/NNX2wWY/home.png)
-2. Login  ![Login](https://i.ibb.co/jkcB15R/login.png)
+1. Homepage ![Homepage](https://i.ibb.co/NNX2wWY/home.png)
+2. Login ![Login](https://i.ibb.co/jkcB15R/login.png)
 3. Send Message ![Send Message](https://i.ibb.co/DrCVXS7/send-message.png)
 4. Send Image ![Send Image](https://i.ibb.co/WykfQc8/send-image.png)
 5. Send File ![Send File](https://i.ibb.co/wC4SfRp/send-file.png)
 6. Send Video ![Send Video](https://i.ibb.co/VDCRH3G/send-video.png)
 7. Send Contact ![Send Contact](https://i.ibb.co/4810H7N/send-contact.png)
 8. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png)
-9. User Info  ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
-10. User Avatar  ![User Avatar](https://i.ibb.co/cysjmjT/user-avatar.png)
+9. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
+10. User Avatar ![User Avatar](https://i.ibb.co/cysjmjT/user-avatar.png)
 11. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
-12. My Group  ![My Group](https://i.ibb.co/B6rW8Sh/list-group.png)
-13. Auto Reply  ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+12. My Group ![My Group](https://i.ibb.co/B6rW8Sh/list-group.png)
+13. Auto Reply ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
 14. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
 
 ### Mac OS NOTE
