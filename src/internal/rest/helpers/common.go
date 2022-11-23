@@ -1,13 +1,12 @@
 package helpers
 
 import (
-	"fmt"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"net/http"
+	"context"
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"time"
 )
 
-func SetAutoConnectAfterBooting() {
+func SetAutoConnectAfterBooting(service domainApp.IAppService) {
 	time.Sleep(2 * time.Second)
-	_, _ = http.Get(fmt.Sprintf("http://localhost:%s/app/reconnect", config.AppPort))
+	_ = service.Reconnect(context.Background())
 }

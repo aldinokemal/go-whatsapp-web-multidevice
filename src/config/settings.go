@@ -12,7 +12,6 @@ var (
 	AppOs                  = fmt.Sprintf("AldinoKemal")
 	AppPlatform            = waProto.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential string
-	AppBasicAuthAccount    = make(map[string]string, 0)
 
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"

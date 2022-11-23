@@ -73,18 +73,19 @@ func runRest(_ *cobra.Command, _ []string) {
 	}))
 
 	if config.AppBasicAuthCredential != "" {
+		account := make(map[string]string, 0)
 		multipleBA := strings.Split(config.AppBasicAuthCredential, ",")
 		for _, basicAuth := range multipleBA {
 			ba := strings.Split(basicAuth, ":")
 			if len(ba) != 2 {
 				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
 			}
-			config.AppBasicAuthAccount[ba[0]] = ba[1]
+			account[ba[0]] = ba[1]
 		}
 
-		if config.AppBasicAuthAccount != nil {
+		if account != nil {
 			app.Use(basicauth.New(basicauth.Config{
-				Users: config.AppBasicAuthAccount,
+				Users: account,
 			}))
 		}
 	}
@@ -116,7 +117,7 @@ func runRest(_ *cobra.Command, _ []string) {
 	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting
-	go helpers.SetAutoConnectAfterBooting()
+	go helpers.SetAutoConnectAfterBooting(appService)
 	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}
