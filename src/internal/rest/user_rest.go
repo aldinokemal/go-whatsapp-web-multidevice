@@ -35,7 +35,8 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 
 	// add validation send message
 	validations.ValidateUserInfo(request)
-	
+	utils.SanitizePhone(&request.Phone)
+
 	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
@@ -53,6 +54,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 
 	// add validation send message
 	validations.ValidateUserAvatar(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)

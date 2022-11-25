@@ -31,6 +31,16 @@ var (
 	startupTime   = time.Now().Unix()
 )
 
+func SanitizePhone(phone *string) {
+	if phone != nil && !strings.Contains(*phone, "@") {
+		if len(*phone) <= 15 {
+			*phone = fmt.Sprintf("%s@.whatsapp.net", *phone)
+		} else {
+			*phone = fmt.Sprintf("%s@g.us", *phone)
+		}
+	}
+}
+
 func GetPlatformName(deviceID int) string {
 	switch deviceID {
 	case 0:
