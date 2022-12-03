@@ -213,11 +213,11 @@ func handler(rawEvt interface{}) {
 			log.Infof("Saved image in message to %s", path)
 		}
 
-		if config.WhatsappAutoReplyMessage != "" {
+		if config.WhatsappAutoReplyMessage != "" && !isGroupJid(evt.Info.Chat.String()) {
 			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 
-		if config.WhatsappAutoReplyWebhook != "" {
+		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) {
 			go func() {
 				_ = sendAutoReplyWebhook(evt)
 			}()
@@ -292,4 +292,8 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func isGroupJid(jid string) bool {
+	return strings.Contains(jid, "@g.us")
 }
