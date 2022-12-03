@@ -124,6 +124,15 @@
                 </div>
             </div>
         </div>
+        <div class="blue card" @click="sendLocationModal()" style="cursor: pointer">
+            <div class="content">
+                <a class="ui blue right ribbon label">Send</a>
+                <div class="header">Send Location</div>
+                <div class="description">
+                    Send location to any whatsapp number
+                </div>
+            </div>
+        </div>
         <div class="red card" @click="sendRevokeModal()" style="cursor: pointer">
             <div class="content">
                 <a class="ui red right ribbon label">Revoke</a>
@@ -274,7 +283,7 @@
                 <div class="field">
                     <label>Compress</label>
                     <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="view once" v-model="image_compress">
+                        <input type="checkbox" aria-label="compress" v-model="image_compress">
                         <label>Check for compressing image to smaller size</label>
                     </div>
                 </div>
@@ -322,7 +331,7 @@
                 <div class="field">
                     <label>Caption</label>
                     <textarea v-model="file_caption" type="text" placeholder="Type some caption (optional)..."
-                           aria-label="caption"></textarea>
+                              aria-label="caption"></textarea>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>
@@ -379,7 +388,7 @@
                 <div class="field">
                     <label>Compress</label>
                     <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="view once" v-model="video_compress">
+                        <input type="checkbox" aria-label="compress" v-model="video_compress">
                         <label>Check for compressing image to smaller size</label>
                     </div>
                 </div>
@@ -426,18 +435,60 @@
                 <div class="field">
                     <label>Contact Name</label>
                     <input v-model="contact_card_name" type="text" placeholder="Please enter contact name"
-                           aria-label="card_name">
+                           aria-label="contact name">
                 </div>
                 <div class="field">
                     <label>Contact Phone</label>
                     <input v-model="contact_card_phone" type="text" placeholder="Please enter contact phone"
-                           aria-label="card_phone">
+                           aria-label="contact phone">
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.contact_loading}"
                  @click="sendContactProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal SendLocation  -->
+    <div class="ui small modal" id="modalSendLocation">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Location
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Type</label>
+                    <select name="location_type" v-model="location_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="location_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                    <input :value="location_phone_id" disabled aria-label="whatsapp_id">
+                </div>
+                <div class="field">
+                    <label>Location Latitude</label>
+                    <input v-model="location_latitude" type="text" placeholder="Please enter latitude"
+                           aria-label="latitude">
+                </div>
+                <div class="field">
+                    <label>Location Longitude</label>
+                    <input v-model="location_longitude" type="text" placeholder="Please enter longitude"
+                           aria-label="longitude">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.location_loading}"
+                 @click="sendLocationProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -468,7 +519,7 @@
                 <div class="field">
                     <label>Revoke Message ID</label>
                     <input v-model="revoke_message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="card_phone">
+                           aria-label="message id">
                 </div>
             </form>
         </div>
@@ -1112,6 +1163,69 @@
         }
     }
 
+    const sendLocation = {
+        data() {
+            return {
+                location_type: 'user',
+                location_phone: '',
+                location_latitude: '',
+                location_longitude: '',
+                location_loading: false,
+            }
+        },
+        computed: {
+            location_phone_id() {
+                return this.location_type === 'user' ? `${this.location_phone}@${this.type_user}` : `${this.location_phone}@${this.type_group}`
+            }
+        },
+        methods: {
+            sendLocationModal() {
+                $('#modalSendLocation').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
+            },
+            async sendLocationProcess() {
+                try {
+                    let response = await this.sendLocationApi()
+                    showSuccessInfo(response)
+                    $('#modalSendLocation').modal('hide');
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendLocationApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        this.location_loading = true;
+                        let payload = new FormData();
+                        payload.append("phone", this.location_phone_id)
+                        payload.append("latitude", this.location_latitude)
+                        payload.append("longitude", this.location_longitude)
+                        let response = await http.post(`/send/location`, payload)
+                        this.sendLocationReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    } finally {
+                        this.location_loading = false;
+                    }
+                })
+            },
+            sendLocationReset() {
+                this.location_phone = '';
+                this.location_latitude = '';
+                this.location_longitude = '';
+                this.location_type = 'user';
+            },
+        }
+    }
+
     const userGroups = {
         data() {
             return {
@@ -1352,7 +1466,11 @@
                 return tanggal.format('LLL');
             }
         },
-        mixins: [login, logout, reconnect, sendMessage, sendImage, sendFile, sendVideo, sendContact, sendRevoke, userGroups, userPrivacy, userAvatar, userInfo]
+        mixins: [
+            login, logout, reconnect,
+            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendRevoke, sendLocation,
+            userGroups, userPrivacy, userAvatar, userInfo
+        ]
     }).mount('#app')
 </script>
 </body>
