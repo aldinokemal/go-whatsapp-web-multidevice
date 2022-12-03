@@ -1,6 +1,7 @@
 package validations
 
 import (
+	"context"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/assert"
@@ -449,6 +450,79 @@ func TestValidateSendContact(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateSendContact(tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
+func TestValidateSendLocation(t *testing.T) {
+	type args struct {
+		request domainSend.LocationRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success normal condition",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Latitude:  "-7.797068",
+				Longitude: "110.370529",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "",
+				Latitude:  "-7.797068",
+				Longitude: "110.370529",
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+		{
+			name: "should error with empty latitude",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Latitude:  "",
+				Longitude: "110.370529",
+			}},
+			err: pkgError.ValidationError("latitude: cannot be blank."),
+		},
+		{
+			name: "should error with empty longitude",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Latitude:  "-7.797068",
+				Longitude: "",
+			}},
+			err: pkgError.ValidationError("longitude: cannot be blank."),
+		},
+		{
+			name: "should error with invalid latitude",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Latitude:  "ABCDEF",
+				Longitude: "110.370529",
+			}},
+			err: pkgError.ValidationError("latitude: must be a valid latitude."),
+		},
+		{
+			name: "should error with invalid latitude",
+			args: args{request: domainSend.LocationRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Latitude:  "-7.797068",
+				Longitude: "ABCDEF",
+			}},
+			err: pkgError.ValidationError("longitude: must be a valid longitude."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendLocation(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}

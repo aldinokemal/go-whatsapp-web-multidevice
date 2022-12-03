@@ -372,6 +372,36 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	return response, nil
 }
 
+func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.LocationResponse, err error) {
+	err = validations.ValidateSendLocation(ctx, request)
+	if err != nil {
+		return response, err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Compose WhatsApp Proto
+	msgId := whatsmeow.GenerateMessageID()
+	msg := &waProto.Message{
+		LocationMessage: &waProto.LocationMessage{
+			DegreesLatitude:  proto.Float64(utils.StrToFloat64(request.Latitude)),
+			DegreesLongitude: proto.Float64(utils.StrToFloat64(request.Longitude)),
+		},
+	}
+
+	// Send WhatsApp Message Proto
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}
+
 func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
 	err = validations.ValidateRevokeMessage(request)
 	if err != nil {

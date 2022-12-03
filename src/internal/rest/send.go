@@ -19,6 +19,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/video", rest.SendVideo)
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
+	app.Post("/send/location", rest.SendLocation)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	return rest
@@ -131,6 +132,23 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) SendLocation(c *fiber.Ctx) error {
+	var request domainSend.LocationRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.SendLocation(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

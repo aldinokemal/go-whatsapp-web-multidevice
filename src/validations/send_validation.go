@@ -1,6 +1,7 @@
 package validations
 
 import (
+	"context"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -110,6 +111,20 @@ func ValidateSendLink(request domainSend.LinkRequest) error {
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Link, validation.Required, is.URL),
 		validation.Field(&request.Caption, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func ValidateSendLocation(ctx context.Context, request domainSend.LocationRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.Latitude, validation.Required, is.Latitude),
+		validation.Field(&request.Longitude, validation.Required, is.Longitude),
 	)
 
 	if err != nil {
