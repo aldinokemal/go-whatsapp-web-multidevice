@@ -31,6 +31,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 
 	// add validation send message
 	validations.ValidateSendMessage(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendText(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -56,6 +57,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 
 	//add validation send image
 	validations.ValidateSendImage(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -79,6 +81,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 
 	//add validation send image
 	validations.ValidateSendFile(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -102,6 +105,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 
 	//add validation send image
 	validations.ValidateSendVideo(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -120,6 +124,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 
 	// add validation send contect
 	validations.ValidateSendContact(request)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -138,6 +143,7 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 
 	err = validations.ValidateSendLink(request)
 	utils.PanicIfNeeded(err)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -157,6 +163,7 @@ func (controller *Send) RevokeMessage(c *fiber.Ctx) error {
 
 	err = validations.ValidateRevokeMessage(request)
 	utils.PanicIfNeeded(err)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Revoke(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -176,6 +183,7 @@ func (controller *Send) UpdateMessage(c *fiber.Ctx) error {
 
 	err = validations.ValidateUpdateMessage(request)
 	utils.PanicIfNeeded(err)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
