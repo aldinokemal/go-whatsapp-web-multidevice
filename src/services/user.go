@@ -6,6 +6,7 @@ import (
 	"fmt"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -21,6 +22,10 @@ func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
 }
 
 func (service userService) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
+	err = validations.ValidateUserInfo(request)
+	if err != nil {
+		return response, err
+	}
 	var jids []types.JID
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
@@ -60,6 +65,10 @@ func (service userService) Info(_ context.Context, request domainUser.InfoReques
 }
 
 func (service userService) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
+	err = validations.ValidateUserAvatar(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err

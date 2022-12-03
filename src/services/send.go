@@ -8,6 +8,7 @@ import (
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/h2non/bimg"
 	"github.com/valyala/fasthttp"
@@ -31,6 +32,10 @@ func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
+	err = validations.ValidateSendMessage(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -49,6 +54,10 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 }
 
 func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
+	err = validations.ValidateSendImage(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -143,6 +152,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 }
 
 func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
+	err = validations.ValidateSendFile(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -194,6 +207,10 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
+	err = validations.ValidateSendVideo(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -297,6 +314,10 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 }
 
 func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
+	err = validations.ValidateSendContact(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -320,6 +341,10 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 }
 
 func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.LinkResponse, err error) {
+	err = validations.ValidateSendLink(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -348,6 +373,10 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 }
 
 func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
+	err = validations.ValidateRevokeMessage(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
@@ -365,6 +394,10 @@ func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRe
 }
 
 func (service serviceSend) UpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) (response domainSend.UpdateMessageResponse, err error) {
+	err = validations.ValidateUpdateMessage(request)
+	if err != nil {
+		return response, err
+	}
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
