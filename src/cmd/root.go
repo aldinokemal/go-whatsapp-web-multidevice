@@ -7,8 +7,9 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
 	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
@@ -90,8 +91,8 @@ func runRest(_ *cobra.Command, _ []string) {
 		}
 	}
 
-	db := utils.InitWaDB()
-	cli := utils.InitWaCLI(db)
+	db := whatsapp.InitWaDB()
+	cli := whatsapp.InitWaCLI(db)
 
 	// Service
 	appService := services.NewAppService(cli, db)

@@ -1,0 +1,74 @@
+package validations
+
+import (
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/stretchr/testify/assert"
+	"testing"
+)
+
+func TestValidateUserAvatar(t *testing.T) {
+	type args struct {
+		request domainUser.AvatarRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success",
+			args: args{request: domainUser.AvatarRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainUser.AvatarRequest{
+				Phone: "",
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUserAvatar(tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
+func TestValidateUserInfo(t *testing.T) {
+	type args struct {
+		request domainUser.InfoRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success",
+			args: args{request: domainUser.InfoRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainUser.InfoRequest{
+				Phone: "",
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUserInfo(tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

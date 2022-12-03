@@ -2,7 +2,8 @@ package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
@@ -34,14 +35,15 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	// add validation send message
-	validations.ValidateUserInfo(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateUserInfo(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success",
 		Results: response.Data[0],
 	})
@@ -53,14 +55,15 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	// add validation send message
-	validations.ValidateUserAvatar(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateUserAvatar(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success get avatar",
 		Results: response,
 	})
@@ -71,7 +74,7 @@ func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success get privacy",
 		Results: response,
 	})
@@ -82,7 +85,7 @@ func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success get list groups",
 		Results: response,
 	})

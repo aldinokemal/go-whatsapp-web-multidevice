@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,4 +34,15 @@ func CreateFolder(folderPath ...string) error {
 		}
 	}
 	return nil
+}
+
+// PanicIfNeeded is panic if error is not nil
+func PanicIfNeeded(err any, message ...string) {
+	if err != nil {
+		if fmt.Sprintf("%s", err) == "record not found" && len(message) > 0 {
+			panic(message[0])
+		} else {
+			panic(err)
+		}
+	}
 }

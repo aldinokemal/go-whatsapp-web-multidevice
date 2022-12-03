@@ -1,4 +1,4 @@
-package utils
+package whatsapp
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -32,9 +33,9 @@ var (
 )
 
 func SanitizePhone(phone *string) {
-	if phone != nil && !strings.Contains(*phone, "@") {
+	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
 		if len(*phone) <= 15 {
-			*phone = fmt.Sprintf("%s@.whatsapp.net", *phone)
+			*phone = fmt.Sprintf("%s@s.whatsapp.net", *phone)
 		} else {
 			*phone = fmt.Sprintf("%s@g.us", *phone)
 		}
@@ -76,23 +77,28 @@ func GetPlatformName(deviceID int) string {
 	}
 }
 
-func ParseJID(arg string) (types.JID, bool) {
+func ParseJID(arg string) (types.JID, error) {
 	if arg[0] == '+' {
 		arg = arg[1:]
 	}
 	if !strings.ContainsRune(arg, '@') {
-		return types.NewJID(arg, types.DefaultUserServer), true
+		return types.NewJID(arg, types.DefaultUserServer), nil
 	} else {
 		recipient, err := types.ParseJID(arg)
 		if err != nil {
-			_ = fmt.Errorf("invalid JID %s: %v", arg, err)
-			return recipient, false
+			fmt.Printf("invalid JID %s: %v", arg, err)
+			return recipient, pkgError.ErrInvalidJID
 		} else if recipient.User == "" {
-			_ = fmt.Errorf("invalid JID %s: no server specified", arg)
-			return recipient, false
+			fmt.Printf("invalid JID %v: no server specified", arg)
+			return recipient, pkgError.ErrInvalidJID
 		}
-		return recipient, true
+		return recipient, nil
 	}
+}
+
+func ValidateJidWithLogin(waCli *whatsmeow.Client, phone string) (types.JID, error) {
+	MustLogin(waCli)
+	return ParseJID(phone)
 }
 
 func InitWaDB() *sqlstore.Container {
@@ -128,9 +134,9 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 
 func MustLogin(waCli *whatsmeow.Client) {
 	if !waCli.IsConnected() {
-		panic(AuthError{Message: "you are not connect to whatsapp server, please reconnect"})
+		panic(pkgError.AuthError("you are not connect to services server, please reconnect"))
 	} else if !waCli.IsLoggedIn() {
-		panic(AuthError{Message: "you are not login"})
+		panic(pkgError.AuthError("you are not login to services server, please login"))
 	}
 }
 

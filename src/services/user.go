@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -21,15 +21,13 @@ func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
 }
 
 func (service userService) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
 	var jids []types.JID
-	jid, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
 
-	jids = append(jids, jid)
+	jids = append(jids, dataWaRecipient)
 	resp, err := service.WaCli.GetUserInfo(jids)
 	if err != nil {
 		return response, err
@@ -41,7 +39,7 @@ func (service userService) Info(_ context.Context, request domainUser.InfoReques
 			device = append(device, domainUser.InfoResponseDataDevice{
 				User:   j.User,
 				Agent:  j.Agent,
-				Device: utils.GetPlatformName(int(j.Device)),
+				Device: whatsapp.GetPlatformName(int(j.Device)),
 				Server: j.Server,
 				AD:     j.AD,
 			})
@@ -62,13 +60,11 @@ func (service userService) Info(_ context.Context, request domainUser.InfoReques
 }
 
 func (service userService) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	jid, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
-	pic, err := service.WaCli.GetProfilePictureInfo(jid, false, "")
+	pic, err := service.WaCli.GetProfilePictureInfo(dataWaRecipient, false, "")
 	if err != nil {
 		return response, err
 	} else if pic == nil {
@@ -83,7 +79,7 @@ func (service userService) Avatar(_ context.Context, request domainUser.AvatarRe
 }
 
 func (service userService) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
-	utils.MustLogin(service.WaCli)
+	whatsapp.MustLogin(service.WaCli)
 
 	groups, err := service.WaCli.GetJoinedGroups()
 	if err != nil {
@@ -99,7 +95,7 @@ func (service userService) MyListGroups(_ context.Context) (response domainUser.
 }
 
 func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
-	utils.MustLogin(service.WaCli)
+	whatsapp.MustLogin(service.WaCli)
 
 	resp, err := service.WaCli.TryFetchPrivacySettings(false)
 	if err != nil {

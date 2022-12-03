@@ -1,7 +1,8 @@
 package utils
 
 type ResponseData struct {
-	Code    int    `json:"code"`
+	Status  int
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	Results any    `json:"results"`
 }
