@@ -77,8 +77,9 @@
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
-
-- `docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"`
+```
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
+```
 
 ### Production Mode (binary)
 
@@ -122,7 +123,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 5. Send File ![Send File](https://i.ibb.co/wC4SfRp/send-file.png)
 6. Send Video ![Send Video](https://i.ibb.co/VDCRH3G/send-video.png)
 7. Send Contact ![Send Contact](https://i.ibb.co/4810H7N/send-contact.png)
-8. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png)
+8. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png?)
 9. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
 10. User Avatar ![User Avatar](https://i.ibb.co/cysjmjT/user-avatar.png?)
 11. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
