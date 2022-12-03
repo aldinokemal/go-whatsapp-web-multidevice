@@ -107,7 +107,8 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Send Video              | POST   | /send/video                 | 
 | ✅       | Send Contact            | POST   | /send/contact               |
 | ✅       | Send Link               | POST   | /send/link                  |
-| ✅       | Revoke Messave          | POST   | /message/:message_id/revoke |
+| ✅       | Send Location           | POST   | /send/location              |
+| ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 
 ```
 ✅ = Available
