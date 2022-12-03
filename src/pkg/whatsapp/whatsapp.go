@@ -108,7 +108,7 @@ func InitWaDB() *sqlstore.Container {
 	storeContainer, err := sqlstore.New("sqlite3", fmt.Sprintf("file:%s/%s?_foreign_keys=off", config.PathStorages, config.DBName), dbLog)
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
-		panic(err)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Failed to connect to database: %v", err)))
 
 	}
 	return storeContainer
@@ -133,6 +133,9 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 }
 
 func MustLogin(waCli *whatsmeow.Client) {
+	if waCli == nil {
+		panic(pkgError.InternalServerError("Whatsapp client is not initialized"))
+	}
 	if !waCli.IsConnected() {
 		panic(pkgError.AuthError("you are not connect to services server, please reconnect"))
 	} else if !waCli.IsLoggedIn() {
@@ -279,13 +282,13 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
 	if err != nil {
 		log.Errorf("error when create http object %v", err)
-		return err
+		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Errorf("error when submit webhook %v", err)
-		return err
+		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
 	}
 	defer resp.Body.Close()
 	return nil
