@@ -4,7 +4,6 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -34,10 +33,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	// add validation send message
 	whatsapp.SanitizePhone(&request.Phone)
-	err = validations.ValidateUserInfo(request)
-	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.Info(c.Context(), request)
 	utils.PanicIfNeeded(err)
@@ -54,10 +50,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	// add validation send message
 	whatsapp.SanitizePhone(&request.Phone)
-	err = validations.ValidateUserAvatar(request)
-	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.Avatar(c.Context(), request)
 	utils.PanicIfNeeded(err)
