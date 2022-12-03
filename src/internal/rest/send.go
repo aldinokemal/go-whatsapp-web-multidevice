@@ -2,7 +2,8 @@ package rest
 
 import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/gofiber/fiber/v2"
 )
@@ -30,14 +31,15 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	// add validation send message
-	validations.ValidateSendMessage(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateSendMessage(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.SendText(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -56,14 +58,15 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	request.Image = file
 
 	//add validation send image
-	validations.ValidateSendImage(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateSendImage(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -80,14 +83,15 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	request.File = file
 
 	//add validation send image
-	validations.ValidateSendFile(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateSendFile(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -104,14 +108,15 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	request.Video = video
 
 	//add validation send image
-	validations.ValidateSendVideo(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateSendVideo(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -123,14 +128,15 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	// add validation send contect
-	validations.ValidateSendContact(request)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
+	err = validations.ValidateSendContact(request)
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -141,15 +147,15 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	whatsapp.SanitizePhone(&request.Phone)
 	err = validations.ValidateSendLink(request)
 	utils.PanicIfNeeded(err)
-	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -163,13 +169,13 @@ func (controller *Send) RevokeMessage(c *fiber.Ctx) error {
 
 	err = validations.ValidateRevokeMessage(request)
 	utils.PanicIfNeeded(err)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Revoke(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})
@@ -183,13 +189,13 @@ func (controller *Send) UpdateMessage(c *fiber.Ctx) error {
 
 	err = validations.ValidateUpdateMessage(request)
 	utils.PanicIfNeeded(err)
-	utils.SanitizePhone(&request.Phone)
+	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: response.Status,
 		Results: response,
 	})

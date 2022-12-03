@@ -3,7 +3,7 @@ package rest
 import (
 	"fmt"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -21,12 +21,12 @@ func InitRestApp(app *fiber.App, service domainApp.IAppService) App {
 	return App{Service: service}
 }
 
-func (controller *App) Login(c *fiber.Ctx) error {
-	response, err := controller.Service.Login(c.UserContext())
+func (handler *App) Login(c *fiber.Ctx) error {
+	response, err := handler.Service.Login(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success",
 		Results: map[string]any{
 			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
@@ -35,34 +35,34 @@ func (controller *App) Login(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *App) Logout(c *fiber.Ctx) error {
-	err := controller.Service.Logout(c.UserContext())
+func (handler *App) Logout(c *fiber.Ctx) error {
+	err := handler.Service.Logout(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Success logout",
 		Results: nil,
 	})
 }
 
-func (controller *App) Reconnect(c *fiber.Ctx) error {
-	err := controller.Service.Reconnect(c.UserContext())
+func (handler *App) Reconnect(c *fiber.Ctx) error {
+	err := handler.Service.Reconnect(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Reconnect success",
 		Results: nil,
 	})
 }
 
-func (controller *App) Devices(c *fiber.Ctx) error {
-	devices, err := controller.Service.FetchDevices(c.UserContext())
+func (handler *App) Devices(c *fiber.Ctx) error {
+	devices, err := handler.Service.FetchDevices(c.UserContext())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
-		Code:    200,
+		Status:  200,
 		Message: "Fetch device success",
 		Results: devices,
 	})

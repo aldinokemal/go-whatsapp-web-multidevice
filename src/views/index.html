@@ -29,7 +29,7 @@
 
     <div class="ui success message" v-if="connected_devices != null">
         <div class="header">
-            Device is connected
+            Device has connected
         </div>
         <p>
             Device ID: <b>[[ connected_devices[0].device ]]</b>
@@ -224,8 +224,8 @@
                 </div>
                 <div class="field">
                     <label>Message</label>
-                    <input v-model="message_text" type="text" placeholder="Hello this is message text"
-                           aria-label="message">
+                    <textarea v-model="message_text" type="text" placeholder="Hello this is message text"
+                              aria-label="message"></textarea>
                 </div>
             </form>
         </div>
@@ -261,8 +261,8 @@
                 </div>
                 <div class="field">
                     <label>Caption</label>
-                    <input v-model="image_caption" type="text" placeholder="Hello this is image caption"
-                           aria-label="caption">
+                    <textarea v-model="image_caption" type="text" placeholder="Hello this is image caption"
+                              aria-label="caption"></textarea>
                 </div>
                 <div class="field">
                     <label>View Once</label>
@@ -321,8 +321,8 @@
                 </div>
                 <div class="field">
                     <label>Caption</label>
-                    <input v-model="file_caption" type="text" placeholder="Type some caption (optional)..."
-                           aria-label="caption">
+                    <textarea v-model="file_caption" type="text" placeholder="Type some caption (optional)..."
+                           aria-label="caption"></textarea>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>
@@ -362,12 +362,12 @@
                     <label>Phone / Group ID</label>
                     <input v-model="video_phone" type="text" placeholder="6289..."
                            aria-label="phone">
+                    <input :value="video_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
                     <label>Caption</label>
-                    <input v-model="video_caption" type="text" placeholder="Type some caption (optional)..."
-                           aria-label="caption">
-                    <input :value="video_phone_id" disabled aria-label="whatsapp_id">
+                    <textarea v-model="video_caption" type="text" placeholder="Type some caption (optional)..."
+                              aria-label="caption"></textarea>
                 </div>
                 <div class="field">
                     <label>View Once</label>

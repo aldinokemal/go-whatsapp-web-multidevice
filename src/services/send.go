@@ -2,11 +2,12 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/utils"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/h2non/bimg"
 	"github.com/valyala/fasthttp"
@@ -30,16 +31,14 @@ func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	recipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
 
 	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(ctx, recipient, msgId, msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	if err != nil {
 		return response, err
 	}
@@ -50,7 +49,10 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 }
 
 func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
-	utils.MustLogin(service.WaCli)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
 
 	var (
 		imagePath      string
@@ -100,10 +102,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	// Send to WA server
 	dataWaCaption := request.Caption
-	dataWaRecipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
-	}
 	dataWaImage, err := os.ReadFile(imagePath)
 	if err != nil {
 		return response, err
@@ -145,7 +143,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 }
 
 func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
-	utils.MustLogin(service.WaCli)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
 
 	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
 	err = fasthttp.SaveMultipartFile(request.File, oriFilePath)
@@ -154,10 +155,6 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	// Send to WA server
-	dataWaRecipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
-	}
 	dataWaFile, err := os.ReadFile(oriFilePath)
 	if err != nil {
 		return response, err
@@ -197,7 +194,10 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
-	utils.MustLogin(service.WaCli)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
 
 	var (
 		videoPath      string
@@ -210,25 +210,27 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
 	err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
 	if err != nil {
-		return response, err
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
 	}
 
 	// Get thumbnail video with ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
 	err = cmdThumbnail.Run()
-	utils.PanicIfNeeded(err, "error when getting thumbnail")
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create thumbnail %v", err))
+	}
 
 	// Resize Thumbnail
 	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
 	resize, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
 	if err != nil {
-		return response, err
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resize thumbnail %v", err))
 	}
 	thumbnailResizeVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+"_resize.png")
 	err = bimg.Write(thumbnailResizeVideoPath, resize)
 	if err != nil {
-		return response, err
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create image thumbnail %v", err))
 	}
 
 	deletedItems = append(deletedItems, thumbnailVideoPath)
@@ -240,7 +242,9 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		// Compress video with ffmpeg
 		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
 		err = cmdCompress.Run()
-		utils.PanicIfNeeded(err, "error when compress video")
+		if err != nil {
+			return response, pkgError.InternalServerError("failed to compress video")
+		}
 
 		videoPath = compresVideoPath
 		deletedItems = append(deletedItems, compresVideoPath)
@@ -250,18 +254,13 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	//Send to WA server
-	dataWaRecipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
-	}
 	dataWaVideo, err := os.ReadFile(videoPath)
 	if err != nil {
 		return response, err
 	}
 	uploaded, err := service.WaCli.Upload(context.Background(), dataWaVideo, whatsmeow.MediaVideo)
 	if err != nil {
-		fmt.Printf("Failed to upload file: %v", err)
-		return response, err
+		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
 	}
 	dataWaThumbnail, err := os.ReadFile(videoThumbnail)
 	if err != nil {
@@ -298,12 +297,11 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 }
 
 func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	recipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
+
 	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
 		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
 	msgId := whatsmeow.GenerateMessageID()
@@ -311,7 +309,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, recipient, "", msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, "", msg)
 	if err != nil {
 		return response, err
 	}
@@ -322,11 +320,9 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 }
 
 func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.LinkResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	recipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
 
 	msgId := whatsmeow.GenerateMessageID()
@@ -341,7 +337,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			},
 		},
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, recipient, msgId, msg)
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	if err != nil {
 		return response, err
 	}
@@ -352,15 +348,13 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 }
 
 func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	recipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
 
 	msgId := whatsmeow.GenerateMessageID()
-	ts, err := service.WaCli.SendMessage(context.Background(), recipient, msgId, service.WaCli.BuildRevoke(recipient, types.EmptyJID, request.MessageID))
+	ts, err := service.WaCli.SendMessage(context.Background(), dataWaRecipient, msgId, service.WaCli.BuildRevoke(dataWaRecipient, types.EmptyJID, request.MessageID))
 	if err != nil {
 		return response, err
 	}
@@ -371,16 +365,14 @@ func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRe
 }
 
 func (service serviceSend) UpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) (response domainSend.UpdateMessageResponse, err error) {
-	utils.MustLogin(service.WaCli)
-
-	recipient, ok := utils.ParseJID(request.Phone)
-	if !ok {
-		return response, errors.New("invalid JID " + request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
 	}
 
 	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(context.Background(), recipient, msgId, service.WaCli.BuildEdit(recipient, request.MessageID, msg))
+	ts, err := service.WaCli.SendMessage(context.Background(), dataWaRecipient, msgId, service.WaCli.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
 	}
