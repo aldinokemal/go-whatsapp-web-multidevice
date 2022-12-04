@@ -21,8 +21,8 @@ func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
 	}
 }
 
-func (service userService) Info(_ context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
-	err = validations.ValidateUserInfo(request)
+func (service userService) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
+	err = validations.ValidateUserInfo(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -64,8 +64,8 @@ func (service userService) Info(_ context.Context, request domainUser.InfoReques
 	return response, nil
 }
 
-func (service userService) Avatar(_ context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
-	err = validations.ValidateUserAvatar(request)
+func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
+	err = validations.ValidateUserAvatar(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -106,7 +106,7 @@ func (service userService) MyListGroups(_ context.Context) (response domainUser.
 func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	resp, err := service.WaCli.TryFetchPrivacySettings(false)
+	resp, err := service.WaCli.TryFetchPrivacySettings(true)
 	if err != nil {
 		return
 	}

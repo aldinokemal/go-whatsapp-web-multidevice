@@ -11,8 +11,8 @@ import (
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
-func ValidateSendMessage(request domainSend.MessageRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Message, validation.Required),
 	)
@@ -23,8 +23,8 @@ func ValidateSendMessage(request domainSend.MessageRequest) error {
 	return nil
 }
 
-func ValidateSendImage(request domainSend.ImageRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Image, validation.Required),
 	)
@@ -46,8 +46,8 @@ func ValidateSendImage(request domainSend.ImageRequest) error {
 	return nil
 }
 
-func ValidateSendFile(request domainSend.FileRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.File, validation.Required),
 	)
@@ -64,8 +64,8 @@ func ValidateSendFile(request domainSend.FileRequest) error {
 	return nil
 }
 
-func ValidateSendVideo(request domainSend.VideoRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Video, validation.Required),
 	)
@@ -92,8 +92,8 @@ func ValidateSendVideo(request domainSend.VideoRequest) error {
 	return nil
 }
 
-func ValidateSendContact(request domainSend.ContactRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendContact(ctx context.Context, request domainSend.ContactRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.ContactPhone, validation.Required),
 		validation.Field(&request.ContactName, validation.Required),
@@ -106,8 +106,8 @@ func ValidateSendContact(request domainSend.ContactRequest) error {
 	return nil
 }
 
-func ValidateSendLink(request domainSend.LinkRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateSendLink(ctx context.Context, request domainSend.LinkRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Link, validation.Required, is.URL),
 		validation.Field(&request.Caption, validation.Required),
@@ -134,8 +134,8 @@ func ValidateSendLocation(ctx context.Context, request domainSend.LocationReques
 	return nil
 }
 
-func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateRevokeMessage(ctx context.Context, request domainSend.RevokeRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.MessageID, validation.Required),
 	)
@@ -147,8 +147,8 @@ func ValidateRevokeMessage(request domainSend.RevokeRequest) error {
 	return nil
 }
 
-func ValidateUpdateMessage(request domainSend.UpdateMessageRequest) error {
-	err := validation.ValidateStruct(&request,
+func ValidateUpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.MessageID, validation.Required),
 		validation.Field(&request.Message, validation.Required),

@@ -46,7 +46,7 @@ func TestValidateSendMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendMessage(tt.args.request)
+			err := ValidateSendMessage(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -108,7 +108,7 @@ func TestValidateSendImage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendImage(tt.args.request)
+			err := ValidateSendImage(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -157,7 +157,7 @@ func TestValidateSendFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendFile(tt.args.request)
+			err := ValidateSendFile(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -232,7 +232,7 @@ func TestValidateSendVideo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendVideo(tt.args.request)
+			err := ValidateSendVideo(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -296,7 +296,7 @@ func TestValidateSendLink(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendLink(tt.args.request)
+			err := ValidateSendLink(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -339,7 +339,7 @@ func TestValidateRevokeMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateRevokeMessage(tt.args.request)
+			err := ValidateRevokeMessage(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -394,7 +394,7 @@ func TestValidateUpdateMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateUpdateMessage(tt.args.request)
+			err := ValidateUpdateMessage(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -449,7 +449,7 @@ func TestValidateSendContact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSendContact(tt.args.request)
+			err := ValidateSendContact(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}

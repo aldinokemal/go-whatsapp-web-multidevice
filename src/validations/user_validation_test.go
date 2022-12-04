@@ -1,6 +1,7 @@
 package validations
 
 import (
+	"context"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/assert"
@@ -34,7 +35,7 @@ func TestValidateUserAvatar(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateUserAvatar(tt.args.request)
+			err := ValidateUserAvatar(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
@@ -67,7 +68,7 @@ func TestValidateUserInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateUserInfo(tt.args.request)
+			err := ValidateUserInfo(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}
