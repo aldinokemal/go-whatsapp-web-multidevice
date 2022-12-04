@@ -32,7 +32,7 @@ func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
-	err = validations.ValidateSendMessage(request)
+	err = validations.ValidateSendMessage(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -54,7 +54,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 }
 
 func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
-	err = validations.ValidateSendImage(request)
+	err = validations.ValidateSendImage(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -152,7 +152,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 }
 
 func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
-	err = validations.ValidateSendFile(request)
+	err = validations.ValidateSendFile(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -207,7 +207,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
-	err = validations.ValidateSendVideo(request)
+	err = validations.ValidateSendVideo(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -286,20 +286,23 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
-		Url:           proto.String(uploaded.URL),
-		Mimetype:      proto.String(http.DetectContentType(dataWaVideo)),
-		Caption:       proto.String(request.Caption),
-		FileLength:    proto.Uint64(uploaded.FileLength),
-		FileSha256:    uploaded.FileSHA256,
-		FileEncSha256: uploaded.FileEncSHA256,
-		MediaKey:      uploaded.MediaKey,
-		DirectPath:    proto.String(uploaded.DirectPath),
-		ViewOnce:      proto.Bool(request.ViewOnce),
-		JpegThumbnail: dataWaThumbnail,
+		Url:                 proto.String(uploaded.URL),
+		Mimetype:            proto.String(http.DetectContentType(dataWaVideo)),
+		Caption:             proto.String(request.Caption),
+		FileLength:          proto.Uint64(uploaded.FileLength),
+		FileSha256:          uploaded.FileSHA256,
+		FileEncSha256:       uploaded.FileEncSHA256,
+		MediaKey:            uploaded.MediaKey,
+		DirectPath:          proto.String(uploaded.DirectPath),
+		ViewOnce:            proto.Bool(request.ViewOnce),
+		JpegThumbnail:       dataWaThumbnail,
+		ThumbnailEncSha256:  dataWaThumbnail,
+		ThumbnailSha256:     dataWaThumbnail,
+		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, deletedItems...)
+		errDelete := utils.RemoveFile(1, deletedItems...)
 		if errDelete != nil {
 			fmt.Println(errDelete)
 		}
@@ -314,7 +317,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 }
 
 func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
-	err = validations.ValidateSendContact(request)
+	err = validations.ValidateSendContact(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -341,7 +344,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 }
 
 func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.LinkResponse, err error) {
-	err = validations.ValidateSendLink(request)
+	err = validations.ValidateSendLink(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -372,8 +375,38 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	return response, nil
 }
 
-func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
-	err = validations.ValidateRevokeMessage(request)
+func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.LocationResponse, err error) {
+	err = validations.ValidateSendLocation(ctx, request)
+	if err != nil {
+		return response, err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Compose WhatsApp Proto
+	msgId := whatsmeow.GenerateMessageID()
+	msg := &waProto.Message{
+		LocationMessage: &waProto.LocationMessage{
+			DegreesLatitude:  proto.Float64(utils.StrToFloat64(request.Latitude)),
+			DegreesLongitude: proto.Float64(utils.StrToFloat64(request.Longitude)),
+		},
+	}
+
+	// Send WhatsApp Message Proto
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = msgId
+	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}
+
+func (service serviceSend) Revoke(ctx context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
+	err = validations.ValidateRevokeMessage(ctx, request)
 	if err != nil {
 		return response, err
 	}
@@ -394,7 +427,7 @@ func (service serviceSend) Revoke(_ context.Context, request domainSend.RevokeRe
 }
 
 func (service serviceSend) UpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) (response domainSend.UpdateMessageResponse, err error) {
-	err = validations.ValidateUpdateMessage(request)
+	err = validations.ValidateUpdateMessage(ctx, request)
 	if err != nil {
 		return response, err
 	}

@@ -12,6 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -86,7 +87,7 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 
 func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete history
-	files, err := filepath.Glob("./history-*")
+	files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages))
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 		}
 	}
 	// delete qr images
-	qrImages, err := filepath.Glob("./statics/images/qrcode/scan-*")
+	qrImages, err := filepath.Glob(fmt.Sprintf("./%s/scan-*", config.PathQrCode))
 	if err != nil {
 		return err
 	}
@@ -107,6 +108,21 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 		err = os.Remove(f)
 		if err != nil {
 			return err
+		}
+	}
+
+	// delete senditems
+	qrItems, err := filepath.Glob(fmt.Sprintf("./%s/*", config.PathSendItems))
+	if err != nil {
+		return err
+	}
+
+	for _, f := range qrItems {
+		if !strings.Contains(f, ".gitignore") {
+			err = os.Remove(f)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

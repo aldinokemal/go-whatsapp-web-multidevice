@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,4 +47,12 @@ func PanicIfNeeded(err any, message ...string) {
 			panic(err)
 		}
 	}
+}
+
+func StrToFloat64(text string) float64 {
+	var result float64
+	if text != "" {
+		result, _ = strconv.ParseFloat(strings.TrimSpace(text), 64)
+	}
+	return result
 }
