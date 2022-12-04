@@ -86,7 +86,7 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 
 func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete history
-	files, err := filepath.Glob("./history-*")
+	files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages))
 	if err != nil {
 		return err
 	}
@@ -98,12 +98,25 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 		}
 	}
 	// delete qr images
-	qrImages, err := filepath.Glob("./statics/images/qrcode/scan-*")
+	qrImages, err := filepath.Glob(fmt.Sprintf("./%s/scan-*", config.PathQrCode))
 	if err != nil {
 		return err
 	}
 
 	for _, f := range qrImages {
+		err = os.Remove(f)
+		if err != nil {
+			return err
+		}
+	}
+
+	// delete senditems
+	qrItems, err := filepath.Glob(fmt.Sprintf("./%s/*", config.PathSendItems))
+	if err != nil {
+		return err
+	}
+
+	for _, f := range qrItems {
 		err = os.Remove(f)
 		if err != nil {
 			return err
