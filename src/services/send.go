@@ -286,20 +286,23 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	msgId := whatsmeow.GenerateMessageID()
 	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
-		Url:           proto.String(uploaded.URL),
-		Mimetype:      proto.String(http.DetectContentType(dataWaVideo)),
-		Caption:       proto.String(request.Caption),
-		FileLength:    proto.Uint64(uploaded.FileLength),
-		FileSha256:    uploaded.FileSHA256,
-		FileEncSha256: uploaded.FileEncSHA256,
-		MediaKey:      uploaded.MediaKey,
-		DirectPath:    proto.String(uploaded.DirectPath),
-		ViewOnce:      proto.Bool(request.ViewOnce),
-		JpegThumbnail: dataWaThumbnail,
+		Url:                 proto.String(uploaded.URL),
+		Mimetype:            proto.String(http.DetectContentType(dataWaVideo)),
+		Caption:             proto.String(request.Caption),
+		FileLength:          proto.Uint64(uploaded.FileLength),
+		FileSha256:          uploaded.FileSHA256,
+		FileEncSha256:       uploaded.FileEncSHA256,
+		MediaKey:            uploaded.MediaKey,
+		DirectPath:          proto.String(uploaded.DirectPath),
+		ViewOnce:            proto.Bool(request.ViewOnce),
+		JpegThumbnail:       dataWaThumbnail,
+		ThumbnailEncSha256:  dataWaThumbnail,
+		ThumbnailSha256:     dataWaThumbnail,
+		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
-		errDelete := utils.RemoveFile(0, deletedItems...)
+		errDelete := utils.RemoveFile(1, deletedItems...)
 		if errDelete != nil {
 			fmt.Println(errDelete)
 		}
