@@ -12,6 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -117,9 +118,11 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 	}
 
 	for _, f := range qrItems {
-		err = os.Remove(f)
-		if err != nil {
-			return err
+		if !strings.Contains(f, ".gitignore") {
+			err = os.Remove(f)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
