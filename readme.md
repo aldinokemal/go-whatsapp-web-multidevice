@@ -14,7 +14,7 @@
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
     - `--os=Chrome` or `--os=MyApplication`
-- Basic Auth (able to add multi account)
+- Basic Auth (able to add multi credentials)
     - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
     - `-b=kemal:secret,toni:password,userName:secretPassword`
 - Customizable port and debug mode
