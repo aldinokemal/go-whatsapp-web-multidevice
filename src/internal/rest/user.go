@@ -21,13 +21,6 @@ func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
 	return rest
 }
 
-func (controller *User) Route(app *fiber.App) {
-	app.Get("/user/info", controller.UserInfo)
-	app.Get("/user/avatar", controller.UserAvatar)
-	app.Get("/user/my/privacy", controller.UserMyPrivacySetting)
-	app.Get("/user/my/groups", controller.UserMyListGroups)
-}
-
 func (controller *User) UserInfo(c *fiber.Ctx) error {
 	var request domainUser.InfoRequest
 	err := c.QueryParser(&request)
@@ -35,7 +28,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 
 	whatsapp.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.Info(c.Context(), request)
+	response, err := controller.Service.Info(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -52,7 +45,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 
 	whatsapp.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.Avatar(c.Context(), request)
+	response, err := controller.Service.Avatar(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

@@ -20,14 +20,18 @@ func TestValidateUserAvatar(t *testing.T) {
 		{
 			name: "should success",
 			args: args{request: domainUser.AvatarRequest{
-				Phone: "1728937129312@s.whatsapp.net",
+				Phone:       "1728937129312@s.whatsapp.net",
+				IsPreview:   false,
+				IsCommunity: false,
 			}},
 			err: nil,
 		},
 		{
 			name: "should error with empty phone",
 			args: args{request: domainUser.AvatarRequest{
-				Phone: "",
+				Phone:       "",
+				IsPreview:   false,
+				IsCommunity: false,
 			}},
 			err: pkgError.ValidationError("phone: cannot be blank."),
 		},

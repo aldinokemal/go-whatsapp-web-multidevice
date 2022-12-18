@@ -26,7 +26,9 @@ type InfoResponse struct {
 }
 
 type AvatarRequest struct {
-	Phone string `json:"phone" query:"phone"`
+	Phone       string `json:"phone" query:"phone"`
+	IsPreview   bool   `json:"is_preview" query:"is_preview"`
+	IsCommunity bool   `json:"is_community" query:"is_community"`
 }
 
 type AvatarResponse struct {
