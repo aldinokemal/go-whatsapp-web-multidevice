@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.1.0
+  version: 3.2.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -194,34 +194,23 @@ paths:
           schema:
             type: integer
           example: '6289685028129@s.whatsapp.net'
+        - name: is_preview
+          in: query
+          schema:
+            type: boolean
+          example: true
+        - name: is_preview
+          in: query
+          schema:
+            type: integer
+          example: true
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:43:39 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '244'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  url: >-
-                    https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726
-                  id: '1635239861'
-                  type: image
+                $ref: '#/components/schemas/UserAvatarResponse'
         '400':
           description: Bad Request
           content:
@@ -651,12 +640,67 @@ paths:
 
 components:
   schemas:
+    UserGroupResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Success get list groups
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  JID:
+                    type: string
+                  OwnerJID:
+                    type: string
+                  Name:
+                    type: string
+                  NameSetAt:
+                    type: string
+                  NameSetBy:
+                    type: string
+                  GroupCreated:
+                    type: string
+                  ParticipantVersionID:
+                    type: string
+                  Participants:
+                    type: array
+                    items:
+                      properties:
+                        JID:
+                          type: string
+                        IsAdmin:
+                          type: boolean
+                        IsSuperAdmin:
+                          type: boolean
+                        Error:
+                          type: number
+    UserAvatarResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Success
+        results:
+          type: object
+          properties:
+            url:
+              type: string
+              example: 'https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726'
+            id:
+              type: string
+              example: '1635239861'
+            type:
+              type: string
+              example: 'image'
     SendResponse:
       type: object
       properties:
-        code:
-          type: integer
-          example: 200
         message:
           type: string
           example: Success

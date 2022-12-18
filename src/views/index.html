@@ -599,6 +599,22 @@
                     <input :value="avatar_phone_id" disabled aria-label="whatsapp_id">
                 </div>
 
+                <div class="field">
+                    <label>Preview</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="avatar_is_preview">
+                        <label>Check for small size image</label>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label>Community</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="avatar_is_community">
+                        <label>Check is it's community image</label>
+                    </div>
+                </div>
+
                 <button type="button" class="ui primary button" :class="{'loading': avatar_loading}"
                         @click="avatarProcess">
                     Search
@@ -1305,6 +1321,8 @@
                 avatar_phone: '',
                 avatar_image: null,
                 avatar_loading: false,
+                avatar_is_preview: false,
+                avatar_is_community: false,
             }
         },
         computed: {
@@ -1331,7 +1349,7 @@
             avatarApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
-                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone_id}`)
+                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone_id}&is_preview=${this.avatar_is_preview}&is_community=${this.avatar_is_community}`)
                         this.avatar_image = response.data.results.url;
                         resolve()
                     } catch (error) {

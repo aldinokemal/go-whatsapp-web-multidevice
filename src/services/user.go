@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
+	"time"
 )
 
 type userService struct {
@@ -65,26 +67,50 @@ func (service userService) Info(ctx context.Context, request domainUser.InfoRequ
 }
 
 func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
-	err = validations.ValidateUserAvatar(ctx, request)
-	if err != nil {
-		return response, err
-	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
-	if err != nil {
-		return response, err
-	}
-	pic, err := service.WaCli.GetProfilePictureInfo(dataWaRecipient, false, "")
-	if err != nil {
-		return response, err
-	} else if pic == nil {
-		return response, errors.New("no avatar found")
-	} else {
-		response.URL = pic.URL
-		response.ID = pic.ID
-		response.Type = pic.Type
 
-		return response, nil
+	chanResp := make(chan domainUser.AvatarResponse)
+	chanErr := make(chan error)
+	waktu := time.Now()
+
+	go func() {
+		err = validations.ValidateUserAvatar(ctx, request)
+		if err != nil {
+			chanErr <- err
+		}
+		dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+		if err != nil {
+			chanErr <- err
+		}
+		pic, err := service.WaCli.GetProfilePictureInfo(dataWaRecipient, &whatsmeow.GetProfilePictureParams{
+			Preview:     request.IsPreview,
+			IsCommunity: request.IsCommunity,
+		})
+		if err != nil {
+			chanErr <- err
+		} else if pic == nil {
+			chanErr <- errors.New("no avatar found")
+		} else {
+			response.URL = pic.URL
+			response.ID = pic.ID
+			response.Type = pic.Type
+
+			chanResp <- response
+		}
+	}()
+
+	for {
+		select {
+		case err := <-chanErr:
+			return response, err
+		case response := <-chanResp:
+			return response, nil
+		default:
+			if waktu.Add(2 * time.Second).Before(time.Now()) {
+				return response, pkgError.ContextError("Error timeout get avatar !")
+			}
+		}
 	}
+
 }
 
 func (service userService) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
