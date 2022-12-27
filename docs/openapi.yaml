@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.2.1
+  version: 3.2.2
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -293,7 +293,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685028129@s.whatsapp.net'
                   description: Phone number with country code
                 message:
@@ -332,7 +332,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685028129@s.whatsapp.net'
                   description: Phone number with country code
                 caption:
@@ -383,7 +383,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685028129@s.whatsapp.net'
                   description: Phone number with country code
                 caption:
@@ -426,7 +426,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685028129@s.whatsapp.net'
                   description: Phone number with country code
                 caption:
@@ -477,7 +477,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685024051@s.whatsapp.net'
                   description: Phone number with country code
                 contact_name:
@@ -520,7 +520,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685024051@s.whatsapp.net'
                   description: Phone number with country code
                 link:
@@ -563,7 +563,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685024051@s.whatsapp.net'
                   description: Phone number with country code
                 latitude:
@@ -606,7 +606,7 @@ paths:
               type: object
               properties:
                 phone:
-                  type: integer
+                  type: string
                   example: '6289685024051@s.whatsapp.net'
                   description: Phone number with country code
                 message_id:
