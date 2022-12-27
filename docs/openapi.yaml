@@ -38,14 +38,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  qr_duration: 30
-                  qr_link: >-
-                    http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png
+                $ref: '#/components/schemas/LoginResponse'
         '500':
           description: Internal Server Error
           content:
@@ -61,27 +54,10 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 03:44:15 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '54'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success logout
-                results: null
+                $ref: '#/components/schemas/GenericResponse'
         '500':
           description: Internal Server Error
           content:
@@ -100,7 +76,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
+                $ref: '#/components/schemas/GenericResponse'
         '500':
           description: Internal Server Error
           content:
@@ -708,6 +684,35 @@ components:
             status:
               type: string
               example: '<feature> success ....'
+    GenericResponse:
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: Success
+        results:
+          type: string
+          example: null
+
+    LoginResponse:
+      properties:
+        code:
+          type: string
+          example: '200'
+        message:
+          type: string
+          example: Success
+        results:
+          type: object
+          properties:
+            qr_duration:
+              type: integer
+              example: 30
+            qr_link:
+              type: string
+              example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
     ErrorInternalServer:
       properties:
         code:
