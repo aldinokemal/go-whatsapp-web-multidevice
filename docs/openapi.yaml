@@ -22,19 +22,6 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Fri, 11 Feb 2022 02:38:34 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '166'
           content:
             application/json:
               schema:
@@ -685,6 +672,7 @@ components:
               type: string
               example: '<feature> success ....'
     GenericResponse:
+      type: object
       properties:
         code:
           type: integer
@@ -695,8 +683,8 @@ components:
         results:
           type: string
           example: null
-
     LoginResponse:
+      type: object
       properties:
         code:
           type: string
@@ -714,6 +702,7 @@ components:
               type: string
               example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
     ErrorInternalServer:
+      type: object
       properties:
         code:
           type: integer
@@ -728,6 +717,7 @@ components:
           example: null
           description: 'additional data'
     ErrorBadRequest:
+      type: object
       properties:
         code:
           type: integer
