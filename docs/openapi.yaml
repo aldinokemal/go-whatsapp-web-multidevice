@@ -70,6 +70,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/devices:
+    get:
+      operationId: appDevices
+      tags:
+        - app
+      summary: Get list connected devices
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/info:
     get:
       operationId: userInfo
@@ -674,6 +693,26 @@ components:
             status:
               type: string
               example: '<feature> success ....'
+    DeviceResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Fetch device success
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: 'Aldino Kemal'
+              device:
+                type: string
+                example: '628960561XXX.0:64@s.whatsapp.net'
     LoginResponse:
       type: object
       properties:
