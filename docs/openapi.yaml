@@ -723,7 +723,7 @@ components:
       type: object
       properties:
         code:
-          type: integer
+          type: string
           example: 400
           description: 'HTTP Status Code'
         message:
