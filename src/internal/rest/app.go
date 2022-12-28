@@ -27,7 +27,8 @@ func (handler *App) Login(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
-		Message: "Success",
+		Code:    "SUCCESS",
+		Message: "Login success",
 		Results: map[string]any{
 			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
 			"qr_duration": response.Duration,
@@ -41,6 +42,7 @@ func (handler *App) Logout(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: "Success logout",
 		Results: nil,
 	})
@@ -52,6 +54,7 @@ func (handler *App) Reconnect(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: "Reconnect success",
 		Results: nil,
 	})
@@ -63,6 +66,7 @@ func (handler *App) Devices(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: "Fetch device success",
 		Results: devices,
 	})

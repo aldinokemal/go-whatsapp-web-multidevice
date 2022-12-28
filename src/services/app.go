@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
+	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
+	"go.mau.fi/libsignal/logger"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
@@ -30,7 +33,7 @@ func NewAppService(waCli *whatsmeow.Client, db *sqlstore.Container) domainApp.IA
 
 func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResponse, err error) {
 	if service.WaCli == nil {
-		return response, errors.New("wa cli nil cok")
+		return response, pkgError.ErrWaCLI
 	}
 
 	// Disconnect for reconnecting
@@ -40,15 +43,16 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 
 	ch, err := service.WaCli.GetQRChannel(context.Background())
 	if err != nil {
+		logrus.Error(err.Error())
 		// This error means that we're already logged in, so ignore it.
 		if errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
 			_ = service.WaCli.Connect() // just connect to websocket
 			if service.WaCli.IsLoggedIn() {
-				return response, errors.New("you already logged in :)")
+				return response, pkgError.ErrAlreadyLoggedIn
 			}
-			return response, errors.New("your session have been saved, please wait to connect 2 second and refresh again")
+			return response, pkgError.ErrorSessionSaved
 		} else {
-			return response, errors.New("Error when GetQRChannel:" + err.Error())
+			return response, pkgError.ErrQrChannel
 		}
 	} else {
 		go func() {
@@ -59,18 +63,18 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 					qrPath := fmt.Sprintf("%s/scan-qr-%s.png", config.PathQrCode, fiberUtils.UUIDv4())
 					err = qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath)
 					if err != nil {
-						fmt.Println("error when write qrImage file", err.Error())
+						logrus.Error("Error when write qr code to file: ", err)
 					}
 					go func() {
 						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)
 						if err != nil {
-							fmt.Println("Failed to remove qrPath " + qrPath)
+							logrus.Error("error when remove qrImage file", err.Error())
 						}
 					}()
 					chImage <- qrPath
 				} else {
-					fmt.Printf("QR channel result: %s", evt.Event)
+					logrus.Error("error when get qrCode", evt.Event)
 				}
 			}
 		}()
@@ -78,7 +82,8 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 
 	err = service.WaCli.Connect()
 	if err != nil {
-		return response, errors.New("Failed to connect bro " + err.Error())
+		logger.Error("Error when connect to whatsapp", err)
+		return response, pkgError.ErrReconnect
 	}
 	response.ImagePath = <-chImage
 
@@ -137,7 +142,7 @@ func (service serviceApp) Reconnect(_ context.Context) (err error) {
 
 func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.FetchDevicesResponse, err error) {
 	if service.WaCli == nil {
-		return response, errors.New("wa cli nil cok")
+		return response, pkgError.ErrWaCLI
 	}
 
 	devices, err := service.db.GetAllDevices()
