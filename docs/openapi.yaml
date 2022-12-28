@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.3.0
+  version: 3.3.1
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -85,54 +85,10 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Sun, 13 Feb 2022 05:46:55 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '394'
-            Vary:
-              schema:
-                type: string
-                example: Origin
-            Access-Control-Allow-Origin:
-              schema:
-                type: string
-                example: '*'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success
-                results:
-                  verified_name: ''
-                  status: you are blocked
-                  picture_id: '1635239861'
-                  devices:
-                    - User: '6289685028129@s.whatsapp.net'
-                      Agent: 0
-                      Device: UNKNOWN
-                      Server: s.whatsapp.net
-                      AD: true
-                    - User: '6289685028129@s.whatsapp.net'
-                      Agent: 0
-                      Device: SAFARI
-                      Server: s.whatsapp.net
-                      AD: true
-                    - User: '6289685028129@s.whatsapp.net'
-                      Agent: 0
-                      Device: IPAD
-                      Server: s.whatsapp.net
-                      AD: true
+                $ref: '#/components/schemas/UserInfoResponse'
         '400':
           description: Bad Request
           content:
@@ -190,40 +146,10 @@ paths:
       responses:
         '200':
           description: OK
-          headers:
-            Date:
-              schema:
-                type: string
-                example: Sun, 13 Feb 2022 04:01:41 GMT
-            Content-Type:
-              schema:
-                type: string
-                example: application/json
-            Content-Length:
-              schema:
-                type: integer
-                example: '147'
-            Vary:
-              schema:
-                type: string
-                example: Origin
-            Access-Control-Allow-Origin:
-              schema:
-                type: string
-                example: '*'
           content:
             application/json:
               schema:
-                type: object
-              example:
-                code: 200
-                message: Success get privacy
-                results:
-                  group_add: all
-                  last_seen: ''
-                  status: all
-                  profile: contacts
-                  read_receipts: all
+                $ref: '#/components/schemas/UserPrivacyResponse'
         '500':
           description: Internal Server Error
           content:
@@ -601,6 +527,9 @@ components:
     UserGroupResponse:
       type: object
       properties:
+        code:
+          type: string
+          example: SUCCESS
         message:
           type: string
           example: Success get list groups
@@ -638,9 +567,53 @@ components:
                           type: boolean
                         Error:
                           type: number
+    UserInfoResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example:
+        results:
+          type: object
+          properties:
+            verified_name:
+              type: string
+              example: Aldino Kemal
+            status:
+              type: string
+              example: Hello World
+            picture_id:
+              type: string
+              example: 1651459152
+            devices:
+              type: array
+              items:
+                type: object
+                properties:
+                  User:
+                    type: string
+                    example: 6289685021291
+                  Agent:
+                    type: integer
+                    example: 0
+                  Device:
+                    type: string
+                    example: UNKNOWN
+                  Server:
+                    type: string
+                    example: s.whatsapp.net
+                  AD:
+                    type: boolean
+                    example: true
     UserAvatarResponse:
       type: object
       properties:
+        code:
+          type: string
+          example: SUCCESS
         message:
           type: string
           example: Success
@@ -656,9 +629,39 @@ components:
             type:
               type: string
               example: 'image'
+    UserPrivacyResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get privacy
+        results:
+          type: object
+          properties:
+            group_add:
+              type: string
+              example: all
+            last_seen:
+              type: string
+              example: null
+            status:
+              type: string
+              example: all
+            profile:
+              type: string
+              example: all
+            read_receipts:
+              type: string
+              example: all
     SendResponse:
       type: object
       properties:
+        code:
+          type: string
+          example: SUCCESS
         message:
           type: string
           example: Success
@@ -671,24 +674,12 @@ components:
             status:
               type: string
               example: '<feature> success ....'
-    GenericResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          example: 200
-        message:
-          type: string
-          example: Success
-        results:
-          type: string
-          example: null
     LoginResponse:
       type: object
       properties:
         code:
-          type: integer
-          example: 200
+          type: string
+          example: SUCCESS
         message:
           type: string
           example: Success
@@ -701,13 +692,25 @@ components:
             qr_link:
               type: string
               example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
+    GenericResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success
+        results:
+          type: string
+          example: null
     ErrorInternalServer:
       type: object
       properties:
         code:
-          type: integer
-          example: 500
-          description: 'HTTP Status Code'
+          type: string
+          example: INTERNAL_SERVER_ERROR
+          description: 'SYSTEM_CODE_ERROR'
         message:
           type: string
           example: you are not loggin
