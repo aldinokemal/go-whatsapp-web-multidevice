@@ -14,7 +14,8 @@ func Recovery() fiber.Handler {
 			if err != nil {
 				var res utils.ResponseData
 				res.Status = 500
-				res.Message = fmt.Sprintf("%s", err)
+				res.Code = "INTERNAL_SERVER_ERROR"
+				res.Message = fmt.Sprintf("%v", err)
 
 				errValidation, isValidationError := err.(pkgError.GenericError)
 				if isValidationError {

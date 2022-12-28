@@ -37,6 +37,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -60,6 +61,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -81,6 +83,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -102,6 +105,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -119,6 +123,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -136,6 +141,7 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -153,6 +159,7 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -171,6 +178,7 @@ func (controller *Send) RevokeMessage(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})
@@ -189,6 +197,7 @@ func (controller *Send) UpdateMessage(c *fiber.Ctx) error {
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
+		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
 	})

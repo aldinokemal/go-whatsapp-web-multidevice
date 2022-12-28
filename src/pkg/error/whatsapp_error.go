@@ -36,6 +36,24 @@ func (e WebhookError) StatusCode() int {
 	return http.StatusInternalServerError
 }
 
+type WaCliError string
+
+// Error for complying the error interface
+func (e WaCliError) Error() string {
+	return string(e)
+}
+
+// ErrCode will return the error code based on the error data type
+func (e WaCliError) ErrCode() string {
+	return "INVALID_WA_CLI"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (e WaCliError) StatusCode() int {
+	return http.StatusInternalServerError
+}
+
 const (
 	ErrInvalidJID = InvalidJID("your JID is invalid")
+	ErrWaCLI      = WaCliError("your WhatsApp CLI is invalid or empty")
 )
