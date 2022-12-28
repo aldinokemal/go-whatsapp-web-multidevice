@@ -687,8 +687,8 @@ components:
       type: object
       properties:
         code:
-          type: string
-          example: '200'
+          type: integer
+          example: 200
         message:
           type: string
           example: Success
