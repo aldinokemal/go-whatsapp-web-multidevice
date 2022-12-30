@@ -189,6 +189,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		FileName:      proto.String(request.File.Filename),
 		FileEncSha256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
+		Caption:       proto.String(request.Caption),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msgId, msg)
 	go func() {
