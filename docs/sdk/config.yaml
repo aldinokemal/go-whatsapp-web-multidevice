@@ -1,0 +1,9 @@
+# sdk-node Configs
+npmName: "@aldinokemal/sdk-node-whatsapp-web-multidevice"
+npmRepository: "https://npm.pkg.github.com"
+snapshot: false
+supportsES6: true
+withInterfaces: true
+
+# sdk-go Configs
+packageName: "sdk-go-whatsapp-web-multidevice" #for golang package name
