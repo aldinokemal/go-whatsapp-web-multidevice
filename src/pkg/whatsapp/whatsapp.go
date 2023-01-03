@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -211,9 +212,9 @@ func handler(rawEvt interface{}) {
 		}
 
 		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) {
-			go func() {
-				_ = sendAutoReplyWebhook(evt)
-			}()
+			if err := sendAutoReplyWebhook(evt); err != nil {
+				logrus.Error("Failed to send webhoook", err)
+			}
 		}
 	case *events.Receipt:
 		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
@@ -254,6 +255,7 @@ func handler(rawEvt interface{}) {
 }
 
 func sendAutoReplyWebhook(evt *events.Message) error {
+	logrus.Info("Sending webhook to", config.WhatsappAutoReplyWebhook)
 	client := &http.Client{Timeout: 10 * time.Second}
 	imageMedia := evt.Message.GetImageMessage()
 	body := map[string]any{
@@ -281,17 +283,18 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 
 		body["image"] = path
 	}
-
-	postBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+	postBody, err := json.Marshal(body)
 	if err != nil {
-		log.Errorf("error when create http object %v", err)
+		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
+	}
+
+	req, err := http.NewRequest(http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Errorf("error when submit webhook %v", err)
 		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
 	}
 	defer resp.Body.Close()
