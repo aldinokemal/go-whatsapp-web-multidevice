@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -198,19 +199,12 @@ func handler(rawEvt interface{}) {
 
 		img := evt.Message.GetImageMessage()
 		if img != nil {
-			data, err := cli.Download(img)
+			path, err := DownloadImage(config.PathStorages, img)
 			if err != nil {
 				log.Errorf("Failed to download image: %v", err)
-				return
+			} else {
+				log.Infof("Image downloaded to %s", path)
 			}
-			exts, _ := mime.ExtensionsByType(img.GetMimetype())
-			path := fmt.Sprintf("%s/%s%s", config.PathStorages, evt.Info.ID, exts[0])
-			err = os.WriteFile(path, data, 0600)
-			if err != nil {
-				log.Errorf("Failed to save image: %v", err)
-				return
-			}
-			log.Infof("Saved image in message to %s", path)
 		}
 
 		if config.WhatsappAutoReplyMessage != "" && !isGroupJid(evt.Info.Chat.String()) {
@@ -218,9 +212,9 @@ func handler(rawEvt interface{}) {
 		}
 
 		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) {
-			go func() {
-				_ = sendAutoReplyWebhook(evt)
-			}()
+			if err := sendAutoReplyWebhook(evt); err != nil {
+				logrus.Error("Failed to send webhoook", err)
+			}
 		}
 	case *events.Receipt:
 		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
@@ -261,11 +255,13 @@ func handler(rawEvt interface{}) {
 }
 
 func sendAutoReplyWebhook(evt *events.Message) error {
+	logrus.Info("Sending webhook to", config.WhatsappAutoReplyWebhook)
 	client := &http.Client{Timeout: 10 * time.Second}
+	imageMedia := evt.Message.GetImageMessage()
 	body := map[string]any{
 		"from":          evt.Info.SourceString(),
 		"message":       evt.Message.GetConversation(),
-		"image":         evt.Message.GetImageMessage(),
+		"image":         imageMedia,
 		"video":         evt.Message.GetVideoMessage(),
 		"audio":         evt.Message.GetAudioMessage(),
 		"document":      evt.Message.GetDocumentMessage(),
@@ -278,16 +274,27 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 		"contact":       evt.Message.GetContactMessage(),
 		"forwarded":     evt.Message.GetGroupInviteMessage(),
 	}
-	postBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+
+	if imageMedia != nil {
+		path, err := DownloadImage(config.PathMedia, imageMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
+		}
+
+		body["image"] = path
+	}
+	postBody, err := json.Marshal(body)
 	if err != nil {
-		log.Errorf("error when create http object %v", err)
+		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
+	}
+
+	req, err := http.NewRequest(http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Errorf("error when submit webhook %v", err)
 		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
 	}
 	defer resp.Body.Close()
@@ -296,4 +303,19 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 
 func isGroupJid(jid string) bool {
 	return strings.Contains(jid, "@g.us")
+}
+
+func DownloadImage(storageLocation string, image *waProto.ImageMessage) (path string, err error) {
+	data, err := cli.Download(image)
+	if err != nil {
+		return path, err
+	}
+
+	extensions, _ := mime.ExtensionsByType(image.GetMimetype())
+	path = fmt.Sprintf("%s/%d%s", storageLocation, time.Now().Unix(), extensions[0])
+	err = os.WriteFile(path, data, 0600)
+	if err != nil {
+		return path, err
+	}
+	return path, nil
 }
