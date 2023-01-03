@@ -198,19 +198,12 @@ func handler(rawEvt interface{}) {
 
 		img := evt.Message.GetImageMessage()
 		if img != nil {
-			data, err := cli.Download(img)
+			path, err := DownloadImage(config.PathStorages, img)
 			if err != nil {
 				log.Errorf("Failed to download image: %v", err)
-				return
+			} else {
+				log.Infof("Image downloaded to %s", path)
 			}
-			exts, _ := mime.ExtensionsByType(img.GetMimetype())
-			path := fmt.Sprintf("%s/%s%s", config.PathStorages, evt.Info.ID, exts[0])
-			err = os.WriteFile(path, data, 0600)
-			if err != nil {
-				log.Errorf("Failed to save image: %v", err)
-				return
-			}
-			log.Infof("Saved image in message to %s", path)
 		}
 
 		if config.WhatsappAutoReplyMessage != "" && !isGroupJid(evt.Info.Chat.String()) {
@@ -262,10 +255,11 @@ func handler(rawEvt interface{}) {
 
 func sendAutoReplyWebhook(evt *events.Message) error {
 	client := &http.Client{Timeout: 10 * time.Second}
+	imageMedia := evt.Message.GetImageMessage()
 	body := map[string]any{
 		"from":          evt.Info.SourceString(),
 		"message":       evt.Message.GetConversation(),
-		"image":         evt.Message.GetImageMessage(),
+		"image":         imageMedia,
 		"video":         evt.Message.GetVideoMessage(),
 		"audio":         evt.Message.GetAudioMessage(),
 		"document":      evt.Message.GetDocumentMessage(),
@@ -278,6 +272,16 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 		"contact":       evt.Message.GetContactMessage(),
 		"forwarded":     evt.Message.GetGroupInviteMessage(),
 	}
+
+	if imageMedia != nil {
+		path, err := DownloadImage(config.PathMedia, imageMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
+		}
+
+		body["image"] = path
+	}
+
 	postBody, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
 	if err != nil {
@@ -296,4 +300,19 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 
 func isGroupJid(jid string) bool {
 	return strings.Contains(jid, "@g.us")
+}
+
+func DownloadImage(storageLocation string, image *waProto.ImageMessage) (path string, err error) {
+	data, err := cli.Download(image)
+	if err != nil {
+		return path, err
+	}
+
+	extensions, _ := mime.ExtensionsByType(image.GetMimetype())
+	path = fmt.Sprintf("%s/%d%s", storageLocation, time.Now().Unix(), extensions[0])
+	err = os.WriteFile(path, data, 0600)
+	if err != nil {
+		return path, err
+	}
+	return path, nil
 }

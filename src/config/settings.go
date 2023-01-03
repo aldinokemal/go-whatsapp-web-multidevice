@@ -15,6 +15,7 @@ var (
 
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
+	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
 	DBName = "whatsapp.db"
