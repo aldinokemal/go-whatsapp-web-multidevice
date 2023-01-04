@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
@@ -199,7 +200,7 @@ func handler(rawEvt interface{}) {
 
 		img := evt.Message.GetImageMessage()
 		if img != nil {
-			path, err := DownloadImage(config.PathStorages, img)
+			path, err := DownloadMedia(config.PathStorages, img)
 			if err != nil {
 				log.Errorf("Failed to download image: %v", err)
 			} else {
@@ -211,7 +212,7 @@ func handler(rawEvt interface{}) {
 			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 
-		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) {
+		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "in") {
 			if err := sendAutoReplyWebhook(evt); err != nil {
 				logrus.Error("Failed to send webhoook", err)
 			}
@@ -258,15 +259,20 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	logrus.Info("Sending webhook to", config.WhatsappAutoReplyWebhook)
 	client := &http.Client{Timeout: 10 * time.Second}
 	imageMedia := evt.Message.GetImageMessage()
+	stickerMedia := evt.Message.GetStickerMessage()
+	videoMedia := evt.Message.GetVideoMessage()
+	audioMedia := evt.Message.GetAudioMessage()
+	documentMedia := evt.Message.GetDocumentMessage()
+
 	body := map[string]any{
 		"from":          evt.Info.SourceString(),
 		"message":       evt.Message.GetConversation(),
 		"image":         imageMedia,
-		"video":         evt.Message.GetVideoMessage(),
-		"audio":         evt.Message.GetAudioMessage(),
-		"document":      evt.Message.GetDocumentMessage(),
+		"video":         videoMedia,
+		"audio":         audioMedia,
+		"document":      documentMedia,
 		"location":      evt.Message.GetLocationMessage(),
-		"sticker":       evt.Message.GetStickerMessage(),
+		"sticker":       stickerMedia,
 		"live_location": evt.Message.GetLiveLocationMessage(),
 		"view_once":     evt.Message.GetViewOnceMessage(),
 		"list":          evt.Message.GetListMessage(),
@@ -276,13 +282,41 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	}
 
 	if imageMedia != nil {
-		path, err := DownloadImage(config.PathMedia, imageMedia)
+		path, err := DownloadMedia(config.PathMedia, imageMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
-
 		body["image"] = path
 	}
+	if stickerMedia != nil {
+		path, err := DownloadMedia(config.PathMedia, stickerMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
+		}
+		body["sticker"] = path
+	}
+	if videoMedia != nil {
+		path, err := DownloadMedia(config.PathMedia, videoMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
+		}
+		body["video"] = path
+	}
+	if audioMedia != nil {
+		path, err := DownloadMedia(config.PathMedia, audioMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
+		}
+		body["audio"] = path
+	}
+	if documentMedia != nil {
+		path, err := DownloadMedia(config.PathMedia, documentMedia)
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
+		}
+		body["document"] = path
+	}
+
 	postBody, err := json.Marshal(body)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
@@ -293,11 +327,9 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
+	if _, err = client.Do(req); err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
 	}
-	defer resp.Body.Close()
 	return nil
 }
 
@@ -305,14 +337,33 @@ func isGroupJid(jid string) bool {
 	return strings.Contains(jid, "@g.us")
 }
 
-func DownloadImage(storageLocation string, image *waProto.ImageMessage) (path string, err error) {
-	data, err := cli.Download(image)
+func DownloadMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (path string, err error) {
+	if mediaFile == nil {
+		logrus.Info("Skip download because data is nil")
+		return "", nil
+	}
+
+	data, err := cli.Download(mediaFile)
 	if err != nil {
 		return path, err
 	}
 
-	extensions, _ := mime.ExtensionsByType(image.GetMimetype())
-	path = fmt.Sprintf("%s/%d%s", storageLocation, time.Now().Unix(), extensions[0])
+	var mimeType string
+	switch media := mediaFile.(type) {
+	case *waProto.ImageMessage:
+		mimeType = media.GetMimetype()
+	case *waProto.AudioMessage:
+		mimeType = media.GetMimetype()
+	case *waProto.VideoMessage:
+		mimeType = media.GetMimetype()
+	case *waProto.StickerMessage:
+		mimeType = media.GetMimetype()
+	case *waProto.DocumentMessage:
+		mimeType = media.GetMimetype()
+	}
+
+	extensions, _ := mime.ExtensionsByType(mimeType)
+	path = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
 	err = os.WriteFile(path, data, 0600)
 	if err != nil {
 		return path, err

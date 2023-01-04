@@ -8,6 +8,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.40.1
 	github.com/gofiber/template v1.7.3
 	github.com/gofiber/websocket/v2 v2.1.2
+	github.com/google/uuid v1.3.0
 	github.com/h2non/bimg v1.1.9
 	github.com/markbates/pkger v0.17.1
 	github.com/mattn/go-sqlite3 v1.14.16
