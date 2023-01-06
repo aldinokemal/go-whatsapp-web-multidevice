@@ -2,6 +2,7 @@
 
 [![buddy pipeline](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077/badge.svg?token=a951a4546fe3f54079e678cc9d0eea12069fbdc21f8ed5ea22e1e95c4f63215f "buddy pipeline")](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077)
 [![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice "release version")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
+![Docker Pulls](https://img.shields.io/docker/pulls/aldinokemal2104/go-whatsapp-web-multidevice)
 <br>
 [![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
 [![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg "release linux")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml)
