@@ -209,10 +209,10 @@ func handler(rawEvt interface{}) {
 		}
 
 		if config.WhatsappAutoReplyMessage != "" && !isGroupJid(evt.Info.Chat.String()) {
-			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, "", &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 
-		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "in") {
+		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "broadcast") {
 			if err := sendAutoReplyWebhook(evt); err != nil {
 				logrus.Error("Failed to send webhoook", err)
 			}
