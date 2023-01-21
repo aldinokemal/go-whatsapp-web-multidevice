@@ -24,7 +24,7 @@ jobs:
         run: curl -LO https://github.com/libvips/build-win64-mxe/releases/download/v8.12.0/vips-dev-w64-all-8.12.0.zip
       - name: Vips Extract
         run: |
-          7z x .\vips-dev-8.12.zip
+          7z x .\vips-dev-w64-all-8.12.0.zip
       - name: Vips add to path
         shell: pwsh
         run: |
