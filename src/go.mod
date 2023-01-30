@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.8.1
 	github.com/valyala/fasthttp v1.44.0
 	go.mau.fi/libsignal v0.1.0
-	go.mau.fi/whatsmeow v0.0.0-20230120142431-cd2d1213eff6
+	go.mau.fi/whatsmeow v0.0.0-20230128195103-dcbc8dd31a22
 	google.golang.org/protobuf v1.28.1
 )
 
@@ -31,7 +31,7 @@ require (
 	github.com/gobuffalo/here v0.6.7 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.15.14 // indirect
+	github.com/klauspost/compress v1.15.15 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect

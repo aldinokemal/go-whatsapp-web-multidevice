@@ -292,6 +292,8 @@ github.com/klauspost/compress v1.15.13 h1:NFn1Wr8cfnenSJSA46lLq4wHCcBzKTSjnBIexD
 github.com/klauspost/compress v1.15.13/go.mod h1:QPwzmACJjUTFsnSHH934V6woptycfrDDJnH7hvFVbGM=
 github.com/klauspost/compress v1.15.14 h1:i7WCKDToww0wA+9qrUZ1xOjp218vfFo3nTU6UHp+gOc=
 github.com/klauspost/compress v1.15.14/go.mod h1:QPwzmACJjUTFsnSHH934V6woptycfrDDJnH7hvFVbGM=
+github.com/klauspost/compress v1.15.15 h1:EF27CXIuDsYJ6mmvtBRlEuB2UVOqHG1tAXgZ7yIO+lw=
+github.com/klauspost/compress v1.15.15/go.mod h1:ZcK2JAFqKOpnBlxcLsJzYfrS9X1akm9fHZNnD9+Vo/4=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/kr/fs v0.1.0/go.mod h1:FFnZGqtBN9Gxj7eW1uZ42v5BccTP0vu6NEaFoC2HwRg=
 github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515/go.mod h1:+0opPa2QZZtGFBFZlji/RkVcI2GknAs/DXo4wKdlNEc=
@@ -441,6 +443,8 @@ go.mau.fi/whatsmeow v0.0.0-20221213225758-70ef67df3c68 h1:uieThnMYyFDdUNDrHxauuZ
 go.mau.fi/whatsmeow v0.0.0-20221213225758-70ef67df3c68/go.mod h1:2yweL8nczvtlIxkrvCb0y8xiO13rveX9lJPambwYV/E=
 go.mau.fi/whatsmeow v0.0.0-20230120142431-cd2d1213eff6 h1:/rhe2DT4A9BBoOZVzXtq48kBhHDpBGUhj94e8c9A0e0=
 go.mau.fi/whatsmeow v0.0.0-20230120142431-cd2d1213eff6/go.mod h1:TrdC8N6SnPFxWo5FiMnDIDFuVyfOLzy5dWDaUPNjcHY=
+go.mau.fi/whatsmeow v0.0.0-20230128195103-dcbc8dd31a22 h1:za/zmM0hcfEKTRcLtr2zcUFE4VpUw8CndXNeV+v676c=
+go.mau.fi/whatsmeow v0.0.0-20230128195103-dcbc8dd31a22/go.mod h1:TrdC8N6SnPFxWo5FiMnDIDFuVyfOLzy5dWDaUPNjcHY=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
