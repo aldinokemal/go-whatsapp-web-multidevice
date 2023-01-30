@@ -50,7 +50,7 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 			if service.WaCli.IsLoggedIn() {
 				return response, pkgError.ErrAlreadyLoggedIn
 			}
-			return response, pkgError.ErrorSessionSaved
+			return response, pkgError.ErrSessionSaved
 		} else {
 			return response, pkgError.ErrQrChannel
 		}

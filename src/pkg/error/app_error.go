@@ -104,5 +104,5 @@ var (
 	ErrAlreadyLoggedIn = LoginError("You already logged in :)")
 	ErrReconnect       = throwReconnectError("Reconnect error")
 	ErrQrChannel       = throwQrChannelError("QR channel error")
-	ErrorSessionSaved  = throwSessionSavedError("Your session have been saved, please wait to connect 2 second and refresh again")
+	ErrSessionSaved    = throwSessionSavedError("Your session have been saved, please wait to connect 2 second and refresh again")
 )

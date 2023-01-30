@@ -208,13 +208,15 @@ func handler(rawEvt interface{}) {
 			}
 		}
 
-		if config.WhatsappAutoReplyMessage != "" && !isGroupJid(evt.Info.Chat.String()) {
-			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
-		}
+		if !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "broadcast") {
+			if config.WhatsappAutoReplyMessage != "" {
+				_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+			}
 
-		if config.WhatsappAutoReplyWebhook != "" && !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "broadcast") {
-			if err := sendAutoReplyWebhook(evt); err != nil {
-				logrus.Error("Failed to send webhoook", err)
+			if config.WhatsappAutoReplyWebhook != "" {
+				if err := sendAutoReplyWebhook(evt); err != nil {
+					logrus.Error("Failed to send webhoook", err)
+				}
 			}
 		}
 	case *events.Receipt:
