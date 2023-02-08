@@ -1,4 +1,4 @@
-package send
+package message
 
 type ReactionRequest struct {
 	MessageID string `json:"message_id" form:"message_id"`

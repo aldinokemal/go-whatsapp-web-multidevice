@@ -1,4 +1,4 @@
-package send
+package message
 
 type UpdateMessageRequest struct {
 	MessageID string `json:"message_id" uri:"message_id"`

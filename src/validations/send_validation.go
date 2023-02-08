@@ -133,30 +133,3 @@ func ValidateSendLocation(ctx context.Context, request domainSend.LocationReques
 
 	return nil
 }
-
-func ValidateRevokeMessage(ctx context.Context, request domainSend.RevokeRequest) error {
-	err := validation.ValidateStructWithContext(ctx, &request,
-		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.MessageID, validation.Required),
-	)
-
-	if err != nil {
-		return pkgError.ValidationError(err.Error())
-	}
-
-	return nil
-}
-
-func ValidateUpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) error {
-	err := validation.ValidateStructWithContext(ctx, &request,
-		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.MessageID, validation.Required),
-		validation.Field(&request.Message, validation.Required),
-	)
-
-	if err != nil {
-		return pkgError.ValidationError(err.Error())
-	}
-
-	return nil
-}
