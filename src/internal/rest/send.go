@@ -20,6 +20,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
 	app.Post("/send/location", rest.SendLocation)
+	app.Post("/message/:message_id/reaction", rest.ReactionMessage)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	return rest
@@ -193,6 +194,25 @@ func (controller *Send) UpdateMessage(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) ReactionMessage(c *fiber.Ctx) error {
+	var request domainSend.ReactionRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.SendReaction(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

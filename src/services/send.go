@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"time"
 )
 
 type serviceSend struct {
@@ -396,6 +397,33 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts)
+	return response, nil
+}
+
+func (service serviceSend) SendReaction(ctx context.Context, request domainSend.ReactionRequest) (response domainSend.ReactionResponse, err error) {
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	msg := &waProto.Message{
+		ReactionMessage: &waProto.ReactionMessage{
+			Key: &waProto.MessageKey{
+				FromMe:    proto.Bool(true),
+				Id:        proto.String(request.MessageID),
+				RemoteJid: proto.String(dataWaRecipient.String()),
+			},
+			Text:              proto.String(request.Emoji),
+			SenderTimestampMs: proto.Int64(time.Now().UnixMilli()),
+		},
+	}
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Reaction sent to %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
 
