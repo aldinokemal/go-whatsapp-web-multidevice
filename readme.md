@@ -48,10 +48,11 @@
 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
 2. open via cmd/terminal
-3. run `cd src`
-4. run `go run main.go`
-5. open `http://localhost:3000`
-6. run `go run main.go --help` for more detail flags
+3. run `go install github.com/markbates/pkger/cmd/pkger@latest`
+4. run `cd src`
+5. run `pkger && go run main.go`
+6. open `http://localhost:3000`
+7. run `go run main.go --help` for more detail flags
 
 #### Docker (you don't need to install in required)
 
