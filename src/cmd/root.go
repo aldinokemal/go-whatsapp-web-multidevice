@@ -98,11 +98,13 @@ func runRest(_ *cobra.Command, _ []string) {
 	appService := services.NewAppService(cli, db)
 	sendService := services.NewSendService(cli)
 	userService := services.NewUserService(cli)
+	messageService := services.NewMessageService(cli)
 
 	// Rest
 	rest.InitRestApp(app, appService)
 	rest.InitRestSend(app, sendService)
 	rest.InitRestUser(app, userService)
+	rest.InitRestMessage(app, messageService)
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("index", fiber.Map{

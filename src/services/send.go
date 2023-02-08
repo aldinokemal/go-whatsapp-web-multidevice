@@ -14,7 +14,6 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
@@ -396,46 +395,5 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts)
-	return response, nil
-}
-
-func (service serviceSend) Revoke(ctx context.Context, request domainSend.RevokeRequest) (response domainSend.RevokeResponse, err error) {
-	err = validations.ValidateRevokeMessage(ctx, request)
-	if err != nil {
-		return response, err
-	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
-	if err != nil {
-		return response, err
-	}
-
-	ts, err := service.WaCli.SendMessage(context.Background(), dataWaRecipient, service.WaCli.BuildRevoke(dataWaRecipient, types.EmptyJID, request.MessageID))
-	if err != nil {
-		return response, err
-	}
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Revoke success %s (server timestamp: %s)", request.Phone, ts)
-	return response, nil
-}
-
-func (service serviceSend) UpdateMessage(ctx context.Context, request domainSend.UpdateMessageRequest) (response domainSend.UpdateMessageResponse, err error) {
-	err = validations.ValidateUpdateMessage(ctx, request)
-	if err != nil {
-		return response, err
-	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
-	if err != nil {
-		return response, err
-	}
-
-	msg := &waProto.Message{Conversation: proto.String(request.Message)}
-	ts, err := service.WaCli.SendMessage(context.Background(), dataWaRecipient, service.WaCli.BuildEdit(dataWaRecipient, request.MessageID, msg))
-	if err != nil {
-		return response, err
-	}
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts)
 	return response, nil
 }
