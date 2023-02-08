@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.3.1
+  version: 3.4.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -10,8 +10,10 @@ tags:
     description: Initial Connection to Whatsapp server
   - name: user
     description: Getting information
+  - name: send
+    description: Send Message (Text/Image/File/Video).
   - name: message
-    description: Send or Manipulate Message (Text/Image/File/Video).
+    description: Message manipulation (revoke/react/update).
 paths:
   /app/login:
     get:
@@ -192,7 +194,7 @@ paths:
     post:
       operationId: sendMessage
       tags:
-        - message
+        - send
       summary: Send Message
       requestBody:
         content:
@@ -231,7 +233,7 @@ paths:
     post:
       operationId: sendImage
       tags:
-        - message
+        - send
       summary: Send Image
       requestBody:
         content:
@@ -282,7 +284,7 @@ paths:
     post:
       operationId: sendFile
       tags:
-        - message
+        - send
       summary: Send File
       requestBody:
         content:
@@ -325,7 +327,7 @@ paths:
     post:
       operationId: sendVideo
       tags:
-        - message
+        - send
       summary: Send Video
       requestBody:
         content:
@@ -376,7 +378,7 @@ paths:
     post:
       operationId: sendContact
       tags:
-        - message
+        - send
       summary: Send Contact
       requestBody:
         content:
@@ -419,7 +421,7 @@ paths:
     post:
       operationId: sendLink
       tags:
-        - message
+        - send
       summary: Send Link
       requestBody:
         content:
@@ -462,7 +464,7 @@ paths:
     post:
       operationId: sendLocation
       tags:
-        - message
+        - send
       summary: Send Location
       requestBody:
         content:
@@ -501,12 +503,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  /message/:message_id/revoke:
+  /message/{message_id}/revoke:
     post:
       operationId: revokeMessage
       tags:
         - message
-      summary: Send Link
+      summary: Revoke Message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
       requestBody:
         content:
           multipart/form-data:
@@ -517,10 +526,52 @@ paths:
                   type: string
                   example: '6289685024051@s.whatsapp.net'
                   description: Phone number with country code
-                message_id:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/reaction:
+    post:
+      operationId: reactMessage
+      tags:
+        - message
+      summary: Send reaction to message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone:
                   type: string
-                  example: "3EB007D87686670344D7"
-                  description: Message ID
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
+                emoji:
+                  type: string
+                  example: "🙏"
+                  description: Emoji to react
       responses:
         '200':
           description: OK
