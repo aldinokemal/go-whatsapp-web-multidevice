@@ -69,7 +69,7 @@
     </div>
 
     <div class="ui horizontal divider">
-        Message
+        Send
     </div>
 
     <div class="ui three column doubling grid cards">
@@ -133,12 +133,29 @@
                 </div>
             </div>
         </div>
-        <div class="red card" @click="sendRevokeModal()" style="cursor: pointer">
+
+    </div>
+
+    <div class="ui horizontal divider">
+        Message
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <div class="red card" @click="messageRevokeModal()" style="cursor: pointer">
             <div class="content">
-                <a class="ui red right ribbon label">Revoke</a>
+                <a class="ui red right ribbon label">Message</a>
                 <div class="header">Revoke Message</div>
                 <div class="description">
                     Revoke any message in private or group chat
+                </div>
+            </div>
+        </div>
+        <div class="red card" @click="messageReactModal()" style="cursor: pointer">
+            <div class="content">
+                <a class="ui red right ribbon label">Message</a>
+                <div class="header">React Message</div>
+                <div class="description">
+                    React any message in private or group chat
                 </div>
             </div>
         </div>
@@ -495,11 +512,11 @@
         </div>
     </div>
 
-    <!--  Modal SendRevoke  -->
-    <div class="ui small modal" id="modalSendRevoke">
+    <!--  Modal MessageRevoke  -->
+    <div class="ui small modal" id="modalMessageRevoke">
         <i class="close icon"></i>
         <div class="header">
-            Send Revoke
+            Revoke Message
         </div>
         <div class="content">
             <form class="ui form">
@@ -525,7 +542,49 @@
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.revoke_loading}"
-                 @click="sendRevokeProcess">
+                 @click="messageRevokeProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
+    <!--  Modal MessageReaction  -->
+    <div class="ui small modal" id="modalMessageReaction">
+        <i class="close icon"></i>
+        <div class="header">
+            React Message
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Type</label>
+                    <select name="react_type" v-model="react_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="react_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                    <input :value="react_phone_id" disabled aria-label="whatsapp_id">
+                </div>
+                <div class="field">
+                    <label>Message ID</label>
+                    <input v-model="react_message_id" type="text" placeholder="Please enter your message id"
+                           aria-label="message id">
+                </div>
+                <div class="field">
+                    <label>Emoji</label>
+                    <input v-model="react_emoji" type="text" placeholder="Please enter emoji"
+                           aria-label="message id">
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.react_loading}"
+                 @click="messageReactProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -1120,7 +1179,7 @@
         }
     }
 
-    const sendRevoke = {
+    const messageRevoke = {
         data() {
             return {
                 revoke_type: 'user',
@@ -1135,30 +1194,30 @@
             }
         },
         methods: {
-            sendRevokeModal() {
-                $('#modalSendRevoke').modal({
+            messageRevokeModal() {
+                $('#modalMessageRevoke').modal({
                     onApprove: function () {
                         return false;
                     }
                 }).modal('show');
             },
-            async sendRevokeProcess() {
+            async messageRevokeProcess() {
                 try {
-                    let response = await this.sendRevokeApi()
+                    let response = await this.messageRevokeApi()
                     showSuccessInfo(response)
-                    $('#modalSendRevoke').modal('hide');
+                    $('#modalMessageRevoke').modal('hide');
                 } catch (err) {
                     showErrorInfo(err)
                 }
             },
-            sendRevokeApi() {
+            messageRevokeApi() {
                 return new Promise(async (resolve, reject) => {
                     try {
                         this.revoke_loading = true;
                         let payload = new FormData();
                         payload.append("phone", this.revoke_phone_id)
                         let response = await http.post(`/message/${this.revoke_message_id}/revoke`, payload)
-                        this.sendRevokeReset();
+                        this.messageRevokeReset();
                         resolve(response.data.message)
                     } catch (error) {
                         if (error.response) {
@@ -1171,10 +1230,72 @@
                     }
                 })
             },
-            sendRevokeReset() {
+            messageRevokeReset() {
                 this.revoke_phone = '';
                 this.revoke_message_id = '';
                 this.revoke_type = 'user';
+            },
+        }
+    }
+
+    const messageReact = {
+        data() {
+            return {
+                react_type: 'user',
+                react_phone: '',
+                react_message_id: '',
+                react_emoji: '',
+                react_loading: false,
+            }
+        },
+        computed: {
+            react_phone_id() {
+                return this.react_type === 'user' ? `${this.react_phone}@${this.type_user}` : `${this.react_phone}@${this.type_group}`
+            }
+        },
+        methods: {
+            messageReactModal() {
+                $('#modalMessageReaction').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
+            },
+            async messageReactProcess() {
+                try {
+                    let response = await this.messageReactApi()
+                    showSuccessInfo(response)
+                    $('#modalMessageReaction').modal('hide');
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            messageReactApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        this.react_loading = true;
+                        let payload = new FormData();
+                        payload.append("phone", this.react_phone_id)
+                        payload.append("emoji", this.react_emoji)
+                        let response = await http.post(`/message/${this.react_message_id}/reaction`, payload)
+                        this.messageReactReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    } finally {
+                        this.react_loading = false;
+                    }
+                })
+            },
+            messageReactReset() {
+                this.react_phone = '';
+                this.react_message_id = '';
+                this.react_emoji = '';
+                this.react_type = 'user';
             },
         }
     }
@@ -1486,7 +1607,8 @@
         },
         mixins: [
             login, logout, reconnect,
-            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendRevoke, sendLocation,
+            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation,
+            messageRevoke, messageReact,
             userGroups, userPrivacy, userAvatar, userInfo
         ]
     }).mount('#app')
