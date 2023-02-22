@@ -267,6 +267,7 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	documentMedia := evt.Message.GetDocumentMessage()
 
 	body := map[string]any{
+		"message_id":    evt.Info.ID,
 		"from":          evt.Info.SourceString(),
 		"message":       evt.Message.GetConversation(),
 		"image":         imageMedia,
