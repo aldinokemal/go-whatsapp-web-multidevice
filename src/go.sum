@@ -420,8 +420,8 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.1/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3
 go.etcd.io/etcd/client/v2 v2.305.1/go.mod h1:pMEacxZW7o8pg4CrFE7pquyCJJzZvkvdD2RibOCCCGs=
 go.mau.fi/libsignal v0.1.0 h1:vAKI/nJ5tMhdzke4cTK1fb0idJzz1JuEIpmjprueC+c=
 go.mau.fi/libsignal v0.1.0/go.mod h1:R8ovrTezxtUNzCQE5PH30StOQWWeBskBsWE55vMfY9I=
-go.mau.fi/whatsmeow v0.0.0-20230204181151-b1f00ea99464 h1:YsOjRyoipukUqaDHt4pQRi9JazNgCTCl40+2mpLYSm8=
-go.mau.fi/whatsmeow v0.0.0-20230204181151-b1f00ea99464/go.mod h1:FYaCKtMD7yDQ7zpTSW28o24GODR75wVZ5OKHUfQySbA=
+go.mau.fi/whatsmeow v0.0.0-20230226124255-e5c8f3c95d78 h1:HXq3VXJhSL/S6kZkrCYMUhCELinVrfpPhDFpklZvHnA=
+go.mau.fi/whatsmeow v0.0.0-20230226124255-e5c8f3c95d78/go.mod h1:zoTtv1CupGEyTew7TOwnBmTbHB4pVad2OzjTf5CVwa0=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
