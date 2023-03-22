@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"go.mau.fi/whatsmeow"
@@ -26,7 +25,6 @@ func (service groupService) JoinGroupWithLink(_ context.Context, request domainG
 	if err != nil {
 		return
 	}
-	fmt.Printf("%+v\n", jid)
 	response.JID = jid.String()
 	return response, nil
 }

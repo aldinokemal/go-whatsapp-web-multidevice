@@ -12,7 +12,7 @@ type Group struct {
 
 func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	rest := Group{Service: service}
-	app.Post("/group/join_with_link", rest.JoinGroupWithLink)
+	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
 	return rest
 }
 

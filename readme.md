@@ -111,6 +111,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Send Location           | POST   | /send/location              |
 | ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 | ✅       | React Message           | POST   | /message/:message_id/react  |
+| ✅       | Join Group With Link    | POST   | /group/join-with-link"      |
 
 ```
 ✅ = Available
