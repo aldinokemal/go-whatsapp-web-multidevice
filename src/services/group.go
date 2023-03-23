@@ -17,7 +17,6 @@ func NewGroupService(waCli *whatsmeow.Client) domainGroup.IGroupService {
 	}
 }
 
-
 func (service groupService) JoinGroupWithLink(_ context.Context, request domainGroup.JoinGroupWithLinkRequest) (response domainGroup.JoinGroupWithLinkResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 

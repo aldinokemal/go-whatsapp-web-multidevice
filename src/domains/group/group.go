@@ -7,7 +7,7 @@ type IGroupService interface {
 }
 
 type JoinGroupWithLinkRequest struct {
-	Link string `json:"link" query:"link"`
+	Link string `json:"link" form:"link"`
 }
 
 type JoinGroupWithLinkResponse struct {
