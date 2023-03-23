@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.4.0
+  version: 3.5.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -14,6 +14,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: group
+    description: Group setting
 paths:
   /app/login:
     get:
@@ -572,6 +574,40 @@ paths:
                   type: string
                   example: "🙏"
                   description: Emoji to react
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/join-with-link:
+    post:
+      operationId: joinGroupWithLink
+      tags:
+        - group
+      summary: Join group with link
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                link:
+                  type: string
+                  example: 'https://chat.whatsapp.com/whatsappKeyJoinGroup'
       responses:
         '200':
           description: OK
