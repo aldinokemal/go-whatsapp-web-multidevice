@@ -16,7 +16,7 @@ RUN pkger && go build -o /app/whatsapp
 #############################
 ## STEP 2 build a smaller image
 #############################
-FROM alpine
+FROM alpine:latest
 RUN apk update && apk add --no-cache vips-dev ffmpeg
 WORKDIR /app
 # Copy compiled from builder.
