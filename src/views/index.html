@@ -1376,19 +1376,23 @@
         methods: {
             async groupModal() {
                 try {
+                    this.dtClear()
                     await this.groupApi();
                     $('#modalUserGroup').modal('show');
-                    this.rebuildModal()
+                    this.dtRebuild()
                     showSuccessInfo("Groups fetched")
                 } catch (err) {
                     showErrorInfo(err)
                 }
             },
-            rebuildModal() {
+            dtClear() {
+                $('#user_groups_table').DataTable().destroy();
+            },
+            dtRebuild() {
                 $('#user_groups_table').DataTable({
                     "pageLength": 100,
                     "reloadData": true,
-                });
+                }).draw();
             },
             async handleLeaveGroup(group_id) {
                 try {
@@ -1396,8 +1400,9 @@
                     if (!ok) return;
 
                     await this.leaveGroupApi(group_id);
+                    this.dtClear()
                     await this.groupApi();
-                    location.reload()
+                    this.dtRebuild()
                     showSuccessInfo("Group left")
                 } catch (err) {
                     showErrorInfo(err)
