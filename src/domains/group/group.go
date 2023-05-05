@@ -4,13 +4,13 @@ import "context"
 
 type IGroupService interface {
 	JoinGroupWithLink(ctx context.Context, request JoinGroupWithLinkRequest) (groupID string, err error)
-	LeaveGroup(ctx context.Context, groupID string) (err error)
+	LeaveGroup(ctx context.Context, request LeaveGroupRequest) (err error)
 }
 
 type JoinGroupWithLinkRequest struct {
 	Link string `json:"link" form:"link"`
 }
 
-type JoinGroupWithLinkResponse struct {
-	JID string `json:"jid"`
+type LeaveGroupRequest struct {
+	GroupID string `json:"group_id" form:"group_id"`
 }

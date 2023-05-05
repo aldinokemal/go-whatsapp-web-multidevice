@@ -98,9 +98,9 @@ func ParseJID(arg string) (types.JID, error) {
 	}
 }
 
-func ValidateJidWithLogin(waCli *whatsmeow.Client, phone string) (types.JID, error) {
+func ValidateJidWithLogin(waCli *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(waCli)
-	return ParseJID(phone)
+	return ParseJID(jid)
 }
 
 func InitWaDB() *sqlstore.Container {
