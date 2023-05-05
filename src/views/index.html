@@ -15,7 +15,7 @@
     <script src="https://unpkg.com/vue@3"></script>
     <script src="https://unpkg.com/axios@1.1.2/dist/axios.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-    <title>Whatsapp Web Multi</title>
+    <title>Whatsapp API Multi Device {{ .AppVersion }}</title>
 
     <style>
         .container {
@@ -605,6 +605,7 @@
                     <th>Name</th>
                     <th>Participants</th>
                     <th>Created At</th>
+                    <th>Action</th>
                 </tr>
                 </thead>
                 <tbody v-if="data_groups != null">
@@ -613,6 +614,9 @@
                     <td>[[ g.Name ]]</td>
                     <td>[[ g.Participants.length ]]</td>
                     <td>[[ formatDate(g.GroupCreated) ]]</td>
+                    <td>
+                        <button class="ui red tiny button" @click="handleLeaveGroup(g.JID)">Leave</button>
+                    </td>
                 </tr>
                 </tbody>
             </table>
@@ -1372,16 +1376,53 @@
         methods: {
             async groupModal() {
                 try {
+                    this.dtClear()
                     await this.groupApi();
                     $('#modalUserGroup').modal('show');
-                    $('#user_groups_table').DataTable().destroy();
-                    $('#user_groups_table').DataTable({
-                        "pageLength": 100,
-                    });
+                    this.dtRebuild()
                     showSuccessInfo("Groups fetched")
                 } catch (err) {
                     showErrorInfo(err)
                 }
+            },
+            dtClear() {
+                $('#user_groups_table').DataTable().destroy();
+            },
+            dtRebuild() {
+                $('#user_groups_table').DataTable({
+                    "pageLength": 100,
+                    "reloadData": true,
+                }).draw();
+            },
+            async handleLeaveGroup(group_id) {
+                try {
+                    const ok = confirm("Are you sure to leave this group?");
+                    if (!ok) return;
+
+                    await this.leaveGroupApi(group_id);
+                    this.dtClear()
+                    await this.groupApi();
+                    this.dtRebuild()
+                    showSuccessInfo("Group left")
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            leaveGroupApi(group_id) {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        let payload = new FormData();
+                        payload.append("group_id", group_id)
+                        await http.post(`/group/leave`, payload)
+                        resolve()
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    }
+                })
             },
             groupApi() {
                 return new Promise(async (resolve, reject) => {

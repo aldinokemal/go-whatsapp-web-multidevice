@@ -4,6 +4,7 @@ import (
 	"context"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -17,13 +18,28 @@ func NewGroupService(waCli *whatsmeow.Client) domainGroup.IGroupService {
 	}
 }
 
-func (service groupService) JoinGroupWithLink(_ context.Context, request domainGroup.JoinGroupWithLinkRequest) (response domainGroup.JoinGroupWithLinkResponse, err error) {
+func (service groupService) JoinGroupWithLink(ctx context.Context, request domainGroup.JoinGroupWithLinkRequest) (groupID string, err error) {
+	if err = validations.ValidateJoinGroupWithLink(ctx, request); err != nil {
+		return groupID, err
+	}
 	whatsapp.MustLogin(service.WaCli)
 
 	jid, err := service.WaCli.JoinGroupWithLink(request.Link)
 	if err != nil {
 		return
 	}
-	response.JID = jid.String()
-	return response, nil
+	return jid.String(), nil
+}
+
+func (service groupService) LeaveGroup(ctx context.Context, request domainGroup.LeaveGroupRequest) (err error) {
+	if err = validations.ValidateLeaveGroup(ctx, request); err != nil {
+		return err
+	}
+
+	JID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return err
+	}
+
+	return service.WaCli.LeaveGroup(JID)
 }
