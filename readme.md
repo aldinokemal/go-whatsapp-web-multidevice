@@ -112,6 +112,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 | ✅       | React Message           | POST   | /message/:message_id/react  |
 | ✅       | Join Group With Link    | POST   | /group/join-with-link       |
+| ✅       | Leave Group             | POST   | /group/leave                |
 
 ```
 ✅ = Available

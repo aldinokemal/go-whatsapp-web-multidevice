@@ -17,13 +17,21 @@ func NewGroupService(waCli *whatsmeow.Client) domainGroup.IGroupService {
 	}
 }
 
-func (service groupService) JoinGroupWithLink(_ context.Context, request domainGroup.JoinGroupWithLinkRequest) (response domainGroup.JoinGroupWithLinkResponse, err error) {
+func (service groupService) JoinGroupWithLink(_ context.Context, request domainGroup.JoinGroupWithLinkRequest) (groupID string, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
 	jid, err := service.WaCli.JoinGroupWithLink(request.Link)
 	if err != nil {
 		return
 	}
-	response.JID = jid.String()
-	return response, nil
+	return jid.String(), nil
+}
+
+func (service groupService) LeaveGroup(_ context.Context, groupID string) (err error) {
+	JID, err := whatsapp.ValidateJidWithLogin(service.WaCli, groupID)
+	if err != nil {
+		return err
+	}
+
+	return service.WaCli.LeaveGroup(JID)
 }
