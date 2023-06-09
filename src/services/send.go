@@ -24,6 +24,11 @@ type serviceSend struct {
 	WaCli *whatsmeow.Client
 }
 
+type metadata struct {
+	Name    string
+	Content string
+}
+
 func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
 	return &serviceSend{
 		WaCli: waCli,
@@ -348,16 +353,14 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
+	getMetaDataFromURL := utils.GetMetaDataFromURL(request.Link)
+
 	msg := &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{
-		Text:         proto.String(request.Caption),
-		MatchedText:  proto.String(request.Caption),
+		Text:         proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Title:        proto.String(getMetaDataFromURL.Title),
 		CanonicalUrl: proto.String(request.Link),
-		ContextInfo: &waProto.ContextInfo{
-			ActionLink: &waProto.ActionLink{
-				Url:         proto.String(request.Link),
-				ButtonTitle: proto.String(request.Caption),
-			},
-		},
+		MatchedText:  proto.String(request.Link),
+		Description:  proto.String(getMetaDataFromURL.Description),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
 	if err != nil {
