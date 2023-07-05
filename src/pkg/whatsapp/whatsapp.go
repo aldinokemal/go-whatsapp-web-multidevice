@@ -265,27 +265,48 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	videoMedia := evt.Message.GetVideoMessage()
 	audioMedia := evt.Message.GetAudioMessage()
 	documentMedia := evt.Message.GetDocumentMessage()
-	message := evt.Message.GetConversation() // default to this
+
+        message := evt.Message.GetConversation()
         if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
                 message = extendedMessage
         }
 
-	body := map[string]any{
-		"message_id":    evt.Info.ID,
-		"from":          evt.Info.SourceString(),
-		"message":       message,
-		"image":         imageMedia,
-		"video":         videoMedia,
-		"audio":         audioMedia,
-		"document":      documentMedia,
-		"location":      evt.Message.GetLocationMessage(),
-		"sticker":       stickerMedia,
-		"live_location": evt.Message.GetLiveLocationMessage(),
-		"view_once":     evt.Message.GetViewOnceMessage(),
-		"list":          evt.Message.GetListMessage(),
-		"order":         evt.Message.GetOrderMessage(),
-		"contact":       evt.Message.GetContactMessage(),
-		"forwarded":     evt.Message.GetGroupInviteMessage(),
+
+        var quotedmessage interface{} = nil
+        if evt.Message.ExtendedTextMessage != nil {
+                quotedmessage = evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation()
+                if quotedmessage == "" {
+                        quotedmessage = nil
+                }
+        }
+
+        var forwarded interface{} = nil
+        if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
+                forwarded = evt.Message.ExtendedTextMessage.ContextInfo.GetIsForwarded()
+                if forwarded == false {
+                        forwarded = nil
+                }
+        }
+
+
+        body := map[string]any{
+                "message_id":    evt.Info.ID,
+                "from":          evt.Info.SourceString(),
+                "pushname":      evt.Info.PushName,
+                "message":       message,
+                "image":         imageMedia,
+                "video":         videoMedia,
+                "audio":         audioMedia,
+                "document":      documentMedia,
+                "location":      evt.Message.GetLocationMessage(),
+                "sticker":       stickerMedia,
+                "live_location": evt.Message.GetLiveLocationMessage(),
+                "view_once":     evt.Message.GetViewOnceMessage(),
+                "list":          evt.Message.GetListMessage(),
+                "order":         evt.Message.GetOrderMessage(),
+                "contact":       evt.Message.GetContactMessage(),
+                "forwarded":     forwarded,
+                "quotedmessage": quotedmessage,
 	}
 
 	if imageMedia != nil {
