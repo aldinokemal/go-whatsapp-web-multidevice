@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	AppVersion             = "v4.7.2"
+	AppVersion             = "v4.7.3"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = fmt.Sprintf("AldinoKemal")

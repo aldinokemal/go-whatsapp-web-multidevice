@@ -266,47 +266,49 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	audioMedia := evt.Message.GetAudioMessage()
 	documentMedia := evt.Message.GetDocumentMessage()
 
-        message := evt.Message.GetConversation()
-        if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
-                message = extendedMessage
-        }
+	message := evt.Message.GetConversation()
+	if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
+		message = extendedMessage
+	}
 
+	var quotedmessage any
+	if evt.Message.ExtendedTextMessage != nil {
+		if conversation := evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation(); conversation != "" {
+			quotedmessage = conversation
+		}
+	}
 
-        var quotedmessage interface{} = nil
-        if evt.Message.ExtendedTextMessage != nil {
-                quotedmessage = evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation()
-                if quotedmessage == "" {
-                        quotedmessage = nil
-                }
-        }
+	var forwarded any
+	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
+		if isForwarded := evt.Message.ExtendedTextMessage.ContextInfo.GetIsForwarded(); !isForwarded {
+			forwarded = nil
+		}
+	}
 
-        var forwarded interface{} = nil
-        if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
-                forwarded = evt.Message.ExtendedTextMessage.ContextInfo.GetIsForwarded()
-                if forwarded == false {
-                        forwarded = nil
-                }
-        }
+	var reactionMessage any
+	if evt.Message.ReactionMessage != nil {
+		reactionMessage = *evt.Message.ReactionMessage.Text
+	}
 
-
-        body := map[string]any{
-                "message_id":    evt.Info.ID,
-                "from":          evt.Info.SourceString(),
-                "pushname":      evt.Info.PushName,
-                "message":       message,
-                "image":         imageMedia,
-                "video":         videoMedia,
-                "audio":         audioMedia,
-                "document":      documentMedia,
-                "location":      evt.Message.GetLocationMessage(),
-                "sticker":       stickerMedia,
-                "live_location": evt.Message.GetLiveLocationMessage(),
-                "view_once":     evt.Message.GetViewOnceMessage(),
-                "list":          evt.Message.GetListMessage(),
-                "order":         evt.Message.GetOrderMessage(),
-                "contact":       evt.Message.GetContactMessage(),
-                "forwarded":     forwarded,
-                "quotedmessage": quotedmessage,
+	body := map[string]interface{}{
+		"audio":            audioMedia,
+		"contact":          evt.Message.GetContactMessage(),
+		"document":         documentMedia,
+		"forwarded":        forwarded,
+		"from":             evt.Info.SourceString(),
+		"image":            imageMedia,
+		"list":             evt.Message.GetListMessage(),
+		"live_location":    evt.Message.GetLiveLocationMessage(),
+		"location":         evt.Message.GetLocationMessage(),
+		"message":          message,
+		"message_id":       evt.Info.ID,
+		"order":            evt.Message.GetOrderMessage(),
+		"pushname":         evt.Info.PushName,
+		"quoted_message":   quotedmessage,
+		"reaction_message": reactionMessage,
+		"sticker":          stickerMedia,
+		"video":            videoMedia,
+		"view_once":        evt.Message.GetViewOnceMessage(),
 	}
 
 	if imageMedia != nil {
