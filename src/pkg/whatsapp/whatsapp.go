@@ -22,6 +22,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -208,15 +209,17 @@ func handler(rawEvt interface{}) {
 			}
 		}
 
-		if !isGroupJid(evt.Info.Chat.String()) && !strings.Contains(evt.Info.SourceString(), "broadcast") {
-			if config.WhatsappAutoReplyMessage != "" {
-				_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
-			}
+		if config.WhatsappAutoReplyMessage != "" &&
+			!isGroupJid(evt.Info.Chat.String()) &&
+			!strings.Contains(evt.Info.SourceString(), "broadcast") {
+			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+		}
 
-			if config.WhatsappAutoReplyWebhook != "" {
-				if err := sendAutoReplyWebhook(evt); err != nil {
-					logrus.Error("Failed to send webhoook", err)
-				}
+		if config.WhatsappWebhook != "" &&
+			!strings.Contains(evt.Info.SourceString(), "broadcast") &&
+			!isFromMySelf(evt.Info.SourceString()) {
+			if err := forwardToWebhook(evt); err != nil {
+				logrus.Error("Failed forward to webhook", err)
 			}
 		}
 	case *events.Receipt:
@@ -257,8 +260,9 @@ func handler(rawEvt interface{}) {
 	}
 }
 
-func sendAutoReplyWebhook(evt *events.Message) error {
-	logrus.Info("Sending webhook to", config.WhatsappAutoReplyWebhook)
+// forwardToWebhook is a helper function to forward event to webhook url
+func forwardToWebhook(evt *events.Message) error {
+	logrus.Info("Forwarding event to webhook:", config.WhatsappWebhook)
 	client := &http.Client{Timeout: 10 * time.Second}
 	imageMedia := evt.Message.GetImageMessage()
 	stickerMedia := evt.Message.GetStickerMessage()
@@ -352,7 +356,7 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
 
-	req, err := http.NewRequest(http.MethodPost, config.WhatsappAutoReplyWebhook, bytes.NewBuffer(postBody))
+	req, err := http.NewRequest(http.MethodPost, config.WhatsappWebhook, bytes.NewBuffer(postBody))
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
@@ -363,10 +367,30 @@ func sendAutoReplyWebhook(evt *events.Message) error {
 	return nil
 }
 
+// isGroupJid is a helper function to check if the message is from group
 func isGroupJid(jid string) bool {
 	return strings.Contains(jid, "@g.us")
 }
 
+// isFromMySelf is a helper function to check if the message is from my self (logged in account)
+func isFromMySelf(jid string) bool {
+	return extractPhoneNumber(jid) == extractPhoneNumber(cli.Store.ID.String())
+}
+
+// extractPhoneNumber is a helper function to extract the phone number from a JID
+func extractPhoneNumber(jid string) string {
+	regex := regexp.MustCompile(`\d+`)
+	// Find all matches of the pattern in the JID
+	matches := regex.FindAllString(jid, -1)
+	// The first match should be the phone number
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	// If no matches are found, return an empty string
+	return ""
+}
+
+// DownloadMedia is a helper function to download media from whatsapp
 func DownloadMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (path string, err error) {
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")

@@ -22,7 +22,7 @@ var (
 
 	WhatsappLogLevel            = "ERROR"
 	WhatsappAutoReplyMessage    string
-	WhatsappAutoReplyWebhook    string
+	WhatsappWebhook             string
 	WhatsappSettingMaxFileSize  int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize int64 = 100000000 // 100MB
 )
