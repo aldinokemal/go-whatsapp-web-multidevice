@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/assert"
@@ -304,7 +305,7 @@ func TestValidateSendLink(t *testing.T) {
 
 func TestValidateRevokeMessage(t *testing.T) {
 	type args struct {
-		request domainSend.RevokeRequest
+		request domainMessage.RevokeRequest
 	}
 	tests := []struct {
 		name string
@@ -313,7 +314,7 @@ func TestValidateRevokeMessage(t *testing.T) {
 	}{
 		{
 			name: "should success normal condition",
-			args: args{request: domainSend.RevokeRequest{
+			args: args{request: domainMessage.RevokeRequest{
 				Phone:     "1728937129312@s.whatsapp.net",
 				MessageID: "1382901271239781",
 			}},
@@ -321,7 +322,7 @@ func TestValidateRevokeMessage(t *testing.T) {
 		},
 		{
 			name: "should error with empty phone",
-			args: args{request: domainSend.RevokeRequest{
+			args: args{request: domainMessage.RevokeRequest{
 				Phone:     "",
 				MessageID: "1382901271239781",
 			}},
@@ -329,7 +330,7 @@ func TestValidateRevokeMessage(t *testing.T) {
 		},
 		{
 			name: "should error with empty message id",
-			args: args{request: domainSend.RevokeRequest{
+			args: args{request: domainMessage.RevokeRequest{
 				Phone:     "1728937129312@s.whatsapp.net",
 				MessageID: "",
 			}},
@@ -347,7 +348,7 @@ func TestValidateRevokeMessage(t *testing.T) {
 
 func TestValidateUpdateMessage(t *testing.T) {
 	type args struct {
-		request domainSend.UpdateMessageRequest
+		request domainMessage.UpdateMessageRequest
 	}
 	tests := []struct {
 		name string
@@ -356,7 +357,7 @@ func TestValidateUpdateMessage(t *testing.T) {
 	}{
 		{
 			name: "should success normal condition",
-			args: args{request: domainSend.UpdateMessageRequest{
+			args: args{request: domainMessage.UpdateMessageRequest{
 				MessageID: "1382901271239781",
 				Message:   "some update message",
 				Phone:     "1728937129312@s.whatsapp.net",
@@ -365,7 +366,7 @@ func TestValidateUpdateMessage(t *testing.T) {
 		},
 		{
 			name: "should error with empty phone",
-			args: args{request: domainSend.UpdateMessageRequest{
+			args: args{request: domainMessage.UpdateMessageRequest{
 				MessageID: "1382901271239781",
 				Message:   "some update message",
 				Phone:     "",
@@ -374,7 +375,7 @@ func TestValidateUpdateMessage(t *testing.T) {
 		},
 		{
 			name: "should error with empty message id",
-			args: args{request: domainSend.UpdateMessageRequest{
+			args: args{request: domainMessage.UpdateMessageRequest{
 				MessageID: "",
 				Message:   "some update message",
 				Phone:     "1728937129312@s.whatsapp.net",
@@ -383,7 +384,7 @@ func TestValidateUpdateMessage(t *testing.T) {
 		},
 		{
 			name: "should error with empty message update",
-			args: args{request: domainSend.UpdateMessageRequest{
+			args: args{request: domainMessage.UpdateMessageRequest{
 				MessageID: "1382901271239781",
 				Message:   "",
 				Phone:     "1728937129312@s.whatsapp.net",

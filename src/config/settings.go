@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	AppVersion             = "v4.7.1"
+	AppVersion             = "v4.7.3"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = fmt.Sprintf("AldinoKemal")
@@ -22,7 +22,7 @@ var (
 
 	WhatsappLogLevel            = "ERROR"
 	WhatsappAutoReplyMessage    string
-	WhatsappAutoReplyWebhook    string
+	WhatsappWebhook             string
 	WhatsappSettingMaxFileSize  int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize int64 = 100000000 // 100MB
 )
