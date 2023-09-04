@@ -103,8 +103,9 @@ paths:
         - name: phone
           in: query
           schema:
-            type: integer
-          example: '6289685028129@s.whatsapp.net'
+            type: string
+          example: '573148901850'
+          description: Contact phone number (with country code)
       responses:
         '200':
           description: OK
@@ -134,8 +135,9 @@ paths:
         - name: phone
           in: query
           schema:
-            type: integer
-          example: '6289685028129@s.whatsapp.net'
+            type: string
+          example: '573148901850'
+          description: Contact phone number (with country code)
         - name: is_preview
           in: query
           schema:
@@ -206,11 +208,11 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 message:
                   type: string
-                  example: selamat malam
+                  example: This is a *test* _message_ 😊
                   description: Message to send
       responses:
         '200':
@@ -245,11 +247,11 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 caption:
                   type: string
-                  example: selamat malam
+                  example: Image caption
                   description: Caption to send
                 view_once:
                   type: boolean
@@ -296,11 +298,11 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 caption:
                   type: string
-                  example: selamat malam
+                  example: File caption
                   description: Caption to send
                 file:
                   type: string
@@ -339,11 +341,11 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 caption:
                   type: string
-                  example: ini contoh caption video
+                  example: Video caption
                   description: Caption to send
                 view_once:
                   type: boolean
@@ -390,15 +392,15 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 contact_name:
                   type: string
-                  example: Aldino Kemal
+                  example: This is a test contact
                   description: Contact name
                 contact_phone:
                   type: string
-                  example: '6289685024992'
+                  example: '573208963960'
                   description: Contact phone number
       responses:
         '200':
@@ -433,15 +435,15 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 link:
                   type: string
                   example: "https://google.com"
                   description: Link to send
                 caption:
                   type: string
-                  example: 'Halo ini contoh caption'
+                  example: Link caption
                   description: Caption to send
       responses:
         '200':
@@ -476,15 +478,15 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 latitude:
                   type: string
-                  example: "-7.797068"
+                  example: "4.8087158"
                   description: Latitude coordinate
                 longitude:
                   type: string
-                  example: '110.370529'
+                  example: '-75.6787543'
                   description: Longitude coordinate
       responses:
         '200':
@@ -526,8 +528,8 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
       responses:
         '200':
           description: OK
@@ -568,8 +570,8 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
-                  description: Phone number with country code
+                  example: '573148901850'
+                  description: Destination phone number (with country code)
                 emoji:
                   type: string
                   example: "🙏"

@@ -20,6 +20,9 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 	"log"
+	"io/ioutil"
+	"github.com/json-iterator/go"
+	"gopkg.in/yaml.v2"
 	"os"
 	"strings"
 )
@@ -109,13 +112,35 @@ func runRest(_ *cobra.Command, _ []string) {
 	rest.InitRestGroup(app, groupService)
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.Render("index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
-			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": c.UserContext().Value("token"),
-			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
-		})
+		serverURL := os.Getenv("SERVER_URL")
+		if len(serverURL) != 0 {
+			apiDoc, err := ioutil.ReadFile("/docs/openapi.yaml")
+			if err != nil {
+				log.Fatal(err)
+			}
+			var spec map[string]any
+			err = yaml.Unmarshal([]byte(apiDoc), &spec)
+			if err != nil {
+				log.Fatal(err)
+			}
+			delete(spec, "servers")
+			spec["servers"] = []map[string]interface{}{
+				{"url": string(serverURL)},
+			}
+			return c.Render("doc", fiber.Map{
+				"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+				"Spec":           toJSON(spec),
+				"BasicAuthToken": c.UserContext().Value("token"),
+			})
+		} else {
+			return c.Render("index", fiber.Map{
+				"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+				"AppVersion":     config.AppVersion,
+				"BasicAuthToken": c.UserContext().Value("token"),
+				"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+				"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			})
+		}
 	})
 
 	websocket.RegisterRoutes(app, appService)
@@ -126,6 +151,15 @@ func runRest(_ *cobra.Command, _ []string) {
 	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}
+}
+
+func toJSON(data interface{}) string {
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	data_json, err := json.MarshalToString(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return data_json
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
