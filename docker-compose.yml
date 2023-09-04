@@ -6,10 +6,21 @@ services:
       options:
         max-size: "200k"
         max-file: "10"
-    image: "aldinokemal2104/go-whatsapp-web-multidevice:latest"
+    image: jffrancob/wa-multidevice:latest
+    command: --os=Linux --debug true --basic-auth=admin:password
+    environment:
+      - SERVER_URL=http://${API_HOST-localhost}:${API_PORT-3000}
+    working_dir: /whatsapp
     build:
       context: .
       dockerfile: ./docker/golang.Dockerfile
+      target: runtime
     restart: 'always'
     ports:
       - "3000:3000"
+    volumes:
+      #- ./src:/whatsapp/
+      #- ./air.toml:/whatsapp/.air.toml
+      - ./storages:/whatsapp/storages
+      - ./statics:/whatsapp/statics
+      #- ./docs/:/docs/

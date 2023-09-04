@@ -19,8 +19,10 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/valyala/fasthttp v1.48.0
 	go.mau.fi/libsignal v0.1.0
-	go.mau.fi/whatsmeow v0.0.0-20230718190209-efef6f1cec8e
+	go.mau.fi/whatsmeow v0.0.0-20230831081037-69534bf768bc
 	google.golang.org/protobuf v1.31.0
+	gopkg.in/yaml.v2 v2.4.0
+	github.com/json-iterator/go v1.1.12
 )
 
 require (
