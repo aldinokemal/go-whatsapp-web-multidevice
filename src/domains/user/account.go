@@ -11,7 +11,7 @@ type InfoResponseDataDevice struct {
 	Agent  uint8
 	Device string
 	Server string
-	AD     bool
+	AD     string
 }
 
 type InfoResponseData struct {
