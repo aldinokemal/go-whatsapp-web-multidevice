@@ -45,10 +45,10 @@ func (service userService) Info(ctx context.Context, request domainUser.InfoRequ
 		for _, j := range userInfo.Devices {
 			device = append(device, domainUser.InfoResponseDataDevice{
 				User:   j.User,
-				Agent:  j.Agent,
+				Agent:  j.RawAgent,
 				Device: whatsapp.GetPlatformName(int(j.Device)),
 				Server: j.Server,
-				AD:     j.AD,
+				AD:     j.ADString(),
 			})
 		}
 
