@@ -21,6 +21,8 @@ require (
 	go.mau.fi/libsignal v0.1.0
 	go.mau.fi/whatsmeow v0.0.0-20230916142552-a743fdc23bf1
 	google.golang.org/protobuf v1.31.0
+	gopkg.in/yaml.v2 v2.4.0
+	github.com/json-iterator/go v1.1.12
 )
 
 require (

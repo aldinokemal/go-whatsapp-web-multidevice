@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Swagger UI</title>
+  <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,700|Source+Code+Pro:300,600|Titillium+Web:400,600,700" rel="stylesheet">
+  <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.24.2/swagger-ui.css" >
+  <style>
+    html
+    {
+      box-sizing: border-box;
+      overflow: -moz-scrollbars-vertical;
+      overflow-y: scroll;
+    }
+    *,
+    *:before,
+    *:after
+    {
+      box-sizing: inherit;
+    }
+    body {
+      margin:0;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.24.2/swagger-ui-bundle.js"> </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.24.2/swagger-ui-standalone-preset.js"> </script>
+<script src="https://unpkg.com/vue@3"></script>
+<script src="https://unpkg.com/axios@1.1.2/dist/axios.min.js"></script>
+<script>
+  const http = axios.create({
+      baseURL: {{ .AppHost }}
+  });
+  {{ if isEnableBasicAuth .BasicAuthToken }}
+  http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
+  {{ end }}
+  window.onload = function() {
+    var spec = {{ .Spec }};
+    // Build a system
+    const ui = SwaggerUIBundle({
+      spec: JSON.parse(spec),
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [
+        SwaggerUIBundle.presets.apis
+      ],
+      plugins: [
+        SwaggerUIBundle.plugins.DownloadUrl
+      ]
+    })
+    window.ui = ui
+  }
+</script>
+</body>
+</html>
