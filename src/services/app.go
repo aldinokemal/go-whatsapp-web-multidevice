@@ -140,7 +140,27 @@ func (service serviceApp) Reconnect(_ context.Context) (err error) {
 	return service.WaCli.Connect()
 }
 
-func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.FetchDevicesResponse, err error) {
+func (service serviceApp) FirstDevice(ctx context.Context) (response domainApp.DevicesResponse, err error) {
+	if service.WaCli == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	devices, err := service.db.GetFirstDevice()
+	if err != nil {
+		return response, err
+	}
+
+	response.Device = devices.ID.String()
+	if devices.PushName != "" {
+		response.Name = devices.PushName
+	} else {
+		response.Name = devices.BusinessName
+	}
+
+	return response, nil
+}
+
+func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.DevicesResponse, err error) {
 	if service.WaCli == nil {
 		return response, pkgError.ErrWaCLI
 	}
@@ -151,7 +171,7 @@ func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.
 	}
 
 	for _, device := range devices {
-		var d domainApp.FetchDevicesResponse
+		var d domainApp.DevicesResponse
 		d.Device = device.ID.String()
 		if device.PushName != "" {
 			d.Name = device.PushName

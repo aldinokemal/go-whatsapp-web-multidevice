@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -21,7 +22,8 @@ import (
 )
 
 type serviceSend struct {
-	WaCli *whatsmeow.Client
+	WaCli      *whatsmeow.Client
+	appService app.IAppService
 }
 
 type metadata struct {
@@ -29,9 +31,10 @@ type metadata struct {
 	Content string
 }
 
-func NewSendService(waCli *whatsmeow.Client) domainSend.ISendService {
+func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainSend.ISendService {
 	return &serviceSend{
-		WaCli: waCli,
+		WaCli:      waCli,
+		appService: appService,
 	}
 }
 
@@ -45,7 +48,34 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		return response, err
 	}
 
+	// Send message
 	msg := &waProto.Message{Conversation: proto.String(request.Message)}
+
+	// Reply message
+	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
+		participantJID := dataWaRecipient.String()
+		if len(*request.ReplyMessageID) < 28 {
+			firstDevice, err := service.appService.FirstDevice(ctx)
+			if err != nil {
+				return response, err
+			}
+			participantJID = firstDevice.Device
+		}
+
+		msg = &waProto.Message{
+			ExtendedTextMessage: &waProto.ExtendedTextMessage{
+				Text: proto.String(request.Message),
+				ContextInfo: &waProto.ContextInfo{
+					StanzaId:    request.ReplyMessageID,
+					Participant: proto.String(participantJID),
+					QuotedMessage: &waProto.Message{
+						Conversation: proto.String(request.Message),
+					},
+				},
+			},
+		}
+	}
+
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
 	if err != nil {
 		return response, err

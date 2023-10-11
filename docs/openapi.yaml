@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.6.0
+  version: 3.7.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -212,6 +212,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Message to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
       responses:
         '200':
           description: OK
