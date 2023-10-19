@@ -249,6 +249,11 @@
                     <input :value="message_phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
+                    <label>Reply Message ID</label>
+                    <input v-model="message_reply_message_id" type="text" placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
+                           aria-label="reply_message_id">
+                </div>
+                <div class="field">
                     <label>Message</label>
                     <textarea v-model="message_text" type="text" placeholder="Hello this is message text"
                               aria-label="message"></textarea>
@@ -868,6 +873,7 @@
                 message_type: 'user',
                 message_phone: '',
                 message_text: '',
+                message_reply_message_id: '',
                 message_loading: false,
             }
         },
@@ -900,6 +906,9 @@
                         let payload = new FormData();
                         payload.append("phone", this.message_phone_id)
                         payload.append("message", this.message_text)
+                        if (this.message_reply_message_id !== '') {
+                            payload.append("reply_message_id", this.message_reply_message_id)
+                        }
                         let response = await http.post(`/send/message`, payload)
                         this.sendMessageReset();
                         resolve(response.data.message)
@@ -918,6 +927,7 @@
                 this.message_phone = '';
                 this.message_text = '';
                 this.message_type = 'user';
+                this.message_reply_message_id = '';
             },
         }
     }

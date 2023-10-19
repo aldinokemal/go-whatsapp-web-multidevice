@@ -99,7 +99,7 @@ func runRest(_ *cobra.Command, _ []string) {
 
 	// Service
 	appService := services.NewAppService(cli, db)
-	sendService := services.NewSendService(cli)
+	sendService := services.NewSendService(cli, appService)
 	userService := services.NewUserService(cli)
 	messageService := services.NewMessageService(cli)
 	groupService := services.NewGroupService(cli)

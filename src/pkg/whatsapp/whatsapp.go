@@ -35,6 +35,22 @@ var (
 	startupTime   = time.Now().Unix()
 )
 
+type ExtractedMedia struct {
+	MediaPath string `json:"media_path"`
+	MimeType  string `json:"mime_type"`
+	Caption   string `json:"caption"`
+}
+
+type evtReaction struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+}
+
+type evtMessage struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
 func SanitizePhone(phone *string) {
 	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
 		if len(*phone) <= 15 {
@@ -201,7 +217,7 @@ func handler(rawEvt interface{}) {
 
 		img := evt.Message.GetImageMessage()
 		if img != nil {
-			path, err := DownloadMedia(config.PathStorages, img)
+			path, err := ExtractMedia(config.PathStorages, img)
 			if err != nil {
 				log.Errorf("Failed to download image: %v", err)
 			} else {
@@ -270,9 +286,11 @@ func forwardToWebhook(evt *events.Message) error {
 	audioMedia := evt.Message.GetAudioMessage()
 	documentMedia := evt.Message.GetDocumentMessage()
 
-	message := evt.Message.GetConversation()
+	var message evtMessage
+	message.Text = evt.Message.GetConversation()
+	message.ID = evt.Info.ID
 	if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
-		message = extendedMessage
+		message.Text = extendedMessage
 	}
 
 	var quotedmessage any
@@ -289,62 +307,62 @@ func forwardToWebhook(evt *events.Message) error {
 		}
 	}
 
-	var reactionMessage any
+	var waReaction *evtReaction
 	if evt.Message.ReactionMessage != nil {
-		reactionMessage = *evt.Message.ReactionMessage.Text
+		waReaction.Message = evt.Message.ReactionMessage.GetText()
+		waReaction.ID = evt.Message.ReactionMessage.GetKey().GetId()
 	}
 
 	body := map[string]interface{}{
-		"audio":            audioMedia,
-		"contact":          evt.Message.GetContactMessage(),
-		"document":         documentMedia,
-		"forwarded":        forwarded,
-		"from":             evt.Info.SourceString(),
-		"image":            imageMedia,
-		"list":             evt.Message.GetListMessage(),
-		"live_location":    evt.Message.GetLiveLocationMessage(),
-		"location":         evt.Message.GetLocationMessage(),
-		"message":          message,
-		"message_id":       evt.Info.ID,
-		"order":            evt.Message.GetOrderMessage(),
-		"pushname":         evt.Info.PushName,
-		"quoted_message":   quotedmessage,
-		"reaction_message": reactionMessage,
-		"sticker":          stickerMedia,
-		"video":            videoMedia,
-		"view_once":        evt.Message.GetViewOnceMessage(),
+		"audio":          audioMedia,
+		"contact":        evt.Message.GetContactMessage(),
+		"document":       documentMedia,
+		"forwarded":      forwarded,
+		"from":           evt.Info.SourceString(),
+		"image":          imageMedia,
+		"list":           evt.Message.GetListMessage(),
+		"live_location":  evt.Message.GetLiveLocationMessage(),
+		"location":       evt.Message.GetLocationMessage(),
+		"message":        message,
+		"order":          evt.Message.GetOrderMessage(),
+		"pushname":       evt.Info.PushName,
+		"quoted_message": quotedmessage,
+		"reaction":       waReaction,
+		"sticker":        stickerMedia,
+		"video":          videoMedia,
+		"view_once":      evt.Message.GetViewOnceMessage(),
 	}
 
 	if imageMedia != nil {
-		path, err := DownloadMedia(config.PathMedia, imageMedia)
+		path, err := ExtractMedia(config.PathMedia, imageMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
 		body["image"] = path
 	}
 	if stickerMedia != nil {
-		path, err := DownloadMedia(config.PathMedia, stickerMedia)
+		path, err := ExtractMedia(config.PathMedia, stickerMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 		}
 		body["sticker"] = path
 	}
 	if videoMedia != nil {
-		path, err := DownloadMedia(config.PathMedia, videoMedia)
+		path, err := ExtractMedia(config.PathMedia, videoMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
 		body["video"] = path
 	}
 	if audioMedia != nil {
-		path, err := DownloadMedia(config.PathMedia, audioMedia)
+		path, err := ExtractMedia(config.PathMedia, audioMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 		}
 		body["audio"] = path
 	}
 	if documentMedia != nil {
-		path, err := DownloadMedia(config.PathMedia, documentMedia)
+		path, err := ExtractMedia(config.PathMedia, documentMedia)
 		if err != nil {
 			return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 		}
@@ -390,37 +408,39 @@ func extractPhoneNumber(jid string) string {
 	return ""
 }
 
-// DownloadMedia is a helper function to download media from whatsapp
-func DownloadMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (path string, err error) {
+// ExtractMedia is a helper function to extract media from whatsapp
+func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")
-		return "", nil
+		return extractedMedia, nil
 	}
 
 	data, err := cli.Download(mediaFile)
 	if err != nil {
-		return path, err
+		return extractedMedia, err
 	}
 
-	var mimeType string
 	switch media := mediaFile.(type) {
 	case *waProto.ImageMessage:
-		mimeType = media.GetMimetype()
+		extractedMedia.MimeType = media.GetMimetype()
+		extractedMedia.Caption = media.GetCaption()
 	case *waProto.AudioMessage:
-		mimeType = media.GetMimetype()
+		extractedMedia.MimeType = media.GetMimetype()
 	case *waProto.VideoMessage:
-		mimeType = media.GetMimetype()
+		extractedMedia.MimeType = media.GetMimetype()
+		extractedMedia.Caption = media.GetCaption()
 	case *waProto.StickerMessage:
-		mimeType = media.GetMimetype()
+		extractedMedia.MimeType = media.GetMimetype()
 	case *waProto.DocumentMessage:
-		mimeType = media.GetMimetype()
+		extractedMedia.MimeType = media.GetMimetype()
+		extractedMedia.Caption = media.GetCaption()
 	}
 
-	extensions, _ := mime.ExtensionsByType(mimeType)
-	path = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
-	err = os.WriteFile(path, data, 0600)
+	extensions, _ := mime.ExtensionsByType(extractedMedia.MimeType)
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
+	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
-		return path, err
+		return extractedMedia, err
 	}
-	return path, nil
+	return extractedMedia, nil
 }
