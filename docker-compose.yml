@@ -6,7 +6,7 @@ services:
       options:
         max-size: "200k"
         max-file: "10"
-    image: jffrancob/wa-multidevice:latest
+    image: jffrancob/wa-multidevice:0.0.3
     command: --os=Linux --debug true --basic-auth=admin:password
     environment:
       - SERVER_URL=http://${API_HOST-localhost}:${API_PORT-3000}
