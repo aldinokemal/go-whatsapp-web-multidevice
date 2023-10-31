@@ -293,8 +293,9 @@ func forwardToWebhook(evt *events.Message) error {
 		message.Text = extendedMessage
 	}
 
+	
 	var quotedmessage any
-	if evt.Message.ExtendedTextMessage != nil {
+	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
 		if conversation := evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation(); conversation != "" {
 			quotedmessage = conversation
 		}
