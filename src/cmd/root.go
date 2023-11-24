@@ -128,13 +128,13 @@ func runRest(_ *cobra.Command, _ []string) {
 				{"url": string(serverURL)},
 			}
 			return c.Render("doc", fiber.Map{
-				"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+				"AppHost":        fmt.Sprintf("%s", c.BaseURL()),
 				"Spec":           toJSON(spec),
 				"BasicAuthToken": c.UserContext().Value("token"),
 			})
 		} else {
 			return c.Render("index", fiber.Map{
-				"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+				"AppHost":        fmt.Sprintf("%s", c.BaseURL()),
 				"AppVersion":     config.AppVersion,
 				"BasicAuthToken": c.UserContext().Value("token"),
 				"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
