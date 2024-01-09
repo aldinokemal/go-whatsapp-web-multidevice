@@ -9,8 +9,3 @@ type VideoRequest struct {
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
 	Compress bool                  `json:"compress"`
 }
-
-type VideoResponse struct {
-	MessageID string `json:"message_id"`
-	Status    string `json:"status"`
-}

@@ -9,8 +9,3 @@ type ImageRequest struct {
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
 	Compress bool                  `json:"compress"`
 }
-
-type ImageResponse struct {
-	MessageID string `json:"message_id"`
-	Status    string `json:"status"`
-}

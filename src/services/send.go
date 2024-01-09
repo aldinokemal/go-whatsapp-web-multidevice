@@ -26,11 +26,6 @@ type serviceSend struct {
 	appService app.IAppService
 }
 
-type metadata struct {
-	Name    string
-	Content string
-}
-
 func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainSend.ISendService {
 	return &serviceSend{
 		WaCli:      waCli,
@@ -38,7 +33,7 @@ func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainS
 	}
 }
 
-func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.MessageResponse, err error) {
+func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendMessage(ctx, request)
 	if err != nil {
 		return response, err
@@ -82,11 +77,11 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.ImageResponse, err error) {
+func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendImage(ctx, request)
 	if err != nil {
 		return response, err
@@ -179,11 +174,11 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.FileResponse, err error) {
+func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendFile(ctx, request)
 	if err != nil {
 		return response, err
@@ -234,11 +229,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.VideoResponse, err error) {
+func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendVideo(ctx, request)
 	if err != nil {
 		return response, err
@@ -343,11 +338,11 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.ContactResponse, err error) {
+func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendContact(ctx, request)
 	if err != nil {
 		return response, err
@@ -369,11 +364,11 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.LinkResponse, err error) {
+func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendLink(ctx, request)
 	if err != nil {
 		return response, err
@@ -398,11 +393,11 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
-func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.LocationResponse, err error) {
+func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendLocation(ctx, request)
 	if err != nil {
 		return response, err
@@ -427,6 +422,6 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }

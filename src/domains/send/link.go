@@ -5,8 +5,3 @@ type LinkRequest struct {
 	Caption string `json:"caption"`
 	Link    string `json:"link"`
 }
-
-type LinkResponse struct {
-	MessageID string `json:"message_id"`
-	Status    string `json:"status"`
-}
