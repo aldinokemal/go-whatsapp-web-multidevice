@@ -1,7 +1,7 @@
 ############################
 # STEP 1 build executable binary
 ############################
-FROM golang:alpine AS builder
+FROM golang:1.21.5-alpine3.19 AS builder
 RUN apk update && apk add --no-cache vips-dev gcc musl-dev gcompat ffmpeg
 WORKDIR /whatsapp
 COPY ./src .
@@ -16,7 +16,7 @@ RUN pkger && go build -o /app/whatsapp
 #############################
 ## STEP 2 build a smaller image
 #############################
-FROM alpine:latest
+FROM alpine:3.19
 RUN apk update && apk add --no-cache vips-dev ffmpeg
 WORKDIR /app
 # Copy compiled from builder.

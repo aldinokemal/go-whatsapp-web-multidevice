@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.5.0
 	github.com/h2non/bimg v1.1.9
 	github.com/markbates/pkger v0.17.1
-	github.com/mattn/go-sqlite3 v1.14.18
+	github.com/mattn/go-sqlite3 v1.14.19
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.8.0
