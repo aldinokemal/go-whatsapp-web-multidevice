@@ -53,6 +53,23 @@ func (e WaCliError) StatusCode() int {
 	return http.StatusInternalServerError
 }
 
+type WaUploadMediaError string
+
+// Error for complying the error interface
+func (e WaUploadMediaError) Error() string {
+	return string(e)
+}
+
+// ErrCode will return the error code based on the error data type
+func (e WaUploadMediaError) ErrCode() string {
+	return "UPLOAD_MEDIA_ERROR"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (e WaUploadMediaError) StatusCode() int {
+	return http.StatusInternalServerError
+}
+
 const (
 	ErrInvalidJID = InvalidJID("your JID is invalid")
 	ErrWaCLI      = WaCliError("your WhatsApp CLI is invalid or empty")

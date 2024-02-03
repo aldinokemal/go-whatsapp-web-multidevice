@@ -6,6 +6,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
@@ -188,18 +189,14 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
-	oriFilePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.File.Filename)
-	err = fasthttp.SaveMultipartFile(request.File, oriFilePath)
-	if err != nil {
-		return response, err
-	}
+	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
+	fileMimeType := http.DetectContentType(fileBytes)
 
 	// Send to WA server
-	dataWaFile, err := os.ReadFile(oriFilePath)
 	if err != nil {
 		return response, err
 	}
-	uploadedFile, err := service.WaCli.Upload(context.Background(), dataWaFile, whatsmeow.MediaDocument)
+	uploadedFile, err := service.WaCli.Upload(context.Background(), fileBytes, whatsmeow.MediaDocument)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
@@ -207,7 +204,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 
 	msg := &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
 		Url:           proto.String(uploadedFile.URL),
-		Mimetype:      proto.String(http.DetectContentType(dataWaFile)),
+		Mimetype:      proto.String(fileMimeType),
 		Title:         proto.String(request.File.Filename),
 		FileSha256:    uploadedFile.FileSHA256,
 		FileLength:    proto.Uint64(uploadedFile.FileLength),
@@ -218,12 +215,6 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		Caption:       proto.String(request.Caption),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
-	go func() {
-		errDelete := utils.RemoveFile(0, oriFilePath)
-		if errDelete != nil {
-			fmt.Println(errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
@@ -423,5 +414,46 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	return response, nil
+}
+
+func (service serviceSend) SendAudio(ctx context.Context, request domainSend.AudioRequest) (response domainSend.GenericResponse, err error) {
+	err = validations.ValidateSendAudio(ctx, request)
+	if err != nil {
+		return response, err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	autioBytes := helpers.MultipartFormFileHeaderToBytes(request.Audio)
+	audioMimeType := http.DetectContentType(autioBytes)
+
+	audioUploaded, err := service.WaCli.Upload(ctx, autioBytes, whatsmeow.MediaAudio)
+	if err != nil {
+		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
+		return response, err
+	}
+
+	msg := &waProto.Message{
+		AudioMessage: &waProto.AudioMessage{
+			Url:           proto.String(audioUploaded.URL),
+			DirectPath:    proto.String(audioUploaded.DirectPath),
+			Mimetype:      proto.String(audioMimeType),
+			FileLength:    proto.Uint64(audioUploaded.FileLength),
+			FileSha256:    audioUploaded.FileSHA256,
+			FileEncSha256: audioUploaded.FileEncSHA256,
+			MediaKey:      audioUploaded.MediaKey,
+		},
+	}
+
+	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Send audio success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
 }

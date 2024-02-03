@@ -12,6 +12,7 @@ type ISendService interface {
 	SendContact(ctx context.Context, request ContactRequest) (response GenericResponse, err error)
 	SendLink(ctx context.Context, request LinkRequest) (response GenericResponse, err error)
 	SendLocation(ctx context.Context, request LocationRequest) (response GenericResponse, err error)
+	SendAudio(ctx context.Context, request AudioRequest) (response GenericResponse, err error)
 }
 
 type GenericResponse struct {

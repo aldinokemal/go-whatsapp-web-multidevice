@@ -133,6 +133,15 @@
                 </div>
             </div>
         </div>
+        <div class="blue card" @click="sendAudioModal()" style="cursor: pointer">
+            <div class="content">
+                <a class="ui blue right ribbon label">Send</a>
+                <div class="header">Send Audio</div>
+                <div class="description">
+                    Send audio to any whatsapp number
+                </div>
+            </div>
+        </div>
 
     </div>
 
@@ -329,6 +338,47 @@
         </div>
     </div>
 
+    <!--  Modal SendAudio  -->
+    <div class="ui small modal" id="modalSendAudio">
+        <i class="close icon"></i>
+        <div class="header">
+            Send Audio
+        </div>
+        <div class="content">
+            <form class="ui form">
+                <div class="field">
+                    <label>Type</label>
+                    <select name="audio_type" v-model="audio_type" aria-label="type">
+                        <option value="group">Group Message</option>
+                        <option value="user">Private Message</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Phone / Group ID</label>
+                    <input v-model="audio_phone" type="text" placeholder="6289..."
+                           aria-label="phone">
+                    <input :value="audio_phone_id" disabled aria-label="whatsapp_id">
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>Audio</label>
+                    <input type="file" class="inputfile" id="audio_file" style="display: none"
+                           accept="audio/*"/>
+                    <label for="audio_file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload Audio
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="actions">
+            <div class="ui approve positive right labeled icon button" :class="{'loading': this.audio_loading}"
+                 @click="sendAudioProcess">
+                Send
+                <i class="send icon"></i>
+            </div>
+        </div>
+    </div>
+
     <!--  Modal SendFile  -->
     <div class="ui small modal" id="modalSendFile">
         <i class="close icon"></i>
@@ -411,7 +461,7 @@
                     <label>Compress</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="video_compress">
-                        <label>Check for compressing image to smaller size</label>
+                        <label>Check for compressing video to smaller size</label>
                     </div>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
@@ -1062,6 +1112,65 @@
         }
     }
 
+    const sendAudio = {
+        data() {
+            return {
+                audio_phone: '',
+                audio_type: 'user',
+                audio_loading: false,
+            }
+        },
+        computed: {
+            audio_phone_id() {
+                return this.audio_type === 'user' ? `${this.audio_phone}@${this.type_user}` : `${this.audio_phone}@${this.type_group}`
+            }
+        },
+        methods: {
+            sendAudioModal() {
+                $('#modalSendAudio').modal({
+                    onApprove: function () {
+                        return false;
+                    }
+                }).modal('show');
+            },
+            async sendAudioProcess() {
+                try {
+                    let response = await this.sendAudioApi()
+                    showSuccessInfo(response)
+                    $('#modalSendAudio').modal('hide');
+                } catch (err) {
+                    showErrorInfo(err)
+                }
+            },
+            sendAudioApi() {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        this.audio_loading = true;
+                        let payload = new FormData();
+                        payload.append("phone", this.audio_phone_id)
+                        payload.append("audio", $("#audio_file")[0].files[0])
+                        let response = await http.post(`/send/audio`, payload)
+                        this.sendAudioReset();
+                        resolve(response.data.message)
+                    } catch (error) {
+                        if (error.response) {
+                            reject(error.response.data.message)
+                        } else {
+                            reject(error.message)
+                        }
+                    } finally {
+                        this.audio_loading = false;
+                    }
+                })
+            },
+            sendAudioReset() {
+                this.audio_phone = '';
+                this.audio_type = 'user';
+                $("#audio_file").val('');
+            },
+        }
+    }
+
     const sendVideo = {
         data() {
             return {
@@ -1658,7 +1767,7 @@
         },
         mixins: [
             login, logout, reconnect,
-            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation,
+            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation, sendAudio,
             messageRevoke, messageReact,
             userGroups, userPrivacy, userAvatar, userInfo
         ]

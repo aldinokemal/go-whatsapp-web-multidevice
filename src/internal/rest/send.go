@@ -20,6 +20,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
 	app.Post("/send/location", rest.SendLocation)
+	app.Post("/send/audio", rest.SendAudio)
 	return rest
 }
 
@@ -153,6 +154,28 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLocation(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) SendAudio(c *fiber.Ctx) error {
+	var request domainSend.AudioRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	audio, err := c.FormFile("audio")
+	utils.PanicIfNeeded(err)
+
+	request.Audio = audio
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.SendAudio(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

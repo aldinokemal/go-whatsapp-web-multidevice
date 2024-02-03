@@ -133,3 +133,45 @@ func ValidateSendLocation(ctx context.Context, request domainSend.LocationReques
 
 	return nil
 }
+
+func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.Audio, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	availableMimes := map[string]bool{
+		"audio/aac":  true,
+		"audio/amr":  true,
+		"audio/flac": true,
+		"audio/m4a":  true,
+		"audio/m4r":  true,
+		"audio/mp3":  true,
+		"audio/mpeg": true,
+		"audio/ogg":  true,
+
+		"audio/wma":      true,
+		"audio/x-ms-wma": true,
+
+		"audio/wav":      true,
+		"audio/vnd.wav":  true,
+		"audio/vnd.wave": true,
+		"audio/wave":     true,
+		"audio/x-pn-wav": true,
+		"audio/x-wav":    true,
+	}
+	availableMimesStr := ""
+	for k := range availableMimes {
+		availableMimesStr += k + ","
+	}
+
+	if !availableMimes[request.Audio.Header.Get("Content-Type")] {
+		return pkgError.ValidationError(fmt.Sprintf("your audio type is not allowed. please use (%s)", availableMimesStr))
+	}
+
+	return nil
+}
