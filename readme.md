@@ -104,6 +104,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | User My Privacy Setting | GET    | /user/my/privacy            |
 | ✅       | Send Message            | POST   | /send/message               |
 | ✅       | Send Image              | POST   | /send/image                 | 
+| ✅       | Send Audio              | POST   | /send/audio                 | 
 | ✅       | Send File               | POST   | /send/file                  | 
 | ✅       | Send Video              | POST   | /send/video                 | 
 | ✅       | Send Contact            | POST   | /send/contact               |
