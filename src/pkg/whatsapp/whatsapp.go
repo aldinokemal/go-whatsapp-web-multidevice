@@ -297,7 +297,7 @@ func forwardToWebhook(evt *events.Message) error {
 	var quotedmessage any
 	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
 		if conversation := evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation(); conversation != "" {
-			quotedmessage = conversation
+			quotedmessage = evt.Message.ExtendedTextMessage.ContextInfo
 		}
 	}
 
