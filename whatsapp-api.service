@@ -1,0 +1,14 @@
+[Unit]
+Description=WhatsApp API Service
+After=network-online.target
+
+[Service]
+User=root
+ExecStart=/opt/go-whatsapp-web-multidevice/whatsapp --webhook="http://127.0.0.1:1880/webhooks/whatsapp"
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+Type=exec
+
+
+[Install]
+WantedBy=multi-user.target
