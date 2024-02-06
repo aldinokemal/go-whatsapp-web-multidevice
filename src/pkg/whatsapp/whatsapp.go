@@ -309,10 +309,10 @@ func forwardToWebhook(evt *events.Message) error {
 		}
 	}
 
-	var waReaction *evtReaction
-	if evt.Message.ReactionMessage != nil {
-		waReaction.Message = evt.Message.ReactionMessage.GetText()
-		waReaction.ID = evt.Message.ReactionMessage.GetKey().GetId()
+	var waReaction evtReaction
+	if reactionMessage := evt.Message.ReactionMessage; reactionMessage != nil {
+		waReaction.Message = reactionMessage.GetText()
+		waReaction.ID = reactionMessage.GetKey().GetId()
 	}
 
 	body := map[string]interface{}{
