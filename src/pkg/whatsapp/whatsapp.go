@@ -47,8 +47,9 @@ type evtReaction struct {
 }
 
 type evtMessage struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	RepliedId string `json:"replied_id"`
 }
 
 func SanitizePhone(phone *string) {
@@ -291,9 +292,9 @@ func forwardToWebhook(evt *events.Message) error {
 	message.ID = evt.Info.ID
 	if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
 		message.Text = extendedMessage
+		message.RepliedId = evt.Message.ExtendedTextMessage.ContextInfo.GetStanzaId()
 	}
 
-	
 	var quotedmessage any
 	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
 		if conversation := evt.Message.ExtendedTextMessage.ContextInfo.QuotedMessage.GetConversation(); conversation != "" {
