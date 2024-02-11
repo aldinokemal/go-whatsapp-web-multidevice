@@ -1,15 +1,16 @@
 ## Whatsapp API Multi Device Version
 
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
+<br>
 ![Build Image](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/build-docker-image.yaml/badge.svg)
 <br>
 ![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-windows.yml/badge.svg)
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
-### Support ARM 
+### Support `ARM` Architecture 
 Now that we support ARM64 for Linux: 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases) for ARM64 
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64 
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
 
 
