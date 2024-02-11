@@ -1,4 +1,4 @@
-name: Build Docker Image for Linux ARM
+name: Build Docker Image
 
 on:
   workflow_dispatch:
@@ -9,19 +9,10 @@ on:
       - '*'
 
 jobs:
-  build-and-push:
+  build-and-push-amd:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     environment: production
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ ARM64, ubuntu-latest ]
-        tag_suffix: [ arm, amd ]
-        include:
-          - os: ARM64
-            tag_suffix: arm
-          - os: ubuntu-latest
-            tag_suffix: amd
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Login Registry
@@ -37,10 +28,33 @@ jobs:
           push: true
           context: .
           file: ./docker/golang.Dockerfile
-          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-${{ matrix.tag_suffix }}, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-${{ matrix.tag_suffix }}
+          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
+
+  build-and-push-arm:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    environment: production
+    runs-on: [ARM64]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login Registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./docker/golang.Dockerfile
+          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
 
   create-manifest:
-    needs: build-and-push
+    needs:
+      - build-and-push-amd
+      - build-and-push-arm
     runs-on: ubuntu-latest
     steps:
       - name: Login Registry
