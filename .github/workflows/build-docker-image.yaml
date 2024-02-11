@@ -65,11 +65,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Create Latest Manifest
         run: |
-          docker buildx imagetools create -t aldinokemal2104/go-whatsapp-web-multidevice:latest \
-            aldinokemal2104/go-whatsapp-web-multidevice:latest-amd \
-            aldinokemal2104/go-whatsapp-web-multidevice:latest-arm
+          docker buildx imagetools create -t ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest \
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd \
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm
       - name: Create Versioned Manifest (${{ github.ref_name }})
         run: |
-          docker buildx imagetools create -t aldinokemal2104/go-whatsapp-web-multidevice:${{ github.ref_name }} \
-            aldinokemal2104/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd \
-            aldinokemal2104/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
+          docker buildx imagetools create -t ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }} \
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd \
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
