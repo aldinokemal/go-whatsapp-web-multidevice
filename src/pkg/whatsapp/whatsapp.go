@@ -302,11 +302,9 @@ func forwardToWebhook(evt *events.Message) error {
 		}
 	}
 
-	var forwarded any
+	var forwarded bool
 	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
-		if isForwarded := evt.Message.ExtendedTextMessage.ContextInfo.GetIsForwarded(); !isForwarded {
-			forwarded = nil
-		}
+		forwarded = evt.Message.ExtendedTextMessage.ContextInfo.GetIsForwarded()
 	}
 
 	var waReaction evtReaction
