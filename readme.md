@@ -1,6 +1,5 @@
 ## Whatsapp API Multi Device Version
 
-[![buddy pipeline](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077/badge.svg?token=a951a4546fe3f54079e678cc9d0eea12069fbdc21f8ed5ea22e1e95c4f63215f "buddy pipeline")](https://app.buddy.works/aldinokemal/go-whatsapp-web-multidevice/pipelines/pipeline/423077)
 [![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice "release version")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
 <br>
 [![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
@@ -80,6 +79,10 @@
 ### Production Mode (docker)
 ```
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
+```
+### Production Mode (docker-arm64)
+```
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice:latest-arm --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode (binary)
