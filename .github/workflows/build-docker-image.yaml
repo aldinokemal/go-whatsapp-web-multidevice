@@ -1,0 +1,62 @@
+name: Build Docker Image for Linux ARM
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    branches-ignore:
+      - '*'
+
+jobs:
+  build-and-push:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    environment: production
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ARM64, ubuntu-latest ]
+        tag_suffix: [ arm, amd ]
+        include:
+          - os: ARM64
+            tag_suffix: arm
+          - os: ubuntu-latest
+            tag_suffix: amd
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login Registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./docker/golang.Dockerfile
+          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-${{ matrix.tag_suffix }}, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-${{ matrix.tag_suffix }}
+
+  create-manifest:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login Registry
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Create and push manifest images latest
+        uses: Noelware/docker-manifest-action@master
+        with:
+          inputs: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest
+          images: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm,${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd
+          push: true
+      - name: Create and push manifest versioned images
+        uses: Noelware/docker-manifest-action@master
+        with:
+          inputs: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}
+          images: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm,${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
+          push: true
