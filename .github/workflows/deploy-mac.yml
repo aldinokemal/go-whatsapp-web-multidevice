@@ -14,12 +14,12 @@ jobs:
     runs-on: macos-latest
     environment: production
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install libvips
         run: |
           brew install vips
       - name: Golang Installation
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: '1.21'
       - name: Golang setup dependency
