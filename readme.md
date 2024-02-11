@@ -4,9 +4,9 @@
 <br>
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
 <br>
-![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg)
-![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg)
-![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg)
+![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-windows.yml/badge.svg)
+![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
+![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
 ### Support ARM 
 Now that we support ARM64 for Linux: 
