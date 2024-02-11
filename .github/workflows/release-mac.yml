@@ -1,4 +1,4 @@
-name: Release Linux Version
+name: Release Mac Version
 
 on:
   workflow_dispatch:
@@ -9,16 +9,15 @@ on:
       - '*'
 
 jobs:
-  release-linux:
+  release-macos:
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Ubuntu update package
+      - name: Install libvips
         run: |
-          sudo apt update -y
-          sudo apt install libvips-dev
+          brew install vips
       - name: Golang Installation
         uses: actions/setup-go@v4
         with:
@@ -29,10 +28,10 @@ jobs:
           go install github.com/markbates/pkger/cmd/pkger@latest
       - name: Golang build
         run: |
-          cd src && pkger && go build -o linux-amd64
+          cd src && pkger && go build -o darwin-amd64
       - name: Deploy artifact to release ${{ github.ref_name }}
-        uses: AButler/upload-release-assets@v2.0
+        uses: AButler/upload-release-assets@v3.0
         with:
-          files: 'src/linux-amd64'
+          files: 'src/darwin-amd64'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ github.ref_name }}

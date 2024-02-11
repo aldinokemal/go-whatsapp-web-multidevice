@@ -45,7 +45,7 @@ jobs:
           [Environment]::SetEnvironmentVariable("PKG_CONFIG_PATH", "${{ github.workspace }}\vips-dev-8.12\lib\pkgconfig")
           cd src && pkger.exe && go build -o windows-amd64.exe
       - name: Deploy artifact to release ${{ github.ref_name }}
-        uses: AButler/upload-release-assets@v2.0
+        uses: AButler/upload-release-assets@v3.0
         with:
           files: 'src/windows-amd64.exe'
           repo-token: ${{ secrets.GITHUB_TOKEN }}

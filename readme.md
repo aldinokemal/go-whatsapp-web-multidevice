@@ -1,13 +1,20 @@
 ## Whatsapp API Multi Device Version
 
-[![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice "release version")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
+![Build Image](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/build-docker-image.yaml/badge.svg)
 <br>
-[![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg "release windows")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml)
-[![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg "release linux")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml)
-[![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg "release macos")](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml)
+![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
+<br>
+![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-windows.yml/badge.svg)
+![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-linux.yml/badge.svg)
+![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/deploy-mac.yml/badge.svg)
+
+### Support ARM 
+Now that we support ARM64 for Linux: 
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases) for ARM64 
+- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
+
 
 ### Feature
-
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
@@ -79,10 +86,6 @@
 ### Production Mode (docker)
 ```
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
-```
-### Production Mode (docker-arm64)
-```
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice:latest-arm --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode (binary)
