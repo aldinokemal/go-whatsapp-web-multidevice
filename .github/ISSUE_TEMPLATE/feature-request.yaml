@@ -1,0 +1,52 @@
+name: ⚡️ Feature Request
+description: Suggest a feature you would like to see supported in IdleTimer.
+title: "⚡️ "
+labels: ["enhancement"]
+assignees:
+  - aldinokemal
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to suggest this feature!
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does your feature request solve?
+      description: A clear and concise description of what the problem is.
+      placeholder: Tell us the problem!
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you are proposing.
+      description: A clear and concise description of what you would like to see implemented.
+      placeholder: Tell us the solution!
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you have considered.
+      description: A clear and concise description of any alternative solutions or features you have considered.
+      placeholder: Tell us about any alternatives!
+  - type: dropdown
+    id: importance
+    attributes:
+      label: Importance
+      description: How important is this feature to you?
+      options:
+        - I Need It
+        - Nice to Have
+        - Could Live Without
+    validations:
+      required: true
+  - type: checkboxes
+    id: context
+    attributes:
+      label: Additional Context
+      description: Help us understand the severity of this missing feature. Check all that apply.
+      options:
+        - label: This missing feature presents as a bug.
+        - label: This missing feature is forcing me to consider alternatives.
