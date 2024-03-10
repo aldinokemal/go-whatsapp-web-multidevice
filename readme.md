@@ -8,13 +8,15 @@
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
-### Support `ARM` Architecture 
-Now that we support ARM64 for Linux: 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64 
+### Support `ARM` Architecture
+
+Now that we support ARM64 for Linux:
+
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
 
-
 ### Feature
+
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
@@ -84,6 +86,7 @@ Now that we support ARM64 for Linux:
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
+
 ```
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
 ```
@@ -116,6 +119,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Send Contact            | POST   | /send/contact               |
 | ✅       | Send Link               | POST   | /send/link                  |
 | ✅       | Send Location           | POST   | /send/location              |
+| ✅       | Send Poll / Vote        | POST   | /send/poll                  |
 | ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 | ✅       | React Message           | POST   | /message/:message_id/react  |
 | ✅       | Join Group With Link    | POST   | /group/join-with-link       |
