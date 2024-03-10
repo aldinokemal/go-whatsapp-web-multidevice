@@ -77,7 +77,7 @@ export default {
             <a class="ui blue right ribbon label">Send</a>
             <div class="header">Send Poll</div>
             <div class="description">
-                Send poll/vote to PM or Group
+                Send a poll/vote with multiple options
             </div>
         </div>
     </div>
