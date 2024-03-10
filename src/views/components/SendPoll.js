@@ -37,13 +37,12 @@ export default {
             return new Promise(async (resolve, reject) => {
                 try {
                     this.poll_loading = true;
-                    let payload = new FormData();
-                    payload.append("phone", this.poll_phone_id)
-                    payload.append("question", this.poll_question)
-                    payload.append("max_answer", this.poll_max_vote)
-                    this.poll_options.forEach((option) => {
-                        payload.append(`options[]`, option)
-                    })
+                    const payload = {
+                        phone: this.poll_phone_id,
+                        question: this.poll_question,
+                        max_answer: this.poll_max_vote,
+                        options: this.poll_options
+                    }
                     let response = await window.http.post(`/send/poll`, payload)
                     this.sendPollReset();
                     resolve(response.data.message)
