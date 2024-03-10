@@ -8,10 +8,8 @@ COPY ./src .
 
 # Fetch dependencies.
 RUN go mod download
-# Install pkger
-RUN go install github.com/markbates/pkger/cmd/pkger@latest
 # Build the binary.
-RUN pkger && go build -o /app/whatsapp
+RUN go build -o /app/whatsapp
 
 #############################
 ## STEP 2 build a smaller image
