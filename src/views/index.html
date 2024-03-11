@@ -169,6 +169,8 @@
                 </div>
             </div>
         </div>
+
+        <message-update></message-update>
     </div>
 
     <div class="ui horizontal divider">
@@ -821,6 +823,7 @@
 </script>
 <script type="module">
     import SendPoll from "./components/SendPoll.js";
+    import MessageUpdate from "./components/MessageUpdate.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -1740,7 +1743,8 @@
 
     Vue.createApp({
         components: {
-            SendPoll
+            SendPoll,
+            MessageUpdate,
         },
         delimiters: ['[[', ']]'],
         data() {
