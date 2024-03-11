@@ -78,7 +78,7 @@
                 <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Message</div>
                 <div class="description">
-                    Send any message to any whatsapp number
+                    Send any message to user or group
                 </div>
             </div>
         </div>
@@ -120,7 +120,7 @@
                 <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Contact</div>
                 <div class="description">
-                    Send contact to any whatsapp number
+                    Send contact to user or group
                 </div>
             </div>
         </div>
@@ -129,7 +129,7 @@
                 <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Location</div>
                 <div class="description">
-                    Send location to any whatsapp number
+                    Send location to user or group
                 </div>
             </div>
         </div>
@@ -138,11 +138,12 @@
                 <a class="ui blue right ribbon label">Send</a>
                 <div class="header">Send Audio</div>
                 <div class="description">
-                    Send audio to any whatsapp number
+                    Send audio to user or group
                 </div>
             </div>
         </div>
 
+        <send-poll></send-poll>
     </div>
 
     <div class="ui horizontal divider">
@@ -259,7 +260,8 @@
                 </div>
                 <div class="field">
                     <label>Reply Message ID</label>
-                    <input v-model="message_reply_message_id" type="text" placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
+                    <input v-model="message_reply_message_id" type="text"
+                           placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
                            aria-label="reply_message_id">
                 </div>
                 <div class="field">
@@ -788,14 +790,38 @@
         </div>
     </div>
 </div>
-
 <script>
-    const http = axios.create({
+    window.TYPEGROUP = "g.us";
+    window.TYPEUSER = "s.whatsapp.net";
+    window.showErrorInfo = (message) => {
+        $('body').toast({
+            position: 'bottom right',
+            title: 'Error',
+            message: message,
+            showProgress: 'bottom',
+            classProgress: 'red'
+        });
+    }
+    window.showSuccessInfo = (message) => {
+        $('body').toast({
+            position: 'bottom right',
+            title: 'Success',
+            message: message,
+            showProgress: 'bottom',
+            classProgress: 'green'
+        });
+    }
+
+    window.http = axios.create({
         baseURL: {{ .AppHost }}
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
-    http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
+    window.http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
     {{ end }}
+</script>
+<script type="module">
+    import SendPoll from "./components/SendPoll.js";
+
     const showErrorInfo = (message) => {
         $('body').toast({
             position: 'bottom right',
@@ -1713,6 +1739,9 @@
     }
 
     Vue.createApp({
+        components: {
+            SendPoll
+        },
         delimiters: ['[[', ']]'],
         data() {
             return {

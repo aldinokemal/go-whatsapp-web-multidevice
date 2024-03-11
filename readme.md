@@ -8,13 +8,15 @@
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
-### Support `ARM` Architecture 
-Now that we support ARM64 for Linux: 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64 
+### Support `ARM` Architecture
+
+Now that we support ARM64 for Linux:
+
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
 
-
 ### Feature
+
 - Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
@@ -84,6 +86,7 @@ Now that we support ARM64 for Linux:
 7. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
+
 ```
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
 ```
@@ -116,6 +119,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Send Contact            | POST   | /send/contact               |
 | ✅       | Send Link               | POST   | /send/link                  |
 | ✅       | Send Location           | POST   | /send/location              |
+| ✅       | Send Poll / Vote        | POST   | /send/poll                  |
 | ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 | ✅       | React Message           | POST   | /message/:message_id/react  |
 | ✅       | Join Group With Link    | POST   | /group/join-with-link       |
@@ -128,7 +132,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 
 ### App User Interface
 
-1. Homepage ![Homepage](https://i.ibb.co/PZ38XYR/Homepage.png)
+1. Homepage ![Homepage](https://i.ibb.co/RDBjmz1/homepage.png)
 2. Login ![Login](https://i.ibb.co/jkcB15R/login.png)
 3. Send Message ![Send Message](https://i.ibb.co/rc3NXMX/send-message.png)
 4. Send Image ![Send Image](https://i.ibb.co/BcFL3SD/send-image.png)
@@ -137,14 +141,15 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 7. Send Contact ![Send Contact](https://i.ibb.co/4810H7N/send-contact.png)
 8. Send Location ![Send Location](https://i.ibb.co/TWsy09G/send-location.png)
 9. Send Audio ![Send Location](https://i.ibb.co/p1wL4wh/Send-Audio.png)
-10. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png?)
-11. Reaction Message ![Revoke Message](https://i.ibb.co/BfHgSHG/react-message.png)
-12. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
-13. User Avatar ![User Avatar](https://i.ibb.co/ZmJZ4ZW/search-avatar.png)
-14. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
-15. My Group ![My Group](https://i.ibb.co/WB268Xy/list-group.png)
-16. Auto Reply ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
-17. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
+10. Send Poll ![Send Poll](https://i.ibb.co/mq2fGHz/send-poll.png)
+11. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png?)
+12. Reaction Message ![Revoke Message](https://i.ibb.co/BfHgSHG/react-message.png)
+13. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
+14. User Avatar ![User Avatar](https://i.ibb.co/ZmJZ4ZW/search-avatar.png)
+15. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
+16. My Group ![My Group](https://i.ibb.co/WB268Xy/list-group.png)
+17. Auto Reply ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+18. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
 
 ### Mac OS NOTE
 

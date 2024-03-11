@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"embed"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
@@ -14,14 +15,20 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html/v2"
-	"github.com/markbates/pkger"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+)
+
+var (
+	EmbedViews          embed.FS
+	EmbedViewsComponent embed.FS
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -54,7 +61,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		log.Fatalln(err)
 	}
 
-	engine := html.NewFileSystem(pkger.Dir("/views"), ".html")
+	engine := html.NewFileSystem(http.FS(EmbedViews), ".html")
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
 		return token != nil
 	})
@@ -63,6 +70,11 @@ func runRest(_ *cobra.Command, _ []string) {
 		BodyLimit: 50 * 1024 * 1024,
 	})
 	app.Static("/statics", "./statics")
+	app.Use("/components", filesystem.New(filesystem.Config{
+		Root:       http.FS(EmbedViewsComponent),
+		PathPrefix: "views/components",
+		Browse:     true,
+	}))
 	app.Use(middleware.Recovery())
 	app.Use(middleware.BasicAuth())
 	if config.AppDebug {
@@ -109,7 +121,7 @@ func runRest(_ *cobra.Command, _ []string) {
 	rest.InitRestGroup(app, groupService)
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.Render("index", fiber.Map{
+		return c.Render("views/index", fiber.Map{
 			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
 			"BasicAuthToken": c.UserContext().Value("token"),
@@ -129,7 +141,9 @@ func runRest(_ *cobra.Command, _ []string) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-func Execute() {
+func Execute(embedViews embed.FS, embedViewsComponent embed.FS) {
+	EmbedViews = embedViews
+	EmbedViewsComponent = embedViewsComponent
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

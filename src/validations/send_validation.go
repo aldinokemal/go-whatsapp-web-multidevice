@@ -175,3 +175,33 @@ func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) err
 
 	return nil
 }
+
+func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.Question, validation.Required),
+
+		validation.Field(&request.Options, validation.Required),
+		validation.Field(&request.Options, validation.Each(validation.Required)),
+
+		validation.Field(&request.MaxAnswer, validation.Required),
+		validation.Field(&request.MaxAnswer, validation.Min(1)),
+		validation.Field(&request.MaxAnswer, validation.Max(len(request.Options))),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	// validate options should be unique each other
+	uniqueOptions := make(map[string]bool)
+	for _, option := range request.Options {
+		if _, ok := uniqueOptions[option]; ok {
+			return pkgError.ValidationError("options should be unique")
+		}
+		uniqueOptions[option] = true
+	}
+
+	return nil
+
+}
