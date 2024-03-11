@@ -122,6 +122,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Send Poll / Vote        | POST   | /send/poll                  |
 | ✅       | Revoke Message          | POST   | /message/:message_id/revoke |
 | ✅       | React Message           | POST   | /message/:message_id/react  |
+| ✅       | Edit Message            | POST   | /message/:message_id/update |
 | ✅       | Join Group With Link    | POST   | /group/join-with-link       |
 | ✅       | Leave Group             | POST   | /group/leave                |
 
@@ -144,12 +145,13 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 10. Send Poll ![Send Poll](https://i.ibb.co/mq2fGHz/send-poll.png)
 11. Revoke Message ![Revoke Message](https://i.ibb.co/yswhvQY/revoke.png?)
 12. Reaction Message ![Revoke Message](https://i.ibb.co/BfHgSHG/react-message.png)
-13. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
-14. User Avatar ![User Avatar](https://i.ibb.co/ZmJZ4ZW/search-avatar.png)
-15. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
-16. My Group ![My Group](https://i.ibb.co/WB268Xy/list-group.png)
-17. Auto Reply ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
-18. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
+13. Edit Message ![Edit Message](https://i.ibb.co/kXfpqJw/update-message.png)
+14. User Info ![User Info](https://i.ibb.co/3zjX6Cz/user-info.png)
+15. User Avatar ![User Avatar](https://i.ibb.co/ZmJZ4ZW/search-avatar.png)
+16. My Privacy ![My Privacy](https://i.ibb.co/Cw1sMQz/my-privacy.png)
+17. My Group ![My Group](https://i.ibb.co/WB268Xy/list-group.png)
+18. Auto Reply ![Auto Reply](https://i.ibb.co/D4rTytX/IMG-20220517-162500.jpg)
+19. Basic Auth Prompt ![Basic Auth](https://i.ibb.co/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
 
 ### Mac OS NOTE
 
