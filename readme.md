@@ -133,7 +133,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 
 ### App User Interface
 
-1. Homepage ![Homepage](https://i.ibb.co/RDBjmz1/homepage.png)
+1. Homepage ![Homepage](https://i.ibb.co/18f8vCz/homepage.png)
 2. Login ![Login](https://i.ibb.co/jkcB15R/login.png)
 3. Send Message ![Send Message](https://i.ibb.co/rc3NXMX/send-message.png)
 4. Send Image ![Send Image](https://i.ibb.co/BcFL3SD/send-image.png)
