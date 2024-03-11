@@ -6,11 +6,11 @@ import (
 )
 
 //go:embed views/index.html
-var embedViews embed.FS
+var embedIndex embed.FS
 
 //go:embed views
-var embedViewsComponent embed.FS
+var embedViews embed.FS
 
 func main() {
-	cmd.Execute(embedViews, embedViewsComponent)
+	cmd.Execute(embedIndex, embedViews)
 }
