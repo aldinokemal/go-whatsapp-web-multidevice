@@ -1,11 +1,9 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'Send',
     data() {
         return {
-            type: 'user',
             phone: '',
-            message_id: '',
-            new_message: '',
+            type: 'user',
             loading: false,
         }
     },
@@ -15,34 +13,31 @@ export default {
         }
     },
     methods: {
-        messageModal() {
-            $('#modalMessageUpdate').modal({
+        sendModal() {
+            $('#modalAudioSend').modal({
                 onApprove: function () {
                     return false;
                 }
             }).modal('show');
         },
-        async messageProcess() {
+        async sendProcess() {
             try {
-                let response = await this.messageApi()
+                let response = await this.sendApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalAudioSend').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
         },
-        messageApi() {
+        sendApi() {
             return new Promise(async (resolve, reject) => {
                 try {
                     this.loading = true;
-
-                    const payload = {
-                        phone: this.phone_id,
-                        message: this.new_message
-                    }
-
-                    let response = await http.post(`/message/${this.message_id}/update`, payload)
-                    this.messageReset();
+                    let payload = new FormData();
+                    payload.append("phone", this.phone_id)
+                    payload.append("audio", $("#file")[0].files[0])
+                    let response = await http.post(`/send/audio`, payload)
+                    this.sendReset();
                     resolve(response.data.message)
                 } catch (error) {
                     if (error.response) {
@@ -55,30 +50,28 @@ export default {
                 }
             })
         },
-        messageReset() {
-            this.type = 'user';
+        sendReset() {
             this.phone = '';
-            this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.type = 'user';
+            $("#file").val('');
         },
     },
-    template: `
-    <div class="red card" @click="messageModal()" style="cursor: pointer">
+    template:`
+    <div class="blue card" @click="sendModal()" style="cursor: pointer">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <a class="ui blue right ribbon label">Send</a>
+            <div class="header">Send Audio</div>
             <div class="description">
-                Update your sent message
+                Send audio to user or group
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal SendAudio  -->
+    <div class="ui small modal" id="modalAudioSend">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+            Send Audio
         </div>
         <div class="content">
             <form class="ui form">
@@ -95,22 +88,21 @@ export default {
                            aria-label="phone">
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
-                <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
-                </div>
-                <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
+                <div class="field" style="padding-bottom: 30px">
+                    <label></label>
+                    <input type="file" class="inputfile" id="file" style="display: none"
+                           accept="audio/*"/>
+                    <label for="file" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload 
+                    </label>
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="messageProcess">
-                Update
+                 @click="sendProcess">
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

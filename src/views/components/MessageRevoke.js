@@ -1,11 +1,10 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'Message',
     data() {
         return {
             type: 'user',
             phone: '',
             message_id: '',
-            new_message: '',
             loading: false,
         }
     },
@@ -16,7 +15,7 @@ export default {
     },
     methods: {
         messageModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalMessageRevoke').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -26,7 +25,7 @@ export default {
             try {
                 let response = await this.messageApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalMessageRevoke').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -35,13 +34,9 @@ export default {
             return new Promise(async (resolve, reject) => {
                 try {
                     this.loading = true;
-
-                    const payload = {
-                        phone: this.phone_id,
-                        message: this.new_message
-                    }
-
-                    let response = await http.post(`/message/${this.message_id}/update`, payload)
+                    let payload = new FormData();
+                    payload.append("phone", this.phone_id)
+                    let response = await http.post(`/message/${this.message_id}/revoke`, payload)
                     this.messageReset();
                     resolve(response.data.message)
                 } catch (error) {
@@ -56,29 +51,27 @@ export default {
             })
         },
         messageReset() {
-            this.type = 'user';
             this.phone = '';
             this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.type = 'user';
         },
     },
-    template: `
+    template:`
     <div class="red card" @click="messageModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <div class="header">Revoke Message</div>
             <div class="description">
-                Update your sent message
+                 any message in private or group chat
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal MessageRevoke  -->
+    <div class="ui small modal" id="modalMessageRevoke">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+             Revoke Message
         </div>
         <div class="content">
             <form class="ui form">
@@ -96,21 +89,16 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Message ID</label>
+                    <label> Message ID</label>
                     <input v-model="message_id" type="text" placeholder="Please enter your message id"
                            aria-label="message id">
-                </div>
-                <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="messageProcess">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

@@ -133,16 +133,7 @@
                 </div>
             </div>
         </div>
-        <div class="blue card" @click="sendAudioModal()" style="cursor: pointer">
-            <div class="content">
-                <a class="ui blue right ribbon label">Send</a>
-                <div class="header">Send Audio</div>
-                <div class="description">
-                    Send audio to user or group
-                </div>
-            </div>
-        </div>
-
+        <send-audio></send-audio>
         <send-poll></send-poll>
     </div>
 
@@ -151,25 +142,8 @@
     </div>
 
     <div class="ui three column doubling grid cards">
-        <div class="red card" @click="messageRevokeModal()" style="cursor: pointer">
-            <div class="content">
-                <a class="ui red right ribbon label">Message</a>
-                <div class="header">Revoke Message</div>
-                <div class="description">
-                    Revoke any message in private or group chat
-                </div>
-            </div>
-        </div>
-        <div class="red card" @click="messageReactModal()" style="cursor: pointer">
-            <div class="content">
-                <a class="ui red right ribbon label">Message</a>
-                <div class="header">React Message</div>
-                <div class="description">
-                    React any message in private or group chat
-                </div>
-            </div>
-        </div>
-
+        <message-revoke></message-revoke>
+        <message-react></message-react>
         <message-update></message-update>
     </div>
 
@@ -336,47 +310,6 @@
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.image_loading}"
                  @click="sendImageProcess">
-                Send
-                <i class="send icon"></i>
-            </div>
-        </div>
-    </div>
-
-    <!--  Modal SendAudio  -->
-    <div class="ui small modal" id="modalSendAudio">
-        <i class="close icon"></i>
-        <div class="header">
-            Send Audio
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="audio_type" v-model="audio_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="audio_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="audio_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-                <div class="field" style="padding-bottom: 30px">
-                    <label>Audio</label>
-                    <input type="file" class="inputfile" id="audio_file" style="display: none"
-                           accept="audio/*"/>
-                    <label for="audio_file" class="ui positive medium green left floated button" style="color: white">
-                        <i class="ui upload icon"></i>
-                        Upload Audio
-                    </label>
-                </div>
-            </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.audio_loading}"
-                 @click="sendAudioProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -571,85 +504,6 @@
         </div>
     </div>
 
-    <!--  Modal MessageRevoke  -->
-    <div class="ui small modal" id="modalMessageRevoke">
-        <i class="close icon"></i>
-        <div class="header">
-            Revoke Message
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="revoke_type" v-model="revoke_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="revoke_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="revoke_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-                <div class="field">
-                    <label>Revoke Message ID</label>
-                    <input v-model="revoke_message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
-                </div>
-            </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.revoke_loading}"
-                 @click="messageRevokeProcess">
-                Send
-                <i class="send icon"></i>
-            </div>
-        </div>
-    </div>
-
-    <!--  Modal MessageReaction  -->
-    <div class="ui small modal" id="modalMessageReaction">
-        <i class="close icon"></i>
-        <div class="header">
-            React Message
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="react_type" v-model="react_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="react_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="react_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-                <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="react_message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
-                </div>
-                <div class="field">
-                    <label>Emoji</label>
-                    <input v-model="react_emoji" type="text" placeholder="Please enter emoji"
-                           aria-label="message id">
-                </div>
-            </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.react_loading}"
-                 @click="messageReactProcess">
-                Send
-                <i class="send icon"></i>
-            </div>
-        </div>
-    </div>
-
     <!--  Modal UserGroup  -->
     <div class="ui small modal" id="modalUserGroup">
         <i class="close icon"></i>
@@ -822,8 +676,11 @@
     {{ end }}
 </script>
 <script type="module">
+    import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
     import MessageUpdate from "./components/MessageUpdate.js";
+    import MessageReact from "./components/MessageReact.js";
+    import MessageRevoke from "./components/MessageRevoke.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -1141,65 +998,6 @@
         }
     }
 
-    const sendAudio = {
-        data() {
-            return {
-                audio_phone: '',
-                audio_type: 'user',
-                audio_loading: false,
-            }
-        },
-        computed: {
-            audio_phone_id() {
-                return this.audio_type === 'user' ? `${this.audio_phone}@${this.type_user}` : `${this.audio_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            sendAudioModal() {
-                $('#modalSendAudio').modal({
-                    onApprove: function () {
-                        return false;
-                    }
-                }).modal('show');
-            },
-            async sendAudioProcess() {
-                try {
-                    let response = await this.sendAudioApi()
-                    showSuccessInfo(response)
-                    $('#modalSendAudio').modal('hide');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            sendAudioApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        this.audio_loading = true;
-                        let payload = new FormData();
-                        payload.append("phone", this.audio_phone_id)
-                        payload.append("audio", $("#audio_file")[0].files[0])
-                        let response = await http.post(`/send/audio`, payload)
-                        this.sendAudioReset();
-                        resolve(response.data.message)
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    } finally {
-                        this.audio_loading = false;
-                    }
-                })
-            },
-            sendAudioReset() {
-                this.audio_phone = '';
-                this.audio_type = 'user';
-                $("#audio_file").val('');
-            },
-        }
-    }
-
     const sendVideo = {
         data() {
             return {
@@ -1327,127 +1125,6 @@
                 this.contact_card_name = '';
                 this.contact_card_phone = '';
                 this.contact_type = 'user';
-            },
-        }
-    }
-
-    const messageRevoke = {
-        data() {
-            return {
-                revoke_type: 'user',
-                revoke_phone: '',
-                revoke_message_id: '',
-                revoke_loading: false,
-            }
-        },
-        computed: {
-            revoke_phone_id() {
-                return this.revoke_type === 'user' ? `${this.revoke_phone}@${this.type_user}` : `${this.revoke_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            messageRevokeModal() {
-                $('#modalMessageRevoke').modal({
-                    onApprove: function () {
-                        return false;
-                    }
-                }).modal('show');
-            },
-            async messageRevokeProcess() {
-                try {
-                    let response = await this.messageRevokeApi()
-                    showSuccessInfo(response)
-                    $('#modalMessageRevoke').modal('hide');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            messageRevokeApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        this.revoke_loading = true;
-                        let payload = new FormData();
-                        payload.append("phone", this.revoke_phone_id)
-                        let response = await http.post(`/message/${this.revoke_message_id}/revoke`, payload)
-                        this.messageRevokeReset();
-                        resolve(response.data.message)
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    } finally {
-                        this.revoke_loading = false;
-                    }
-                })
-            },
-            messageRevokeReset() {
-                this.revoke_phone = '';
-                this.revoke_message_id = '';
-                this.revoke_type = 'user';
-            },
-        }
-    }
-
-    const messageReact = {
-        data() {
-            return {
-                react_type: 'user',
-                react_phone: '',
-                react_message_id: '',
-                react_emoji: '',
-                react_loading: false,
-            }
-        },
-        computed: {
-            react_phone_id() {
-                return this.react_type === 'user' ? `${this.react_phone}@${this.type_user}` : `${this.react_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            messageReactModal() {
-                $('#modalMessageReaction').modal({
-                    onApprove: function () {
-                        return false;
-                    }
-                }).modal('show');
-            },
-            async messageReactProcess() {
-                try {
-                    let response = await this.messageReactApi()
-                    showSuccessInfo(response)
-                    $('#modalMessageReaction').modal('hide');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            messageReactApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        this.react_loading = true;
-                        let payload = new FormData();
-                        payload.append("phone", this.react_phone_id)
-                        payload.append("emoji", this.react_emoji)
-                        let response = await http.post(`/message/${this.react_message_id}/reaction`, payload)
-                        this.messageReactReset();
-                        resolve(response.data.message)
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    } finally {
-                        this.react_loading = false;
-                    }
-                })
-            },
-            messageReactReset() {
-                this.react_phone = '';
-                this.react_message_id = '';
-                this.react_emoji = '';
-                this.react_type = 'user';
             },
         }
     }
@@ -1743,8 +1420,8 @@
 
     Vue.createApp({
         components: {
-            SendPoll,
-            MessageUpdate,
+            SendAudio, SendPoll,
+            MessageUpdate, MessageReact, MessageRevoke,
         },
         delimiters: ['[[', ']]'],
         data() {
@@ -1800,8 +1477,7 @@
         },
         mixins: [
             login, logout, reconnect,
-            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation, sendAudio,
-            messageRevoke, messageReact,
+            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation,
             userGroups, userPrivacy, userAvatar, userInfo
         ]
     }).mount('#app')
