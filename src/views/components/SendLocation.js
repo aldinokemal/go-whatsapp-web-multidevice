@@ -1,14 +1,12 @@
-// export Vue Component
 export default {
-    name: 'SendPoll',
+    name: 'SendLocation',
     data() {
         return {
-            phone: '',
             type: 'user',
+            phone: '',
+            latitude: '',
+            longitude: '',
             loading: false,
-            question: '',
-            options: ['', ''],
-            max_vote: 1,
         }
     },
     computed: {
@@ -18,7 +16,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalSendPoll').modal({
+            $('#modalSendLocation').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -27,10 +25,10 @@ export default {
         async handleSubmit() {
             try {
                 let response = await this.sendApi()
-                window.showSuccessInfo(response)
-                $('#modalSendPoll').modal('hide');
+                showSuccessInfo(response)
+                $('#modalSendLocation').modal('hide');
             } catch (err) {
-                window.showErrorInfo(err)
+                showErrorInfo(err)
             }
         },
         async sendApi() {
@@ -38,11 +36,11 @@ export default {
             try {
                 const payload = {
                     phone: this.phone_id,
-                    question: this.question,
-                    max_answer: this.max_vote,
-                    options: this.options
-                }
-                const response = await window.http.post(`/send/poll`, payload)
+                    latitude: this.latitude,
+                    longitude: this.longitude
+                };
+
+                const response = await window.http.post(`/send/location`, payload);
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -57,34 +55,27 @@ export default {
         },
         handleReset() {
             this.phone = '';
+            this.latitude = '';
+            this.longitude = '';
             this.type = 'user';
-            this.question = '';
-            this.options = ['', ''];
-            this.max_vote = 1;
         },
-        addOption() {
-            this.options.push('')
-        },
-        deleteOption(index) {
-            this.options.splice(index, 1)
-        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
-            <div class="header">Send Poll</div>
+            <div class="header">Send Location</div>
             <div class="description">
-                Send a poll/vote with multiple options
+                Send location to user or group
             </div>
         </div>
     </div>
     
-    <!--  Modal SendPoll  -->
-    <div class="ui small modal" id="modalSendPoll">
+    <!--  Modal SendLocation  -->
+    <div class="ui small modal" id="modalSendLocation">
         <i class="close icon"></i>
         <div class="header">
-            Send Poll
+            Send Location
         </div>
         <div class="content">
             <form class="ui form">
@@ -102,41 +93,24 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Question</label>
-                    <input v-model="question" type="text" placeholder="Please enter question"
-                           aria-label="poll question">
+                    <label>Location Latitude</label>
+                    <input v-model="latitude" type="text" placeholder="Please enter latitude"
+                           aria-label="latitude">
                 </div>
                 <div class="field">
-                    <label>Options</label>
-                    <div style="display: flex; flex-direction: column; gap: 5px">
-                        <div class="ui action input" :key="index" v-for="(option, index) in options">
-                            <input type="text" placeholder="Option..." v-model="options[index]"
-                                   aria-label="poll option">
-                            <button class="ui button" @click="deleteOption(index)" type="button">
-                                <i class="minus circle icon"></i>
-                            </button>
-                        </div>
-                        <div class="field">
-                            <button class="mini ui primary button" @click="addOption" type="button">
-                                <i class="plus icon"></i> Option
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>Max Vote</label>
-                    <input v-model="max_vote" type="number" placeholder="Max Vote"
-                           aria-label="poll max votes" min="0">
+                    <label>Location Longitude</label>
+                    <input v-model="longitude" type="text" placeholder="Please enter longitude"
+                           aria-label="longitude">
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit" type="button">
+                 @click="handleSubmit">
                 Send
                 <i class="send icon"></i>
             </div>
         </div>
     </div>
-`
+    `
 }

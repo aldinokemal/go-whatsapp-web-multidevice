@@ -15,14 +15,14 @@ export default {
         }
     },
     methods: {
-        messageModal() {
+        openModal() {
             $('#modalMessageReaction').modal({
                 onApprove: function () {
                     return false;
                 }
             }).modal('show');
         },
-        async messageProcess() {
+        async handleSubmit() {
             try {
                 let response = await this.messageApi()
                 showSuccessInfo(response)
@@ -31,28 +31,24 @@ export default {
                 showErrorInfo(err)
             }
         },
-        messageApi() {
-            return new Promise(async (resolve, reject) => {
-                try {
-                    this.loading = true;
-                    let payload = new FormData();
-                    payload.append("phone", this.phone_id)
-                    payload.append("emoji", this.emoji)
-                    let response = await http.post(`/message/${this.message_id}/reaction`, payload)
-                    this.messageReset();
-                    resolve(response.data.message)
-                } catch (error) {
-                    if (error.response) {
-                        reject(error.response.data.message)
-                    } else {
-                        reject(error.message)
-                    }
-                } finally {
-                    this.loading = false;
+        async messageApi() {
+            this.loading = true;
+            try {
+                const payload = { phone: this.phone_id, emoji: this.emoji }
+                let response = await window.http.post(`/message/${this.message_id}/reaction`, payload)
+                this.handleReset();
+                return response.data.message;
+            } catch (error) {
+                if (error.response) {
+                    throw new Error(error.response.data.message);
+                } else {
+                    throw new Error(error.message);
                 }
-            })
+            } finally {
+                this.loading = false;
+            }
         },
-        messageReset() {
+        handleReset() {
             this.phone = '';
             this.message_id = '';
             this.emoji = '';
@@ -60,7 +56,7 @@ export default {
         },
     },
     template: `
-    <div class="red card" @click="messageModal()" style="cursor: pointer">
+    <div class="red card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui red right ribbon label">Message</a>
             <div class="header">React Message</div>
@@ -106,7 +102,7 @@ export default {
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="messageProcess">
+                 @click="handleSubmit">
                 Send
                 <i class="send icon"></i>
             </div>

@@ -124,15 +124,8 @@
                 </div>
             </div>
         </div>
-        <div class="blue card" @click="sendLocationModal()" style="cursor: pointer">
-            <div class="content">
-                <a class="ui blue right ribbon label">Send</a>
-                <div class="header">Send Location</div>
-                <div class="description">
-                    Send location to user or group
-                </div>
-            </div>
-        </div>
+
+        <send-location></send-location>
         <send-audio></send-audio>
         <send-poll></send-poll>
     </div>
@@ -462,48 +455,6 @@
         </div>
     </div>
 
-    <!--  Modal SendLocation  -->
-    <div class="ui small modal" id="modalSendLocation">
-        <i class="close icon"></i>
-        <div class="header">
-            Send Location
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="location_type" v-model="location_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="location_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="location_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-                <div class="field">
-                    <label>Location Latitude</label>
-                    <input v-model="location_latitude" type="text" placeholder="Please enter latitude"
-                           aria-label="latitude">
-                </div>
-                <div class="field">
-                    <label>Location Longitude</label>
-                    <input v-model="location_longitude" type="text" placeholder="Please enter longitude"
-                           aria-label="longitude">
-                </div>
-            </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.location_loading}"
-                 @click="sendLocationProcess">
-                Send
-                <i class="send icon"></i>
-            </div>
-        </div>
-    </div>
-
     <!--  Modal UserGroup  -->
     <div class="ui small modal" id="modalUserGroup">
         <i class="close icon"></i>
@@ -676,6 +627,7 @@
     {{ end }}
 </script>
 <script type="module">
+    import SendLocation from "./components/SendLocation.js";
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
     import MessageUpdate from "./components/MessageUpdate.js";
@@ -1129,69 +1081,6 @@
         }
     }
 
-    const sendLocation = {
-        data() {
-            return {
-                location_type: 'user',
-                location_phone: '',
-                location_latitude: '',
-                location_longitude: '',
-                location_loading: false,
-            }
-        },
-        computed: {
-            location_phone_id() {
-                return this.location_type === 'user' ? `${this.location_phone}@${this.type_user}` : `${this.location_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            sendLocationModal() {
-                $('#modalSendLocation').modal({
-                    onApprove: function () {
-                        return false;
-                    }
-                }).modal('show');
-            },
-            async sendLocationProcess() {
-                try {
-                    let response = await this.sendLocationApi()
-                    showSuccessInfo(response)
-                    $('#modalSendLocation').modal('hide');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            sendLocationApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        this.location_loading = true;
-                        let payload = new FormData();
-                        payload.append("phone", this.location_phone_id)
-                        payload.append("latitude", this.location_latitude)
-                        payload.append("longitude", this.location_longitude)
-                        let response = await http.post(`/send/location`, payload)
-                        this.sendLocationReset();
-                        resolve(response.data.message)
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    } finally {
-                        this.location_loading = false;
-                    }
-                })
-            },
-            sendLocationReset() {
-                this.location_phone = '';
-                this.location_latitude = '';
-                this.location_longitude = '';
-                this.location_type = 'user';
-            },
-        }
-    }
-
     const userGroups = {
         data() {
             return {
@@ -1420,7 +1309,7 @@
 
     Vue.createApp({
         components: {
-            SendAudio, SendPoll,
+            SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
         },
         delimiters: ['[[', ']]'],
@@ -1477,7 +1366,7 @@
         },
         mixins: [
             login, logout, reconnect,
-            sendMessage, sendImage, sendFile, sendVideo, sendContact, sendLocation,
+            sendMessage, sendImage, sendFile, sendVideo, sendContact,
             userGroups, userPrivacy, userAvatar, userInfo
         ]
     }).mount('#app')

@@ -13,14 +13,14 @@ export default {
         }
     },
     methods: {
-        sendModal() {
+        openModal() {
             $('#modalAudioSend').modal({
                 onApprove: function () {
                     return false;
                 }
             }).modal('show');
         },
-        async sendProcess() {
+        async handleSubmit() {
             try {
                 let response = await this.sendApi()
                 showSuccessInfo(response)
@@ -29,35 +29,33 @@ export default {
                 showErrorInfo(err)
             }
         },
-        sendApi() {
-            return new Promise(async (resolve, reject) => {
-                try {
-                    this.loading = true;
-                    let payload = new FormData();
-                    payload.append("phone", this.phone_id)
-                    payload.append("audio", $("#file")[0].files[0])
-                    let response = await http.post(`/send/audio`, payload)
-                    this.sendReset();
-                    resolve(response.data.message)
-                } catch (error) {
-                    if (error.response) {
-                        reject(error.response.data.message)
-                    } else {
-                        reject(error.message)
-                    }
-                } finally {
-                    this.loading = false;
+        async sendApi() {
+            this.loading = true;
+            try {
+                let payload = new FormData();
+                payload.append("phone", this.phone_id)
+                payload.append("audio", $("#file")[0].files[0])
+                const response = await window.http.post(`/send/audio`, payload)
+                this.handleReset();
+                return response.data.message;
+            } catch (error) {
+                if (error.response) {
+                    throw new Error(error.response.data.message);
+                } else {
+                    throw new Error(error.message);
                 }
-            })
+            } finally {
+                this.loading = false;
+            }
         },
-        sendReset() {
+        handleReset() {
             this.phone = '';
             this.type = 'user';
             $("#file").val('');
         },
     },
     template:`
-    <div class="blue card" @click="sendModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
             <div class="header">Send Audio</div>
@@ -101,7 +99,7 @@ export default {
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="sendProcess">
+                 @click="handleSubmit">
                 Send
                 <i class="send icon"></i>
             </div>
