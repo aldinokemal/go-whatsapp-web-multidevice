@@ -41,14 +41,8 @@
     </div>
 
     <div class="ui three column stackable grid cards">
-        <div class="green card" @click="loginModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">Login</div>
-                <div class="description">
-                    Scan your QRCode and you can use all this API feature
-                </div>
-            </div>
-        </div>
+        <app-login></app-login>
+
         <div class="green card" @click="logoutProcess" style="cursor: pointer">
             <div class="content">
                 <div class="header">Logout</div>
@@ -106,33 +100,6 @@
         <account-privacy></account-privacy>
     </div>
 
-
-    <!--  Modal Login  -->
-    <div class="ui small modal" id="modalLogin">
-        <i class="close icon"></i>
-        <div class="header">
-            Login Whatsapp
-        </div>
-        <div class="image content">
-            <div class="ui medium image">
-                <img :src="login_link" alt="qrCodeLogin">
-            </div>
-            <div class="description">
-                <div class="ui header">Please scan to connect</div>
-                <p>Open Setting > Linked Devices > Link Device</p>
-                <div style="padding-top: 50px;">
-                    <i>Refresh QR Code in [[ login_duration_sec ]] seconds to avoid link expiration</i>
-                </div>
-            </div>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" @click="loginApiGetQrCode">
-                Refresh QR Code
-                <i class="refresh icon"></i>
-            </div>
-        </div>
-    </div>
-
 </div>
 <script>
     window.TYPEGROUP = "g.us";
@@ -164,6 +131,7 @@
     {{ end }}
 </script>
 <script type="module">
+    import AppLogin from "./components/AppLogin.js";
     import SendMessage from "./components/SendMessage.js";
     import SendImage from "./components/SendImage.js";
     import SendFile from "./components/SendFile.js";
@@ -178,7 +146,7 @@
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountGroup from "./components/AccountGroup.js";
-    import AccountPrivacy from "./components/AccountPrivacy";
+    import AccountPrivacy from "./components/AccountPrivacy.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -197,47 +165,6 @@
             showProgress: 'bottom',
             classProgress: 'green'
         });
-    }
-
-    const login = {
-        data() {
-            return {
-                login_link: '',
-                login_duration_sec: 0,
-                autoUpdateQRCode: null,
-            }
-        },
-        methods: {
-            async loginModal() {
-                try {
-                    await this.loginApiGetQrCode();
-                    $('#modalLogin').modal({
-                        onApprove: function () {
-                            return false;
-                        }
-                    }).modal('show');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            loginApiGetQrCode() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        let response = await http.get(`/app/login`)
-                        let results = response.data.results;
-                        this.login_link = results.qr_link;
-                        this.login_duration_sec = results.qr_duration;
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            }
-        }
     }
 
     const logout = {
@@ -303,6 +230,7 @@
 
     Vue.createApp({
         components: {
+            AppLogin,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
             AccountAvatar, AccountUserInfo, AccountGroup, AccountPrivacy
@@ -351,7 +279,7 @@
             }
         },
         mixins: [
-            login, logout, reconnect,
+            logout, reconnect,
         ]
     }).mount('#app')
 </script>
