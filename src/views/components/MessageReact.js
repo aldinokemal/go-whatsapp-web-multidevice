@@ -34,16 +34,16 @@ export default {
         async messageApi() {
             this.loading = true;
             try {
-                const payload = { phone: this.phone_id, emoji: this.emoji }
+                const payload = {phone: this.phone_id, emoji: this.emoji}
                 let response = await window.http.post(`/message/${this.message_id}/reaction`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
-                } else {
-                    throw new Error(error.message);
                 }
+                throw new Error(error.message);
+
             } finally {
                 this.loading = false;
             }

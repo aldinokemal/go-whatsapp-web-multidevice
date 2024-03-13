@@ -48,9 +48,9 @@ export default {
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
-                } else {
-                    throw new Error(error.message);
                 }
+                throw new Error(error.message);
+
             } finally {
                 this.loading = false;
             }

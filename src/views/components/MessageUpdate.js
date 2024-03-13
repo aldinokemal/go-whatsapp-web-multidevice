@@ -34,7 +34,7 @@ export default {
         async messageApi() {
             this.loading = true;
             try {
-                const payload = { phone: this.phone_id, message: this.new_message }
+                const payload = {phone: this.phone_id, message: this.new_message}
 
                 let response = await window.http.post(`/message/${this.message_id}/update`, payload)
                 this.handleReset();
@@ -42,9 +42,9 @@ export default {
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
-                } else {
-                    throw new Error(error.message);
                 }
+                throw new Error(error.message);
+
             } finally {
                 this.loading = false;
             }

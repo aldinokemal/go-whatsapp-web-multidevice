@@ -48,9 +48,9 @@ export default {
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
-                } else {
-                    throw new Error(error.message);
                 }
+                throw new Error(error.message);
+
             } finally {
                 this.loading = false;
             }
@@ -62,7 +62,7 @@ export default {
             this.type = 'user';
         },
     },
-    template:`
+    template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
