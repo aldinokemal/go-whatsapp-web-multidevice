@@ -34,7 +34,7 @@ export default {
             try {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
-                payload.append("audio", $("#file")[0].files[0])
+                payload.append("audio", $("#file_audio")[0].files[0])
                 const response = await window.http.post(`/send/audio`, payload)
                 this.handleReset();
                 return response.data.message;
@@ -51,7 +51,7 @@ export default {
         handleReset() {
             this.phone = '';
             this.type = 'user';
-            $("#file").val('');
+            $("#file_audio").val('');
         },
     },
     template:`
@@ -87,10 +87,9 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field" style="padding-bottom: 30px">
-                    <label></label>
-                    <input type="file" class="inputfile" id="file" style="display: none"
-                           accept="audio/*"/>
-                    <label for="file" class="ui positive medium green left floated button" style="color: white">
+                    <label>Audio</label>
+                    <input type="file" style="display: none" accept="audio/*" id="file_audio"/>
+                    <label for="file_audio" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload 
                     </label>

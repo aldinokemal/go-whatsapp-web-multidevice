@@ -1,17 +1,14 @@
 export default {
-    name: 'SendFile',
-    props: {
-        maxFileSize: {
-            type: String,
-            required: true,
-        }
-    },
+    name: 'SendImage',
     data() {
         return {
+            phone: '',
+            view_once: false,
+            compress: false,
             caption: '',
             type: 'user',
-            phone: '',
             loading: false,
+            selected_file: null
         }
     },
     computed: {
@@ -21,7 +18,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalSendFile').modal({
+            $('#modalSendImage').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -31,7 +28,7 @@ export default {
             try {
                 let response = await this.sendApi()
                 showSuccessInfo(response)
-                $('#modalSendFile').modal('hide');
+                $('#modalSendImage').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -40,10 +37,13 @@ export default {
             this.loading = true;
             try {
                 let payload = new FormData();
-                payload.append("caption", this.caption)
                 payload.append("phone", this.phone_id)
-                payload.append("file", $("#file_file")[0].files[0])
-                let response = await http.post(`/send/file`, payload)
+                payload.append("view_once", this.view_once)
+                payload.append("compress", this.compress)
+                payload.append("caption", this.caption)
+                payload.append('image', $("#file_image")[0].files[0])
+
+                let response = await window.http.post(`/send/image`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -57,29 +57,32 @@ export default {
             }
         },
         handleReset() {
-            this.caption = '';
+            this.view_once = false;
+            this.compress = false;
             this.phone = '';
+            this.caption = '';
             this.type = 'user';
-            $("#file_file").val('');
+            $("#file_image").val('');
         },
     },
     template: `
-    <div class="blue card" @click="openModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor:pointer;">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
-            <div class="header">Send File</div>
+            <div class="header">Send Image</div>
             <div class="description">
-                Send any file up to
-                <div class="ui blue horizontal label">{{ maxFileSize }}</div>
+                Send image with
+                <div class="ui blue horizontal label">jpg/jpeg/png</div>
+                type
             </div>
         </div>
     </div>
     
-    <!--  Modal SendFile  -->
-    <div class="ui small modal" id="modalSendFile">
+    <!--  Modal SendImage  -->
+    <div class="ui small modal" id="modalSendImage">
         <i class="close icon"></i>
         <div class="header">
-            Send File
+            Send Image
         </div>
         <div class="content">
             <form class="ui form">
@@ -98,15 +101,30 @@ export default {
                 </div>
                 <div class="field">
                     <label>Caption</label>
-                    <textarea v-model="caption" placeholder="Type some caption (optional)..."
+                    <textarea v-model="caption" type="text" placeholder="Hello this is image caption"
                               aria-label="caption"></textarea>
                 </div>
+                <div class="field">
+                    <label>View Once</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="view_once">
+                        <label>Check for enable one time view</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Compress</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="compress">
+                        <label>Check for compressing image to smaller size</label>
+                    </div>
+                </div>
                 <div class="field" style="padding-bottom: 30px">
-                    <label>File</label>
-                    <input type="file" style="display: none" @change="handleFileSelected" id="file_file">
-                    <label for="file_file" class="ui positive medium green left floated button" style="color: white">
+                    <label>Image</label>
+                    <input type="file" style="display: none" id="file_image"
+                           accept="image/png,image/jpg,image/jpeg"/>
+                    <label for="file_image" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
-                        Upload file
+                        Upload image
                     </label>
                 </div>
             </form>

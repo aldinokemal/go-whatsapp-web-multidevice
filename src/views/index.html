@@ -82,18 +82,8 @@
                 </div>
             </div>
         </div>
-        <div class="blue card" @click="sendImageModal()" style="cursor:pointer;">
-            <div class="content">
-                <a class="ui blue right ribbon label">Send</a>
-                <div class="header">Send Image</div>
-                <div class="description">
-                    Send image with
-                    <div class="ui blue horizontal label">jpg/jpeg/png</div>
-                    type
-                </div>
-            </div>
-        </div>
 
+        <send-image></send-image>
         <send-file max-file-size="{{ .MaxFileSize }}"></send-file>
         <send-video max-video-size="{{ .MaxVideoSize }}"></send-video>
         <send-contact></send-contact>
@@ -216,66 +206,6 @@
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.message_loading}"
                  @click="sendMessageProcess">
-                Send
-                <i class="send icon"></i>
-            </div>
-        </div>
-    </div>
-
-    <!--  Modal SendImage  -->
-    <div class="ui small modal" id="modalSendImage">
-        <i class="close icon"></i>
-        <div class="header">
-            Send Image
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="image_type" v-model="image_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="image_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="image_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-                <div class="field">
-                    <label>Caption</label>
-                    <textarea v-model="image_caption" type="text" placeholder="Hello this is image caption"
-                              aria-label="caption"></textarea>
-                </div>
-                <div class="field">
-                    <label>View Once</label>
-                    <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="view once" v-model="image_view_once">
-                        <label>Check for enable one time view</label>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>Compress</label>
-                    <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="compress" v-model="image_compress">
-                        <label>Check for compressing image to smaller size</label>
-                    </div>
-                </div>
-                <div class="field" style="padding-bottom: 30px">
-                    <label>Image</label>
-                    <input type="file" class="inputfile" id="image_file" style="display: none"
-                           accept="image/png,image/jpg,image/jpeg"/>
-                    <label for="image_file" class="ui positive medium green left floated button" style="color: white">
-                        <i class="ui upload icon"></i>
-                        Upload image
-                    </label>
-                </div>
-            </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.image_loading}"
-                 @click="sendImageProcess">
                 Send
                 <i class="send icon"></i>
             </div>
@@ -454,6 +384,7 @@
     {{ end }}
 </script>
 <script type="module">
+    import SendImage from "./components/SendImage.js";
     import SendFile from "./components/SendFile.js";
     import SendVideo from "./components/SendVideo.js";
     import SendContact from "./components/SendContact.js";
@@ -646,74 +577,6 @@
                 this.message_text = '';
                 this.message_type = 'user';
                 this.message_reply_message_id = '';
-            },
-        }
-    }
-
-    const sendImage = {
-        data() {
-            return {
-                image_phone: '',
-                image_view_once: false,
-                image_compress: false,
-                image_caption: '',
-                image_type: 'user',
-                image_loading: false,
-            }
-        },
-        computed: {
-            image_phone_id() {
-                return this.image_type === 'user' ? `${this.image_phone}@${this.type_user}` : `${this.image_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            sendImageModal() {
-                $('#modalSendImage').modal({
-                    onApprove: function () {
-                        return false;
-                    }
-                }).modal('show');
-            },
-            async sendImageProcess() {
-                try {
-                    let response = await this.sendImageApi()
-                    showSuccessInfo(response)
-                    $('#modalSendImage').modal('hide');
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            sendImageApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        this.image_loading = true;
-                        let payload = new FormData();
-                        payload.append("phone", this.image_phone_id)
-                        payload.append("view_once", this.image_view_once)
-                        payload.append("compress", this.image_compress)
-                        payload.append("caption", this.image_caption)
-                        payload.append("image", $("#image_file")[0].files[0])
-                        let response = await http.post(`/send/image`, payload)
-                        this.sendImageReset();
-                        resolve(response.data.message)
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    } finally {
-                        this.image_loading = false;
-                    }
-                })
-            },
-            sendImageReset() {
-                this.image_view_once = false;
-                this.image_compress = false;
-                this.image_phone = '';
-                this.image_caption = '';
-                this.image_type = 'user';
-                $("#image_file").val('');
             },
         }
     }
@@ -946,8 +809,7 @@
 
     Vue.createApp({
         components: {
-            SendFile, SendVideo, SendContact,
-            SendLocation, SendAudio, SendPoll,
+            SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
         },
         delimiters: ['[[', ']]'],
@@ -1004,7 +866,7 @@
         },
         mixins: [
             login, logout, reconnect,
-            sendMessage, sendImage,
+            sendMessage,
             userGroups, userPrivacy, userAvatar, userInfo
         ]
     }).mount('#app')

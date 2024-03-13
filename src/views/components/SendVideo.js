@@ -47,7 +47,7 @@ export default {
                 payload.append("caption", this.caption)
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
-                payload.append("video", $("#file")[0].files[0])
+                payload.append('video', $("#file_video")[0].files[0])
                 let response = await window.http.post(`/send/video`, payload)
                 this.handleReset();
                 return response.data.message;
@@ -67,7 +67,7 @@ export default {
             this.compress = false;
             this.phone = '';
             this.type = 'user';
-            $("#file").val('');
+            $("#file_video").val('');
         },
     },
     template: `
@@ -126,8 +126,8 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Video</label>
-                    <input type="file" id="file" style="display: none" accept="video/*"/>
-                    <label for="file" class="ui positive medium green left floated button" style="color: white">
+                    <input type="file" style="display: none" accept="video/*" id="file_video">
+                    <label for="file_video" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload video
                     </label>
