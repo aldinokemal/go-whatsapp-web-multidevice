@@ -120,8 +120,7 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
-                    <input type="file" style="display: none" id="file_image"
-                           accept="image/png,image/jpg,image/jpeg"/>
+                    <input type="file" style="display: none" id="file_image" accept="image/png,image/jpg,image/jpeg"/>
                     <label for="file_image" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload image

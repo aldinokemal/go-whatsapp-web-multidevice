@@ -103,7 +103,7 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>
-                    <input type="file" style="display: none" @change="handleFileSelected" id="file_file">
+                    <input type="file" style="display: none" id="file_file">
                     <label for="file_file" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload file
