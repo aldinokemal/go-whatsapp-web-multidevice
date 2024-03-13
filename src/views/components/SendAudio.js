@@ -22,14 +22,14 @@ export default {
         },
         async handleSubmit() {
             try {
-                let response = await this.sendApi()
+                let response = await this.submitApi()
                 showSuccessInfo(response)
                 $('#modalAudioSend').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
         },
-        async sendApi() {
+        async submitApi() {
             this.loading = true;
             try {
                 let payload = new FormData();

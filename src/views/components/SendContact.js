@@ -25,7 +25,7 @@ export default {
         async handleSubmit() {
             try {
                 this.loading = true;
-                let response = await this.sendApi()
+                let response = await this.submitApi()
                 showSuccessInfo(response)
                 $('#modalSendContact').modal('hide');
             } catch (err) {
@@ -34,7 +34,7 @@ export default {
                 this.loading = false;
             }
         },
-        async sendApi() {
+        async submitApi() {
             this.loading = true;
             try {
                 const payload = {

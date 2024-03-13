@@ -100,23 +100,9 @@
     </div>
 
     <div class="ui four column doubling grid cards">
-        <div class="green card" @click="avatarModal" style="cursor: pointer;">
-            <div class="content">
-                <div class="header">Avatar</div>
-                <div class="description">
-                    You can search someone avatar by phone
-                </div>
-            </div>
-        </div>
+        <account-avatar></account-avatar>
         <account-user-info></account-user-info>
-        <div class="green card" @click="groupModal" style="cursor: pointer">
-            <div class="content">
-                <div class="header">My List Groups</div>
-                <div class="description">
-                    Display all groups you joined
-                </div>
-            </div>
-        </div>
+        <account-group></account-group>
         <div class="green card" @click="privacyModal" style="cursor: pointer">
             <div class="content">
                 <div class="header">My Privacy Setting</div>
@@ -154,38 +140,6 @@
         </div>
     </div>
 
-    <!--  Modal UserGroup  -->
-    <div class="ui small modal" id="modalUserGroup">
-        <i class="close icon"></i>
-        <div class="header">
-            My Group List
-        </div>
-        <div class="content">
-            <table class="ui celled table" id="user_groups_table">
-                <thead>
-                <tr>
-                    <th>Group ID</th>
-                    <th>Name</th>
-                    <th>Participants</th>
-                    <th>Created At</th>
-                    <th>Action</th>
-                </tr>
-                </thead>
-                <tbody v-if="data_groups != null">
-                <tr v-for="g in data_groups">
-                    <td>[[ g.JID.split('@')[0] ]]</td>
-                    <td>[[ g.Name ]]</td>
-                    <td>[[ g.Participants.length ]]</td>
-                    <td>[[ formatDate(g.GroupCreated) ]]</td>
-                    <td>
-                        <button class="ui red tiny button" @click="handleLeaveGroup(g.JID)">Leave</button>
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
     <!--  Modal UserPrivacy  -->
     <div class="ui small modal" id="modalUserPrivacy">
         <i class="close icon"></i>
@@ -202,57 +156,6 @@
             </ol>
         </div>
     </div>
-
-    <!--  Modal UserAvatar  -->
-    <div class="ui small modal" id="modalUserAvatar">
-        <i class="close icon"></i>
-        <div class="header">
-            Search User Avatar
-        </div>
-        <div class="content">
-            <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="avatar_type" v-model="avatar_type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone</label>
-                    <input v-model="avatar_phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="avatar_phone_id" disabled aria-label="whatsapp_id">
-                </div>
-
-                <div class="field">
-                    <label>Preview</label>
-                    <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="compress" v-model="avatar_is_preview">
-                        <label>Check for small size image</label>
-                    </div>
-                </div>
-
-                <div class="field">
-                    <label>Community</label>
-                    <div class="ui toggle checkbox">
-                        <input type="checkbox" aria-label="compress" v-model="avatar_is_community">
-                        <label>Check is it's community image</label>
-                    </div>
-                </div>
-
-                <button type="button" class="ui primary button" :class="{'loading': avatar_loading}"
-                        @click="avatarProcess">
-                    Search
-                </button>
-            </form>
-
-            <div v-if="avatar_image != null" class="center">
-                <img :src="avatar_image" alt="profile picture" style="padding-top: 10px; max-height: 200px">
-            </div>
-        </div>
-    </div>
-
 
 </div>
 <script>
@@ -296,7 +199,9 @@
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
     import MessageRevoke from "./components/MessageRevoke.js";
+    import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
+    import AccountGroup from "./components/AccountGroup.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -419,81 +324,6 @@
         }
     }
 
-    const userGroups = {
-        data() {
-            return {
-                data_groups: []
-            }
-        },
-        methods: {
-            async groupModal() {
-                try {
-                    this.dtClear()
-                    await this.groupApi();
-                    $('#modalUserGroup').modal('show');
-                    this.dtRebuild()
-                    showSuccessInfo("Groups fetched")
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            dtClear() {
-                $('#user_groups_table').DataTable().destroy();
-            },
-            dtRebuild() {
-                $('#user_groups_table').DataTable({
-                    "pageLength": 100,
-                    "reloadData": true,
-                }).draw();
-            },
-            async handleLeaveGroup(group_id) {
-                try {
-                    const ok = confirm("Are you sure to leave this group?");
-                    if (!ok) return;
-
-                    await this.leaveGroupApi(group_id);
-                    this.dtClear()
-                    await this.groupApi();
-                    this.dtRebuild()
-                    showSuccessInfo("Group left")
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-            leaveGroupApi(group_id) {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        let payload = new FormData();
-                        payload.append("group_id", group_id)
-                        await http.post(`/group/leave`, payload)
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            },
-            groupApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        let response = await http.get(`/user/my/groups`)
-                        this.data_groups = response.data.results.data;
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            }
-        }
-    }
-
     const userPrivacy = {
         data() {
             return {
@@ -528,66 +358,11 @@
         }
     }
 
-    const userAvatar = {
-        data() {
-            return {
-                avatar_type: 'user',
-                avatar_phone: '',
-                avatar_image: null,
-                avatar_loading: false,
-                avatar_is_preview: false,
-                avatar_is_community: false,
-            }
-        },
-        computed: {
-            avatar_phone_id() {
-                return this.avatar_type === 'user' ? `${this.avatar_phone}@${this.type_user}` : `${this.avatar_phone}@${this.type_group}`
-            }
-        },
-        methods: {
-            async avatarModal() {
-                this.avatarReset();
-                $('#modalUserAvatar').modal('show');
-            },
-            async avatarProcess() {
-                try {
-                    this.avatar_loading = true;
-                    await this.avatarApi();
-                    this.avatar_loading = false;
-                    showSuccessInfo("Avatar fetched")
-                } catch (err) {
-                    this.avatar_loading = false;
-                    showErrorInfo(err)
-                }
-            },
-            avatarApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        let response = await http.get(`/user/avatar?phone=${this.avatar_phone_id}&is_preview=${this.avatar_is_preview}&is_community=${this.avatar_is_community}`)
-                        this.avatar_image = response.data.results.url;
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            },
-            avatarReset() {
-                this.avatar_phone = '';
-                this.avatar_image = null;
-                this.avatar_type = 'user';
-            }
-        }
-    }
-
     Vue.createApp({
         components: {
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
-            AccountUserInfo,
+            AccountAvatar, AccountUserInfo, AccountGroup,
         },
         delimiters: ['[[', ']]'],
         data() {
@@ -634,16 +409,9 @@
                 console.error('Your browser does not support WebSockets');
             }
         },
-        methods: {
-            formatDate: function (value) {
-                if (!value) return ''
-                const tanggal = moment(value)
-                return tanggal.format('LLL');
-            }
-        },
         mixins: [
             login, logout, reconnect,
-            userGroups, userPrivacy, userAvatar
+            userPrivacy
         ]
     }).mount('#app')
 </script>

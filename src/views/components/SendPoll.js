@@ -26,14 +26,14 @@ export default {
         },
         async handleSubmit() {
             try {
-                let response = await this.sendApi()
+                let response = await this.submitApi()
                 window.showSuccessInfo(response)
                 $('#modalSendPoll').modal('hide');
             } catch (err) {
                 window.showErrorInfo(err)
             }
         },
-        async sendApi() {
+        async submitApi() {
             this.loading = true;
             try {
                 const payload = {

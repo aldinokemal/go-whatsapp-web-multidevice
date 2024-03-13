@@ -1,12 +1,13 @@
 export default {
-    name: 'ReactMessage',
+    name: 'AccountAvatar',
     data() {
         return {
             type: 'user',
             phone: '',
-            message_id: '',
-            emoji: '',
+            image: null,
             loading: false,
+            is_preview: false,
+            is_community: false,
         }
     },
     computed: {
@@ -15,18 +16,14 @@ export default {
         }
     },
     methods: {
-        openModal() {
-            $('#modalMessageReaction').modal({
-                onApprove: function () {
-                    return false;
-                }
-            }).modal('show');
+        async openModal() {
+            this.handleReset();
+            $('#modalUserAvatar').modal('show');
         },
         async handleSubmit() {
             try {
-                let response = await this.submitApi()
-                showSuccessInfo(response)
-                $('#modalMessageReaction').modal('hide');
+                await this.submitApi();
+                showSuccessInfo("Avatar fetched")
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -34,10 +31,8 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, emoji: this.emoji}
-                let response = await window.http.post(`/message/${this.message_id}/reaction`, payload)
-                this.handleReset();
-                return response.data.message;
+                let response = await http.get(`/user/avatar?phone=${this.phone_id}&is_preview=${this.is_preview}&is_community=${this.is_community}`)
+                this.image = response.data.results.url;
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
@@ -50,28 +45,25 @@ export default {
         },
         handleReset() {
             this.phone = '';
-            this.message_id = '';
-            this.emoji = '';
+            this.image = null;
             this.type = 'user';
-        },
+        }
     },
     template: `
-    <div class="red card" @click="openModal()" style="cursor: pointer">
+    <div class="green card" @click="openModal" style="cursor: pointer;">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">React Message</div>
+            <div class="header">Avatar</div>
             <div class="description">
-                 any message in private or group chat
+                You can search someone avatar by phone
             </div>
         </div>
     </div>
-    
-    
-    <!--  Modal MessageReaction  -->
-    <div class="ui small modal" id="modalMessageReaction">
+
+    <!--  Modal UserAvatar  -->
+    <div class="ui small modal" id="modalUserAvatar">
         <i class="close icon"></i>
         <div class="header">
-             React Message
+            Search User Avatar
         </div>
         <div class="content">
             <form class="ui form">
@@ -83,28 +75,36 @@ export default {
                     </select>
                 </div>
                 <div class="field">
-                    <label>Phone / Group ID</label>
+                    <label>Phone</label>
                     <input v-model="phone" type="text" placeholder="6289..."
                            aria-label="phone">
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
+
                 <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
+                    <label>Preview</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="is_preview">
+                        <label>Check for small size image</label>
+                    </div>
                 </div>
+
                 <div class="field">
-                    <label>Emoji</label>
-                    <input v-model="emoji" type="text" placeholder="Please enter emoji"
-                           aria-label="message id">
+                    <label>Community</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="is_community">
+                        <label>Check is it's community image</label>
+                    </div>
                 </div>
+
+                <button type="button" class="ui primary button" :class="{'loading': loading}"
+                        @click="handleSubmit">
+                    Search
+                </button>
             </form>
-        </div>
-        <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
-                Send
-                <i class="send icon"></i>
+
+            <div v-if="image != null" class="center">
+                <img :src="image" alt="profile picture" style="padding-top: 10px; max-height: 200px">
             </div>
         </div>
     </div>

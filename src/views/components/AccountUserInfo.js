@@ -25,13 +25,13 @@ export default {
         },
         async handleSubmit() {
             try {
-                await this.infoApi();
+                await this.submitApi();
                 showSuccessInfo("Info fetched")
             } catch (err) {
                 showErrorInfo(err)
             }
         },
-        async infoApi() {
+        async submitApi() {
             this.loading = true;
             try {
                 let response = await http.get(`/user/info?phone=${this.phone_id}`)

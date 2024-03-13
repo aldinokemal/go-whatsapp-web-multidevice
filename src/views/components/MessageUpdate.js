@@ -24,14 +24,14 @@ export default {
         },
         async handleSubmit() {
             try {
-                let response = await this.messageApi()
+                let response = await this.submitApi()
                 showSuccessInfo(response)
                 $('#modalMessageUpdate').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
         },
-        async messageApi() {
+        async submitApi() {
             this.loading = true;
             try {
                 const payload = {phone: this.phone_id, message: this.new_message}
