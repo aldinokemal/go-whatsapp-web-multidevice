@@ -43,7 +43,6 @@ export default {
                     throw new Error(error.response.data.message);
                 }
                 throw new Error(error.message);
-
             } finally {
                 this.loading = false;
             }
