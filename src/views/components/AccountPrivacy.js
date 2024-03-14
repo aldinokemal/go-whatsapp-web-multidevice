@@ -17,7 +17,7 @@ export default {
         },
         async submitApi() {
             try {
-                let response = await http.get(`/user/my/privacy`)
+                let response = await window.http.get(`/user/my/privacy`)
                 this.data_privacy = response.data.results;
             } catch (error) {
                 if (error.response) {

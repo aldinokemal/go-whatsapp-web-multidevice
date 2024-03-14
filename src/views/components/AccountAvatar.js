@@ -31,7 +31,7 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                let response = await http.get(`/user/avatar?phone=${this.phone_id}&is_preview=${this.is_preview}&is_community=${this.is_community}`)
+                let response = await window.http.get(`/user/avatar?phone=${this.phone_id}&is_preview=${this.is_preview}&is_community=${this.is_community}`)
                 this.image = response.data.results.url;
             } catch (error) {
                 if (error.response) {

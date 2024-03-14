@@ -34,7 +34,7 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                let response = await http.get(`/user/info?phone=${this.phone_id}`)
+                let response = await window.http.get(`/user/info?phone=${this.phone_id}`)
                 this.name = response.data.results.verified_name;
                 this.status = response.data.results.status;
                 this.devices = response.data.results.devices;

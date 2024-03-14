@@ -43,7 +43,7 @@ export default {
                 payload.append("caption", this.caption)
                 payload.append("phone", this.phone_id)
                 payload.append("file", $("#file_file")[0].files[0])
-                let response = await http.post(`/send/file`, payload)
+                let response = await window.http.post(`/send/file`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {

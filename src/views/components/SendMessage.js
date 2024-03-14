@@ -42,7 +42,7 @@ export default {
                     payload.reply_id = this.reply_id;
                 }
 
-                let response = await http.post(`/send/message`, payload)
+                let response = await window.http.post(`/send/message`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {

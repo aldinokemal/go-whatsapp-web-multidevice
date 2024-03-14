@@ -25,7 +25,7 @@
 </head>
 <body>
 <div class="ui container" id="app">
-    <h1 class="ui header center aligned">[[ app_name ]]</h1>
+    <h1 class="ui header center aligned">Whatsapp API Multi Device ({{ .AppVersion }})</h1>
 
     <div class="ui success message" v-if="connected_devices != null">
         <div class="header">
@@ -42,24 +42,8 @@
 
     <div class="ui three column stackable grid cards">
         <app-login></app-login>
-
-        <div class="green card" @click="logoutProcess" style="cursor: pointer">
-            <div class="content">
-                <div class="header">Logout</div>
-                <div class="description">
-                    Remove your login session in application
-                </div>
-            </div>
-        </div>
-        <div class="green card" @click="reconnectProcess" style="cursor: pointer">
-            <div class="content">
-                <div class="header">Reconnect</div>
-                <div class="description">
-                    Reconnect to whatsapp server, please do this if your api doesn't work or your application is down or
-                    restart
-                </div>
-            </div>
-        </div>
+        <app-logout @reload-devices="handleReloadDevice"></app-logout>
+        <app-reconnect @reload-devices="handleReloadDevice"></app-reconnect>
     </div>
 
     <div class="ui horizontal divider">
@@ -132,6 +116,8 @@
 </script>
 <script type="module">
     import AppLogin from "./components/AppLogin.js";
+    import AppLogout from "./components/AppLogout.js";
+    import AppReconnect from "./components/AppReconnect.js";
     import SendMessage from "./components/SendMessage.js";
     import SendImage from "./components/SendImage.js";
     import SendFile from "./components/SendFile.js";
@@ -167,70 +153,9 @@
         });
     }
 
-    const logout = {
-        methods: {
-            async logoutProcess() {
-                try {
-                    await this.logoutApi()
-                    showSuccessInfo("Logout success")
-
-                    // fetch devices
-                    this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}))
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-
-            logoutApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        await http.get(`/app/logout`)
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            }
-        }
-    }
-
-    const reconnect = {
-        methods: {
-            async reconnectProcess() {
-                try {
-                    await this.reconnectApi()
-                    showSuccessInfo("Reconnect success")
-                    // fetch devices
-                    this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}))
-                } catch (err) {
-                    showErrorInfo(err)
-                }
-            },
-
-            reconnectApi() {
-                return new Promise(async (resolve, reject) => {
-                    try {
-                        await http.get(`/app/reconnect`)
-                        resolve()
-                    } catch (error) {
-                        if (error.response) {
-                            reject(error.response.data.message)
-                        } else {
-                            reject(error.message)
-                        }
-                    }
-                })
-            }
-        }
-    }
-
     Vue.createApp({
         components: {
-            AppLogin,
+            AppLogin, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
             AccountAvatar, AccountUserInfo, AccountGroup, AccountPrivacy
@@ -239,10 +164,12 @@
         data() {
             return {
                 app_ws: null,
-                app_host: {{ .AppHost }},
-                app_name: 'Whatsapp API Multi Device ({{ .AppVersion }})',
-                is_logged_in: false,
                 connected_devices: null,
+            }
+        },
+        methods: {
+            handleReloadDevice() {
+                this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}))
             }
         },
         mounted() {
@@ -265,7 +192,7 @@
                             $('#modalLogin').modal('hide');
 
                             // fetch devices
-                            this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}))
+                            this.handleReloadDevice()
                             break;
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
@@ -278,9 +205,6 @@
                 console.error('Your browser does not support WebSockets');
             }
         },
-        mixins: [
-            logout, reconnect,
-        ]
     }).mount('#app')
 </script>
 </body>

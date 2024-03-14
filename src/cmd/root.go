@@ -66,8 +66,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		return token != nil
 	})
 	app := fiber.New(fiber.Config{
-		Views:     engine,
-		BodyLimit: 50 * 1024 * 1024,
+		Views: engine,
 	})
 	app.Static("/statics", "./statics")
 	app.Use("/components", filesystem.New(filesystem.Config{

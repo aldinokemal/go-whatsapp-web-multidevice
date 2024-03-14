@@ -44,7 +44,7 @@ export default {
             try {
                 let payload = new FormData();
                 payload.append("group_id", group_id)
-                await http.post(`/group/leave`, payload)
+                await window.http.post(`/group/leave`, payload)
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
@@ -55,7 +55,7 @@ export default {
         },
         async submitApi() {
             try {
-                let response = await http.get(`/user/my/groups`)
+                let response = await window.http.get(`/user/my/groups`)
                 this.groups = response.data.results.data;
             } catch (error) {
                 if (error.response) {
