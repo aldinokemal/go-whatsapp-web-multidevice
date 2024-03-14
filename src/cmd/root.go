@@ -27,8 +27,8 @@ import (
 )
 
 var (
-	EmbedViews          embed.FS
-	EmbedViewsComponent embed.FS
+	EmbedIndex embed.FS
+	EmbedViews embed.FS
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -61,17 +61,16 @@ func runRest(_ *cobra.Command, _ []string) {
 		log.Fatalln(err)
 	}
 
-	engine := html.NewFileSystem(http.FS(EmbedViews), ".html")
+	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
 		return token != nil
 	})
 	app := fiber.New(fiber.Config{
-		Views:     engine,
-		BodyLimit: 50 * 1024 * 1024,
+		Views: engine,
 	})
 	app.Static("/statics", "./statics")
 	app.Use("/components", filesystem.New(filesystem.Config{
-		Root:       http.FS(EmbedViewsComponent),
+		Root:       http.FS(EmbedViews),
 		PathPrefix: "views/components",
 		Browse:     true,
 	}))
@@ -141,9 +140,9 @@ func runRest(_ *cobra.Command, _ []string) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-func Execute(embedViews embed.FS, embedViewsComponent embed.FS) {
+func Execute(embedIndex embed.FS, embedViews embed.FS) {
+	EmbedIndex = embedIndex
 	EmbedViews = embedViews
-	EmbedViewsComponent = embedViewsComponent
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

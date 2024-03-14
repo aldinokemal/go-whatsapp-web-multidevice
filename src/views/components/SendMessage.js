@@ -1,11 +1,11 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'SendMessage',
     data() {
         return {
             type: 'user',
             phone: '',
-            message_id: '',
-            new_message: '',
+            text: '',
+            reply_id: '',
             loading: false,
         }
     },
@@ -16,7 +16,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalSendMessage').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -26,7 +26,7 @@ export default {
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalSendMessage').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -34,9 +34,15 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, message: this.new_message}
+                const payload = {
+                    phone: this.phone_id,
+                    message: this.text,
+                }
+                if (this.reply_id !== '') {
+                    payload.reply_id = this.reply_id;
+                }
 
-                let response = await window.http.post(`/message/${this.message_id}/update`, payload)
+                let response = await window.http.post(`/send/message`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -49,29 +55,28 @@ export default {
             }
         },
         handleReset() {
-            this.type = 'user';
             this.phone = '';
-            this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.text = '';
+            this.type = 'user';
+            this.reply_id = '';
         },
     },
     template: `
-    <div class="red card" @click="openModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <a class="ui blue right ribbon label">Send</a>
+            <div class="header">Send Message</div>
             <div class="description">
-                Update your sent message
+                Send any message to user or group
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal SendMessage  -->
+    <div class="ui small modal" id="modalSendMessage">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+            Send Message
         </div>
         <div class="content">
             <form class="ui form">
@@ -89,13 +94,14 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
+                    <label>Reply Message ID</label>
+                    <input v-model="reply_id" type="text"
+                           placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
+                           aria-label="reply_id">
                 </div>
                 <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
+                    <label>Message</label>
+                    <textarea v-model="text" placeholder="Hello this is message text"
                               aria-label="message"></textarea>
                 </div>
             </form>
@@ -103,7 +109,7 @@ export default {
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

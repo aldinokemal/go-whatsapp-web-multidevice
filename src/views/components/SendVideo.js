@@ -1,14 +1,20 @@
-// export Vue Component
 export default {
-    name: 'SendPoll',
+    name: 'SendVideo',
+    // define props
+    props: {
+        maxVideoSize: {
+            type: String,
+            required: true,
+        }
+    },
     data() {
         return {
-            phone: '',
+            caption: '',
+            view_once: false,
+            compress: false,
             type: 'user',
+            phone: '',
             loading: false,
-            question: '',
-            options: ['', ''],
-            max_vote: 1,
         }
     },
     computed: {
@@ -18,7 +24,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalSendPoll').modal({
+            $('#modalSendVideo').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -27,22 +33,22 @@ export default {
         async handleSubmit() {
             try {
                 let response = await this.submitApi()
-                window.showSuccessInfo(response)
-                $('#modalSendPoll').modal('hide');
+                showSuccessInfo(response)
+                $('#modalSendVideo').modal('hide');
             } catch (err) {
-                window.showErrorInfo(err)
+                showErrorInfo(err)
             }
         },
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {
-                    phone: this.phone_id,
-                    question: this.question,
-                    max_answer: this.max_vote,
-                    options: this.options
-                }
-                const response = await window.http.post(`/send/poll`, payload)
+                let payload = new FormData();
+                payload.append("phone", this.phone_id)
+                payload.append("caption", this.caption)
+                payload.append("view_once", this.view_once)
+                payload.append("compress", this.compress)
+                payload.append('video', $("#file_video")[0].files[0])
+                let response = await window.http.post(`/send/video`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -55,35 +61,33 @@ export default {
             }
         },
         handleReset() {
+            this.caption = '';
+            this.view_once = false;
+            this.compress = false;
             this.phone = '';
             this.type = 'user';
-            this.question = '';
-            this.options = ['', ''];
-            this.max_vote = 1;
+            $("#file_video").val('');
         },
-        addOption() {
-            this.options.push('')
-        },
-        deleteOption(index) {
-            this.options.splice(index, 1)
-        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
-            <div class="header">Send Poll</div>
+            <div class="header">Send Video</div>
             <div class="description">
-                Send a poll/vote with multiple options
+                Send video
+                <div class="ui blue horizontal label">mp4</div>
+                up to
+                <div class="ui blue horizontal label">{{ maxVideoSize }}</div>
             </div>
         </div>
     </div>
     
-    <!--  Modal SendPoll  -->
-    <div class="ui small modal" id="modalSendPoll">
+    <!--  Modal SendVideo  -->
+    <div class="ui small modal" id="modalSendVideo">
         <i class="close icon"></i>
         <div class="header">
-            Send Poll
+            Send Video
         </div>
         <div class="content">
             <form class="ui form">
@@ -101,41 +105,41 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Question</label>
-                    <input v-model="question" type="text" placeholder="Please enter question"
-                           aria-label="poll question">
+                    <label>Caption</label>
+                    <textarea v-model="caption" placeholder="Type some caption (optional)..."
+                              aria-label="caption"></textarea>
                 </div>
                 <div class="field">
-                    <label>Options</label>
-                    <div style="display: flex; flex-direction: column; gap: 5px">
-                        <div class="ui action input" :key="index" v-for="(option, index) in options">
-                            <input type="text" placeholder="Option..." v-model="options[index]"
-                                   aria-label="poll option">
-                            <button class="ui button" @click="deleteOption(index)" type="button">
-                                <i class="minus circle icon"></i>
-                            </button>
-                        </div>
-                        <div class="field">
-                            <button class="mini ui primary button" @click="addOption" type="button">
-                                <i class="plus icon"></i> Option
-                            </button>
-                        </div>
+                    <label>View Once</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="view once" v-model="view_once">
+                        <label>Check for enable one time view</label>
                     </div>
                 </div>
                 <div class="field">
-                    <label>Max Vote</label>
-                    <input v-model="max_vote" type="number" placeholder="Max Vote"
-                           aria-label="poll max votes" min="0">
+                    <label>Compress</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="compress" v-model="compress">
+                        <label>Check for compressing video to smaller size</label>
+                    </div>
+                </div>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>Video</label>
+                    <input type="file" style="display: none" accept="video/*" id="file_video">
+                    <label for="file_video" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload video
+                    </label>
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit" type="button">
+                 @click="handleSubmit">
                 Send
                 <i class="send icon"></i>
             </div>
         </div>
     </div>
-`
+    `
 }

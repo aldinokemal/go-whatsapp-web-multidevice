@@ -1,11 +1,11 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'SendLocation',
     data() {
         return {
             type: 'user',
             phone: '',
-            message_id: '',
-            new_message: '',
+            latitude: '',
+            longitude: '',
             loading: false,
         }
     },
@@ -16,7 +16,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalSendLocation').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -26,7 +26,7 @@ export default {
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalSendLocation').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -34,9 +34,13 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, message: this.new_message}
+                const payload = {
+                    phone: this.phone_id,
+                    latitude: this.latitude,
+                    longitude: this.longitude
+                };
 
-                let response = await window.http.post(`/message/${this.message_id}/update`, payload)
+                const response = await window.http.post(`/send/location`, payload);
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -49,29 +53,28 @@ export default {
             }
         },
         handleReset() {
-            this.type = 'user';
             this.phone = '';
-            this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.latitude = '';
+            this.longitude = '';
+            this.type = 'user';
         },
     },
     template: `
-    <div class="red card" @click="openModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <a class="ui blue right ribbon label">Send</a>
+            <div class="header">Send Location</div>
             <div class="description">
-                Update your sent message
+                Send location to user or group
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal SendLocation  -->
+    <div class="ui small modal" id="modalSendLocation">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+            Send Location
         </div>
         <div class="content">
             <form class="ui form">
@@ -89,21 +92,21 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
+                    <label>Location Latitude</label>
+                    <input v-model="latitude" type="text" placeholder="Please enter latitude"
+                           aria-label="latitude">
                 </div>
                 <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
+                    <label>Location Longitude</label>
+                    <input v-model="longitude" type="text" placeholder="Please enter longitude"
+                           aria-label="longitude">
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

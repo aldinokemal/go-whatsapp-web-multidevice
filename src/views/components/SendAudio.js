@@ -1,11 +1,9 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'Send',
     data() {
         return {
-            type: 'user',
             phone: '',
-            message_id: '',
-            new_message: '',
+            type: 'user',
             loading: false,
         }
     },
@@ -16,7 +14,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalAudioSend').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -26,7 +24,7 @@ export default {
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalAudioSend').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -34,9 +32,10 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, message: this.new_message}
-
-                let response = await window.http.post(`/message/${this.message_id}/update`, payload)
+                let payload = new FormData();
+                payload.append("phone", this.phone_id)
+                payload.append("audio", $("#file_audio")[0].files[0])
+                const response = await window.http.post(`/send/audio`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -49,29 +48,27 @@ export default {
             }
         },
         handleReset() {
-            this.type = 'user';
             this.phone = '';
-            this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.type = 'user';
+            $("#file_audio").val('');
         },
     },
     template: `
-    <div class="red card" @click="openModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <a class="ui blue right ribbon label">Send</a>
+            <div class="header">Send Audio</div>
             <div class="description">
-                Update your sent message
+                Send audio to user or group
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal SendAudio  -->
+    <div class="ui small modal" id="modalAudioSend">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+            Send Audio
         </div>
         <div class="content">
             <form class="ui form">
@@ -88,22 +85,20 @@ export default {
                            aria-label="phone">
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
-                <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
-                </div>
-                <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
+                <div class="field" style="padding-bottom: 30px">
+                    <label>Audio</label>
+                    <input type="file" style="display: none" accept="audio/*" id="file_audio"/>
+                    <label for="file_audio" class="ui positive medium green left floated button" style="color: white">
+                        <i class="ui upload icon"></i>
+                        Upload 
+                    </label>
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

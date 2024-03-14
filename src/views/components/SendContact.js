@@ -1,11 +1,11 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'SendContact',
     data() {
         return {
             type: 'user',
             phone: '',
-            message_id: '',
-            new_message: '',
+            card_name: '',
+            card_phone: '',
             loading: false,
         }
     },
@@ -16,7 +16,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalSendContact').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -24,19 +24,25 @@ export default {
         },
         async handleSubmit() {
             try {
+                this.loading = true;
                 let response = await this.submitApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalSendContact').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
+            } finally {
+                this.loading = false;
             }
         },
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, message: this.new_message}
-
-                let response = await window.http.post(`/message/${this.message_id}/update`, payload)
+                const payload = {
+                    phone: this.phone_id,
+                    contact_name: this.card_name,
+                    contact_phone: this.card_phone
+                }
+                let response = await window.http.post(`/send/contact`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -49,29 +55,28 @@ export default {
             }
         },
         handleReset() {
-            this.type = 'user';
             this.phone = '';
-            this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.card_name = '';
+            this.card_phone = '';
+            this.type = 'user';
         },
     },
     template: `
-    <div class="red card" @click="openModal()" style="cursor: pointer">
+    <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
-            <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <a class="ui blue right ribbon label">Send</a>
+            <div class="header">Send Contact</div>
             <div class="description">
-                Update your sent message
+                Send contact to user or group
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    <!--  Modal SendContact  -->
+    <div class="ui small modal" id="modalSendContact">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+            Send Contact
         </div>
         <div class="content">
             <form class="ui form">
@@ -89,21 +94,21 @@ export default {
                     <input :value="phone_id" disabled aria-label="whatsapp_id">
                 </div>
                 <div class="field">
-                    <label>Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
-                           aria-label="message id">
+                    <label>Contact Name</label>
+                    <input v-model="card_name" type="text" placeholder="Please enter contact name"
+                           aria-label="contact name">
                 </div>
                 <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
+                    <label>Contact Phone</label>
+                    <input v-model="card_phone" type="text" placeholder="Please enter contact phone"
+                           aria-label="contact phone">
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>

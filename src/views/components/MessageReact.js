@@ -1,11 +1,11 @@
 export default {
-    name: 'UpdateMessage',
+    name: 'ReactMessage',
     data() {
         return {
             type: 'user',
             phone: '',
             message_id: '',
-            new_message: '',
+            emoji: '',
             loading: false,
         }
     },
@@ -16,7 +16,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalMessageUpdate').modal({
+            $('#modalMessageReaction').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -26,7 +26,7 @@ export default {
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
-                $('#modalMessageUpdate').modal('hide');
+                $('#modalMessageReaction').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -34,9 +34,8 @@ export default {
         async submitApi() {
             this.loading = true;
             try {
-                const payload = {phone: this.phone_id, message: this.new_message}
-
-                let response = await window.http.post(`/message/${this.message_id}/update`, payload)
+                const payload = {phone: this.phone_id, emoji: this.emoji}
+                let response = await window.http.post(`/message/${this.message_id}/reaction`, payload)
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -49,29 +48,29 @@ export default {
             }
         },
         handleReset() {
-            this.type = 'user';
             this.phone = '';
             this.message_id = '';
-            this.new_message = '';
-            this.loading = false;
+            this.emoji = '';
+            this.type = 'user';
         },
     },
     template: `
     <div class="red card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui red right ribbon label">Message</a>
-            <div class="header">Update Message</div>
+            <div class="header">React Message</div>
             <div class="description">
-                Update your sent message
+                 any message in private or group chat
             </div>
         </div>
     </div>
-        
-        <!--  Modal MessageUpdate  -->
-    <div class="ui small modal" id="modalMessageUpdate">
+    
+    
+    <!--  Modal MessageReaction  -->
+    <div class="ui small modal" id="modalMessageReaction">
         <i class="close icon"></i>
         <div class="header">
-            Update Message
+             React Message
         </div>
         <div class="content">
             <form class="ui form">
@@ -94,16 +93,16 @@ export default {
                            aria-label="message id">
                 </div>
                 <div class="field">
-                    <label>New Message</label>
-                    <textarea v-model="new_message" type="text" placeholder="Hello this is your new message text, you can edit before 15 minutes after sent."
-                              aria-label="message"></textarea>
+                    <label>Emoji</label>
+                    <input v-model="emoji" type="text" placeholder="Please enter emoji"
+                           aria-label="message id">
                 </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit">
-                Update
+                Send
                 <i class="send icon"></i>
             </div>
         </div>
