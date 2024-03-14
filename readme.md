@@ -54,36 +54,34 @@ Now that we support ARM64 for Linux:
 
 #### Basic
 
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
-2. open via cmd/terminal
-3. run `go install github.com/markbates/pkger/cmd/pkger@latest`
-4. run `cd src`
-5. run `pkger && go run main.go`
-6. open `http://localhost:3000`
-7. run `go run main.go --help` for more detail flags
+1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+2. Open the folder that was cloned via cmd/terminal.
+3. run `cd src`
+4. run `go run main.go`
+5. Open `http://localhost:3000`
+6. run `go run main. go --help` for more detail flags
 
 #### Docker (you don't need to install in required)
 
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
-2. open via cmd/terminal
+1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+2. Open the folder that was cloned via cmd/terminal.
 3. run `docker-compose up -d --build`
 4. open `http://localhost:3000`
 
 #### Build your own binary
 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
-2. open via cmd/terminal
-3. run `go install github.com/markbates/pkger/cmd/pkger@latest`
-4. run `cd src`
+2. Open the folder that was cloned via cmd/terminal.
+3. run `cd src`
+4. run
+    1. Linux & MacOS: `go build -o whatsapp`
+    2. Windows (CMD / PowerShell): `go build -o whatsapp.exe`
 5. run
-    1. Linux & MacOS: `pkger && go build -o whatsapp`
-    2. Windows (CMD, not PowerShell): `pkger.exe && go build -o whatsapp.exe`
-6. run
     1. Linux & MacOS: `./whatsapp`
         1. run `./whatsapp --help` for more detail flags
     2. Windows: `.\whatsapp.exe` or you can double-click it
         1. run `.\whatsapp.exe --help` for more detail flags
-7. open `http://localhost:3000` in browser
+6. open `http://localhost:3000` in browser
 
 ### Production Mode (docker)
 
