@@ -59,7 +59,6 @@ Now that we support ARM64 for Linux:
 3. run `cd src`
 4. run `go run main.go`
 5. Open `http://localhost:3000`
-6. run `go run main. go --help` for more detail flags
 
 #### Docker (you don't need to install in required)
 
