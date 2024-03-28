@@ -6,7 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.9.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/gofiber/fiber/v2 v2.52.2
+	github.com/gofiber/fiber/v2 v2.52.4
 	github.com/gofiber/template/html/v2 v2.1.1
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/valyala/fasthttp v1.52.0
 	go.mau.fi/libsignal v0.1.0
-	go.mau.fi/whatsmeow v0.0.0-20240312193055-9b989e1cc696
+	go.mau.fi/whatsmeow v0.0.0-20240327124018-350073db195c
 	google.golang.org/protobuf v1.33.0
 )
 
@@ -45,7 +45,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
-	go.mau.fi/util v0.4.0 // indirect
+	go.mau.fi/util v0.4.1 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
