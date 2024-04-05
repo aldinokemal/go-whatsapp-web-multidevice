@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type groupService struct {
@@ -42,4 +44,32 @@ func (service groupService) LeaveGroup(ctx context.Context, request domainGroup.
 	}
 
 	return service.WaCli.LeaveGroup(JID)
+}
+
+func (service groupService) CreateGroup(ctx context.Context, request domainGroup.CreateGroupRequest) (groupID string, err error) {
+	if err = validations.ValidateCreateGroup(ctx, request); err != nil {
+		return groupID, err
+	}
+	whatsapp.MustLogin(service.WaCli)
+
+	var participantsJID []types.JID
+	for _, participant := range request.Participants {
+		if !whatsapp.IsOnWhatsapp(service.WaCli, participant) {
+			return "", pkgError.ErrUserNotRegistered
+		}
+	}
+
+	groupConfig := whatsmeow.ReqCreateGroup{
+		Name:              request.Title,
+		Participants:      participantsJID,
+		GroupParent:       types.GroupParent{},
+		GroupLinkedParent: types.GroupLinkedParent{},
+	}
+
+	groupInfo, err := service.WaCli.CreateGroup(groupConfig)
+	if err != nil {
+		return
+	}
+
+	return groupInfo.JID.String(), nil
 }

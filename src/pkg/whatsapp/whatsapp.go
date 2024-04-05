@@ -116,7 +116,7 @@ func ParseJID(arg string) (types.JID, error) {
 	}
 }
 
-func isOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
+func IsOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
 	// only check if the jid a user with @s.whatsapp.net
 	if strings.Contains(jid, "@s.whatsapp.net") {
 		data, err := waCli.IsOnWhatsApp([]string{jid})
@@ -137,7 +137,7 @@ func isOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
 func ValidateJidWithLogin(waCli *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(waCli)
 
-	if !isOnWhatsapp(waCli, jid) {
+	if !IsOnWhatsapp(waCli, jid) {
 		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
 	}
 
