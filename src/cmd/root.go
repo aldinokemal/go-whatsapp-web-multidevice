@@ -121,7 +121,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		return c.Render("views/index", fiber.Map{
 			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": c.UserContext().Value(middleware.AuthToken("token")),
+			"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
