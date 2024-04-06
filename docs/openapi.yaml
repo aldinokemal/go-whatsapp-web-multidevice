@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.9.0
+  version: 3.10.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -721,6 +721,46 @@ paths:
               required:
                 - phone
                 - message
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group:
+    post:
+      operationId: createGroup
+      tags:
+        - group
+      summary: Create group and add participant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  example: 'Example Group Title'
+                participants:
+                  type: array
+                  example:
+                    - '6819241294719274'
+                    - '6829241294719274'
+                    - '6839241294719274'
       responses:
         '200':
           description: OK
