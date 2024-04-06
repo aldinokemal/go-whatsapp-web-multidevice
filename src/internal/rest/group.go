@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -62,7 +63,7 @@ func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
-		Message: "Success created group",
+		Message: fmt.Sprintf("Success created group with id %s", groupID),
 		Results: map[string]string{
 			"group_id": groupID,
 		},

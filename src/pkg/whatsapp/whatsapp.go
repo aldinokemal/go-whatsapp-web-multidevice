@@ -55,9 +55,9 @@ type evtMessage struct {
 func SanitizePhone(phone *string) {
 	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
 		if len(*phone) <= 15 {
-			*phone = fmt.Sprintf("%s@s.whatsapp.net", *phone)
+			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
 		} else {
-			*phone = fmt.Sprintf("%s@g.us", *phone)
+			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
@@ -54,8 +55,14 @@ func (service groupService) CreateGroup(ctx context.Context, request domainGroup
 
 	var participantsJID []types.JID
 	for _, participant := range request.Participants {
-		if !whatsapp.IsOnWhatsapp(service.WaCli, participant) {
+		formattedParticipant := participant + config.WhatsappTypeUser
+
+		if !whatsapp.IsOnWhatsapp(service.WaCli, formattedParticipant) {
 			return "", pkgError.ErrUserNotRegistered
+		}
+
+		if participantJID, err := types.ParseJID(formattedParticipant); err == nil {
+			participantsJID = append(participantsJID, participantJID)
 		}
 	}
 

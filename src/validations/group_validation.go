@@ -34,6 +34,8 @@ func ValidateLeaveGroup(ctx context.Context, request domainGroup.LeaveGroupReque
 func ValidateCreateGroup(ctx context.Context, request domainGroup.CreateGroupRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Title, validation.Required),
+		validation.Field(&request.Participants, validation.Required),
+		validation.Field(&request.Participants, validation.Each(validation.Required)),
 	)
 
 	if err != nil {

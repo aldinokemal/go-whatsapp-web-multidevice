@@ -74,13 +74,21 @@
     </div>
 
     <div class="ui horizontal divider">
+        Group
+    </div>
+
+    <div class="ui four column doubling grid cards">
+        <group-list></group-list>
+        <group-create></group-create>
+    </div>
+
+    <div class="ui horizontal divider">
         Account
     </div>
 
     <div class="ui four column doubling grid cards">
         <account-avatar></account-avatar>
         <account-user-info></account-user-info>
-        <account-group></account-group>
         <account-privacy></account-privacy>
     </div>
 
@@ -129,9 +137,10 @@
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
     import MessageRevoke from "./components/MessageRevoke.js";
+    import GroupList from "./components/GroupList.js";
+    import GroupCreate from "./components/GroupCreate.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
-    import AccountGroup from "./components/AccountGroup.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
 
     const showErrorInfo = (message) => {
@@ -158,7 +167,8 @@
             AppLogin, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
-            AccountAvatar, AccountUserInfo, AccountGroup, AccountPrivacy
+            GroupList, GroupCreate,
+            AccountAvatar, AccountUserInfo, AccountPrivacy
         },
         delimiters: ['[[', ']]'],
         data() {

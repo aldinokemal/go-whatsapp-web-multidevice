@@ -1,5 +1,5 @@
 export default {
-    name: 'AccountGroup',
+    name: 'ListGroup',
     data() {
         return {
             groups: []
@@ -10,7 +10,7 @@ export default {
             try {
                 this.dtClear()
                 await this.submitApi();
-                $('#modalUserGroup').modal('show');
+                $('#modalGroupList').modal('show');
                 this.dtRebuild()
                 showSuccessInfo("Groups fetched")
             } catch (err) {
@@ -72,15 +72,15 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
-            <div class="header">My List Groups</div>
+            <div class="header">List Groups</div>
             <div class="description">
-                Display all groups you joined
+                Display all your groups
             </div>
         </div>
     </div>
     
     <!--  Modal AccountGroup  -->
-    <div class="ui small modal" id="modalUserGroup">
+    <div class="ui small modal" id="modalGroupList">
         <i class="close icon"></i>
         <div class="header">
             My Group List
