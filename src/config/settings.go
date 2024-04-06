@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 )
 
@@ -9,7 +8,7 @@ var (
 	AppVersion             = "v4.12.0"
 	AppPort                = "3000"
 	AppDebug               = false
-	AppOs                  = fmt.Sprintf("AldinoKemal")
+	AppOs                  = "AldinoKemal"
 	AppPlatform            = waProto.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential string
 

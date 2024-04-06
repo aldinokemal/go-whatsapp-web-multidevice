@@ -108,6 +108,9 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	// Generate thumbnail with smalled image
 	openThumbnailBuffer, err := bimg.Read(oriImagePath)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read image %v", err))
+	}
 	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
 	thumbnailImage, err := bimg.NewImage(openThumbnailBuffer).Process(bimg.Options{Quality: 90, Width: 100, Embed: true})
 	if err != nil {
@@ -122,6 +125,9 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if request.Compress {
 		// Resize image
 		openImageBuffer, err := bimg.Read(oriImagePath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read image %v", err))
+		}
 		newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
 		if err != nil {
 			return response, err
@@ -150,6 +156,9 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		return response, err
 	}
 	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+	}
 
 	msg := &waProto.Message{ImageMessage: &waProto.ImageMessage{
 		JpegThumbnail: dataWaThumbnail,
@@ -258,6 +267,9 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	// Resize Thumbnail
 	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+	}
 	resize, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resize thumbnail %v", err))

@@ -85,7 +85,7 @@ func runRest(_ *cobra.Command, _ []string) {
 	}))
 
 	if config.AppBasicAuthCredential != "" {
-		account := make(map[string]string, 0)
+		account := make(map[string]string)
 		multipleBA := strings.Split(config.AppBasicAuthCredential, ",")
 		for _, basicAuth := range multipleBA {
 			ba := strings.Split(basicAuth, ":")
@@ -95,11 +95,9 @@ func runRest(_ *cobra.Command, _ []string) {
 			account[ba[0]] = ba[1]
 		}
 
-		if account != nil {
-			app.Use(basicauth.New(basicauth.Config{
-				Users: account,
-			}))
-		}
+		app.Use(basicauth.New(basicauth.Config{
+			Users: account,
+		}))
 	}
 
 	db := whatsapp.InitWaDB()
@@ -123,7 +121,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		return c.Render("views/index", fiber.Map{
 			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": c.UserContext().Value("token"),
+			"BasicAuthToken": c.UserContext().Value(middleware.AuthToken("token")),
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
