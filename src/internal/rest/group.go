@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -12,6 +13,7 @@ type Group struct {
 
 func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	rest := Group{Service: service}
+	app.Post("/group", rest.CreateGroup)
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
 	app.Post("/group/leave", rest.LeaveGroup)
 	return rest
@@ -47,5 +49,23 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success leave group",
+	})
+}
+
+func (controller *Group) CreateGroup(c *fiber.Ctx) error {
+	var request domainGroup.CreateGroupRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	groupID, err := controller.Service.CreateGroup(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: fmt.Sprintf("Success created group with id %s", groupID),
+		Results: map[string]string{
+			"group_id": groupID,
+		},
 	})
 }

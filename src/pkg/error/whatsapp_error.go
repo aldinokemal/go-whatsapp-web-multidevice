@@ -71,6 +71,7 @@ func (e WaUploadMediaError) StatusCode() int {
 }
 
 const (
-	ErrInvalidJID = InvalidJID("your JID is invalid")
-	ErrWaCLI      = WaCliError("your WhatsApp CLI is invalid or empty")
+	ErrInvalidJID        = InvalidJID("your JID is invalid")
+	ErrUserNotRegistered = InvalidJID("user is not registered")
+	ErrWaCLI             = WaCliError("your WhatsApp CLI is invalid or empty")
 )
