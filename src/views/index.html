@@ -77,16 +77,17 @@
         Group
     </div>
 
-    <div class="ui four column doubling grid cards">
+    <div class="ui three column doubling grid cards">
         <group-list></group-list>
         <group-create></group-create>
+        <group-join-with-link></group-join-with-link>
     </div>
 
     <div class="ui horizontal divider">
         Account
     </div>
 
-    <div class="ui four column doubling grid cards">
+    <div class="ui three column doubling grid cards">
         <account-avatar></account-avatar>
         <account-user-info></account-user-info>
         <account-privacy></account-privacy>
@@ -139,6 +140,7 @@
     import MessageRevoke from "./components/MessageRevoke.js";
     import GroupList from "./components/GroupList.js";
     import GroupCreate from "./components/GroupCreate.js";
+    import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
@@ -167,7 +169,7 @@
             AppLogin, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageUpdate, MessageReact, MessageRevoke,
-            GroupList, GroupCreate,
+            GroupList, GroupCreate, GroupJoinWithLink,
             AccountAvatar, AccountUserInfo, AccountPrivacy
         },
         delimiters: ['[[', ']]'],

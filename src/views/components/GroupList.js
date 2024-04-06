@@ -72,6 +72,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
+            <a class="ui green right ribbon label">Group</a>
             <div class="header">List Groups</div>
             <div class="description">
                 Display all your groups

@@ -39,7 +39,6 @@ export default {
                     participants: this.participants.filter(participant => participant !== '').map(participant => `${participant}`)
                 })
                 this.handleReset();
-                this.groups = response.data.results.data;
                 return response.data.message;
             } catch (error) {
                 if (error.response) {
@@ -58,6 +57,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
+            <a class="ui green right ribbon label">Group</a>
             <div class="header">Create Groups</div>
             <div class="description">
                 Add more friends to your group
@@ -69,7 +69,7 @@ export default {
     <div class="ui small modal" id="modalGroupCreate">
         <i class="close icon"></i>
         <div class="header">
-            
+            Create Group
         </div>
         <div class="content">
             <form class="ui form">
