@@ -101,8 +101,10 @@ func (err sessionSavedError) StatusCode() int {
 }
 
 var (
-	ErrAlreadyLoggedIn = LoginError("You already logged in :)")
-	ErrReconnect       = throwReconnectError("Reconnect error")
+	ErrAlreadyLoggedIn = LoginError("you already logged in :)")
+	ErrNotConnected    = throwAuthError("you are not connect to services server, please reconnect")
+	ErrNotLoggedIn     = throwAuthError("you are not logged in")
+	ErrReconnect       = throwReconnectError("reconnect error")
 	ErrQrChannel       = throwQrChannelError("QR channel error")
-	ErrSessionSaved    = throwSessionSavedError("Your session have been saved, please wait to connect 2 second and refresh again")
+	ErrSessionSaved    = throwSessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
 )

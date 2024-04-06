@@ -121,10 +121,8 @@ func (service userService) MyListGroups(_ context.Context) (response domainUser.
 		return
 	}
 	fmt.Printf("%+v\n", groups)
-	if groups != nil {
-		for _, group := range groups {
-			response.Data = append(response.Data, *group)
-		}
+	for _, group := range groups {
+		response.Data = append(response.Data, *group)
 	}
 	return response, nil
 }

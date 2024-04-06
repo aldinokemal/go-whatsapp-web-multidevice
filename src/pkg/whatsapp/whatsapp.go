@@ -180,9 +180,9 @@ func MustLogin(waCli *whatsmeow.Client) {
 		panic(pkgError.InternalServerError("Whatsapp client is not initialized"))
 	}
 	if !waCli.IsConnected() {
-		panic(pkgError.AuthError("you are not connect to services server, please reconnect"))
+		panic(pkgError.ErrNotConnected)
 	} else if !waCli.IsLoggedIn() {
-		panic(pkgError.AuthError("you are not login to services server, please login"))
+		panic(pkgError.ErrNotLoggedIn)
 	}
 }
 
@@ -263,9 +263,9 @@ func handler(rawEvt interface{}) {
 			}
 		}
 	case *events.Receipt:
-		if evt.Type == events.ReceiptTypeRead || evt.Type == events.ReceiptTypeReadSelf {
+		if evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf {
 			log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
-		} else if evt.Type == events.ReceiptTypeDelivered {
+		} else if evt.Type == types.ReceiptTypeDelivered {
 			log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
 		}
 	case *events.Presence:

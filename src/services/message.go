@@ -50,7 +50,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request message.
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Reaction sent to %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Reaction sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
 }
 
@@ -69,7 +69,7 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Revoke success %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Revoke success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
 }
 
@@ -90,6 +90,6 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts)
+	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
 }
