@@ -19,9 +19,9 @@ var (
 
 	DBName = "whatsapp.db"
 
-	WhatsappLogLevel            = "ERROR"
 	WhatsappAutoReplyMessage    string
 	WhatsappWebhook             string
+	WhatsappLogLevel                  = "ERROR"
 	WhatsappSettingMaxFileSize  int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize int64 = 100000000 // 100MB
 	WhatsappTypeUser                  = "@s.whatsapp.net"

@@ -13,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/h2non/bimg"
+	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -152,7 +153,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	uploadedImage, err := service.WaCli.Upload(context.Background(), dataWaImage, whatsmeow.MediaImage)
 	if err != nil {
-		fmt.Printf("Failed to upload file: %v", err)
+		fmt.Printf("failed to upload file: %v", err)
 		return response, err
 	}
 	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
@@ -333,7 +334,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	go func() {
 		errDelete := utils.RemoveFile(1, deletedItems...)
 		if errDelete != nil {
-			fmt.Println(errDelete)
+			logrus.Infof("error when deleting picture: %v", errDelete)
 		}
 	}()
 	if err != nil {
