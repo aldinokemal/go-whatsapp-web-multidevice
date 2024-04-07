@@ -1,4 +1,4 @@
-## Whatsapp API Multi Device Version
+## WhatsApp API Multi Device Version
 
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
 <br>
@@ -17,7 +17,7 @@ Now that we support ARM64 for Linux:
 
 ### Feature
 
-- Send whatsapp via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
+- Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -54,7 +54,7 @@ Now that we support ARM64 for Linux:
 
 #### Basic
 
-1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `cd src`
 4. run `go run main.go`
@@ -62,14 +62,14 @@ Now that we support ARM64 for Linux:
 
 #### Docker (you don't need to install in required)
 
-1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `docker-compose up -d --build`
 4. open `http://localhost:3000`
 
 #### Build your own binary
 
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multi-device`
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `cd src`
 4. run
