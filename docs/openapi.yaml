@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.10.0
+  version: 3.10.1
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -757,6 +757,12 @@ paths:
                   example: 'Example Group Title'
                 participants:
                   type: array
+                  items:
+                    type: string
+                    example:
+                      - '6819241294719274'
+                      - '6829241294719274'
+                      - '6839241294719274'
                   example:
                     - '6819241294719274'
                     - '6829241294719274'
