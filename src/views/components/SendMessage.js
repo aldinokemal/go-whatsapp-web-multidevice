@@ -5,7 +5,7 @@ export default {
             type: 'user',
             phone: '',
             text: '',
-            reply_id: '',
+            reply_message_id: '',
             loading: false,
         }
     },
@@ -38,8 +38,8 @@ export default {
                     phone: this.phone_id,
                     message: this.text,
                 }
-                if (this.reply_id !== '') {
-                    payload.reply_id = this.reply_id;
+                if (this.reply_message_id !== '') {
+                    payload.reply_message_id = this.reply_message_id;
                 }
 
                 let response = await window.http.post(`/send/message`, payload)
@@ -58,7 +58,7 @@ export default {
             this.phone = '';
             this.text = '';
             this.type = 'user';
-            this.reply_id = '';
+            this.reply_message_id = '';
         },
     },
     template: `
@@ -95,9 +95,9 @@ export default {
                 </div>
                 <div class="field">
                     <label>Reply Message ID</label>
-                    <input v-model="reply_id" type="text"
+                    <input v-model="reply_message_id" type="text"
                            placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
-                           aria-label="reply_id">
+                           aria-label="reply_message_id">
                 </div>
                 <div class="field">
                     <label>Message</label>
