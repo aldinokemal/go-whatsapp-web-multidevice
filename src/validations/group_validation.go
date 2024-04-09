@@ -44,3 +44,17 @@ func ValidateCreateGroup(ctx context.Context, request domainGroup.CreateGroupReq
 
 	return nil
 }
+
+func ValidateParticipant(ctx context.Context, request domainGroup.ParticipantRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+		validation.Field(&request.Participants, validation.Required),
+		validation.Field(&request.Participants, validation.Each(validation.Required)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

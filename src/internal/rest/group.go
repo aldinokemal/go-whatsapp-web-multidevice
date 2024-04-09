@@ -4,6 +4,7 @@ import (
 	"fmt"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -16,6 +17,7 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	app.Post("/group", rest.CreateGroup)
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
 	app.Post("/group/leave", rest.LeaveGroup)
+	app.Post("/group/participants", rest.AddParticipants)
 	return rest
 }
 
@@ -67,5 +69,23 @@ func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 		Results: map[string]string{
 			"group_id": groupID,
 		},
+	})
+}
+
+func (controller *Group) AddParticipants(c *fiber.Ctx) error {
+	var request domainGroup.ParticipantRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	whatsapp.SanitizePhone(&request.GroupID)
+
+	result, err := controller.Service.AddParticipant(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success add participants",
+		Results: result,
 	})
 }

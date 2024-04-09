@@ -53,17 +53,9 @@ func (service groupService) CreateGroup(ctx context.Context, request domainGroup
 	}
 	whatsapp.MustLogin(service.WaCli)
 
-	var participantsJID []types.JID
-	for _, participant := range request.Participants {
-		formattedParticipant := participant + config.WhatsappTypeUser
-
-		if !whatsapp.IsOnWhatsapp(service.WaCli, formattedParticipant) {
-			return "", pkgError.ErrUserNotRegistered
-		}
-
-		if participantJID, err := types.ParseJID(formattedParticipant); err == nil {
-			participantsJID = append(participantsJID, participantJID)
-		}
+	participantsJID, err := service.participantToJID(request.Participants)
+	if err != nil {
+		return
 	}
 
 	groupConfig := whatsmeow.ReqCreateGroup{
@@ -79,4 +71,60 @@ func (service groupService) CreateGroup(ctx context.Context, request domainGroup
 	}
 
 	return groupInfo.JID.String(), nil
+}
+
+func (service groupService) AddParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
+	if err = validations.ValidateParticipant(ctx, request); err != nil {
+		return result, err
+	}
+	whatsapp.MustLogin(service.WaCli)
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return result, err
+	}
+
+	participantsJID, err := service.participantToJID(request.Participants)
+	if err != nil {
+		return result, err
+	}
+
+	participants, err := service.WaCli.UpdateGroupParticipants(groupJID, participantsJID, whatsmeow.ParticipantChangeAdd)
+	if err != nil {
+		return result, err
+	}
+
+	for _, participant := range participants {
+		if participant.Error == 403 && participant.AddRequest != nil {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "error",
+				Message:     "Failed to add participant",
+			})
+		} else {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "success",
+				Message:     "Participant added",
+			})
+		}
+	}
+
+	return result, nil
+}
+
+func (service groupService) participantToJID(participants []string) ([]types.JID, error) {
+	var participantsJID []types.JID
+	for _, participant := range participants {
+		formattedParticipant := participant + config.WhatsappTypeUser
+
+		if !whatsapp.IsOnWhatsapp(service.WaCli, formattedParticipant) {
+			return nil, pkgError.ErrUserNotRegistered
+		}
+
+		if participantJID, err := types.ParseJID(formattedParticipant); err == nil {
+			participantsJID = append(participantsJID, participantJID)
+		}
+	}
+	return participantsJID, nil
 }

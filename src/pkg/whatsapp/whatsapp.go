@@ -233,9 +233,6 @@ func handler(rawEvt interface{}) {
 		if evt.IsViewOnce {
 			metaParts = append(metaParts, "view once")
 		}
-		if evt.IsViewOnce {
-			metaParts = append(metaParts, "ephemeral")
-		}
 
 		log.Infof("Received message %s from %s (%s): %+v", evt.Info.ID, evt.Info.SourceString(), strings.Join(metaParts, ", "), evt.Message)
 
