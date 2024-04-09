@@ -123,7 +123,7 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Join Group With Link           | POST   | /group/join-with-link       |
 | ✅       | Leave Group                    | POST   | /group/leave                |
 | ✅       | Create Group                   | POST   | /group                      |
-| ❌       | Add More Participants in Group | POST   |                             |
+| ✅       | Add More Participants in Group | POST   | /group/participants         |
 | ❌       | Remove Participant in Group    | POST   |                             |
 | ❌       | Promote Participant in Group   | POST   |                             |
 
