@@ -99,33 +99,34 @@ You can fork or edit this source code !
 You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API, furthermore you can generate HTTP Client from this
 API using [openapi-generator](https://openapi-generator.tech/#try)
 
-| Feature | Menu                           | Method | URL                         | 
-|---------|--------------------------------|--------|-----------------------------|
-| ✅       | Login                          | GET    | /app/login                  |
-| ✅       | Logout                         | GET    | /app/logout                 |  
-| ✅       | Reconnect                      | GET    | /app/reconnect              | 
-| ✅       | User Info                      | GET    | /user/info                  |
-| ✅       | User Avatar                    | GET    | /user/avatar                |
-| ✅       | User My Group List             | GET    | /user/my/groups             |
-| ✅       | User My Privacy Setting        | GET    | /user/my/privacy            |
-| ✅       | Send Message                   | POST   | /send/message               |
-| ✅       | Send Image                     | POST   | /send/image                 | 
-| ✅       | Send Audio                     | POST   | /send/audio                 | 
-| ✅       | Send File                      | POST   | /send/file                  | 
-| ✅       | Send Video                     | POST   | /send/video                 | 
-| ✅       | Send Contact                   | POST   | /send/contact               |
-| ✅       | Send Link                      | POST   | /send/link                  |
-| ✅       | Send Location                  | POST   | /send/location              |
-| ✅       | Send Poll / Vote               | POST   | /send/poll                  |
-| ✅       | Revoke Message                 | POST   | /message/:message_id/revoke |
-| ✅       | React Message                  | POST   | /message/:message_id/react  |
-| ✅       | Edit Message                   | POST   | /message/:message_id/update |
-| ✅       | Join Group With Link           | POST   | /group/join-with-link       |
-| ✅       | Leave Group                    | POST   | /group/leave                |
-| ✅       | Create Group                   | POST   | /group                      |
-| ✅       | Add More Participants in Group | POST   | /group/participants         |
-| ❌       | Remove Participant in Group    | POST   |                             |
-| ❌       | Promote Participant in Group   | POST   |                             |
+| Feature | Menu                         | Method | URL                         | 
+|---------|------------------------------|--------|-----------------------------|
+| ✅       | Login                        | GET    | /app/login                  |
+| ✅       | Logout                       | GET    | /app/logout                 |  
+| ✅       | Reconnect                    | GET    | /app/reconnect              | 
+| ✅       | User Info                    | GET    | /user/info                  |
+| ✅       | User Avatar                  | GET    | /user/avatar                |
+| ✅       | User My Group List           | GET    | /user/my/groups             |
+| ✅       | User My Privacy Setting      | GET    | /user/my/privacy            |
+| ✅       | Send Message                 | POST   | /send/message               |
+| ✅       | Send Image                   | POST   | /send/image                 | 
+| ✅       | Send Audio                   | POST   | /send/audio                 | 
+| ✅       | Send File                    | POST   | /send/file                  | 
+| ✅       | Send Video                   | POST   | /send/video                 | 
+| ✅       | Send Contact                 | POST   | /send/contact               |
+| ✅       | Send Link                    | POST   | /send/link                  |
+| ✅       | Send Location                | POST   | /send/location              |
+| ✅       | Send Poll / Vote             | POST   | /send/poll                  |
+| ✅       | Revoke Message               | POST   | /message/:message_id/revoke |
+| ✅       | React Message                | POST   | /message/:message_id/react  |
+| ✅       | Edit Message                 | POST   | /message/:message_id/update |
+| ✅       | Join Group With Link         | POST   | /group/join-with-link       |
+| ✅       | Leave Group                  | POST   | /group/leave                |
+| ✅       | Create Group                 | POST   | /group                      |
+| ✅       | Add Participants in Group    | POST   | /group/participants         |
+| ❌       | Remove Participant in Group  | DELETE | /group/participants         |
+| ❌       | Promote Participant in Group | POST   | /group/promote-participants |
+| ❌       | Demote Participant in Group  | POST   | /group/demote-participants  |
 
 ```
 ✅ = Available
