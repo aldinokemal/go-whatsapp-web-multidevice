@@ -44,6 +44,8 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	whatsapp.SanitizePhone(&request.GroupID)
+
 	err = controller.Service.LeaveGroup(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
