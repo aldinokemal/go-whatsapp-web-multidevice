@@ -96,8 +96,8 @@ You can fork or edit this source code !
 
 ### Current API
 
-You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API, furthermore you can generate HTTP Client from this
-API using [openapi-generator](https://openapi-generator.tech/#try)
+- You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API or paste to [SwaggerEditor](https://editor.swagger.io). 
+- Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
 
 | Feature | Menu                         | Method | URL                         | 
 |---------|------------------------------|--------|-----------------------------|
@@ -125,8 +125,8 @@ API using [openapi-generator](https://openapi-generator.tech/#try)
 | ✅       | Create Group                 | POST   | /group                      |
 | ✅       | Add Participants in Group    | POST   | /group/participants         |
 | ❌       | Remove Participant in Group  | DELETE | /group/participants         |
-| ❌       | Promote Participant in Group | POST   | /group/promote-participants |
-| ❌       | Demote Participant in Group  | POST   | /group/demote-participants  |
+| ❌       | Promote Participant in Group | POST   | /group/participants/promote |
+| ❌       | Demote Participant in Group  | POST   | /group/participants/demote  |
 
 ```
 ✅ = Available
