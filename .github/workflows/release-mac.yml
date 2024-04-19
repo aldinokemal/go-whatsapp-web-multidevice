@@ -15,9 +15,6 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Install libvips
-        run: |
-          brew install vips
       - name: Golang Installation
         uses: actions/setup-go@v4
         with:

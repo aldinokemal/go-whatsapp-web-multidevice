@@ -15,10 +15,6 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Ubuntu update package
-        run: |
-          sudo apt -y update
-          sudo apt -y install libvips-dev
       - name: Golang Installation
         uses: actions/setup-go@v4
         with:
@@ -39,10 +35,6 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Ubuntu update package
-        run: |
-          sudo apt -y update
-          sudo apt -y install libvips-dev
       - name: Golang Installation
         uses: actions/setup-go@v4
         with:
