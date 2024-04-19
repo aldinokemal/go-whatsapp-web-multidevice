@@ -92,7 +92,7 @@ docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volum
 You can fork or edit this source code !
 
 ### Current API
-- [Api Specification Example](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice)
+- [Api Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice)
 - You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API or paste to [SwaggerEditor](https://editor.swagger.io). 
 - Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
 
@@ -132,7 +132,7 @@ You can fork or edit this source code !
 
 ### App User Interface
 
-1. Homepage ![Homepage](https://i.ibb.co/TBNcFT0/homepage.png)
+1. Homepage ![Homepage](https://i.ibb.co/Wn3H1L9/homepage.png)
 2. Login ![Login](https://i.ibb.co/jkcB15R/login.png?v=1)
 3. Send Message ![Send Message](https://i.ibb.co/rc3NXMX/send-message.png?v1)
 4. Send Image ![Send Image](https://i.ibb.co/BcFL3SD/send-image.png?v1)
