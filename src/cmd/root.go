@@ -66,7 +66,8 @@ func runRest(_ *cobra.Command, _ []string) {
 		return token != nil
 	})
 	app := fiber.New(fiber.Config{
-		Views: engine,
+		Views:     engine,
+		BodyLimit: int(config.WhatsappSettingMaxVideoSize),
 	})
 	app.Static("/statics", "./statics")
 	app.Use("/components", filesystem.New(filesystem.Config{

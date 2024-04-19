@@ -251,6 +251,12 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
 	}
 
+	// Check if ffmpeg is installed
+	_, err = exec.LookPath("ffmpeg")
+	if err != nil {
+		return response, pkgError.InternalServerError("ffmpeg not installed")
+	}
+
 	// Get thumbnail video with ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
@@ -276,11 +282,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
-		// Compress video with ffmpeg, check if ffmpeg is installed
-		_, err = exec.LookPath("ffmpeg")
-		if err != nil {
-			return response, pkgError.InternalServerError("ffmpeg not installed")
-		}
 
 		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
 		err = cmdCompress.Run()
