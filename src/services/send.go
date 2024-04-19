@@ -11,8 +11,8 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/disintegration/imaging"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
-	"github.com/h2non/bimg"
 	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
@@ -107,37 +107,30 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
-	// Generate thumbnail with smalled image
-	openThumbnailBuffer, err := bimg.Read(oriImagePath)
+	/* Generate thumbnail with smalled image size */
+	srcImage, err := imaging.Open(oriImagePath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read image %v", err))
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 	}
+
+	// Resize Thumbnail
+	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
 	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
-	thumbnailImage, err := bimg.NewImage(openThumbnailBuffer).Process(bimg.Options{Quality: 90, Width: 100, Embed: true})
-	if err != nil {
-		return response, err
-	}
-	err = bimg.Write(imageThumbnail, thumbnailImage)
-	if err != nil {
-		return response, err
+	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
 	deletedItems = append(deletedItems, imageThumbnail)
 
 	if request.Compress {
 		// Resize image
-		openImageBuffer, err := bimg.Read(oriImagePath)
+		openImageBuffer, err := imaging.Open(oriImagePath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read image %v", err))
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 		}
-		newImage, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
-		if err != nil {
-			return response, err
-		}
-
+		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
 		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
-		err = bimg.Write(newImagePath, newImage)
-		if err != nil {
-			return response, err
+		if err = imaging.Save(newImage, newImagePath); err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
 		}
 		deletedItems = append(deletedItems, newImagePath)
 		imagePath = newImagePath
@@ -258,6 +251,12 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
 	}
 
+	// Check if ffmpeg is installed
+	_, err = exec.LookPath("ffmpeg")
+	if err != nil {
+		return response, pkgError.InternalServerError("ffmpeg not installed")
+	}
+
 	// Get thumbnail video with ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
@@ -267,18 +266,14 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	// Resize Thumbnail
-	openImageBuffer, err := bimg.Read(thumbnailVideoPath)
+	srcImage, err := imaging.Open(thumbnailVideoPath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 	}
-	resize, err := bimg.NewImage(openImageBuffer).Process(bimg.Options{Quality: 90, Width: 600, Embed: true})
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resize thumbnail %v", err))
-	}
-	thumbnailResizeVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+"_resize.png")
-	err = bimg.Write(thumbnailResizeVideoPath, resize)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create image thumbnail %v", err))
+	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	thumbnailResizeVideoPath := fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, generateUUID+".png")
+	if err = imaging.Save(resizedImage, thumbnailResizeVideoPath); err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
 
 	deletedItems = append(deletedItems, thumbnailVideoPath)
@@ -287,7 +282,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
-		// Compress video with ffmpeg
+
 		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
 		err = cmdCompress.Run()
 		if err != nil {

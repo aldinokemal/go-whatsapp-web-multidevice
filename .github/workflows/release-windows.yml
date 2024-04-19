@@ -15,30 +15,12 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Install pkgconfig
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          ref: ${{ github.ref_name }}
-          args: install pkgconfiglite --allow-empty-checksums
-      - name: Vips download
-        run: curl -LO https://github.com/libvips/build-win64-mxe/releases/download/v8.12.0/vips-dev-w64-all-8.12.0.zip
-      - name: Vips Extract
-        run: |
-          7z x .\vips-dev-w64-all-8.12.0.zip
-      - name: Vips add to path
-        shell: pwsh
-        run: |
-          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\lib\pkgconfig\* -Destination C:/Strawberry/c/lib/pkgconfig -force -recurse
-          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\bin\* -Destination C:/Strawberry/c/bin -force -recurse
-          Copy-Item -Path ${{ github.workspace }}\vips-dev-8.12\include\* -Destination C:/Strawberry/c/include -force -recurse
       - name: Golang Installation
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
       - name: Golang build
         run: |
-          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";${{ github.workspace }}\vips-dev-8.12\bin")
-          [Environment]::SetEnvironmentVariable("PKG_CONFIG_PATH", "${{ github.workspace }}\vips-dev-8.12\lib\pkgconfig")
           cd src && go build -o windows-amd64.exe
       - name: Deploy artifact to release ${{ github.ref_name }}
         uses: AButler/upload-release-assets@v3.0
