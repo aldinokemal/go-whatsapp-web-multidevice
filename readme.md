@@ -38,17 +38,14 @@ Now that we support ARM64 for Linux:
 ### Required (without docker)
 
 - Mac OS:
-    - `brew install vips`
     - `brew install ffmpeg`
     - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
     - `sudo apt update`
-    - `sudo apt install libvips-dev`
     - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-    - install vips library, or you can check here https://www.libvips.org/install.html
     - install ffmpeg, download [here](https://www.ffmpeg.org/download.html#build-windows)
-    - add to vips & ffmpg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+    - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ### How to use
 
