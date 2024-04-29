@@ -3,6 +3,11 @@ package cmd
 import (
 	"embed"
 	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
@@ -20,10 +25,6 @@ import (
 	"github.com/gofiber/template/html/v2"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
-	"log"
-	"net/http"
-	"os"
-	"strings"
 )
 
 var (
@@ -47,6 +48,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
+	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
 }
 
 func runRest(_ *cobra.Command, _ []string) {
