@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +25,7 @@ func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageService {
 	}
 }
 
-func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.ReactionResponse, err error) {
+func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.GenericResponse, err error) {
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
 	}
@@ -54,7 +55,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request message.
 	return response, nil
 }
 
-func (service serviceMessage) RevokeMessage(ctx context.Context, request domainMessage.RevokeRequest) (response domainMessage.RevokeResponse, err error) {
+func (service serviceMessage) RevokeMessage(ctx context.Context, request domainMessage.RevokeRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateRevokeMessage(ctx, request); err != nil {
 		return response, err
 	}
@@ -73,7 +74,41 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	return response, nil
 }
 
-func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.UpdateMessageResponse, err error) {
+func (service serviceMessage) DeleteMessage(ctx context.Context, request domainMessage.DeleteRequest) (err error) {
+	if err = validations.ValidateDeleteMessage(ctx, request); err != nil {
+		return err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return err
+	}
+
+	isFromMe := "1"
+	if len(request.MessageID) > 22 {
+		isFromMe = "0"
+	}
+
+	patchInfo := appstate.PatchInfo{
+		Timestamp: time.Now(),
+		Type:      appstate.WAPatchRegularHigh,
+		Mutations: []appstate.MutationInfo{{
+			Index: []string{appstate.IndexDeleteMessageForMe, dataWaRecipient.String(), request.MessageID, isFromMe, service.WaCli.Store.ID.String()},
+			Value: &waProto.SyncActionValue{
+				DeleteMessageForMeAction: &waProto.DeleteMessageForMeAction{
+					DeleteMedia:      proto.Bool(true),
+					MessageTimestamp: proto.Int64(time.Now().UnixMilli()),
+				},
+			},
+		}},
+	}
+
+	if err = service.WaCli.SendAppState(patchInfo); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
 	}
