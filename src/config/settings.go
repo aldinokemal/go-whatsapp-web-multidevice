@@ -48,4 +48,3 @@ func getEnvAsInt64(key string, defaultValue int64) int64 {
 	}
 	return defaultValue
 }
-}
