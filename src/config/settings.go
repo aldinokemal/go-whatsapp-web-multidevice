@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 
@@ -26,7 +27,7 @@ var (
 	WhatsappWebhook             string = getEnv("WhatsappWebhook", "")
 	WhatsappLogLevel            string = getEnv("WhatsappLogLevel", "ERROR")
 	WhatsappSettingMaxFileSize  int64  = getEnvAsInt64("WhatsappSettingMaxFileSize", 50000000)  // 50MB
-	WhatsappSettingMaxVideoSize int64  = getEnvAsInt64("WhatsappSettingMaxVideoSize", 100000000) // 100MB
+	WhatsappSettingMaxVideoSize int64  = getEnvAsInt64("WhatsappSettingMaxVideoSize", 100000000)  // 100MB
 	WhatsappTypeUser            string = "@s.whatsapp.net"
 	WhatsappTypeGroup           string = "@g.us"
 )
