@@ -42,7 +42,10 @@ func getEnvAsInt64(key string, defaultValue int64) int64 {
 	if valueStr, exists := os.LookupEnv(key); exists {
 		if value, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
 			return value
+		} else {
+			log.Printf("Error parsing environment variable %s: %v", key, err)
 		}
 	}
 	return defaultValue
+}
 }
