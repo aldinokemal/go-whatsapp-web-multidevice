@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 3.11.0
+  version: 4.0.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -200,7 +200,7 @@ paths:
       summary: Send Message
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -427,7 +427,7 @@ paths:
       summary: Send Contact
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -470,7 +470,7 @@ paths:
       summary: Send Link
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -513,7 +513,7 @@ paths:
       summary: Send Location
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -618,7 +618,49 @@ paths:
           description: Message ID
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/delete:
+    post:
+      operationId: deleteMessage
+      tags:
+        - message
+      summary: Delete Message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
             schema:
               type: object
               properties:
@@ -660,7 +702,7 @@ paths:
           description: Message ID
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -840,7 +882,7 @@ paths:
       summary: Join group with link
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -874,7 +916,7 @@ paths:
       summary: Leave group
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:

@@ -68,6 +68,7 @@
     </div>
 
     <div class="ui three column doubling grid cards">
+        <message-delete></message-delete>
         <message-revoke></message-revoke>
         <message-react></message-react>
         <message-update></message-update>
@@ -136,6 +137,7 @@
     import SendLocation from "./components/SendLocation.js";
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
+    import MessageDelete from "./components/MessageDelete.js";
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
     import MessageRevoke from "./components/MessageRevoke.js";
@@ -170,7 +172,7 @@
         components: {
             AppLogin, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
-            MessageUpdate, MessageReact, MessageRevoke,
+            MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             AccountAvatar, AccountUserInfo, AccountPrivacy
         },

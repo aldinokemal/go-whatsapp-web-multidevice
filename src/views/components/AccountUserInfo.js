@@ -95,7 +95,7 @@ export default {
 
             <div v-if="devices.length > 0" class="center">
                 <ol>
-                    <li>Nama: {{ name }}</li>
+                    <li>Name: {{ name }}</li>
                     <li>Status: {{ status }}</li>
                     <li>Device:
                         <ul>

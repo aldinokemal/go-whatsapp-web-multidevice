@@ -188,6 +188,8 @@ func MustLogin(waCli *whatsmeow.Client) {
 
 func handler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
+	case *events.DeleteForMe:
+		log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 	case *events.AppStateSyncComplete:
 		if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
 			err := cli.SendPresence(types.PresenceAvailable)
