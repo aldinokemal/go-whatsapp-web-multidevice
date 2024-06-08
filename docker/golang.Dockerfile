@@ -19,5 +19,7 @@ RUN apk update && apk add --no-cache ffmpeg
 WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
+# Copy the .env file
+COPY .env ./.env
 # Run the binary.
 ENTRYPOINT ["/app/whatsapp"]
