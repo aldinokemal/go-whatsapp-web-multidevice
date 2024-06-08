@@ -3,7 +3,7 @@ package config
 import (
 	"log"
 	"os"
-	"github.com/joho/godotenv" // Import the godotenv package
+	"github.com/joho/godotenv"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 )
 
@@ -11,7 +11,7 @@ var (
 	AppVersion             = "v4.14.0"
 	AppPort                = "3000"
 	AppDebug               = false
-	AppOs                  = "ABD-Whatsapp-Client"
+	AppOs                  = "AldinoKemal"
 	AppPlatform            = waProto.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential string
 
