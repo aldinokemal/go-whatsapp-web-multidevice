@@ -34,10 +34,10 @@ var (
 func init() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
+		log.Printf("Warning: .env file not loaded. %v", err)
 	}
 	WhatsappWebhook = os.Getenv("WhatsappWebhook")
 	if WhatsappWebhook == "" {
-		log.Fatalf("WhatsappWebhook environment variable is not set")
+		log.Printf("Warning: WhatsappWebhook environment variable is not set")
 	}
 }
