@@ -33,6 +33,7 @@ Now that we support ARM64 for Linux:
 - Webhook for received message
     - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
     - `-w="http://yourwebhook.site/handler"`
+    - *Note: Webhook can also be set via environment variable `WhatsappWebhook`*
 - For more command `./main --help`
 
 ### Required (without docker)
@@ -98,21 +99,21 @@ You can fork or edit this source code !
   to [SwaggerEditor](https://editor.swagger.io).
 - Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
 
-| Feature | Menu                         | Method | URL                           | 
+| Feature | Menu                         | Method | URL                           |
 |---------|------------------------------|--------|-------------------------------|
 | ✅       | Login                        | GET    | /app/login                    |
-| ✅       | Logout                       | GET    | /app/logout                   |  
-| ✅       | Reconnect                    | GET    | /app/reconnect                | 
-| ✅       | Devices                      | GET    | /app/devices                  | 
+| ✅       | Logout                       | GET    | /app/logout                   |
+| ✅       | Reconnect                    | GET    | /app/reconnect                |
+| ✅       | Devices                      | GET    | /app/devices                  |
 | ✅       | User Info                    | GET    | /user/info                    |
 | ✅       | User Avatar                  | GET    | /user/avatar                  |
 | ✅       | User My Group List           | GET    | /user/my/groups               |
 | ✅       | User My Privacy Setting      | GET    | /user/my/privacy              |
 | ✅       | Send Message                 | POST   | /send/message                 |
-| ✅       | Send Image                   | POST   | /send/image                   | 
-| ✅       | Send Audio                   | POST   | /send/audio                   | 
-| ✅       | Send File                    | POST   | /send/file                    | 
-| ✅       | Send Video                   | POST   | /send/video                   | 
+| ✅       | Send Image                   | POST   | /send/image                   |
+| ✅       | Send Audio                   | POST   | /send/audio                   |
+| ✅       | Send File                    | POST   | /send/file                    |
+| ✅       | Send Video                   | POST   | /send/video                   |
 | ✅       | Send Contact                 | POST   | /send/contact                 |
 | ✅       | Send Link                    | POST   | /send/link                    |
 | ✅       | Send Location                | POST   | /send/location                |

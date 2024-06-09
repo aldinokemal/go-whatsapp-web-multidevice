@@ -1,6 +1,9 @@
 package config
 
 import (
+	"log"
+	"os"
+	"github.com/joho/godotenv"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 )
 
@@ -27,3 +30,14 @@ var (
 	WhatsappTypeUser                  = "@s.whatsapp.net"
 	WhatsappTypeGroup                 = "@g.us"
 )
+
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Warning: .env file not loaded. %v", err)
+	}
+	WhatsappWebhook = os.Getenv("WhatsappWebhook")
+	if WhatsappWebhook == "" {
+		log.Printf("Warning: WhatsappWebhook environment variable is not set")
+	}
+}
