@@ -196,9 +196,6 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	fileMimeType := http.DetectContentType(fileBytes)
 
 	// Send to WA server
-	if err != nil {
-		return response, err
-	}
 	uploadedFile, err := service.WaCli.Upload(context.Background(), fileBytes, whatsmeow.MediaDocument)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
