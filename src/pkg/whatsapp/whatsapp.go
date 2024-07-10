@@ -5,6 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -19,13 +27,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
-	"mime"
-	"net/http"
-	"os"
-	"regexp"
-	"strings"
-	"sync/atomic"
-	"time"
 )
 
 var (
