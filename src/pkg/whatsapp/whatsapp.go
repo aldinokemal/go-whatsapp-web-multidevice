@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"mime"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/gabriel-vasile/mimetype"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
@@ -432,7 +433,9 @@ func extractPhoneNumber(jid string) string {
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
-func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
+func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (ExtractedMedia, error) {
+	var extractedMedia ExtractedMedia
+
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")
 		return extractedMedia, nil
@@ -443,30 +446,35 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 		return extractedMedia, err
 	}
 
+	// Detect MIME type using the mimetype package
+	mime := mimetype.Detect(data)
+	extractedMedia.MimeType = mime.String()
+
 	switch media := mediaFile.(type) {
 	case *waE2E.ImageMessage:
-		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
-	case *waE2E.AudioMessage:
-		extractedMedia.MimeType = media.GetMimetype()
 	case *waE2E.VideoMessage:
-		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
-	case *waE2E.StickerMessage:
-		extractedMedia.MimeType = media.GetMimetype()
 	case *waE2E.DocumentMessage:
-		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
 	}
 
-	extensions, err := mime.ExtensionsByType(extractedMedia.MimeType)
-	if err != nil {
-		return extractedMedia, err
+	var ext string
+	extensions := mime.Extension()
+	if extensions != "" {
+		ext = extensions
+	} else {
+		parts := strings.Split(extractedMedia.MimeType, "/")
+		fileName := "." + parts[len(parts)-1]
+		ext = fileName
 	}
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
+
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), ext)
+
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
 	}
+
 	return extractedMedia, nil
 }
