@@ -19,5 +19,10 @@ RUN apk update && apk add --no-cache ffmpeg
 WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
-# Run the binary.
-ENTRYPOINT ["/app/whatsapp"]
+
+# Set default environment variables for port and webhook
+ENV PORT 3000
+ENV WEBHOOK "http://localhost:3000/handler"
+
+# Use shell form to ensure environment variables are evaluated
+CMD ["/bin/sh", "-c", "/app/whatsapp --port ${PORT} -w=${WEBHOOK}"]
