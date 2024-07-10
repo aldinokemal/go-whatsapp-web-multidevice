@@ -458,7 +458,10 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 		extractedMedia.Caption = media.GetCaption()
 	}
 
-	extensions, _ := mime.ExtensionsByType(extractedMedia.MimeType)
+	extensions, err := mime.ExtensionsByType(extractedMedia.MimeType)
+	if err != nil {
+		return extractedMedia, err
+	}
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
