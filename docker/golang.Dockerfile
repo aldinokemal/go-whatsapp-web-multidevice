@@ -25,5 +25,4 @@ ENV PORT 3000
 ENV WEBHOOK "http://localhost:3000/handler"
 
 # Use shell form to ensure environment variables are evaluated
-CMD ["sh", "-c", "/app/whatsapp -p ${PORT} -w=${WEBHOOK}"]
 CMD ["/bin/sh", "-c", "/app/whatsapp --port ${PORT} -w=${WEBHOOK}"]
