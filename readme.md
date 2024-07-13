@@ -126,7 +126,7 @@ You can fork or edit this source code !
 | ✅       | Leave Group                  | POST   | /group/leave                  |
 | ✅       | Create Group                 | POST   | /group                        |
 | ✅       | Add Participants in Group    | POST   | /group/participants           |
-| ✅       | Remove Participant in Group  | POST   | /group/participants           |
+| ✅       | Remove Participant in Group  | POST   | /group/participants/remove    |
 | ✅       | Promote Participant in Group | POST   | /group/participants/promote   |
 | ✅       | Demote Participant in Group  | POST   | /group/participants/demote    |
 
