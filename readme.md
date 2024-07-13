@@ -101,6 +101,7 @@ You can fork or edit this source code !
 | Feature | Menu                         | Method | URL                           | 
 |---------|------------------------------|--------|-------------------------------|
 | ✅       | Login                        | GET    | /app/login                    |
+| ❌       | Login With Pair Code         | GET    | /app/login-with-code          |
 | ✅       | Logout                       | GET    | /app/logout                   |  
 | ✅       | Reconnect                    | GET    | /app/reconnect                | 
 | ✅       | Devices                      | GET    | /app/devices                  | 
