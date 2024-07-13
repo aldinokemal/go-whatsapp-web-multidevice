@@ -121,13 +121,14 @@ You can fork or edit this source code !
 | ✅       | React Message                | POST   | /message/:message_id/reaction |
 | ✅       | Delete Message               | POST   | /message/:message_id/delete   |
 | ✅       | Edit Message                 | POST   | /message/:message_id/update   |
+| ❌       | Star message                 | POST   | /message/:message_id/star     |
 | ✅       | Join Group With Link         | POST   | /group/join-with-link         |
 | ✅       | Leave Group                  | POST   | /group/leave                  |
 | ✅       | Create Group                 | POST   | /group                        |
 | ✅       | Add Participants in Group    | POST   | /group/participants           |
-| ❌       | Remove Participant in Group  | DELETE | /group/participants           |
-| ❌       | Promote Participant in Group | POST   | /group/participants/promote   |
-| ❌       | Demote Participant in Group  | POST   | /group/participants/demote    |
+| ✅       | Remove Participant in Group  | DELETE | /group/participants           |
+| ✅       | Promote Participant in Group | PATCH  | /group/participants/promote   |
+| ✅       | Demote Participant in Group  | PATCH  | /group/participants/demote    |
 
 ```
 ✅ = Available
