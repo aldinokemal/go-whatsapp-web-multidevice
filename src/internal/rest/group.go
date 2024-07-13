@@ -19,9 +19,9 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
 	app.Post("/group/leave", rest.LeaveGroup)
 	app.Post("/group/participants", rest.AddParticipants)
-	app.Delete("/group/participants", rest.DeleteParticipants)
-	app.Patch("/group/participants/promote", rest.PromoteParticipants)
-	app.Patch("/group/participants/demote", rest.DemoteParticipants)
+	app.Post("/group/participants/remove", rest.DeleteParticipants)
+	app.Post("/group/participants/promote", rest.PromoteParticipants)
+	app.Post("/group/participants/demote", rest.DemoteParticipants)
 	return rest
 }
 

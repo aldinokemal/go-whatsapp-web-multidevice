@@ -51,13 +51,13 @@ export default {
                         response = await window.http.post(`/group/participants`, payload);
                         break;
                     case 'remove':
-                        response = await window.http.delete(`/group/participants`, { data: payload });
+                        response = await window.http.post(`/group/participants/remove`, payload);
                         break;
                     case 'promote':
-                        response = await window.http.patch(`/group/participants/promote`, payload);
+                        response = await window.http.post(`/group/participants/promote`, payload);
                         break;
                     case 'demote':
-                        response = await window.http.patch(`/group/participants/demote`, payload);
+                        response = await window.http.post(`/group/participants/demote`, payload);
                         break;
                 }
 
