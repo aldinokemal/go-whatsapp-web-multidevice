@@ -1043,11 +1043,11 @@ components:
         participants:
           type: array
           items:
-              type: string
+            type: string
           example:
-              - '6819241294719274'
-              - '6829241294719274'
-              - '6839241294719274'
+            - '6819241294719274'
+            - '6829241294719274'
+            - '6839241294719274'
     ManageParticipantResponse:
       type: object
       properties:
