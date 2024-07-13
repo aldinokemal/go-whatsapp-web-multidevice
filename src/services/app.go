@@ -90,6 +90,17 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 	return response, nil
 }
 
+func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string) (err error) {
+	phone, err := service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		return err
+	}
+
+	logrus.Info("Phone: ", phone)
+
+	return nil
+}
+
 func (service serviceApp) Logout(_ context.Context) (err error) {
 	// delete history
 	files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages))
