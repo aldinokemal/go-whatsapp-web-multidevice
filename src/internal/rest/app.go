@@ -49,7 +49,6 @@ func (handler *App) LoginWithCode(c *fiber.Ctx) error {
 			"login_code": loginCode,
 		},
 	})
-
 }
 
 func (handler *App) Logout(c *fiber.Ctx) error {
