@@ -38,14 +38,16 @@ func (handler *App) Login(c *fiber.Ctx) error {
 }
 
 func (handler *App) LoginWithCode(c *fiber.Ctx) error {
-	err := handler.Service.LoginWithCode(c.UserContext(), c.Query("phone"))
+	loginCode, err := handler.Service.LoginWithCode(c.UserContext(), c.Query("phone"))
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Login with code success",
-		Results: nil,
+		Results: map[string]any{
+			"login_code": loginCode,
+		},
 	})
 
 }
