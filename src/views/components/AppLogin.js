@@ -43,7 +43,7 @@ export default {
         <div class="content">
             <div class="header">Login</div>
             <div class="description">
-                Scan your QRCode and you can use all this API feature
+                Scan your QR code to access all this API capability.
             </div>
         </div>
     </div>

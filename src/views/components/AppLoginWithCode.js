@@ -69,7 +69,7 @@ export default {
         <div class="content">
             <div class="header">Login with Code</div>
             <div class="description">
-                Login with pairing code to get access to your devices
+                Enter your pairing code to log in and access your devices.
             </div>
         </div>
     </div>
