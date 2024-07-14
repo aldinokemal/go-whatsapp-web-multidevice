@@ -41,7 +41,7 @@
     </div>
 
     <div class="ui three column stackable grid cards">
-        <app-login></app-login>
+        <app-login :connected="connected_devices"></app-login>
         <app-logout @reload-devices="handleReloadDevice"></app-logout>
         <app-reconnect @reload-devices="handleReloadDevice"></app-reconnect>
         <app-login-with-code :connected="connected_devices"></app-login-with-code>

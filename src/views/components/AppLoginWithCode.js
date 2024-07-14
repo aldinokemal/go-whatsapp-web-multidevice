@@ -3,6 +3,17 @@ export default {
     props: {
         connected: null,
     },
+    watch: {
+        connected: function(val) {
+            if (val) {
+                // reset form
+                this.phone = '';
+                this.pair_code = null;
+
+                $('#modalLoginWithCode').modal('hide');
+            }
+        },
+    },
     data: () => {
         return {
             phone: '',
@@ -13,6 +24,8 @@ export default {
     methods: {
         async openModal() {
             try {
+                if (this.connected) throw Error('you already logged in :)');
+
                 $('#modalLoginWithCode').modal({
                     onApprove: function() {
                         return false;
@@ -26,8 +39,8 @@ export default {
             if (this.submitting) return;
             try {
                 this.submitting = true;
-                const { response } = await this.submitApi();
-                this.pair_code = response.pair_code;
+                const { data } = await this.submitApi();
+                this.pair_code = data.results.pair_code;
             } catch (err) {
                 showErrorInfo(err);
             } finally {

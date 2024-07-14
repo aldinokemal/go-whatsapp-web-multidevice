@@ -7,7 +7,6 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/sirupsen/logrus"
@@ -103,12 +102,7 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 		return loginCode, pkgError.ErrAlreadyLoggedIn
 	}
 
-	// check if on whatsapp
-	if exist := whatsapp.IsOnWhatsapp(service.WaCli, phoneNumber+"@s.whatsapp.net"); !exist {
-		return loginCode, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", phoneNumber))
-	}
-
-	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome")
+	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		return loginCode, err
 	}

@@ -1,5 +1,8 @@
 export default {
     name: 'AppLogin',
+    props: {
+        connected: null,
+    },
     data() {
         return {
             login_link: '',
@@ -9,6 +12,8 @@ export default {
     methods: {
         async openModal() {
             try {
+                if (this.connected) throw Error('you already logged in :)');
+
                 await this.submitApi();
                 $('#modalLogin').modal({
                     onApprove: function () {
