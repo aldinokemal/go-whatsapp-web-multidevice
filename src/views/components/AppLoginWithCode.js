@@ -39,29 +39,20 @@ export default {
             if (this.submitting) return;
             try {
                 this.submitting = true;
-                const { data } = await this.submitApi();
-                this.pair_code = data.results.pair_code;
-            } catch (err) {
-                showErrorInfo(err);
-            } finally {
-                this.submitting = false;
-            }
-        },
-
-        async submitApi() {
-            try {
-                return http.get(`/app/login-with-code`, {
+                const { data } = await http.get(`/app/login-with-code`, {
                     params: {
                         phone: this.phone,
                     },
                 });
-            } catch (error) {
-                if (error.response) {
-                    throw Error(error.response.data.message);
+                this.pair_code = data.results.pair_code;
+            } catch (err) {
+                if (err.response) {
+                    return showErrorInfo(err.response.data.message);
                 }
-                throw Error(error.message);
+                return showErrorInfo(err.message);
+            } finally {
+                this.submitting = false;
             }
-
         },
     },
     template: `
