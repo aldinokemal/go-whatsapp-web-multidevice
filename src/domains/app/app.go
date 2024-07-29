@@ -7,6 +7,7 @@ import (
 
 type IAppService interface {
 	Login(ctx context.Context) (response LoginResponse, err error)
+	LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error)
 	Logout(ctx context.Context) (err error)
 	Reconnect(ctx context.Context) (err error)
 	FirstDevice(ctx context.Context) (response DevicesResponse, err error)

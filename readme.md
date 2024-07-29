@@ -100,8 +100,8 @@ You can fork or edit this source code !
 
 | Feature | Menu                         | Method | URL                           | 
 |---------|------------------------------|--------|-------------------------------|
-| ✅       | Login                        | GET    | /app/login                    |
-| ❌       | Login With Pair Code         | GET    | /app/login-with-code          |
+| ✅       | Login with Scan QR           | GET    | /app/login                    |
+| ✅       | Login With Pair Code         | GET    | /app/login-with-code          |
 | ✅       | Logout                       | GET    | /app/logout                   |  
 | ✅       | Reconnect                    | GET    | /app/reconnect                | 
 | ✅       | Devices                      | GET    | /app/devices                  | 
@@ -136,28 +136,32 @@ You can fork or edit this source code !
 ❌ = Not Available Yet
 ```
 
-### App User Interface
+### User Interface
 
-1. Homepage ![Homepage](https://i.ibb.co.com/d05L4VX/homepage.png)
-2. Login ![Login](https://i.ibb.co.com/jkcB15R/login.png?v=1)
-3. Send Message ![Send Message](https://i.ibb.co.com/rc3NXMX/send-message.png?v1)
-4. Send Image ![Send Image](https://i.ibb.co.com/BcFL3SD/send-image.png?v1)
-5. Send File ![Send File](https://i.ibb.co.com/f4yxjpp/send-file.png)
-6. Send Video ![Send Video](https://i.ibb.co.com/PrD3P51/send-video.png)
-7. Send Contact ![Send Contact](https://i.ibb.co.com/4810H7N/send-contact.png)
-8. Send Location ![Send Location](https://i.ibb.co.com/TWsy09G/send-location.png)
-9. Send Audio ![Send Location](https://i.ibb.co.com/p1wL4wh/Send-Audio.png)
-10. Send Poll ![Send Poll](https://i.ibb.co.com/mq2fGHz/send-poll.png)
-11. Revoke Message ![Revoke Message](https://i.ibb.co.com/yswhvQY/revoke.png?v1)
-12. Delete Message ![Delete Message](https://i.ibb.co.com/F70SZ84/image.png)
-13. Reaction Message ![Revoke Message](https://i.ibb.co.com/BfHgSHG/react-message.png)
-14. Edit Message ![Edit Message](https://i.ibb.co.com/kXfpqJw/update-message.png)
-15. User Info ![User Info](https://i.ibb.co.com/3zjX6Cz/user-info.png?v=1)
-16. User Avatar ![User Avatar](https://i.ibb.co.com/ZmJZ4ZW/search-avatar.png?v=1)
-17. My Privacy ![My Privacy](https://i.ibb.co.com/Cw1sMQz/my-privacy.png)
-18. My Group ![My Group](https://i.ibb.co.com/WB268Xy/list-group.png)
-19. Auto Reply ![Auto Reply](https://i.ibb.co.com/D4rTytX/IMG-20220517-162500.jpg)
-20. Basic Auth Prompt ![Basic Auth](https://i.ibb.co.com/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png)
+| Description        | Image                                                                                    |
+|--------------------|------------------------------------------------------------------------------------------|
+| Homepage           | ![Homepage](https://i.ibb.co.com/L0B1LVb/homepage-v4-16.png)                             |
+| Login              | ![Login](https://i.ibb.co.com/jkcB15R/login.png?v=1)                                     |
+| Login With Code    | ![Login With Code](https://i.ibb.co.com/rdJGvGw/paircode.png)                            |
+| Send Message       | ![Send Message](https://i.ibb.co.com/rc3NXMX/send-message.png?v1)                        |
+| Send Image         | ![Send Image](https://i.ibb.co.com/BcFL3SD/send-image.png?v1)                            |
+| Send File          | ![Send File](https://i.ibb.co.com/f4yxjpp/send-file.png)                                 |
+| Send Video         | ![Send Video](https://i.ibb.co.com/PrD3P51/send-video.png)                               |
+| Send Contact       | ![Send Contact](https://i.ibb.co.com/4810H7N/send-contact.png)                           |
+| Send Location      | ![Send Location](https://i.ibb.co.com/TWsy09G/send-location.png)                         |
+| Send Audio         | ![Send Audio](https://i.ibb.co.com/p1wL4wh/Send-Audio.png)                               |
+| Send Poll          | ![Send Poll](https://i.ibb.co.com/mq2fGHz/send-poll.png)                                 |
+| Revoke Message     | ![Revoke Message](https://i.ibb.co.com/yswhvQY/revoke.png?v1)                            |
+| Delete Message     | ![Delete Message](https://i.ibb.co.com/F70SZ84/image.png)                                |
+| Reaction Message   | ![Reaction Message](https://i.ibb.co.com/BfHgSHG/react-message.png)                      |
+| Edit Message       | ![Edit Message](https://i.ibb.co.com/kXfpqJw/update-message.png)                         |
+| User Info          | ![User Info](https://i.ibb.co.com/3zjX6Cz/user-info.png?v=1)                             |
+| User Avatar        | ![User Avatar](https://i.ibb.co.com/ZmJZ4ZW/search-avatar.png?v=1)                       |
+| My Privacy         | ![My Privacy](https://i.ibb.co.com/Cw1sMQz/my-privacy.png)                               |
+| My Group           | ![My Group](https://i.ibb.co.com/WB268Xy/list-group.png)                                 |
+| Auto Reply         | ![Auto Reply](https://i.ibb.co.com/D4rTytX/IMG-20220517-162500.jpg)                      |
+| Basic Auth Prompt  | ![Basic Auth Prompt](https://i.ibb.co.com/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png) |
+| Manage Participant | ![Manage Participant](https://i.ibb.co.com/ynrN7cr/manage-participant.png)               |
 
 ### Mac OS NOTE
 
