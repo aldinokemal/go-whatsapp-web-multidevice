@@ -99,14 +99,17 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 
 	// detect is already logged in
 	if service.WaCli.IsLoggedIn() {
+		logrus.Warn("User is already logged in")
 		return loginCode, pkgError.ErrAlreadyLoggedIn
 	}
 
 	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
+		logrus.Errorf("Error when pairing phone: %s", err.Error())
 		return loginCode, err
 	}
 
+	logrus.Infof("Successfully paired phone with code: %s", loginCode)
 	return loginCode, nil
 }
 

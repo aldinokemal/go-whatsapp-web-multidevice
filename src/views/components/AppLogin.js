@@ -12,7 +12,7 @@ export default {
     methods: {
         async openModal() {
             try {
-                if (this.connected) throw Error('you already logged in :)');
+                if (this.connected) throw Error('You are already logged in.');
 
                 await this.submitApi();
                 $('#modalLogin').modal({
@@ -43,7 +43,7 @@ export default {
         <div class="content">
             <div class="header">Login</div>
             <div class="description">
-                Scan your QR code to access all this API capability.
+                Scan your QR code to access all API capabilities.
             </div>
         </div>
     </div>

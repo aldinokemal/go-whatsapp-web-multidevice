@@ -34,6 +34,21 @@ func TestValidateLoginWithCode(t *testing.T) {
 			args:    args{phoneNumber: "+6281234567890a"},
 			wantErr: true,
 		},
+		{
+			name:    "Empty phone number",
+			args:    args{phoneNumber: ""},
+			wantErr: true,
+		},
+		{
+			name:    "Phone with special characters",
+			args:    args{phoneNumber: "+6281234567890!@#"},
+			wantErr: true,
+		},
+		{
+			name:    "Extremely long phone number",
+			args:    args{phoneNumber: "+62812345678901234567890"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
