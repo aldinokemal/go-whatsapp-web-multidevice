@@ -46,7 +46,18 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Send message
-	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
+	msg := &waE2E.Message{
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String(request.Message),
+		},
+	}
+
+	parsedMentions := service.getMentionFromText(ctx, request.Message)
+	if len(parsedMentions) > 0 {
+		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
+			MentionedJID: parsedMentions,
+		}
+	}
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
@@ -59,17 +70,19 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 			participantJID = firstDevice.Device
 		}
 
-		msg = &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: proto.String(request.Message),
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:    request.ReplyMessageID,
-					Participant: proto.String(participantJID),
-					QuotedMessage: &waE2E.Message{
-						Conversation: proto.String(request.Message),
-					},
+		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+			Text: proto.String(request.Message),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:    request.ReplyMessageID,
+				Participant: proto.String(participantJID),
+				QuotedMessage: &waE2E.Message{
+					Conversation: proto.String(request.Message),
 				},
 			},
+		}
+
+		if len(parsedMentions) > 0 {
+			msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 		}
 	}
 
@@ -481,4 +494,16 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+func (service serviceSend) getMentionFromText(ctx context.Context, messages string) (result []string) {
+	mentions := utils.ContainsMention(messages)
+	for _, mention := range mentions {
+		// Get JID from phone number
+		if dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, mention); err == nil {
+			result = append(result, dataWaRecipient.String())
+		}
+	}
+	return result
+
 }

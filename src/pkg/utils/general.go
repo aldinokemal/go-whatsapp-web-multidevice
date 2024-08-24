@@ -92,3 +92,16 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 	fmt.Println("Meta data:", meta)
 	return meta
 }
+
+// ContainsMention is checking if message contains mention, then return only mention without @
+func ContainsMention(message string) []string {
+	var mentions []string
+	words := strings.Fields(message)
+	for _, word := range words {
+		if strings.HasPrefix(word, "@") {
+			mentions = append(mentions, word[1:])
+		}
+	}
+
+	return mentions
+}
