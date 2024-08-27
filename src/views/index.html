@@ -41,9 +41,10 @@
     </div>
 
     <div class="ui three column stackable grid cards">
-        <app-login></app-login>
+        <app-login :connected="connected_devices"></app-login>
         <app-logout @reload-devices="handleReloadDevice"></app-logout>
         <app-reconnect @reload-devices="handleReloadDevice"></app-reconnect>
+        <app-login-with-code :connected="connected_devices"></app-login-with-code>
     </div>
 
     <div class="ui horizontal divider">
@@ -127,6 +128,7 @@
 </script>
 <script type="module">
     import AppLogin from "./components/AppLogin.js";
+    import AppLoginWithCode from "./components/AppLoginWithCode.js";
     import AppLogout from "./components/AppLogout.js";
     import AppReconnect from "./components/AppReconnect.js";
     import SendMessage from "./components/SendMessage.js";
@@ -144,7 +146,7 @@
     import GroupList from "./components/GroupList.js";
     import GroupCreate from "./components/GroupCreate.js";
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
-    import GroupAddParticipants from "./components/GroupAddParticipants.js";
+    import GroupAddParticipants from "./components/GroupManageParticipants.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
@@ -170,7 +172,7 @@
 
     Vue.createApp({
         components: {
-            AppLogin, AppLogout, AppReconnect,
+            AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,

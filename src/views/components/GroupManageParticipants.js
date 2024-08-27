@@ -1,48 +1,66 @@
 export default {
-    name: 'AddParticipantsToGroup',
+    name: 'ManageGroupParticipants',
     data() {
         return {
             loading: false,
             group: '',
+            action: 'add', // add, remove, promote, demote
             participants: ['', ''],
-        }
+        };
     },
     computed: {
         group_id() {
-            return `${this.group}@${window.TYPEGROUP}`
-        }
+            return `${this.group}@${window.TYPEGROUP}`;
+        },
     },
     methods: {
         openModal() {
             $('#modalGroupAddParticipant').modal({
-                onApprove: function () {
+                onApprove: function() {
                     return false;
-                }
+                },
             }).modal('show');
         },
         handleAddParticipant() {
-            this.participants.push('')
+            this.participants.push('');
         },
         handleDeleteParticipant(index) {
-            this.participants.splice(index, 1)
+            this.participants.splice(index, 1);
         },
         async handleSubmit() {
             try {
-                let response = await this.submitApi()
-                showSuccessInfo(response)
+                let response = await this.submitApi();
+                showSuccessInfo(response);
                 $('#modalGroupAddParticipant').modal('hide');
             } catch (err) {
-                showErrorInfo(err)
+                showErrorInfo(err);
             }
         },
         async submitApi() {
             this.loading = true;
             try {
-                let response = await window.http.post(`/group/participants`, {
+                const payload = {
                     group_id: this.group_id,
                     // convert participant become list of string
-                    participants: this.participants.filter(participant => participant !== '').map(participant => `${participant}`)
-                })
+                    participants: this.participants.filter(participant => participant !== '').map(participant => `${participant}`),
+                };
+
+                let response;
+                switch (this.action) {
+                    case 'add':
+                        response = await window.http.post(`/group/participants`, payload);
+                        break;
+                    case 'remove':
+                        response = await window.http.post(`/group/participants/remove`, payload);
+                        break;
+                    case 'promote':
+                        response = await window.http.post(`/group/participants/promote`, payload);
+                        break;
+                    case 'demote':
+                        response = await window.http.post(`/group/participants/demote`, payload);
+                        break;
+                }
+
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -56,6 +74,7 @@ export default {
         },
         handleReset() {
             this.group = '';
+            this.action = 'add';
             this.participants = ['', ''];
         },
     },
@@ -63,9 +82,9 @@ export default {
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
             <a class="ui green right ribbon label">Group</a>
-            <div class="header">Add Participants</div>
+            <div class="header">Manage Participants</div>
             <div class="description">
-                Add multiple participants
+                Add/Remove/Promote/Demote Participants
             </div>
         </div>
     </div>
@@ -74,7 +93,7 @@ export default {
     <div class="ui small modal" id="modalGroupAddParticipant">
         <i class="close icon"></i>
         <div class="header">
-            Add Participants
+            Manage Participants
         </div>
         <div class="content">
             <form class="ui form">
@@ -105,15 +124,25 @@ export default {
                         </div>
                     </div>
                 </div>
+                
+                <div class="field">
+                    <label>Action</label>
+                    <select v-model="action" class="ui dropdown" aria-label="Action">
+                        <option value="add">Add to group</option>
+                        <option value="remove">Remove from group</option>
+                        <option value="promote">Promote to admin</option>
+                        <option value="demote">Demote from admin</option>
+                    </select>
+                </div>
             </form>
         </div>
         <div class="actions">
             <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
                  @click="handleSubmit" type="button">
-                Create
+                Submit
                 <i class="send icon"></i>
             </div>
         </div>
     </div>
-    `
-}
+    `,
+};

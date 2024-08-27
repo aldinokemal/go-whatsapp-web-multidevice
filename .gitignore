@@ -8,4 +8,3 @@ main.exe
 *.jpe
 src/pkged.go
 storages
-.env

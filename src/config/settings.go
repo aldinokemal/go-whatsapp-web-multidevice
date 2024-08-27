@@ -1,18 +1,15 @@
 package config
 
 import (
-	"log"
-	"os"
-	"github.com/joho/godotenv"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 )
 
 var (
-	AppVersion             = "v4.14.0"
+	AppVersion             = "v4.16.0"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = "AldinoKemal"
-	AppPlatform            = waProto.DeviceProps_PlatformType(1)
+	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential string
 
 	PathQrCode    = "statics/qrcode"
@@ -30,14 +27,3 @@ var (
 	WhatsappTypeUser                  = "@s.whatsapp.net"
 	WhatsappTypeGroup                 = "@g.us"
 )
-
-func init() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Printf("Warning: .env file not loaded. %v", err)
-	}
-	WhatsappWebhook = os.Getenv("WhatsappWebhook")
-	if WhatsappWebhook == "" {
-		log.Printf("Warning: WhatsappWebhook environment variable is not set")
-	}
-}

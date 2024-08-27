@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -251,7 +251,7 @@ func handler(rawEvt interface{}) {
 		if config.WhatsappAutoReplyMessage != "" &&
 			!isGroupJid(evt.Info.Chat.String()) &&
 			!strings.Contains(evt.Info.SourceString(), "broadcast") {
-			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waProto.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
+			_, _ = cli.SendMessage(context.Background(), evt.Info.Sender, &waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)})
 		}
 
 		if config.WhatsappWebhook != "" &&
@@ -314,7 +314,7 @@ func forwardToWebhook(evt *events.Message) error {
 	message.ID = evt.Info.ID
 	if extendedMessage := evt.Message.ExtendedTextMessage.GetText(); extendedMessage != "" {
 		message.Text = extendedMessage
-		message.RepliedId = evt.Message.ExtendedTextMessage.ContextInfo.GetStanzaId()
+		message.RepliedId = evt.Message.ExtendedTextMessage.ContextInfo.GetStanzaID()
 	}
 
 	var quotedmessage any
@@ -332,7 +332,7 @@ func forwardToWebhook(evt *events.Message) error {
 	var waReaction evtReaction
 	if reactionMessage := evt.Message.ReactionMessage; reactionMessage != nil {
 		waReaction.Message = reactionMessage.GetText()
-		waReaction.ID = reactionMessage.GetKey().GetId()
+		waReaction.ID = reactionMessage.GetKey().GetID()
 	}
 
 	body := map[string]interface{}{
@@ -443,23 +443,29 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 	}
 
 	switch media := mediaFile.(type) {
-	case *waProto.ImageMessage:
+	case *waE2E.ImageMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
-	case *waProto.AudioMessage:
+	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
-	case *waProto.VideoMessage:
+	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
-	case *waProto.StickerMessage:
+	case *waE2E.StickerMessage:
 		extractedMedia.MimeType = media.GetMimetype()
-	case *waProto.DocumentMessage:
+	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
 	}
 
-	extensions, _ := mime.ExtensionsByType(extractedMedia.MimeType)
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extensions[0])
+	var extension string
+	if ext, err := mime.ExtensionsByType(extractedMedia.MimeType); err != nil && len(ext) > 0 {
+		extension = ext[0]
+	} else if parts := strings.Split(extractedMedia.MimeType, "/"); len(parts) > 1 {
+		extension = "." + parts[len(parts)-1]
+	}
+
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err

@@ -1,12 +1,15 @@
 package group
 
-import "context"
+import (
+	"context"
+	"go.mau.fi/whatsmeow"
+)
 
 type IGroupService interface {
 	JoinGroupWithLink(ctx context.Context, request JoinGroupWithLinkRequest) (groupID string, err error)
 	LeaveGroup(ctx context.Context, request LeaveGroupRequest) (err error)
 	CreateGroup(ctx context.Context, request CreateGroupRequest) (groupID string, err error)
-	AddParticipant(ctx context.Context, request ParticipantRequest) (result []ParticipantStatus, err error)
+	ManageParticipant(ctx context.Context, request ParticipantRequest) (result []ParticipantStatus, err error)
 }
 
 type JoinGroupWithLinkRequest struct {
@@ -23,8 +26,9 @@ type CreateGroupRequest struct {
 }
 
 type ParticipantRequest struct {
-	GroupID      string   `json:"group_id" form:"group_id"`
-	Participants []string `json:"participants" form:"participants"`
+	GroupID      string                      `json:"group_id" form:"group_id"`
+	Participants []string                    `json:"participants" form:"participants"`
+	Action       whatsmeow.ParticipantChange `json:"action" form:"action"`
 }
 
 type ParticipantStatus struct {

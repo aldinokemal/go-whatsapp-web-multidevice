@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 4.0.0
+  version: 4.2.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -30,6 +30,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/login-with-code:
+    get:
+      operationId: appLoginWithCode
+      tags:
+        - app
+      summary: Login with pairing code
+      parameters:
+        - name: phone
+          in: query
+          schema:
+            type: string
+          example: '628912344551'
+          description: Your phone number
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginWithCodeResponse'
         '500':
           description: Internal Server Error
           content:
@@ -838,30 +864,104 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                group_id:
-                  type: string
-                  example: '120363228882361111'
-                participants:
-                  type: array
-                  items:
-                    type: string
-                    example:
-                      - '6819241294719274'
-                      - '6829241294719274'
-                      - '6839241294719274'
-                  example:
-                    - '6819241294719274'
-                    - '6829241294719274'
-                    - '6839241294719274'
+              $ref: '#/components/schemas/ManageParticipantRequest'
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AddParticipantToGroupResponse'
+                $ref: '#/components/schemas/ManageParticipantResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participants/remove:
+    post:
+      operationId: removeParticipantFromGroup
+      tags:
+        - group
+      summary: Remove participants from group
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManageParticipantRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManageParticipantResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participants/promote:
+    post:
+      operationId: promoteParticipantToAdmin
+      tags:
+        - group
+      summary: Promote participants to admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManageParticipantRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManageParticipantResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participants/demote:
+    post:
+      operationId: demoteParticipantToMember
+      tags:
+        - group
+      summary: Demote participants to member
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManageParticipantRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManageParticipantResponse'
         '400':
           description: Bad Request
           content:
@@ -960,7 +1060,21 @@ components:
             group_id:
               type: string
               example: 1203632782168851111@g.us
-    AddParticipantToGroupResponse:
+    ManageParticipantRequest:
+      type: object
+      properties:
+        group_id:
+          type: string
+          example: 1203632782168851111@g.us
+        participants:
+          type: array
+          items:
+            type: string
+          example:
+            - '6819241294719274'
+            - '6829241294719274'
+            - '6839241294719274'
+    ManageParticipantResponse:
       type: object
       properties:
         code:
@@ -1153,6 +1267,21 @@ components:
               device:
                 type: string
                 example: '628960561XXX.0:64@s.whatsapp.net'
+    LoginWithCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success
+        results:
+          type: object
+          properties:
+            pair_code:
+              type: string
+              example: ABCD-1234
     LoginResponse:
       type: object
       properties:

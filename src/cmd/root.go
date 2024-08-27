@@ -13,6 +13,8 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
 	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v2"
+		// terminal: "go get github.com/joho/godotenv"
+	"github.com/joho/godotenv"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
@@ -34,7 +36,7 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Short: "Send free whatsapp API",
-	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice, 
+	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice,
 you can send whatsapp over http api but your whatsapp account have to be multi device version`,
 	Run: runRest,
 }
@@ -47,6 +49,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
+
+	if config.WhatsappWebhook == "" {
+		err := godotenv.Load()
+		if err != nil {
+			log.Printf("Warning: .env file not loaded. %v", err)
+		}
+		config.WhatsappWebhook = os.Getenv("WhatsappWebhook")
+	}
 }
 
 func runRest(_ *cobra.Command, _ []string) {

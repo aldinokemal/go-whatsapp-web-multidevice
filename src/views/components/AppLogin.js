@@ -1,5 +1,8 @@
 export default {
     name: 'AppLogin',
+    props: {
+        connected: null,
+    },
     data() {
         return {
             login_link: '',
@@ -9,6 +12,8 @@ export default {
     methods: {
         async openModal() {
             try {
+                if (this.connected) throw Error('You are already logged in.');
+
                 await this.submitApi();
                 $('#modalLogin').modal({
                     onApprove: function () {
@@ -38,7 +43,7 @@ export default {
         <div class="content">
             <div class="header">Login</div>
             <div class="description">
-                Scan your QRCode and you can use all this API feature
+                Scan your QR code to access all API capabilities.
             </div>
         </div>
     </div>
