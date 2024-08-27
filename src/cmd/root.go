@@ -34,7 +34,7 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Short: "Send free whatsapp API",
-	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice, 
+	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice,
 you can send whatsapp over http api but your whatsapp account have to be multi device version`,
 	Run: runRest,
 }
@@ -42,11 +42,34 @@ you can send whatsapp over http api but your whatsapp account have to be multi d
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVarP(&config.AppPort, "port", "p", config.AppPort, "change port number with --port <number> | example: --port=8080")
+	if config.AppPort == "" {
+		config.AppPort = os.Getenv("AppPort")
+	}
 	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
+	if !config.AppDebug {
+		debugEnv := os.Getenv("AppDebug")
+		if debugEnv == "true" {
+			config.AppDebug = true
+		} else if debugEnv == "false" {
+			config.AppDebug = false
+		}
+	}
 	rootCmd.PersistentFlags().StringVarP(&config.AppOs, "os", "", config.AppOs, `os name --os <string> | example: --os="Chrome"`)
+	if config.AppOs == "" {
+		config.AppOs = os.Getenv("AppOs")
+	}
 	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
+	if config.AppBasicAuthCredential == "" {
+		config.AppBasicAuthCredential = os.Getenv("AppBasicAuthCredential")
+	}
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
+	if config.WhatsappAutoReplyMessage == "" {
+		config.WhatsappAutoReplyMessage = os.Getenv("WhatsappAutoReplyMessage")
+	}
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
+	if config.WhatsappWebhook == "" {
+		config.WhatsappWebhook = os.Getenv("WhatsappWebhook")
+	}
 }
 
 func runRest(_ *cobra.Command, _ []string) {
