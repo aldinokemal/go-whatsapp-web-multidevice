@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion             = "v4.16.0"
+	AppVersion             = "v4.17.0"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = "AldinoKemal"
@@ -26,4 +26,5 @@ var (
 	WhatsappSettingMaxVideoSize int64 = 100000000 // 100MB
 	WhatsappTypeUser                  = "@s.whatsapp.net"
 	WhatsappTypeGroup                 = "@g.us"
+	WhatsappAccountValidation         = true
 )

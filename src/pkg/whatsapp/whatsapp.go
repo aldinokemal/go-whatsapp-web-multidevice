@@ -137,7 +137,7 @@ func IsOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
 func ValidateJidWithLogin(waCli *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(waCli)
 
-	if !IsOnWhatsapp(waCli, jid) {
+	if config.WhatsappAccountValidation && !IsOnWhatsapp(waCli, jid) {
 		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
 	}
 
