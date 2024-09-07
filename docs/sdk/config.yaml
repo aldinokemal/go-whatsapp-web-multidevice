@@ -6,4 +6,7 @@ supportsES6: true
 withInterfaces: true
 
 # sdk-go Configs
-packageName: "sdk_go_whatsapp_web_multidevice" #for golang package name
+packageName: "sdk_go_whatsapp_web_multidevice"
+
+# sdk-php Configs
+composerPackageName: "sdk_go_whatsapp_web_multidevice"
