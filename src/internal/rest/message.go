@@ -16,6 +16,7 @@ func InitRestMessage(app *fiber.App, service domainMessage.IMessageService) Mess
 	rest := Message{Service: service}
 	app.Post("/message/:message_id/reaction", rest.ReactMessage)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
+	app.Post("/message/:message_id/delete", rest.DeleteMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	return rest
 }
@@ -36,6 +37,25 @@ func (controller *Message) RevokeMessage(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
+	})
+}
+
+func (controller *Message) DeleteMessage(c *fiber.Ctx) error {
+	var request domainMessage.DeleteRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	whatsapp.SanitizePhone(&request.Phone)
+
+	err = controller.Service.DeleteMessage(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Message deleted successfully",
+		Results: nil,
 	})
 }
 

@@ -48,3 +48,16 @@ func ValidateReactMessage(ctx context.Context, request message.ReactionRequest) 
 
 	return nil
 }
+
+func ValidateDeleteMessage(ctx context.Context, request domainMessage.DeleteRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.MessageID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

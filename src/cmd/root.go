@@ -49,6 +49,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
+	rootCmd.PersistentFlags().BoolVarP(&config.WhatsappAccountValidation, "account-validation", "", config.WhatsappAccountValidation, `enable or disable account validation --account-validation <true/false> | example: --account-validation=true`)
 }
 
 func runRest(_ *cobra.Command, _ []string) {

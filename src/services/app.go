@@ -7,6 +7,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
@@ -88,6 +89,28 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 	response.ImagePath = <-chImage
 
 	return response, nil
+}
+
+func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error) {
+	if err = validations.ValidateLoginWithCode(ctx, phoneNumber); err != nil {
+		logrus.Errorf("Error when validate login with code: %s", err.Error())
+		return loginCode, err
+	}
+
+	// detect is already logged in
+	if service.WaCli.IsLoggedIn() {
+		logrus.Warn("User is already logged in")
+		return loginCode, pkgError.ErrAlreadyLoggedIn
+	}
+
+	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		logrus.Errorf("Error when pairing phone: %s", err.Error())
+		return loginCode, err
+	}
+
+	logrus.Infof("Successfully paired phone with code: %s", loginCode)
+	return loginCode, nil
 }
 
 func (service serviceApp) Logout(_ context.Context) (err error) {

@@ -28,8 +28,7 @@ export default {
         <div class="content">
             <div class="header">Reconnect</div>
             <div class="description">
-                Reconnect to whatsapp server, please do this if your api doesn't work or your application is down or
-                restart
+                Please reconnect to the WhatsApp service if your API doesn't work or if your app is down.
             </div>
         </div>
     </div>

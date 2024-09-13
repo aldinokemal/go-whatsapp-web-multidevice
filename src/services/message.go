@@ -8,7 +8,10 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 	"time"
@@ -24,7 +27,7 @@ func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageService {
 	}
 }
 
-func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.ReactionResponse, err error) {
+func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.GenericResponse, err error) {
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
 	}
@@ -33,15 +36,15 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request message.
 		return response, err
 	}
 
-	msg := &waProto.Message{
-		ReactionMessage: &waProto.ReactionMessage{
-			Key: &waProto.MessageKey{
+	msg := &waE2E.Message{
+		ReactionMessage: &waE2E.ReactionMessage{
+			Key: &waCommon.MessageKey{
 				FromMe:    proto.Bool(true),
-				Id:        proto.String(request.MessageID),
-				RemoteJid: proto.String(dataWaRecipient.String()),
+				ID:        proto.String(request.MessageID),
+				RemoteJID: proto.String(dataWaRecipient.String()),
 			},
 			Text:              proto.String(request.Emoji),
-			SenderTimestampMs: proto.Int64(time.Now().UnixMilli()),
+			SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
 		},
 	}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
@@ -54,7 +57,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request message.
 	return response, nil
 }
 
-func (service serviceMessage) RevokeMessage(ctx context.Context, request domainMessage.RevokeRequest) (response domainMessage.RevokeResponse, err error) {
+func (service serviceMessage) RevokeMessage(ctx context.Context, request domainMessage.RevokeRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateRevokeMessage(ctx, request); err != nil {
 		return response, err
 	}
@@ -73,7 +76,41 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	return response, nil
 }
 
-func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.UpdateMessageResponse, err error) {
+func (service serviceMessage) DeleteMessage(ctx context.Context, request domainMessage.DeleteRequest) (err error) {
+	if err = validations.ValidateDeleteMessage(ctx, request); err != nil {
+		return err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return err
+	}
+
+	isFromMe := "1"
+	if len(request.MessageID) > 22 {
+		isFromMe = "0"
+	}
+
+	patchInfo := appstate.PatchInfo{
+		Timestamp: time.Now(),
+		Type:      appstate.WAPatchRegularHigh,
+		Mutations: []appstate.MutationInfo{{
+			Index: []string{appstate.IndexDeleteMessageForMe, dataWaRecipient.String(), request.MessageID, isFromMe, service.WaCli.Store.ID.String()},
+			Value: &waSyncAction.SyncActionValue{
+				DeleteMessageForMeAction: &waSyncAction.DeleteMessageForMeAction{
+					DeleteMedia:      proto.Bool(true),
+					MessageTimestamp: proto.Int64(time.Now().UnixMilli()),
+				},
+			},
+		}},
+	}
+
+	if err = service.WaCli.SendAppState(patchInfo); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
 	}
@@ -83,7 +120,7 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	msg := &waProto.Message{Conversation: proto.String(request.Message)}
+	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
 	ts, err := service.WaCli.SendMessage(context.Background(), dataWaRecipient, service.WaCli.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err

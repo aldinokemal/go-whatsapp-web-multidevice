@@ -73,7 +73,7 @@ func (service groupService) CreateGroup(ctx context.Context, request domainGroup
 	return groupInfo.JID.String(), nil
 }
 
-func (service groupService) AddParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
+func (service groupService) ManageParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
 	if err = validations.ValidateParticipant(ctx, request); err != nil {
 		return result, err
 	}
@@ -89,7 +89,7 @@ func (service groupService) AddParticipant(ctx context.Context, request domainGr
 		return result, err
 	}
 
-	participants, err := service.WaCli.UpdateGroupParticipants(groupJID, participantsJID, whatsmeow.ParticipantChangeAdd)
+	participants, err := service.WaCli.UpdateGroupParticipants(groupJID, participantsJID, request.Action)
 	if err != nil {
 		return result, err
 	}
@@ -105,7 +105,7 @@ func (service groupService) AddParticipant(ctx context.Context, request domainGr
 			result = append(result, domainGroup.ParticipantStatus{
 				Participant: participant.JID.String(),
 				Status:      "success",
-				Message:     "Participant added",
+				Message:     "Action success",
 			})
 		}
 	}

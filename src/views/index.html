@@ -41,9 +41,10 @@
     </div>
 
     <div class="ui three column stackable grid cards">
-        <app-login></app-login>
+        <app-login :connected="connected_devices"></app-login>
         <app-logout @reload-devices="handleReloadDevice"></app-logout>
         <app-reconnect @reload-devices="handleReloadDevice"></app-reconnect>
+        <app-login-with-code :connected="connected_devices"></app-login-with-code>
     </div>
 
     <div class="ui horizontal divider">
@@ -68,6 +69,7 @@
     </div>
 
     <div class="ui three column doubling grid cards">
+        <message-delete></message-delete>
         <message-revoke></message-revoke>
         <message-react></message-react>
         <message-update></message-update>
@@ -126,6 +128,7 @@
 </script>
 <script type="module">
     import AppLogin from "./components/AppLogin.js";
+    import AppLoginWithCode from "./components/AppLoginWithCode.js";
     import AppLogout from "./components/AppLogout.js";
     import AppReconnect from "./components/AppReconnect.js";
     import SendMessage from "./components/SendMessage.js";
@@ -136,13 +139,14 @@
     import SendLocation from "./components/SendLocation.js";
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
+    import MessageDelete from "./components/MessageDelete.js";
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
     import MessageRevoke from "./components/MessageRevoke.js";
     import GroupList from "./components/GroupList.js";
     import GroupCreate from "./components/GroupCreate.js";
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
-    import GroupAddParticipants from "./components/GroupAddParticipants.js";
+    import GroupAddParticipants from "./components/GroupManageParticipants.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
@@ -168,9 +172,9 @@
 
     Vue.createApp({
         components: {
-            AppLogin, AppLogout, AppReconnect,
+            AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
-            MessageUpdate, MessageReact, MessageRevoke,
+            MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             AccountAvatar, AccountUserInfo, AccountPrivacy
         },

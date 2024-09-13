@@ -16,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
@@ -46,7 +46,18 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Send message
-	msg := &waProto.Message{Conversation: proto.String(request.Message)}
+	msg := &waE2E.Message{
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String(request.Message),
+		},
+	}
+
+	parsedMentions := service.getMentionFromText(ctx, request.Message)
+	if len(parsedMentions) > 0 {
+		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
+			MentionedJID: parsedMentions,
+		}
+	}
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
@@ -59,17 +70,19 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 			participantJID = firstDevice.Device
 		}
 
-		msg = &waProto.Message{
-			ExtendedTextMessage: &waProto.ExtendedTextMessage{
-				Text: proto.String(request.Message),
-				ContextInfo: &waProto.ContextInfo{
-					StanzaId:    request.ReplyMessageID,
-					Participant: proto.String(participantJID),
-					QuotedMessage: &waProto.Message{
-						Conversation: proto.String(request.Message),
-					},
+		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+			Text: proto.String(request.Message),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:    request.ReplyMessageID,
+				Participant: proto.String(participantJID),
+				QuotedMessage: &waE2E.Message{
+					Conversation: proto.String(request.Message),
 				},
 			},
+		}
+
+		if len(parsedMentions) > 0 {
+			msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 		}
 	}
 
@@ -154,15 +167,15 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
 	}
 
-	msg := &waProto.Message{ImageMessage: &waProto.ImageMessage{
-		JpegThumbnail: dataWaThumbnail,
+	msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+		JPEGThumbnail: dataWaThumbnail,
 		Caption:       proto.String(dataWaCaption),
-		Url:           proto.String(uploadedImage.URL),
+		URL:           proto.String(uploadedImage.URL),
 		DirectPath:    proto.String(uploadedImage.DirectPath),
 		MediaKey:      uploadedImage.MediaKey,
 		Mimetype:      proto.String(http.DetectContentType(dataWaImage)),
-		FileEncSha256: uploadedImage.FileEncSHA256,
-		FileSha256:    uploadedImage.FileSHA256,
+		FileEncSHA256: uploadedImage.FileEncSHA256,
+		FileSHA256:    uploadedImage.FileSHA256,
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
@@ -196,24 +209,21 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	fileMimeType := http.DetectContentType(fileBytes)
 
 	// Send to WA server
-	if err != nil {
-		return response, err
-	}
 	uploadedFile, err := service.WaCli.Upload(context.Background(), fileBytes, whatsmeow.MediaDocument)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
 	}
 
-	msg := &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
-		Url:           proto.String(uploadedFile.URL),
+	msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+		URL:           proto.String(uploadedFile.URL),
 		Mimetype:      proto.String(fileMimeType),
 		Title:         proto.String(request.File.Filename),
-		FileSha256:    uploadedFile.FileSHA256,
+		FileSHA256:    uploadedFile.FileSHA256,
 		FileLength:    proto.Uint64(uploadedFile.FileLength),
 		MediaKey:      uploadedFile.MediaKey,
 		FileName:      proto.String(request.File.Filename),
-		FileEncSha256: uploadedFile.FileEncSHA256,
+		FileEncSHA256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),
 	}}
@@ -310,19 +320,19 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, err
 	}
 
-	msg := &waProto.Message{VideoMessage: &waProto.VideoMessage{
-		Url:                 proto.String(uploaded.URL),
+	msg := &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+		URL:                 proto.String(uploaded.URL),
 		Mimetype:            proto.String(http.DetectContentType(dataWaVideo)),
 		Caption:             proto.String(request.Caption),
 		FileLength:          proto.Uint64(uploaded.FileLength),
-		FileSha256:          uploaded.FileSHA256,
-		FileEncSha256:       uploaded.FileEncSHA256,
+		FileSHA256:          uploaded.FileSHA256,
+		FileEncSHA256:       uploaded.FileEncSHA256,
 		MediaKey:            uploaded.MediaKey,
 		DirectPath:          proto.String(uploaded.DirectPath),
 		ViewOnce:            proto.Bool(request.ViewOnce),
-		JpegThumbnail:       dataWaThumbnail,
-		ThumbnailEncSha256:  dataWaThumbnail,
-		ThumbnailSha256:     dataWaThumbnail,
+		JPEGThumbnail:       dataWaThumbnail,
+		ThumbnailEncSHA256:  dataWaThumbnail,
+		ThumbnailSHA256:     dataWaThumbnail,
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
@@ -353,7 +363,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 
 	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
 		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
-	msg := &waProto.Message{ContactMessage: &waProto.ContactMessage{
+	msg := &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
@@ -379,10 +389,10 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 
 	getMetaDataFromURL := utils.GetMetaDataFromURL(request.Link)
 
-	msg := &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 		Text:         proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
 		Title:        proto.String(getMetaDataFromURL.Title),
-		CanonicalUrl: proto.String(request.Link),
+		CanonicalURL: proto.String(request.Link),
 		MatchedText:  proto.String(request.Link),
 		Description:  proto.String(getMetaDataFromURL.Description),
 	}}
@@ -407,8 +417,8 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	}
 
 	// Compose WhatsApp Proto
-	msg := &waProto.Message{
-		LocationMessage: &waProto.LocationMessage{
+	msg := &waE2E.Message{
+		LocationMessage: &waE2E.LocationMessage{
 			DegreesLatitude:  proto.Float64(utils.StrToFloat64(request.Latitude)),
 			DegreesLongitude: proto.Float64(utils.StrToFloat64(request.Longitude)),
 		},
@@ -444,14 +454,14 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
-	msg := &waProto.Message{
-		AudioMessage: &waProto.AudioMessage{
-			Url:           proto.String(audioUploaded.URL),
+	msg := &waE2E.Message{
+		AudioMessage: &waE2E.AudioMessage{
+			URL:           proto.String(audioUploaded.URL),
 			DirectPath:    proto.String(audioUploaded.DirectPath),
 			Mimetype:      proto.String(audioMimeType),
 			FileLength:    proto.Uint64(audioUploaded.FileLength),
-			FileSha256:    audioUploaded.FileSHA256,
-			FileEncSha256: audioUploaded.FileEncSHA256,
+			FileSHA256:    audioUploaded.FileSHA256,
+			FileEncSHA256: audioUploaded.FileEncSHA256,
 			MediaKey:      audioUploaded.MediaKey,
 		},
 	}
@@ -484,4 +494,16 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+func (service serviceSend) getMentionFromText(ctx context.Context, messages string) (result []string) {
+	mentions := utils.ContainsMention(messages)
+	for _, mention := range mentions {
+		// Get JID from phone number
+		if dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, mention); err == nil {
+			result = append(result, dataWaRecipient.String())
+		}
+	}
+	return result
+
 }

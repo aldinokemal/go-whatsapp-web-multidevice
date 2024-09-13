@@ -14,6 +14,7 @@ type App struct {
 func InitRestApp(app *fiber.App, service domainApp.IAppService) App {
 	rest := App{Service: service}
 	app.Get("/app/login", rest.Login)
+	app.Get("/app/login-with-code", rest.LoginWithCode)
 	app.Get("/app/logout", rest.Logout)
 	app.Get("/app/reconnect", rest.Reconnect)
 	app.Get("/app/devices", rest.Devices)
@@ -32,6 +33,20 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		Results: map[string]any{
 			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
 			"qr_duration": response.Duration,
+		},
+	})
+}
+
+func (handler *App) LoginWithCode(c *fiber.Ctx) error {
+	pairCode, err := handler.Service.LoginWithCode(c.UserContext(), c.Query("phone"))
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Login with code success",
+		Results: map[string]any{
+			"pair_code": pairCode,
 		},
 	})
 }

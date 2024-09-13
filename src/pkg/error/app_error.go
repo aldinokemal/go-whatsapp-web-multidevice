@@ -101,7 +101,7 @@ func (err sessionSavedError) StatusCode() int {
 }
 
 var (
-	ErrAlreadyLoggedIn = LoginError("you already logged in :)")
+	ErrAlreadyLoggedIn = LoginError("you are already logged in.")
 	ErrNotConnected    = throwAuthError("you are not connect to services server, please reconnect")
 	ErrNotLoggedIn     = throwAuthError("you are not logged in")
 	ErrReconnect       = throwReconnectError("reconnect error")
