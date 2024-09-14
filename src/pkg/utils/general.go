@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -95,13 +96,16 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 
 // ContainsMention is checking if message contains mention, then return only mention without @
 func ContainsMention(message string) []string {
-	var mentions []string
-	words := strings.Fields(message)
-	for _, word := range words {
-		if strings.HasPrefix(word, "@") {
-			mentions = append(mentions, word[1:])
+	// Regular expression to find all phone numbers after the @ symbol
+	re := regexp.MustCompile(`@(\d+)`)
+	matches := re.FindAllStringSubmatch(message, -1)
+
+	var phoneNumbers []string
+	// Loop through the matches and extract the phone numbers
+	for _, match := range matches {
+		if len(match) > 1 {
+			phoneNumbers = append(phoneNumbers, match[1])
 		}
 	}
-
-	return mentions
+	return phoneNumbers
 }
