@@ -1,7 +1,7 @@
 ############################
 # STEP 1 build executable binary
 ############################
-FROM golang:1.22.5-alpine3.20 AS builder
+FROM golang:1.23-alpine3.20 AS builder
 RUN apk update && apk add --no-cache gcc musl-dev gcompat
 WORKDIR /whatsapp
 COPY ./src .
