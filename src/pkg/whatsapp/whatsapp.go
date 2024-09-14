@@ -414,13 +414,7 @@ func forwardToWebhook(evt *events.Message) error {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 
-	var secretKey []byte
-	if config.WhatsappWebhookSecret != "" {
-		secretKey = []byte(config.WhatsappWebhookSecret)
-	} else {
-		secretKey = []byte("anything")
-	}
-
+	secretKey := []byte(config.WhatsappWebhookSecret)
 	signature, err := getMessageDigestOrSignature(postBody, secretKey)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create signature %v", err))
