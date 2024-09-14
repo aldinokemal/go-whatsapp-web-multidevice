@@ -167,6 +167,3 @@ You can fork or edit this source code !
 
 - Please do this if you have an error (invalid flag in pkg-config --cflags: -Xpreprocessor)
   `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
-
-### Example
-- [Verify HMAC Signature with NodeJS](https://pastebin.com/rYWuSi0T) 
