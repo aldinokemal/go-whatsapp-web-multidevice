@@ -3,8 +3,19 @@ package whatsapp
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -19,13 +30,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
-	"mime"
-	"net/http"
-	"os"
-	"regexp"
-	"strings"
-	"sync/atomic"
-	"time"
 )
 
 var (
@@ -299,6 +303,15 @@ func handler(rawEvt interface{}) {
 	}
 }
 
+func getMessageDigestOrSignature(msg, key []byte) (string, error) {
+	mac := hmac.New(sha256.New, key)
+	_, err := mac.Write(msg)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
 // forwardToWebhook is a helper function to forward event to webhook url
 func forwardToWebhook(evt *events.Message) error {
 	logrus.Info("Forwarding event to webhook:", config.WhatsappWebhook)
@@ -400,7 +413,16 @@ func forwardToWebhook(evt *events.Message) error {
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
+
+	secretKey := []byte(config.WhatsappWebhookSecret)
+	signature, err := getMessageDigestOrSignature(postBody, secretKey)
+	if err != nil {
+		return pkgError.WebhookError(fmt.Sprintf("error when create signature %v", err))
+	}
+
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hub-Signature-256", fmt.Sprintf("sha256=%s", signature))
+
 	if _, err = client.Do(req); err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
 	}
