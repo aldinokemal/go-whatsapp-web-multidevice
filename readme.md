@@ -33,6 +33,11 @@ Now that we support ARM64 for Linux:
 - Webhook for received message
     - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
     - `-w="http://yourwebhook.site/handler"`
+- Webhook Secret
+
+  Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.<br>
+  You may modify this by using the option below:
+    - `--webhook-secret="secret"`
 - For more command `./main --help`
 
 ### Required (without docker)
