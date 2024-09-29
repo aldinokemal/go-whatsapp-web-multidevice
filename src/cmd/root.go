@@ -136,6 +136,8 @@ func runRest(_ *cobra.Command, _ []string) {
 
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appService)
+	// Set auto reconnect checking
+	go helpers.SetAutoReconnectChecking(cli)
 	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}
