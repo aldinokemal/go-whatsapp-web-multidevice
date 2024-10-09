@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/PuerkitoBio/goquery"
 	"log"
 	"net/http"
@@ -108,4 +109,24 @@ func ContainsMention(message string) []string {
 		}
 	}
 	return phoneNumbers
+}
+
+func NumberFormatLocale(number string) string {
+
+	if config.NumberFormatLocale == "Brazil" {
+		if strings.HasSuffix(number, "@s.whatsapp.net") {
+			number = strings.TrimSuffix(number, "@s.whatsapp.net")
+		}
+	
+		if !strings.HasPrefix(number, "55") {
+			number = "55" + number
+		}
+	
+		if len(number) == 13 && number[4] == '9' {
+			return number[:4] + number[5:] 
+		}
+		return number
+	}else{
+		return number
+	}
 }
