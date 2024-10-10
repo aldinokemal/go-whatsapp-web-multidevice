@@ -282,22 +282,24 @@ func handler(rawEvt interface{}) {
 			log.Infof("%s is now online", evt.From)
 		}
 	case *events.HistorySync:
-		id := atomic.AddInt32(&historySyncID, 1)
-		fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json", config.PathStorages, startupTime, cli.Store.ID.String(), id, evt.Data.SyncType.String())
-		file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0600)
-		if err != nil {
-			log.Errorf("Failed to open file to write history sync: %v", err)
-			return
+		if !config.IgnoreExtractHistory{
+			id := atomic.AddInt32(&historySyncID, 1)
+			fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json", config.PathStorages, startupTime, cli.Store.ID.String(), id, evt.Data.SyncType.String())
+			file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0600)
+			if err != nil {
+				log.Errorf("Failed to open file to write history sync: %v", err)
+				return
+			}
+			enc := json.NewEncoder(file)
+			enc.SetIndent("", "  ")
+			err = enc.Encode(evt.Data)
+			if err != nil {
+				log.Errorf("Failed to write history sync: %v", err)
+				return
+			}
+			log.Infof("Wrote history sync to %s", fileName)
+			_ = file.Close()
 		}
-		enc := json.NewEncoder(file)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(evt.Data)
-		if err != nil {
-			log.Errorf("Failed to write history sync: %v", err)
-			return
-		}
-		log.Infof("Wrote history sync to %s", fileName)
-		_ = file.Close()
 	case *events.AppState:
 		log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 	}
@@ -454,43 +456,45 @@ func extractPhoneNumber(jid string) string {
 
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
-	if mediaFile == nil {
-		logrus.Info("Skip download because data is nil")
-		return extractedMedia, nil
-	}
-
-	data, err := cli.Download(mediaFile)
-	if err != nil {
-		return extractedMedia, err
-	}
-
-	switch media := mediaFile.(type) {
-	case *waE2E.ImageMessage:
-		extractedMedia.MimeType = media.GetMimetype()
-		extractedMedia.Caption = media.GetCaption()
-	case *waE2E.AudioMessage:
-		extractedMedia.MimeType = media.GetMimetype()
-	case *waE2E.VideoMessage:
-		extractedMedia.MimeType = media.GetMimetype()
-		extractedMedia.Caption = media.GetCaption()
-	case *waE2E.StickerMessage:
-		extractedMedia.MimeType = media.GetMimetype()
-	case *waE2E.DocumentMessage:
-		extractedMedia.MimeType = media.GetMimetype()
-		extractedMedia.Caption = media.GetCaption()
-	}
-
-	var extension string
-	if ext, err := mime.ExtensionsByType(extractedMedia.MimeType); err != nil && len(ext) > 0 {
-		extension = ext[0]
-	} else if parts := strings.Split(extractedMedia.MimeType, "/"); len(parts) > 1 {
-		extension = "." + parts[len(parts)-1]
-	}
-
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
-	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
-	if err != nil {
-		return extractedMedia, err
-	}
+	if !config.IgnoreExtractMedia {
+		if mediaFile == nil {
+			logrus.Info("Skip download because data is nil")
+			return extractedMedia, nil
+		}
+	
+		data, err := cli.Download(mediaFile)
+		if err != nil {
+			return extractedMedia, err
+		}
+	
+		switch media := mediaFile.(type) {
+		case *waE2E.ImageMessage:
+			extractedMedia.MimeType = media.GetMimetype()
+			extractedMedia.Caption = media.GetCaption()
+		case *waE2E.AudioMessage:
+			extractedMedia.MimeType = media.GetMimetype()
+		case *waE2E.VideoMessage:
+			extractedMedia.MimeType = media.GetMimetype()
+			extractedMedia.Caption = media.GetCaption()
+		case *waE2E.StickerMessage:
+			extractedMedia.MimeType = media.GetMimetype()
+		case *waE2E.DocumentMessage:
+			extractedMedia.MimeType = media.GetMimetype()
+			extractedMedia.Caption = media.GetCaption()
+		}
+	
+		var extension string
+		if ext, err := mime.ExtensionsByType(extractedMedia.MimeType); err != nil && len(ext) > 0 {
+			extension = ext[0]
+		} else if parts := strings.Split(extractedMedia.MimeType, "/"); len(parts) > 1 {
+			extension = "." + parts[len(parts)-1]
+		}
+	
+		extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
+		err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
+		if err != nil {
+			return extractedMedia, err
+		}
+	}		
 	return extractedMedia, nil
 }
