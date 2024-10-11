@@ -120,7 +120,7 @@
     }
 
     window.http = axios.create({
-        baseURL: {{ .AppHost }}
+        baseURL: `${window.location.protocol}//${window.location.hostname}`
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
     window.http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
