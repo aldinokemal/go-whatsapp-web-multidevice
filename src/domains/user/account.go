@@ -48,3 +48,7 @@ type MyPrivacySettingResponse struct {
 type MyListGroupsResponse struct {
 	Data []types.GroupInfo `json:"data"`
 }
+
+type MyListNewsletterResponse struct {
+	Data []types.NewsletterMetadata `json:"data"`
+}

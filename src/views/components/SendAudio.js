@@ -1,15 +1,20 @@
+import FormRecipient from "./generic/FormRecipient.js";
+
 export default {
     name: 'Send',
+    components: {
+        FormRecipient
+    },
     data() {
         return {
             phone: '',
-            type: 'user',
+            type: window.TYPEUSER,
             loading: false,
         }
     },
     computed: {
         phone_id() {
-            return this.type === 'user' ? `${this.phone}@${window.TYPEUSER}` : `${this.phone}@${window.TYPEGROUP}`
+            return this.phone + this.type;
         }
     },
     methods: {
@@ -49,7 +54,7 @@ export default {
         },
         handleReset() {
             this.phone = '';
-            this.type = 'user';
+            this.type = window.TYPEUSER;
             $("#file_audio").val('');
         },
     },
@@ -72,19 +77,7 @@ export default {
         </div>
         <div class="content">
             <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="type" v-model="type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="phone_id" disabled aria-label="whatsapp_id">
-                </div>
+                <FormRecipient v-model:type="type" v-model:phone="phone"/>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Audio</label>
                     <input type="file" style="display: none" accept="audio/*" id="file_audio"/>
