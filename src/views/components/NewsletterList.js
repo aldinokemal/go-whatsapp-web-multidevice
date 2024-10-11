@@ -101,9 +101,9 @@ export default {
                 <tbody v-if="newsletters != null">
                 <tr v-for="n in newsletters">
                     <td>{{ n.id.split('@')[0] }}</td>
-                    <td>{{ n.thread_metadata.name.text }}</td>
-                    <td>{{ n.viewer_metadata.role }}</td>
-                    <td>{{ formatDate(n.thread_metadata.creation_time) }}</td>
+                    <td>{{ n.thread_metadata?.name?.text || 'N/A' }}</td>
+                    <td>{{ n.viewer_metadata?.role || 'N/A' }}</td>
+                    <td>{{ formatDate(n.thread_metadata?.creation_time) }}</td>
                     <td>
                         <button class="ui red tiny button" @click="handleUnfollowNewsletter(n.id)">Unfollow</button>
                     </td>
