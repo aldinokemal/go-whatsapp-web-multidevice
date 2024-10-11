@@ -67,6 +67,7 @@ export default {
         },
         formatDate: function (value) {
             if (!value) return ''
+            if (isNaN(value)) return 'Invalid date';
             return moment.unix(value).format('LLL');
         }
     },
