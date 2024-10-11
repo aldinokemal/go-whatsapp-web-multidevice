@@ -1,3 +1,5 @@
+import { NumberFormatLocale } from './funcoes.js'
+
 export default {
     name: 'Message',
     data() {
@@ -10,7 +12,7 @@ export default {
     },
     computed: {
         phone_id() {
-            return this.type === 'user' ? `${this.phone}@${window.TYPEUSER}` : `${this.phone}@${window.TYPEGROUP}`
+            return this.type === 'user' ? `${NumberFormatLocale(this.phone)}@${window.TYPEUSER}` : `${NumberFormatLocale(this.phone)}@${window.TYPEGROUP}`
         }
     },
     methods: {

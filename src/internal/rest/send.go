@@ -30,6 +30,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendText(c.UserContext(), request)
@@ -54,6 +55,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.Image = file
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
@@ -76,6 +78,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.File = file
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
@@ -98,6 +101,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.Video = video
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
@@ -116,6 +120,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
@@ -134,6 +139,7 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
@@ -152,6 +158,7 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLocation(c.UserContext(), request)
@@ -174,6 +181,7 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.Audio = audio
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendAudio(c.UserContext(), request)
@@ -192,6 +200,7 @@ func (controller *Send) SendPoll(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
+	request.Phone = utils.NumberFormatLocale(request.Phone)
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendPoll(c.UserContext(), request)
