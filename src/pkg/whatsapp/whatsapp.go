@@ -107,17 +107,19 @@ func ParseJID(arg string) (types.JID, error) {
 	}
 	if !strings.ContainsRune(arg, '@') {
 		return types.NewJID(arg, types.DefaultUserServer), nil
-	} else {
-		recipient, err := types.ParseJID(arg)
-		if err != nil {
-			fmt.Printf("invalid JID %s: %v", arg, err)
-			return recipient, pkgError.ErrInvalidJID
-		} else if recipient.User == "" {
-			fmt.Printf("invalid JID %v: no server specified", arg)
-			return recipient, pkgError.ErrInvalidJID
-		}
-		return recipient, nil
 	}
+
+	recipient, err := types.ParseJID(arg)
+	if err != nil {
+		fmt.Printf("invalid JID %s: %v", arg, err)
+		return recipient, pkgError.ErrInvalidJID
+	}
+
+	if recipient.User == "" {
+		fmt.Printf("invalid JID %v: no server specified", arg)
+		return recipient, pkgError.ErrInvalidJID
+	}
+	return recipient, nil
 }
 
 func IsOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {

@@ -1,8 +1,13 @@
+import FormRecipient from "./generic/FormRecipient.js";
+
 export default {
     name: 'AccountUserInfo',
+    components: {
+        FormRecipient
+    },
     data() {
         return {
-            type: 'user',
+            type: window.TYPEUSER,
             phone: '',
             //
             name: null,
@@ -15,7 +20,7 @@ export default {
 
     computed: {
         phone_id() {
-            return this.type === 'user' ? `${this.phone}@${window.TYPEUSER}` : `${this.phone}@${window.TYPEGROUP}`
+            return this.phone + this.type;
         }
     },
     methods: {
@@ -52,7 +57,7 @@ export default {
             this.name = null;
             this.status = null;
             this.devices = [];
-            this.type = 'user';
+            this.type = window.TYPEUSER;
         }
     },
     template: `
@@ -74,18 +79,7 @@ export default {
         </div>
         <div class="content">
             <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="type" v-model="type" aria-label="type">
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone</label>
-                    <input v-model="phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="phone_id" disabled aria-label="whatsapp_id">
-                </div>
+                <FormRecipient v-model:type="type" v-model:phone="phone"/>
 
                 <button type="button" class="ui primary button" :class="{'loading': loading}"
                         @click="handleSubmit">

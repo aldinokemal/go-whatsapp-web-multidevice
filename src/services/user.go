@@ -127,6 +127,20 @@ func (service userService) MyListGroups(_ context.Context) (response domainUser.
 	return response, nil
 }
 
+func (service userService) MyListNewsletter(_ context.Context) (response domainUser.MyListNewsletterResponse, err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	datas, err := service.WaCli.GetSubscribedNewsletters()
+	if err != nil {
+		return
+	}
+	fmt.Printf("%+v\n", datas)
+	for _, data := range datas {
+		response.Data = append(response.Data, *data)
+	}
+	return response, nil
+}
+
 func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
