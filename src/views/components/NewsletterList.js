@@ -42,8 +42,9 @@ export default {
         },
         async unfollowNewsletterApi(newsletter_id) {
             try {
-                let payload = new FormData();
-                payload.append("newsletter_id", newsletter_id)
+                let payload = {
+                    newsletter_id: newsletter_id
+                };
                 await window.http.post(`/newsletter/unfollow`, payload)
             } catch (error) {
                 if (error.response) {
