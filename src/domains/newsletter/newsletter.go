@@ -1,4 +1,4 @@
-package newletter
+package newsletter
 
 import "context"
 

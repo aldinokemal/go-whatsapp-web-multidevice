@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newletter"
+	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"

@@ -2,7 +2,7 @@ package validations
 
 import (
 	"context"
-	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newletter"
+	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
