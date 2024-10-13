@@ -136,7 +136,7 @@ You can fork or edit this source code !
 | ✅       | Remove Participant in Group  | POST   | /group/participants/remove    |
 | ✅       | Promote Participant in Group | POST   | /group/participants/promote   |
 | ✅       | Demote Participant in Group  | POST   | /group/participants/demote    |
-| ✅       | Unfollow Newsletter          | POST   | /group/newsletter/unfollow    |
+| ✅       | Unfollow Newsletter          | POST   | /newsletter/unfollow    |
 
 ```
 ✅ = Available
