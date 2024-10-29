@@ -27,6 +27,25 @@ func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageService {
 	}
 }
 
+func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
+	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
+		return response, err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	ids := []types.MessageID{request.MessageID}
+	if err = service.WaCli.MarkRead(ids, time.Now(), dataWaRecipient, *service.WaCli.Store.ID); err != nil {
+		return response, err
+	}
+
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("Mark as read success %s", request.MessageID)
+	return response, nil
+}
+
 func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.GenericResponse, err error) {
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
