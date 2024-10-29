@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 4.3.0
+  version: 4.4.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -816,6 +816,50 @@ paths:
               required:
                 - phone
                 - message
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/read:
+    post:
+      operationId: readMessage
+      tags:
+        - message
+      summary: Mark as read message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+              required:
+                - phone
       responses:
         '200':
           description: OK

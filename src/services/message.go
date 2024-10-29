@@ -7,6 +7,7 @@ import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -40,6 +41,13 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	if err = service.WaCli.MarkRead(ids, time.Now(), dataWaRecipient, *service.WaCli.Store.ID); err != nil {
 		return response, err
 	}
+
+	logrus.Info(map[string]interface{}{
+		"phone":      request.Phone,
+		"message_id": request.MessageID,
+		"chat":       dataWaRecipient.String(),
+		"sender":     service.WaCli.Store.ID.String(),
+	})
 
 	response.MessageID = request.MessageID
 	response.Status = fmt.Sprintf("Mark as read success %s", request.MessageID)
