@@ -128,6 +128,7 @@ You can fork or edit this source code !
 | ✅       | React Message                | POST   | /message/:message_id/reaction |
 | ✅       | Delete Message               | POST   | /message/:message_id/delete   |
 | ✅       | Edit Message                 | POST   | /message/:message_id/update   |
+| ✅       | Read Message (DM)            | POST   | /message/:message_id/read     |
 | ❌       | Star message                 | POST   | /message/:message_id/star     |
 | ✅       | Join Group With Link         | POST   | /group/join-with-link         |
 | ✅       | Leave Group                  | POST   | /group/leave                  |
@@ -136,7 +137,7 @@ You can fork or edit this source code !
 | ✅       | Remove Participant in Group  | POST   | /group/participants/remove    |
 | ✅       | Promote Participant in Group | POST   | /group/participants/promote   |
 | ✅       | Demote Participant in Group  | POST   | /group/participants/demote    |
-| ✅       | Unfollow Newsletter          | POST   | /newsletter/unfollow    |
+| ✅       | Unfollow Newsletter          | POST   | /newsletter/unfollow          |
 
 ```
 ✅ = Available

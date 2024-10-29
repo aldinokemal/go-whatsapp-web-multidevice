@@ -7,6 +7,7 @@ import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -25,6 +26,32 @@ func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageService {
 	return &serviceMessage{
 		WaCli: waCli,
 	}
+}
+
+func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
+	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
+		return response, err
+	}
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	ids := []types.MessageID{request.MessageID}
+	if err = service.WaCli.MarkRead(ids, time.Now(), dataWaRecipient, *service.WaCli.Store.ID); err != nil {
+		return response, err
+	}
+
+	logrus.Info(map[string]interface{}{
+		"phone":      request.Phone,
+		"message_id": request.MessageID,
+		"chat":       dataWaRecipient.String(),
+		"sender":     service.WaCli.Store.ID.String(),
+	})
+
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("Mark as read success %s", request.MessageID)
+	return response, nil
 }
 
 func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.GenericResponse, err error) {

@@ -10,7 +10,7 @@ export default {
     },
     computed: {
         group_id() {
-            return `${this.group}@${window.TYPEGROUP}`;
+            return `${this.group}${window.TYPEGROUP}`;
         },
     },
     methods: {

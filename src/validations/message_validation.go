@@ -8,6 +8,20 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
+func ValidateMarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.Phone, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+
+}
+
 func ValidateRevokeMessage(ctx context.Context, request domainMessage.RevokeRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
