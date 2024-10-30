@@ -87,6 +87,14 @@
     </div>
 
     <div class="ui horizontal divider">
+        Newsletter
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <newsletter-list></newsletter-list>
+    </div>
+
+    <div class="ui horizontal divider">
         Account
     </div>
 
@@ -98,8 +106,9 @@
 
 </div>
 <script>
-    window.TYPEGROUP = "g.us";
-    window.TYPEUSER = "s.whatsapp.net";
+    window.TYPEGROUP = "@g.us";
+    window.TYPEUSER = "@s.whatsapp.net";
+    window.TYPENEWSLETTER = "@newsletter";
     window.showErrorInfo = (message) => {
         $('body').toast({
             position: 'bottom right',
@@ -120,7 +129,7 @@
     }
 
     window.http = axios.create({
-        baseURL: {{ .AppHost }}
+        baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
     window.http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
@@ -150,6 +159,7 @@
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
+    import NewsletterList from "./components/NewsletterList.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -176,6 +186,7 @@
             SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
+            NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy
         },
         delimiters: ['[[', ']]'],

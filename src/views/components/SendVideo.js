@@ -1,7 +1,11 @@
-import { NumberFormatLocale } from './funcoes.js'
+import { NumberFormatLocale } from './funcoes.js';
+import FormRecipient from "./generic/FormRecipient.js";
 
 export default {
     name: 'SendVideo',
+    components: {
+        FormRecipient
+    },
     // define props
     props: {
         maxVideoSize: {
@@ -14,14 +18,14 @@ export default {
             caption: '',
             view_once: false,
             compress: false,
-            type: 'user',
+            type: window.TYPEUSER,
             phone: '',
             loading: false,
         }
     },
     computed: {
         phone_id() {
-            return this.type === 'user' ? `${NumberFormatLocale(this.phone)}@${window.TYPEUSER}` : `${NumberFormatLocale(this.phone)}@${window.TYPEGROUP}`
+            return NumberFormatLocale(this.phone) + this.type;
         }
     },
     methods: {
@@ -67,7 +71,7 @@ export default {
             this.view_once = false;
             this.compress = false;
             this.phone = '';
-            this.type = 'user';
+            this.type = window.TYPEUSER;
             $("#file_video").val('');
         },
     },
@@ -93,19 +97,8 @@ export default {
         </div>
         <div class="content">
             <form class="ui form">
-                <div class="field">
-                    <label>Type</label>
-                    <select name="type" v-model="type" aria-label="type">
-                        <option value="group">Group Message</option>
-                        <option value="user">Private Message</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label>Phone / Group ID</label>
-                    <input v-model="phone" type="text" placeholder="6289..."
-                           aria-label="phone">
-                    <input :value="phone_id" disabled aria-label="whatsapp_id">
-                </div>
+                <FormRecipient v-model:type="type" v-model:phone="phone"/>
+                
                 <div class="field">
                     <label>Caption</label>
                     <textarea v-model="caption" placeholder="Type some caption (optional)..."

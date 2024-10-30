@@ -112,7 +112,8 @@ You can fork or edit this source code !
 | ✅       | Devices                      | GET    | /app/devices                  | 
 | ✅       | User Info                    | GET    | /user/info                    |
 | ✅       | User Avatar                  | GET    | /user/avatar                  |
-| ✅       | User My Group List           | GET    | /user/my/groups               |
+| ✅       | User My Groups               | GET    | /user/my/groups               |
+| ✅       | User My Newsletter           | GET    | /user/my/newsletters          |
 | ✅       | User My Privacy Setting      | GET    | /user/my/privacy              |
 | ✅       | Send Message                 | POST   | /send/message                 |
 | ✅       | Send Image                   | POST   | /send/image                   | 
@@ -127,6 +128,7 @@ You can fork or edit this source code !
 | ✅       | React Message                | POST   | /message/:message_id/reaction |
 | ✅       | Delete Message               | POST   | /message/:message_id/delete   |
 | ✅       | Edit Message                 | POST   | /message/:message_id/update   |
+| ✅       | Read Message (DM)            | POST   | /message/:message_id/read     |
 | ❌       | Star message                 | POST   | /message/:message_id/star     |
 | ✅       | Join Group With Link         | POST   | /group/join-with-link         |
 | ✅       | Leave Group                  | POST   | /group/leave                  |
@@ -135,6 +137,7 @@ You can fork or edit this source code !
 | ✅       | Remove Participant in Group  | POST   | /group/participants/remove    |
 | ✅       | Promote Participant in Group | POST   | /group/participants/promote   |
 | ✅       | Demote Participant in Group  | POST   | /group/participants/demote    |
+| ✅       | Unfollow Newsletter          | POST   | /newsletter/unfollow          |
 
 ```
 ✅ = Available
@@ -145,7 +148,7 @@ You can fork or edit this source code !
 
 | Description        | Image                                                                                    |
 |--------------------|------------------------------------------------------------------------------------------|
-| Homepage           | ![Homepage](https://i.ibb.co.com/L0B1LVb/homepage-v4-16.png)                             |
+| Homepage           | ![Homepage](https://i.ibb.co.com/Sy0dHZp/homepage-v4-20.png)                             |
 | Login              | ![Login](https://i.ibb.co.com/jkcB15R/login.png?v=1)                                     |
 | Login With Code    | ![Login With Code](https://i.ibb.co.com/rdJGvGw/paircode.png)                            |
 | Send Message       | ![Send Message](https://i.ibb.co.com/rc3NXMX/send-message.png?v1)                        |
@@ -167,6 +170,7 @@ You can fork or edit this source code !
 | Auto Reply         | ![Auto Reply](https://i.ibb.co.com/D4rTytX/IMG-20220517-162500.jpg)                      |
 | Basic Auth Prompt  | ![Basic Auth Prompt](https://i.ibb.co.com/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png) |
 | Manage Participant | ![Manage Participant](https://i.ibb.co.com/ynrN7cr/manage-participant.png)               |
+| My Newsletter      | ![List Newsletter](https://i.ibb.co.com/WDg50jJ/image.png)                               |
 
 ### Mac OS NOTE
 

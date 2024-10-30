@@ -17,6 +17,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 	"os"
@@ -157,7 +158,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	uploadedImage, err := service.WaCli.Upload(context.Background(), dataWaImage, whatsmeow.MediaImage)
+	uploadedImage, err := service.uploadMedia(ctx, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("failed to upload file: %v", err)
 		return response, err
@@ -209,7 +210,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	fileMimeType := http.DetectContentType(fileBytes)
 
 	// Send to WA server
-	uploadedFile, err := service.WaCli.Upload(context.Background(), fileBytes, whatsmeow.MediaDocument)
+	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
@@ -311,7 +312,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	uploaded, err := service.WaCli.Upload(context.Background(), dataWaVideo, whatsmeow.MediaVideo)
+	uploaded, err := service.uploadMedia(ctx, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
 	}
@@ -448,7 +449,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	autioBytes := helpers.MultipartFormFileHeaderToBytes(request.Audio)
 	audioMimeType := http.DetectContentType(autioBytes)
 
-	audioUploaded, err := service.WaCli.Upload(ctx, autioBytes, whatsmeow.MediaAudio)
+	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, autioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
 		return response, err
@@ -496,7 +497,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	return response, nil
 }
 
-func (service serviceSend) getMentionFromText(ctx context.Context, messages string) (result []string) {
+func (service serviceSend) getMentionFromText(_ context.Context, messages string) (result []string) {
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
 		// Get JID from phone number
@@ -506,4 +507,13 @@ func (service serviceSend) getMentionFromText(ctx context.Context, messages stri
 	}
 	return result
 
+}
+
+func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+	if recipient.Server == types.NewsletterServer {
+		uploaded, err = service.WaCli.UploadNewsletter(ctx, media, mediaType)
+	} else {
+		uploaded, err = service.WaCli.Upload(ctx, media, mediaType)
+	}
+	return uploaded, err
 }

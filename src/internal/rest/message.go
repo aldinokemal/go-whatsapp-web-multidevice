@@ -18,6 +18,7 @@ func InitRestMessage(app *fiber.App, service domainMessage.IMessageService) Mess
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
 	app.Post("/message/:message_id/delete", rest.DeleteMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
+	app.Post("/message/:message_id/read", rest.MarkAsRead)
 	return rest
 }
 
@@ -87,6 +88,25 @@ func (controller *Message) ReactMessage(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.ReactMessage(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Message) MarkAsRead(c *fiber.Ctx) error {
+	var request message.MarkAsReadRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.MarkAsRead(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

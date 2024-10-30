@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: WhatsApp API MultiDevice
-  version: 4.2.0
+  version: 4.4.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -16,6 +16,8 @@ tags:
     description: Message manipulation (revoke/react/update).
   - name: group
     description: Group setting
+  - name: newsletter
+    description: newsletter setting
 paths:
   /app/login:
     get:
@@ -212,6 +214,31 @@ paths:
         - user
       summary: User My List Groups
       responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/newsletters:
+    get:
+      operationId: userMyNewsletter
+      tags:
+        - user
+      summary: User My List Groups
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterResponse'
         '500':
           description: Internal Server Error
           content:
@@ -808,6 +835,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/read:
+    post:
+      operationId: readMessage
+      tags:
+        - message
+      summary: Mark as read message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+              required:
+                - phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /group:
     post:
       operationId: createGroup
@@ -1023,6 +1094,40 @@ paths:
                 group_id:
                   type: string
                   example: '120363024512399999@g.us'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/unfollow:
+    post:
+      operationId: unfollowNewsletter
+      tags:
+        - newsletter
+      summary: Unfollow newsletter
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                newsletter_id:
+                  type: string
+                  example: '120363024512399999@newsletter'
       responses:
         '200':
           description: OK
@@ -1342,3 +1447,241 @@ components:
           type: object
           example: null
           description: 'additional data'
+    NewsletterResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get list newsletter"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Newsletter'
+    Newsletter:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "120363144038483540@newsletter"
+        state:
+          type: object
+          properties:
+            type:
+              type: string
+              example: "active"
+        thread_metadata:
+          type: object
+          properties:
+            creation_time:
+              type: string
+              example: "1688746895"
+            invite:
+              type: string
+              example: "0029Va4K0PZ5a245NkngBA2M"
+            name:
+              type: object
+              properties:
+                text:
+                  type: string
+                  example: "WhatsApp"
+                id:
+                  type: string
+                  example: "1688746895480511"
+                update_time:
+                  type: string
+                  example: "1688746895480511"
+            description:
+              type: object
+              properties:
+                text:
+                  type: string
+                  example: "WhatsApp’s official channel. Follow for our latest feature launches, updates, exclusive drops and more."
+                id:
+                  type: string
+                  example: "1689653839450668"
+                update_time:
+                  type: string
+                  example: "1689653839450668"
+            subscribers_count:
+              type: string
+              example: "0"
+            verification:
+              type: string
+              example: "verified"
+            picture:
+              type: object
+              properties:
+                url:
+                  type: string
+                  example: ""
+                id:
+                  type: string
+                  example: "1707950960975554"
+                type:
+                  type: string
+                  example: "IMAGE"
+                direct_path:
+                  type: string
+                  example: "/v/t61.24694-24/416962407_970228831134395_8869146381947923973_n.jpg?ccb=11-4&oh=01_Q5AaIIvOIeu3l0HCZWILrmr-dGR_vXFqnhUeytw0-ojPc4hL&oe=670D95B1&_nc_sid=5e03e0&_nc_cat=110"
+            preview:
+              type: object
+              properties:
+                url:
+                  type: string
+                  example: ""
+                id:
+                  type: string
+                  example: "1707950960975554"
+                type:
+                  type: string
+                  example: "PREVIEW"
+                direct_path:
+                  type: string
+                  example: "/v/t61.24694-24/416962407_970228831134395_8869146381947923973_n.jpg?stp=dst-jpg_s192x192&ccb=11-4&oh=01_Q5AaIHO-DQklqm3q3awF7xwji_WAn9DkgZASQA0B2Ct0qbSa&oe=670D95B1&_nc_sid=5e03e0&_nc_cat=110"
+            settings:
+              type: object
+              properties:
+                reaction_codes:
+                  type: object
+                  properties:
+                    value:
+                      type: string
+                      example: "ALL"
+        viewer_metadata:
+          type: object
+          properties:
+            mute:
+              type: string
+              example: "off"
+            role:
+              type: string
+              example: "subscriber"
+    GroupResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get list groups"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Group'
+    Group:
+      type: object
+      properties:
+        JID:
+          type: string
+          example: "120363347168689807@g.us"
+        OwnerJID:
+          type: string
+          example: "6288228744537@s.whatsapp.net"
+        Name:
+          type: string
+          example: "Example Group"
+        NameSetAt:
+          type: string
+          format: date-time
+          example: "2024-10-11T21:27:29+07:00"
+        NameSetBy:
+          type: string
+          example: "6288228744537@s.whatsapp.net"
+        Topic:
+          type: string
+          example: ""
+        TopicID:
+          type: string
+          example: ""
+        TopicSetAt:
+          type: string
+          format: date-time
+          example: "0001-01-01T00:00:00Z"
+        TopicSetBy:
+          type: string
+          example: ""
+        TopicDeleted:
+          type: boolean
+          example: false
+        IsLocked:
+          type: boolean
+          example: false
+        IsAnnounce:
+          type: boolean
+          example: false
+        AnnounceVersionID:
+          type: string
+          example: "1728656849439709"
+        IsEphemeral:
+          type: boolean
+          example: false
+        DisappearingTimer:
+          type: integer
+          example: 0
+        IsIncognito:
+          type: boolean
+          example: false
+        IsParent:
+          type: boolean
+          example: false
+        DefaultMembershipApprovalMode:
+          type: string
+          example: ""
+        LinkedParentJID:
+          type: string
+          example: ""
+        IsDefaultSubGroup:
+          type: boolean
+          example: false
+        IsJoinApprovalRequired:
+          type: boolean
+          example: false
+        GroupCreated:
+          type: string
+          format: date-time
+          example: "2024-10-11T21:27:29+07:00"
+        ParticipantVersionID:
+          type: string
+          example: "1728656849439790"
+        Participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Participant'
+        MemberAddMode:
+          type: string
+          example: "admin_add"
+
+    Participant:
+      type: object
+      properties:
+        JID:
+          type: string
+          example: "6288228744537@s.whatsapp.net"
+        LID:
+          type: string
+          example: "20036609675500@lid"
+        IsAdmin:
+          type: boolean
+          example: true
+        IsSuperAdmin:
+          type: boolean
+          example: true
+        DisplayName:
+          type: string
+          example: ""
+        Error:
+          type: integer
+          example: 0
+        AddRequest:
+          type: string
+          example: null

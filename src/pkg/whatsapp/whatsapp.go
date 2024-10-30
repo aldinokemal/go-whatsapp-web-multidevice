@@ -107,17 +107,19 @@ func ParseJID(arg string) (types.JID, error) {
 	}
 	if !strings.ContainsRune(arg, '@') {
 		return types.NewJID(arg, types.DefaultUserServer), nil
-	} else {
-		recipient, err := types.ParseJID(arg)
-		if err != nil {
-			fmt.Printf("invalid JID %s: %v", arg, err)
-			return recipient, pkgError.ErrInvalidJID
-		} else if recipient.User == "" {
-			fmt.Printf("invalid JID %v: no server specified", arg)
-			return recipient, pkgError.ErrInvalidJID
-		}
-		return recipient, nil
 	}
+
+	recipient, err := types.ParseJID(arg)
+	if err != nil {
+		fmt.Printf("invalid JID %s: %v", arg, err)
+		return recipient, pkgError.ErrInvalidJID
+	}
+
+	if recipient.User == "" {
+		fmt.Printf("invalid JID %v: no server specified", arg)
+		return recipient, pkgError.ErrInvalidJID
+	}
+	return recipient, nil
 }
 
 func IsOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
@@ -461,12 +463,12 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 			logrus.Info("Skip download because data is nil")
 			return extractedMedia, nil
 		}
-	
+
 		data, err := cli.Download(mediaFile)
 		if err != nil {
 			return extractedMedia, err
 		}
-	
+
 		switch media := mediaFile.(type) {
 		case *waE2E.ImageMessage:
 			extractedMedia.MimeType = media.GetMimetype()
@@ -482,19 +484,19 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 			extractedMedia.MimeType = media.GetMimetype()
 			extractedMedia.Caption = media.GetCaption()
 		}
-	
+
 		var extension string
 		if ext, err := mime.ExtensionsByType(extractedMedia.MimeType); err != nil && len(ext) > 0 {
 			extension = ext[0]
 		} else if parts := strings.Split(extractedMedia.MimeType, "/"); len(parts) > 1 {
 			extension = "." + parts[len(parts)-1]
 		}
-	
+
 		extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
 		err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 		if err != nil {
 			return extractedMedia, err
 		}
-	}		
+	}
 	return extractedMedia, nil
 }
