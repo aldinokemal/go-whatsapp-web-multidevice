@@ -34,6 +34,12 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 		return extractedMedia, err
 	}
 
+	// Validate file size before writing to disk
+	maxFileSize := config.WhatsappSettingMaxDownloadSize
+	if int64(len(data)) > maxFileSize {
+		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+	}
+
 	switch media := mediaFile.(type) {
 	case *waE2E.ImageMessage:
 		extractedMedia.MimeType = media.GetMimetype()
