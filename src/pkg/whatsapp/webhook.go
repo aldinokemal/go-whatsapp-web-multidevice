@@ -63,6 +63,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if imageMedia != nil {
 		path, err := ExtractMedia(config.PathMedia, imageMedia)
 		if err != nil {
+			logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
 		body["image"] = path
@@ -70,6 +71,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if stickerMedia != nil {
 		path, err := ExtractMedia(config.PathMedia, stickerMedia)
 		if err != nil {
+			logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 		}
 		body["sticker"] = path
@@ -77,6 +79,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if videoMedia != nil {
 		path, err := ExtractMedia(config.PathMedia, videoMedia)
 		if err != nil {
+			logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
 		body["video"] = path
@@ -84,6 +87,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if audioMedia != nil {
 		path, err := ExtractMedia(config.PathMedia, audioMedia)
 		if err != nil {
+			logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 		}
 		body["audio"] = path
@@ -91,6 +95,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if documentMedia != nil {
 		path, err := ExtractMedia(config.PathMedia, documentMedia)
 		if err != nil {
+			logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 		}
 		body["document"] = path
@@ -127,8 +132,10 @@ func submitWebhook(payload map[string]interface{}) error {
 
 	for attempt = 0; attempt < maxAttempts; attempt++ {
 		if _, err = client.Do(req); err == nil {
+			logrus.Infof("Successfully submitted webhook on attempt %d", attempt+1)
 			return nil
 		}
+		logrus.Warnf("Attempt %d to submit webhook failed: %v", attempt+1, err)
 		time.Sleep(sleepDuration)
 		sleepDuration *= 2
 	}

@@ -142,7 +142,8 @@ func IsOnWhatsapp(waCli *whatsmeow.Client, jid string) bool {
 	if strings.Contains(jid, "@s.whatsapp.net") {
 		data, err := waCli.IsOnWhatsApp([]string{jid})
 		if err != nil {
-			panic(pkgError.InvalidJID(err.Error()))
+			logrus.Error("Failed to check if user is on whatsapp: ", err)
+			return false
 		}
 
 		for _, v := range data {
