@@ -69,6 +69,11 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 		panic(err)
 	}
 
+	if device == nil {
+		log.Errorf("No device found")
+		panic("No device found")
+	}
+
 	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
