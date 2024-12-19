@@ -57,6 +57,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 		"video":         videoMedia,
 		"view_once":     evt.IsViewOnce,
 		"forwarded":     forwarded,
+		"timestamp":     evt.Info.Timestamp.Format(time.RFC3339),
 	}
 
 	if imageMedia != nil {
@@ -120,8 +121,17 @@ func submitWebhook(payload map[string]interface{}) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Hub-Signature-256", fmt.Sprintf("sha256=%s", signature))
 
-	if _, err = client.Do(req); err != nil {
-		return pkgError.WebhookError(fmt.Sprintf("error when submit webhook %v", err))
+	var attempt int
+	var maxAttempts = 5
+	var sleepDuration = 1 * time.Second
+
+	for attempt = 0; attempt < maxAttempts; attempt++ {
+		if _, err = client.Do(req); err == nil {
+			return nil
+		}
+		time.Sleep(sleepDuration)
+		sleepDuration *= 2
 	}
-	return nil
+
+	return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt, err))
 }

@@ -152,9 +152,11 @@ func handler(rawEvt interface{}) {
 		if config.WhatsappWebhook != "" &&
 			!strings.Contains(evt.Info.SourceString(), "broadcast") &&
 			!isFromMySelf(evt.Info.SourceString()) {
-			if err := forwardToWebhook(evt); err != nil {
-				logrus.Error("Failed forward to webhook: ", err)
-			}
+			go func(evt *events.Message) {
+				if err := forwardToWebhook(evt); err != nil {
+					logrus.Error("Failed forward to webhook: ", err)
+				}
+			}(evt)
 		}
 	case *events.Receipt:
 		if evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf {
