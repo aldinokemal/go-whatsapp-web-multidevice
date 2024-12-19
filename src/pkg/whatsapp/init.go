@@ -38,15 +38,15 @@ type ExtractedMedia struct {
 }
 
 type evtReaction struct {
-	ID      string `json:"id"`
-	Message string `json:"message"`
+	ID      string `json:"id,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type evtMessage struct {
-	ID            string `json:"id"`
-	Text          string `json:"text"`
-	RepliedId     string `json:"replied_id"`
-	QuotedMessage string `json:"quoted_message"`
+	ID            string `json:"id,omitempty"`
+	Text          string `json:"text,omitempty"`
+	RepliedId     string `json:"replied_id,omitempty"`
+	QuotedMessage string `json:"quoted_message,omitempty"`
 }
 
 func InitWaDB() *sqlstore.Container {
