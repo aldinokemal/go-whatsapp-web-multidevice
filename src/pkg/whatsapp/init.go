@@ -53,7 +53,17 @@ func InitWaDB() *sqlstore.Container {
 	// Running Whatsapp
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
-	storeContainer, err := sqlstore.New("sqlite3", fmt.Sprintf("file:%s/%s?_foreign_keys=off", config.PathStorages, config.DBName), dbLog)
+
+	var storeContainer *sqlstore.Container
+	var err error
+	if strings.HasPrefix(config.DBURI, "file:") {
+		storeContainer, err = sqlstore.New("sqlite3", config.DBURI, dbLog)
+	} else if strings.HasPrefix(config.DBURI, "postgres:") {
+		storeContainer, err = sqlstore.New("postgres", config.DBURI, dbLog)
+	} else {
+		log.Errorf("Unknown database type: %s", config.DBURI)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", config.DBURI)))
+	}
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Failed to connect to database: %v", err)))
