@@ -228,6 +228,11 @@
                      showErrorInfo('Connection error occurred. Please refresh the page.');
                  };
 
+                this.app_ws.onerror = (error) => {
+                     console.error('WebSocket error:', error);
+                     showErrorInfo('Connection error occurred. Please refresh the page.');
+                 };
+
                 this.app_ws.onmessage = (evt) => {
                     const message = JSON.parse(evt.data)
                     switch (message.code) {
