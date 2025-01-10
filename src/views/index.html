@@ -180,6 +180,17 @@
         });
     }
 
+    const constructWebSocketURL = () => {
+        const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const path = location.pathname
+            // Remove trailing slash
+            .replace(/\/+$/, '')
+            // Remove double slashes
+            .replace(/\/+/g, '/');
+        
+        return `${protocol}${location.host}${path}/ws`;
+    };
+
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
@@ -203,8 +214,7 @@
         },
         mounted() {
             if (window["WebSocket"]) {
-                let wsType = location.protocol !== 'https:' ? 'ws://' : 'wss://';
-                this.app_ws = new WebSocket(wsType + document.location.host + "/ws");
+                this.app_ws = new WebSocket(constructWebSocketURL());
 
                 this.app_ws.onopen = (evt) => {
                     this.app_ws.send(JSON.stringify({
@@ -212,6 +222,11 @@
                         "message": "List device"
                     }))
                 };
+
+                this.app_ws.onerror = (error) => {
+                     console.error('WebSocket error:', error);
+                     showErrorInfo('Connection error occurred. Please refresh the page.');
+                 };
 
                 this.app_ws.onmessage = (evt) => {
                     const message = JSON.parse(evt.data)
