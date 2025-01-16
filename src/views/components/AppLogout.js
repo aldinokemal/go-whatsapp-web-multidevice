@@ -15,7 +15,7 @@ export default {
 
         async submitApi() {
             try {
-                await http.get(`/app/logout`)
+                await http.get(`app/logout`)
             } catch (error) {
                 if (error.response) {
                     throw Error(error.response.data.message)

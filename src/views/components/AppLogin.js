@@ -26,7 +26,7 @@ export default {
         },
         async submitApi() {
             try {
-                let response = await window.http.get(`/app/login`)
+                let response = await window.http.get(`app/login`)
                 let results = response.data.results;
                 this.login_link = results.qr_link;
                 this.login_duration_sec = results.qr_duration;
