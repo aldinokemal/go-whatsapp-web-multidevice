@@ -17,7 +17,7 @@ var (
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
-	DBName = "whatsapp.db"
+	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
 
 	WhatsappAutoReplyMessage       string
 	WhatsappWebhook                string
