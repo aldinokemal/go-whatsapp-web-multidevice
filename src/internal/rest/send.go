@@ -5,6 +5,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
+	"github.com/sirupsen/logrus"
 )
 
 type Send struct {
@@ -50,14 +51,31 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	file, err := c.FormFile("image")
-	utils.PanicIfNeeded(err)
+	// Add debug logging
+	logrus.WithFields(logrus.Fields{
+		"body": c.Body(),
+		"form": c.FormValue("image_url"),
+	}).Debug("Image request received")
 
-	request.Image = file
+	request.ImageUrl = c.FormValue("image_url")
+	if request.ImageUrl == "" {
+		if file, err := c.FormFile("image"); err == nil {
+			request.Image = file
+			logrus.WithField("filename", file.Filename).Debug("Image file received")
+		} else {
+			logrus.WithError(err).Debug("No image file found")
+		}
+	} else {
+		logrus.WithField("url", request.ImageUrl).Debug("Image URL received")
+	}
+
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to send image")
+		return err
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -72,10 +90,12 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	file, err := c.FormFile("file")
-	utils.PanicIfNeeded(err)
-
-	request.File = file
+	request.FileUrl = c.FormValue("file_url")
+	if request.FileUrl == "" {
+		if file, err := c.FormFile("file"); err == nil {
+			request.File = file
+		}
+	}
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
@@ -94,10 +114,12 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	video, err := c.FormFile("video")
-	utils.PanicIfNeeded(err)
-
-	request.Video = video
+	request.VideoUrl = c.FormValue("video_url")
+	if request.VideoUrl == "" {
+		if video, err := c.FormFile("video"); err == nil {
+			request.Video = video
+		}
+	}
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)

@@ -1,75 +1,89 @@
 import FormRecipient from "./generic/FormRecipient.js";
 
 export default {
-    name: 'SendImage',
-    components: {
-        FormRecipient
+  name: "SendImage",
+  components: {
+    FormRecipient,
+  },
+  data() {
+    return {
+      phone: "",
+      view_once: false,
+      compress: false,
+      caption: "",
+      type: window.TYPEUSER,
+      loading: false,
+      selected_file: null,
+      image_url: "",
+    };
+  },
+  computed: {
+    phone_id() {
+      return this.phone + this.type;
     },
-    data() {
-        return {
-            phone: '',
-            view_once: false,
-            compress: false,
-            caption: '',
-            type: window.TYPEUSER,
-            loading: false,
-            selected_file: null
+  },
+  methods: {
+    openModal() {
+      $("#modalSendImage")
+        .modal({
+          onApprove: function () {
+            return false;
+          },
+        })
+        .modal("show");
+    },
+    async handleSubmit() {
+      try {
+        if (!this.image_url && !$("#file_image")[0].files[0]) {
+          throw new Error(
+            "Please provide either an image URL or upload an image file."
+          );
         }
+        let response = await this.submitApi();
+        showSuccessInfo(response);
+        $("#modalSendImage").modal("hide");
+      } catch (err) {
+        showErrorInfo(err);
+      }
     },
-    computed: {
-        phone_id() {
-            return this.phone + this.type;
-        }
-    },
-    methods: {
-        openModal() {
-            $('#modalSendImage').modal({
-                onApprove: function () {
-                    return false;
-                }
-            }).modal('show');
-        },
-        async handleSubmit() {
-            try {
-                let response = await this.submitApi()
-                showSuccessInfo(response)
-                $('#modalSendImage').modal('hide');
-            } catch (err) {
-                showErrorInfo(err)
-            }
-        },
-        async submitApi() {
-            this.loading = true;
-            try {
-                let payload = new FormData();
-                payload.append("phone", this.phone_id)
-                payload.append("view_once", this.view_once)
-                payload.append("compress", this.compress)
-                payload.append("caption", this.caption)
-                payload.append('image', $("#file_image")[0].files[0])
+    async submitApi() {
+      this.loading = true;
+      try {
+        let payload = new FormData();
+        payload.append("phone", this.phone_id);
+        payload.append("view_once", this.view_once);
+        payload.append("compress", this.compress);
+        payload.append("caption", this.caption);
 
-                let response = await window.http.post(`/send/image`, payload)
-                this.handleReset();
-                return response.data.message;
-            } catch (error) {
-                if (error.response) {
-                    throw new Error(error.response.data.message);
-                }
-                throw new Error(error.message);
-            } finally {
-                this.loading = false;
-            }
-        },
-        handleReset() {
-            this.view_once = false;
-            this.compress = false;
-            this.phone = '';
-            this.caption = '';
-            this.type = window.TYPEUSER;
-            $("#file_image").val('');
-        },
+        if (this.image_url) {
+          payload.append("image_url", this.image_url);
+        } else {
+          payload.append("image", $("#file_image")[0].files[0]);
+        }
+
+        let response = await window.http.post(`/send/image`, payload);
+        this.handleReset();
+        return response.data.message;
+      } catch (error) {
+        if (error.response) {
+          throw new Error(error.response.data.message);
+        }
+        throw new Error(error.message);
+      } finally {
+        this.loading = false;
+      }
     },
-    template: `
+    handleReset() {
+      this.view_once = false;
+      this.compress = false;
+      this.phone = "";
+      this.caption = "";
+      this.type = window.TYPEUSER;
+      this.image_url = "";
+      $("#file_image").val("");
+    },
+  },
+  template: `
     <div class="blue card" @click="openModal()" style="cursor:pointer;">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
@@ -111,6 +125,10 @@ export default {
                         <label>Check for compressing image to smaller size</label>
                     </div>
                 </div>
+                <div class="field">
+                    <label>Image URL</label>
+                    <input v-model="image_url" type="text" placeholder="http://example.com/image.jpg" aria-label="image url">
+                </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
                     <input type="file" style="display: none" id="file_image" accept="image/png,image/jpg,image/jpeg"/>
@@ -129,5 +147,5 @@ export default {
             </div>
         </div>
     </div>
-    `
-}
+    `,
+};

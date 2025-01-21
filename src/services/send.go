@@ -3,6 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -19,9 +24,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"os"
-	"os/exec"
 )
 
 type serviceSend struct {
@@ -34,6 +36,23 @@ func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainS
 		WaCli:      waCli,
 		appService: appService,
 	}
+}
+
+func downloadFileFromURL(url, path string) error {
+	resp, err := http.Get(url)
+	if (err != nil) {
+		return err
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(path)
+	if (err != nil) {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
@@ -98,53 +117,72 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 }
 
 func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.GenericResponse, err error) {
+	logrus.WithFields(logrus.Fields{
+		"phone": request.Phone,
+		"url":   request.ImageUrl,
+		"file":  request.Image != nil,
+	}).Debug("SendImage request received")
+
 	err = validations.ValidateSendImage(ctx, request)
 	if err != nil {
 		return response, err
 	}
+
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	var (
+		oriImagePath   string
 		imagePath      string
 		imageThumbnail string
 		deletedItems   []string
+		filename      string
 	)
 
-	// Save image to server
-	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
-	err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
-	if err != nil {
-		return response, err
-	}
-	deletedItems = append(deletedItems, oriImagePath)
+	// Generate unique filename
+	filename = fmt.Sprintf("image-%s%s", fiberUtils.UUIDv4(), ".jpg")
+	oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, filename)
 
-	/* Generate thumbnail with smalled image size */
+	// Handle image from URL or file
+	if request.ImageUrl != "" {
+		logrus.WithField("url", request.ImageUrl).Debug("Downloading image from URL")
+		err = downloadFileFromURL(request.ImageUrl, oriImagePath)
+		if err != nil {
+			return response, fmt.Errorf("failed to download image: %v", err)
+		}
+		deletedItems = append(deletedItems, oriImagePath)
+	} else if request.Image != nil {
+		logrus.WithField("filename", request.Image.Filename).Debug("Saving uploaded image")
+		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
+		if err != nil {
+			return response, fmt.Errorf("failed to save image: %v", err)
+		}
+		deletedItems = append(deletedItems, oriImagePath)
+	} else {
+		return response, pkgError.ValidationError("either ImageUrl or Image must be provided")
+	}
+
+	// Generate thumbnail
+	imageThumbnail = fmt.Sprintf("%s/thumb-%s", config.PathSendItems, filename)
 	srcImage, err := imaging.Open(oriImagePath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 	}
-
-	// Resize Thumbnail
 	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
-	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
 	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
 	deletedItems = append(deletedItems, imageThumbnail)
 
+	// Handle compression if needed
 	if request.Compress {
-		// Resize image
-		openImageBuffer, err := imaging.Open(oriImagePath)
-		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
-		}
-		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
-		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
+		logrus.Debug("Compressing image")
+		newImagePath := fmt.Sprintf("%s/compressed-%s", config.PathSendItems, filename)
+		newImage := imaging.Resize(srcImage, 600, 0, imaging.Lanczos)
 		if err = imaging.Save(newImage, newImagePath); err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save compressed image %v", err))
 		}
 		deletedItems = append(deletedItems, newImagePath)
 		imagePath = newImagePath
@@ -152,25 +190,26 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		imagePath = oriImagePath
 	}
 
-	// Send to WA server
-	dataWaCaption := request.Caption
+	// Send to WhatsApp
+	logrus.Debug("Uploading to WhatsApp")
 	dataWaImage, err := os.ReadFile(imagePath)
 	if err != nil {
 		return response, err
 	}
 	uploadedImage, err := service.uploadMedia(ctx, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
-		fmt.Printf("failed to upload file: %v", err)
-		return response, err
+		return response, fmt.Errorf("failed to upload image: %v", err)
 	}
+
 	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
 	}
 
+	// Prepare and send message
 	msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
 		JPEGThumbnail: dataWaThumbnail,
-		Caption:       proto.String(dataWaCaption),
+		Caption:       proto.String(request.Caption),
 		URL:           proto.String(uploadedImage.URL),
 		DirectPath:    proto.String(uploadedImage.DirectPath),
 		MediaKey:      uploadedImage.MediaKey,
@@ -180,19 +219,21 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
+
 	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
-	go func() {
-		errDelete := utils.RemoveFile(0, deletedItems...)
-		if errDelete != nil {
-			fmt.Println("error when deleting picture: ", errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
 
+	// Cleanup files
+	go func() {
+		if err := utils.RemoveFile(0, deletedItems...); err != nil {
+			logrus.WithError(err).Error("Failed to cleanup files")
+		}
+	}()
+
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Image sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
 }
 
@@ -206,36 +247,77 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
-	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
-	fileMimeType := http.DetectContentType(fileBytes)
+	if request.FileUrl != "" {
+		fileBytes, err := http.Get(request.FileUrl)
+		if err != nil {
+			return response, err
+		}
+		defer fileBytes.Body.Close()
+		data, err := io.ReadAll(fileBytes.Body)
+		if err != nil {
+			return response, err
+		}
+		fileMimeType := http.DetectContentType(data)
+		uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, data, dataWaRecipient)
+		if err != nil {
+			fmt.Printf("Failed to upload file: %v", err)
+			return response, err
+		}
 
-	// Send to WA server
-	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
-	if err != nil {
-		fmt.Printf("Failed to upload file: %v", err)
-		return response, err
+		msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+			URL:           proto.String(uploadedFile.URL),
+			Mimetype:      proto.String(fileMimeType),
+			Title:         proto.String(request.File.Filename),
+			FileSHA256:    uploadedFile.FileSHA256,
+			FileLength:    proto.Uint64(uploadedFile.FileLength),
+			MediaKey:      uploadedFile.MediaKey,
+			FileName:      proto.String(request.File.Filename),
+			FileEncSHA256: uploadedFile.FileEncSHA256,
+			DirectPath:    proto.String(uploadedFile.DirectPath),
+			Caption:       proto.String(request.Caption),
+		}}
+		ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+		if err != nil {
+			return response, err
+		}
+
+		response.MessageID = ts.ID
+		response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+		return response, nil
+	} else if request.File != nil {
+		fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
+		fileMimeType := http.DetectContentType(fileBytes)
+
+		// Send to WA server
+		uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
+		if err != nil {
+			fmt.Printf("Failed to upload file: %v", err)
+			return response, err
+		}
+
+		msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+			URL:           proto.String(uploadedFile.URL),
+			Mimetype:      proto.String(fileMimeType),
+			Title:         proto.String(request.File.Filename),
+			FileSHA256:    uploadedFile.FileSHA256,
+			FileLength:    proto.Uint64(uploadedFile.FileLength),
+			MediaKey:      uploadedFile.MediaKey,
+			FileName:      proto.String(request.File.Filename),
+			FileEncSHA256: uploadedFile.FileEncSHA256,
+			DirectPath:    proto.String(uploadedFile.DirectPath),
+			Caption:       proto.String(request.Caption),
+		}}
+		ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+		if err != nil {
+			return response, err
+		}
+
+		response.MessageID = ts.ID
+		response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+		return response, nil
+	} else {
+		return response, pkgError.ValidationError("either FileUrl or File must be provided")
 	}
-
-	msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
-		URL:           proto.String(uploadedFile.URL),
-		Mimetype:      proto.String(fileMimeType),
-		Title:         proto.String(request.File.Filename),
-		FileSHA256:    uploadedFile.FileSHA256,
-		FileLength:    proto.Uint64(uploadedFile.FileLength),
-		MediaKey:      uploadedFile.MediaKey,
-		FileName:      proto.String(request.File.Filename),
-		FileEncSHA256: uploadedFile.FileEncSHA256,
-		DirectPath:    proto.String(uploadedFile.DirectPath),
-		Caption:       proto.String(request.Caption),
-	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
-	if err != nil {
-		return response, err
-	}
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
-	return response, nil
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
@@ -249,6 +331,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	var (
+		oriVideoPath   string
 		videoPath      string
 		videoThumbnail string
 		deletedItems   []string
@@ -256,10 +339,20 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	generateUUID := fiberUtils.UUIDv4()
 	// Save video to server
-	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
-	err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+	if request.VideoUrl != "" {
+		oriVideoPath = fmt.Sprintf("%s/url-video-%s.mp4", config.PathSendItems, generateUUID)
+		err = downloadFileFromURL(request.VideoUrl, oriVideoPath)
+		if err != nil {
+			return response, err
+		}
+	} else if request.Video != nil {
+		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
+		err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+		}
+	} else {
+		return response, pkgError.ValidationError("either VideoUrl or Video must be provided")
 	}
 
 	// Check if ffmpeg is installed
@@ -296,7 +389,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
 		err = cmdCompress.Run()
-		if err != nil {
+		if (err != nil) {
 			return response, pkgError.InternalServerError("failed to compress video")
 		}
 

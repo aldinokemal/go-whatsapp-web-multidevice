@@ -26,18 +26,18 @@ paths:
         - app
       summary: Login to whatsapp server
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
-        '500':
+                $ref: "#/components/schemas/LoginResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /app/login-with-code:
     get:
       operationId: appLoginWithCode
@@ -49,21 +49,21 @@ paths:
           in: query
           schema:
             type: string
-          example: '628912344551'
+          example: "628912344551"
           description: Your phone number
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginWithCodeResponse'
-        '500':
+                $ref: "#/components/schemas/LoginWithCodeResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /app/logout:
     get:
       operationId: appLogout
@@ -71,18 +71,18 @@ paths:
         - app
       summary: Remove database and logout
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
-        '500':
+                $ref: "#/components/schemas/GenericResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /app/reconnect:
     get:
       operationId: appReconnect
@@ -90,18 +90,18 @@ paths:
         - app
       summary: Reconnecting to whatsapp server
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
-        '500':
+                $ref: "#/components/schemas/GenericResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /app/devices:
     get:
       operationId: appDevices
@@ -109,18 +109,18 @@ paths:
         - app
       summary: Get list connected devices
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceResponse'
-        '500':
+                $ref: "#/components/schemas/DeviceResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /user/info:
     get:
       operationId: userInfo
@@ -132,26 +132,26 @@ paths:
           in: query
           schema:
             type: integer
-          example: '6289685028129@s.whatsapp.net'
+          example: "6289685028129@s.whatsapp.net"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserInfoResponse'
-        '400':
+                $ref: "#/components/schemas/UserInfoResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /user/avatar:
     get:
       operationId: userAvatar
@@ -163,31 +163,31 @@ paths:
           in: query
           schema:
             type: integer
-          example: '6289685028129@s.whatsapp.net'
+          example: "6289685028129@s.whatsapp.net"
         - name: is_preview
           in: query
           schema:
             type: boolean
           example: true
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserAvatarResponse'
-        '400':
+                $ref: "#/components/schemas/UserAvatarResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /user/my/privacy:
     get:
       operationId: userMyPrivacy
@@ -195,18 +195,18 @@ paths:
         - user
       summary: User My Privacy Setting
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserPrivacyResponse'
-        '500':
+                $ref: "#/components/schemas/UserPrivacyResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /user/my/groups:
     get:
       operationId: userMyGroups
@@ -214,18 +214,18 @@ paths:
         - user
       summary: User My List Groups
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserGroupResponse'
-        '500':
+                $ref: "#/components/schemas/UserGroupResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /user/my/newsletters:
     get:
       operationId: userMyNewsletter
@@ -233,18 +233,18 @@ paths:
         - user
       summary: User My List Groups
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NewsletterResponse'
-        '500':
+                $ref: "#/components/schemas/NewsletterResponse"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/message:
     post:
       operationId: sendMessage
@@ -259,7 +259,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
+                  example: "6289685028129@s.whatsapp.net"
                   description: Phone number with country code
                 message:
                   type: string
@@ -270,24 +270,24 @@ paths:
                   example: 3EB089B9D6ADD58153C561
                   description: Message ID that you want reply
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/image:
     post:
       operationId: sendImage
@@ -302,7 +302,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
+                  example: "6289685028129@s.whatsapp.net"
                   description: Phone number with country code
                 caption:
                   type: string
@@ -320,25 +320,29 @@ paths:
                   type: boolean
                   example: false
                   description: Compress image
+                image_url:
+                  type: string
+                  example: false
+                  description: "Optional URL to download image from"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/audio:
     post:
       operationId: sendAudio
@@ -353,31 +357,31 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
+                  example: "6289685028129@s.whatsapp.net"
                   description: Phone number with country code
                 audio:
                   type: string
                   format: binary
                   description: Audio to send
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/file:
     post:
       operationId: sendFile
@@ -392,7 +396,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
+                  example: "6289685028129@s.whatsapp.net"
                   description: Phone number with country code
                 caption:
                   type: string
@@ -402,25 +406,29 @@ paths:
                   type: string
                   format: binary
                   description: File to send
+                file_url:
+                  type: string
+                  format: uri
+                  description: "Optional URL to download file from"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/video:
     post:
       operationId: sendVideo
@@ -435,7 +443,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685028129@s.whatsapp.net'
+                  example: "6289685028129@s.whatsapp.net"
                   description: Phone number with country code
                 caption:
                   type: string
@@ -443,7 +451,7 @@ paths:
                   description: Caption to send
                 view_once:
                   type: boolean
-                  example: 'false'
+                  example: "false"
                   description: View once
                 video:
                   type: string
@@ -451,27 +459,31 @@ paths:
                   description: Video to send
                 compress:
                   type: boolean
-                  example: 'false'
+                  example: "false"
                   description: Compress video
+                video_url:
+                  type: string
+                  format: uri
+                  description: "Optional URL to download video from"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/contact:
     post:
       operationId: sendContact
@@ -486,7 +498,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
                 contact_name:
                   type: string
@@ -494,27 +506,27 @@ paths:
                   description: Contact name
                 contact_phone:
                   type: string
-                  example: '6289685024992'
+                  example: "6289685024992"
                   description: Contact phone number
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/link:
     post:
       operationId: sendLink
@@ -529,7 +541,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
                 link:
                   type: string
@@ -537,27 +549,27 @@ paths:
                   description: Link to send
                 caption:
                   type: string
-                  example: 'Halo ini contoh caption'
+                  example: "Halo ini contoh caption"
                   description: Caption to send
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/location:
     post:
       operationId: sendLocation
@@ -572,7 +584,7 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
                 latitude:
                   type: string
@@ -580,27 +592,27 @@ paths:
                   description: Latitude coordinate
                 longitude:
                   type: string
-                  example: '110.370529'
+                  example: "110.370529"
                   description: Longitude coordinate
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /send/poll:
     post:
       operationId: sendPoll
@@ -617,17 +629,17 @@ paths:
                 phone:
                   type: string
                   description: The WhatsApp phone number to send the poll to, including the '@s.whatsapp.net' suffix.
-                  example: '6289685024421@s.whatsapp.net'
+                  example: "6289685024421@s.whatsapp.net"
                 question:
                   type: string
                   description: The question for the poll.
-                  example: 'Siapa Nama Avatar The Last Air Bender?'
+                  example: "Siapa Nama Avatar The Last Air Bender?"
                 options:
                   type: array
                   description: The options for the poll.
                   items:
                     type: string
-                  example: [ 'Zuko', 'Aang', 'Katara' ]
+                  example: ["Zuko", "Aang", "Katara"]
                 max_answer:
                   type: integer
                   description: The maximum number of answers allowed for the poll.
@@ -638,24 +650,24 @@ paths:
                 - options
                 - max_answer
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /message/{message_id}/revoke:
     post:
       operationId: revokeMessage
@@ -677,27 +689,27 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /message/{message_id}/delete:
     post:
       operationId: deleteMessage
@@ -719,27 +731,27 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /message/{message_id}/reaction:
     post:
       operationId: reactMessage
@@ -761,31 +773,31 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '6289685024051@s.whatsapp.net'
+                  example: "6289685024051@s.whatsapp.net"
                   description: Phone number with country code
                 emoji:
                   type: string
                   example: "🙏"
                   description: Emoji to react
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /message/{message_id}/update:
     post:
       operationId: updateMessage
@@ -807,34 +819,34 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '62819273192397132@s.whatsapp.net'
+                  example: "62819273192397132@s.whatsapp.net"
                   description: Phone number with country code
                 message:
                   type: string
-                  example: 'Hello World'
+                  example: "Hello World"
                   description: New message to send
               required:
                 - phone
                 - message
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /message/{message_id}/read:
     post:
       operationId: readMessage
@@ -856,29 +868,29 @@ paths:
               properties:
                 phone:
                   type: string
-                  example: '62819273192397132@s.whatsapp.net'
+                  example: "62819273192397132@s.whatsapp.net"
                   description: Phone number with country code
               required:
                 - phone
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SendResponse'
-        '400':
+                $ref: "#/components/schemas/SendResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group:
     post:
       operationId: createGroup
@@ -893,38 +905,38 @@ paths:
               properties:
                 title:
                   type: string
-                  example: 'Example Group Title'
+                  example: "Example Group Title"
                 participants:
                   type: array
                   items:
                     type: string
                     example:
-                      - '6819241294719274'
-                      - '6829241294719274'
-                      - '6839241294719274'
+                      - "6819241294719274"
+                      - "6829241294719274"
+                      - "6839241294719274"
                   example:
-                    - '6819241294719274'
-                    - '6829241294719274'
-                    - '6839241294719274'
+                    - "6819241294719274"
+                    - "6829241294719274"
+                    - "6839241294719274"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateGroupResponse'
-        '400':
+                $ref: "#/components/schemas/CreateGroupResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/participants:
     post:
       operationId: addParticipantToGroup
@@ -935,26 +947,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ManageParticipantRequest'
+              $ref: "#/components/schemas/ManageParticipantRequest"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManageParticipantResponse'
-        '400':
+                $ref: "#/components/schemas/ManageParticipantResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/participants/remove:
     post:
       operationId: removeParticipantFromGroup
@@ -965,26 +977,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ManageParticipantRequest'
+              $ref: "#/components/schemas/ManageParticipantRequest"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManageParticipantResponse'
-        '400':
+                $ref: "#/components/schemas/ManageParticipantResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/participants/promote:
     post:
       operationId: promoteParticipantToAdmin
@@ -995,26 +1007,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ManageParticipantRequest'
+              $ref: "#/components/schemas/ManageParticipantRequest"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManageParticipantResponse'
-        '400':
+                $ref: "#/components/schemas/ManageParticipantResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/participants/demote:
     post:
       operationId: demoteParticipantToMember
@@ -1025,26 +1037,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ManageParticipantRequest'
+              $ref: "#/components/schemas/ManageParticipantRequest"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManageParticipantResponse'
-        '400':
+                $ref: "#/components/schemas/ManageParticipantResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/join-with-link:
     post:
       operationId: joinGroupWithLink
@@ -1059,26 +1071,26 @@ paths:
               properties:
                 link:
                   type: string
-                  example: 'https://chat.whatsapp.com/whatsappKeyJoinGroup'
+                  example: "https://chat.whatsapp.com/whatsappKeyJoinGroup"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
-        '400':
+                $ref: "#/components/schemas/GenericResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /group/leave:
     post:
       operationId: leaveGroup
@@ -1093,26 +1105,26 @@ paths:
               properties:
                 group_id:
                   type: string
-                  example: '120363024512399999@g.us'
+                  example: "120363024512399999@g.us"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
-        '400':
+                $ref: "#/components/schemas/GenericResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
   /newsletter/unfollow:
     post:
       operationId: unfollowNewsletter
@@ -1127,26 +1139,26 @@ paths:
               properties:
                 newsletter_id:
                   type: string
-                  example: '120363024512399999@newsletter'
+                  example: "120363024512399999@newsletter"
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GenericResponse'
-        '400':
+                $ref: "#/components/schemas/GenericResponse"
+        "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '500':
+                $ref: "#/components/schemas/ErrorBadRequest"
+        "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: "#/components/schemas/ErrorInternalServer"
 
 components:
   schemas:
@@ -1176,9 +1188,9 @@ components:
           items:
             type: string
           example:
-            - '6819241294719274'
-            - '6829241294719274'
-            - '6839241294719274'
+            - "6819241294719274"
+            - "6829241294719274"
+            - "6839241294719274"
     ManageParticipantResponse:
       type: object
       properties:
@@ -1194,7 +1206,7 @@ components:
             properties:
               participant:
                 type: string
-                example: '6289987391723@s.whatsapp.net'
+                example: "6289987391723@s.whatsapp.net"
               status:
                 type: string
                 example: success
@@ -1300,13 +1312,13 @@ components:
           properties:
             url:
               type: string
-              example: 'https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726'
+              example: "https://pps.whatsapp.net/v/t61.24694-24/181358562_385581386633509_6230178822944778044_n.jpg?ccb=11-4&oh=df36c5b990497b8a5758a0f1ad8118a8&oe=620AA726"
             id:
               type: string
-              example: '1635239861'
+              example: "1635239861"
             type:
               type: string
-              example: 'image'
+              example: "image"
     UserPrivacyResponse:
       type: object
       properties:
@@ -1348,10 +1360,10 @@ components:
           properties:
             message_id:
               type: string
-              example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+              example: "3EB0B430B6F8F1D0E053AC120E0A9E5C"
             status:
               type: string
-              example: '<feature> success ....'
+              example: "<feature> success ...."
     DeviceResponse:
       type: object
       properties:
@@ -1368,10 +1380,10 @@ components:
             properties:
               name:
                 type: string
-                example: 'Aldino Kemal'
+                example: "Aldino Kemal"
               device:
                 type: string
-                example: '628960561XXX.0:64@s.whatsapp.net'
+                example: "628960561XXX.0:64@s.whatsapp.net"
     LoginWithCodeResponse:
       type: object
       properties:
@@ -1404,7 +1416,7 @@ components:
               example: 30
             qr_link:
               type: string
-              example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
+              example: "http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png"
     GenericResponse:
       type: object
       properties:
@@ -1423,30 +1435,30 @@ components:
         code:
           type: string
           example: INTERNAL_SERVER_ERROR
-          description: 'SYSTEM_CODE_ERROR'
+          description: "SYSTEM_CODE_ERROR"
         message:
           type: string
           example: you are not loggin
-          description: 'Detail error message'
+          description: "Detail error message"
         results:
           type: object
           example: null
-          description: 'additional data'
+          description: "additional data"
     ErrorBadRequest:
       type: object
       properties:
         code:
           type: string
           example: 400
-          description: 'HTTP Status Code'
+          description: "HTTP Status Code"
         message:
           type: string
           example: field cannot be blank
-          description: 'Detail error message'
+          description: "Detail error message"
         results:
           type: object
           example: null
-          description: 'additional data'
+          description: "additional data"
     NewsletterResponse:
       type: object
       properties:
@@ -1462,7 +1474,7 @@ components:
             data:
               type: array
               items:
-                $ref: '#/components/schemas/Newsletter'
+                $ref: "#/components/schemas/Newsletter"
     Newsletter:
       type: object
       properties:
@@ -1577,7 +1589,7 @@ components:
             data:
               type: array
               items:
-                $ref: '#/components/schemas/Group'
+                $ref: "#/components/schemas/Group"
     Group:
       type: object
       properties:
@@ -1656,7 +1668,7 @@ components:
         Participants:
           type: array
           items:
-            $ref: '#/components/schemas/Participant'
+            $ref: "#/components/schemas/Participant"
         MemberAddMode:
           type: string
           example: "admin_add"

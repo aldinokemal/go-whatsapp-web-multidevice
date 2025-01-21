@@ -26,69 +26,68 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Image, validation.Required),
 	)
-
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	availableMimes := map[string]bool{
-		"image/jpeg": true,
-		"image/jpg":  true,
-		"image/png":  true,
+	// Skip mime validation for URL
+	if request.ImageUrl != "" {
+		return nil
 	}
 
-	if !availableMimes[request.Image.Header.Get("Content-Type")] {
-		return pkgError.ValidationError("your image is not allowed. please use jpg/jpeg/png")
+	if request.Image != nil {
+		availableMimes := map[string]bool{
+			"image/jpeg": true,
+			"image/jpg":  true,
+			"image/png":  true,
+		}
+		if !availableMimes[request.Image.Header.Get("Content-Type")] {
+			return pkgError.ValidationError("your image is not allowed. please use jpg/jpeg/png")
+		}
 	}
-
 	return nil
 }
 
 func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.File, validation.Required),
 	)
-
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if request.File.Size > config.WhatsappSettingMaxFileSize { // 10MB
-		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize))
-		return pkgError.ValidationError(fmt.Sprintf("max file upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
+	if request.File != nil {
+		if request.File.Size > config.WhatsappSettingMaxFileSize { // 10MB
+			maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize))
+			return pkgError.ValidationError(fmt.Sprintf("max file upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
+		}
 	}
-
 	return nil
 }
 
 func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Video, validation.Required),
 	)
-
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	availableMimes := map[string]bool{
-		"video/mp4":        true,
-		"video/x-matroska": true,
-		"video/avi":        true,
+	if request.Video != nil {
+		availableMimes := map[string]bool{
+			"video/mp4":        true,
+			"video/x-matroska": true,
+			"video/avi":        true,
+		}
+		if !availableMimes[request.Video.Header.Get("Content-Type")] {
+			return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi")
+		}
+		if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
+			maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
+			return pkgError.ValidationError(fmt.Sprintf("max video upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
+		}
 	}
-
-	if !availableMimes[request.Video.Header.Get("Content-Type")] {
-		return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi")
-	}
-
-	if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
-		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
-		return pkgError.ValidationError(fmt.Sprintf("max video upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
-	}
-
 	return nil
 }
 
