@@ -23,6 +23,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html/v2"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 )
@@ -50,6 +51,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
 	rootCmd.PersistentFlags().BoolVarP(&config.WhatsappAccountValidation, "account-validation", "", config.WhatsappAccountValidation, `enable or disable account validation --account-validation <true/false> | example: --account-validation=true`)
+	rootCmd.PersistentFlags().StringVarP(&config.DBURI, "db-uri", "", config.DBURI, `the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`)
 }
 
 func runRest(_ *cobra.Command, _ []string) {
