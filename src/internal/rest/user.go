@@ -14,6 +14,7 @@ type User struct {
 func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
 	rest := User{Service: service}
 	app.Get("/user/info", rest.UserInfo)
+	app.Get("/user/check", rest.UserCheck)
 	app.Get("/user/avatar", rest.UserAvatar)
 	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
 	app.Get("/user/my/groups", rest.UserMyListGroups)
@@ -39,6 +40,25 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 		Results: response.Data[0],
 	})
 }
+
+func (controller *User) UserCheck(c *fiber.Ctx) error {
+	var request domainUser.CheckRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.Check(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get user info",
+		Results: response.Data[0],
+	})
+}
+
 
 func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	var request domainUser.AvatarRequest

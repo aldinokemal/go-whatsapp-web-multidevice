@@ -103,6 +103,14 @@ You can fork or edit this source code !
   to [SwaggerEditor](https://editor.swagger.io).
 - Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
 
+## CURL for the api
+
+#### You need to encode to Base64 your user:pass [basic-auth] and pass in header
+
+- curl -X 'GET' 'http://127.0.0.1:3000/user/check?phone=YOUR_PHONE' -H 'accept: application/json' \ 
+-H 'Authorization: Basic qwertyASDFzxc='
+- curl -X 'GET' 'http://127.0.0.1:3000/user/check?phone=YOUR_PHONE' -H 'accept: application/json'
+
 | Feature | Menu                         | Method | URL                           | 
 |---------|------------------------------|--------|-------------------------------|
 | ✅       | Login with Scan QR           | GET    | /app/login                    |
@@ -111,6 +119,7 @@ You can fork or edit this source code !
 | ✅       | Reconnect                    | GET    | /app/reconnect                | 
 | ✅       | Devices                      | GET    | /app/devices                  | 
 | ✅       | User Info                    | GET    | /user/info                    |
+| ✅       | Check User is on whatsapp    | GET    | /user/check                   |
 | ✅       | User Avatar                  | GET    | /user/avatar                  |
 | ✅       | User My Groups               | GET    | /user/my/groups               |
 | ✅       | User My Newsletter           | GET    | /user/my/newsletters          |
@@ -164,6 +173,7 @@ You can fork or edit this source code !
 | Reaction Message   | ![Reaction Message](https://i.ibb.co.com/BfHgSHG/react-message.png)                      |
 | Edit Message       | ![Edit Message](https://i.ibb.co.com/kXfpqJw/update-message.png)                         |
 | User Info          | ![User Info](https://i.ibb.co.com/3zjX6Cz/user-info.png?v=1)                             |
+| Check User         | ![Check User ](https://i.ibb.co/92gVZrx/Check-User.png?v=1)                              |
 | User Avatar        | ![User Avatar](https://i.ibb.co.com/ZmJZ4ZW/search-avatar.png?v=1)                       |
 | My Privacy         | ![My Privacy](https://i.ibb.co.com/Cw1sMQz/my-privacy.png)                               |
 | My Group           | ![My Group](https://i.ibb.co.com/WB268Xy/list-group.png)                                 |
