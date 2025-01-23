@@ -72,13 +72,6 @@ func (service userService) Check(ctx context.Context, request domainUser.CheckRe
 		return response, err
 	}
 	
-	var jids []types.JID
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
-	if err != nil {
-		return response, err
-	}
-
-	jids = append(jids, dataWaRecipient)
 	resp, err := service.WaCli.IsOnWhatsApp([]string{request.Phone})
 	if err != nil {
 		return response, err
