@@ -88,10 +88,10 @@ func (service userService) Check(ctx context.Context, request domainUser.CheckRe
 		}
 	}
 
-	response.Data = append(response.Data, uc.Users[0])
-	// response := string(responseJson)
-
-	return response, err
+	if len(uc.Users) > 0 {
+		response.Data = append(response.Data, uc.Users[0])
+	}
+	return response, nil
 }
 
 func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
