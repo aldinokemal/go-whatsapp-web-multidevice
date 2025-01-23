@@ -101,6 +101,7 @@
     <div class="ui three column doubling grid cards">
         <account-avatar></account-avatar>
         <account-user-info></account-user-info>
+        <account-user-check></account-user-check>
         <account-privacy></account-privacy>
     </div>
 
@@ -158,6 +159,7 @@
     import GroupAddParticipants from "./components/GroupManageParticipants.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
+    import AccountUserCheck from "./components/AccountUserCheck.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
     import NewsletterList from "./components/NewsletterList.js";
 
@@ -198,7 +200,7 @@
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy
+            AccountAvatar, AccountUserInfo, AccountUserCheck, AccountPrivacy
         },
         delimiters: ['[[', ']]'],
         data() {

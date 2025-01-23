@@ -6,6 +6,10 @@ type InfoRequest struct {
 	Phone string `json:"phone" query:"phone"`
 }
 
+type CheckRequest struct {
+	Phone string `json:"phone" query:"phone"`
+}
+
 type InfoResponseDataDevice struct {
 	User   string
 	Agent  uint8
@@ -21,8 +25,23 @@ type InfoResponseData struct {
 	Devices      []InfoResponseDataDevice `json:"devices"`
 }
 
+type CheckResponseData struct {
+	Query        string                   `json:"query"`
+	IsInWhatsapp bool                     `json:"IsInWhatsapp"`
+	VerifiedName string                   `json:"verified_name"`
+	JID          string                   `json:"jid"`
+}
+
 type InfoResponse struct {
 	Data []InfoResponseData `json:"data"`
+}
+
+type CheckResponse struct {
+	Data []CheckResponseData `json:"data"`
+}
+
+type UserCollection struct {
+	Users []CheckResponseData
 }
 
 type AvatarRequest struct {

@@ -66,6 +66,41 @@ func (service userService) Info(ctx context.Context, request domainUser.InfoRequ
 	return response, nil
 }
 
+func (service userService) Check(ctx context.Context, request domainUser.CheckRequest) (response domainUser.CheckResponse, err error) {
+	err = validations.ValidateUserCheck(ctx, request)
+	if err != nil {
+		return response, err
+	}
+	
+	var jids []types.JID
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	jids = append(jids, dataWaRecipient)
+	resp, err := service.WaCli.IsOnWhatsApp([]string{request.Phone})
+	if err != nil {
+		return response, err
+	}
+
+	uc := new(domainUser.UserCollection)
+	for _, item := range resp {
+		if item.VerifiedName != nil {
+			var msg = domainUser.CheckResponseData{Query: item.Query, IsInWhatsapp: item.IsIn, JID: fmt.Sprintf("%s", item.JID), VerifiedName: item.VerifiedName.Details.GetVerifiedName()}
+			uc.Users = append(uc.Users, msg)
+		} else {
+			var msg = domainUser.CheckResponseData{Query: item.Query, IsInWhatsapp: item.IsIn, JID: fmt.Sprintf("%s", item.JID), VerifiedName: ""}
+			uc.Users = append(uc.Users, msg)
+		}
+	}
+
+	response.Data = append(response.Data, uc.Users[0])
+	// response := string(responseJson)
+
+	return response, err
+}
+
 func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 
 	chanResp := make(chan domainUser.AvatarResponse)
