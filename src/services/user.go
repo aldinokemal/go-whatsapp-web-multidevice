@@ -78,14 +78,21 @@ func (service userService) Check(ctx context.Context, request domainUser.CheckRe
 	}
 
 	uc := new(domainUser.UserCollection)
+	if len(resp) == 0 {
+		return response, errors.New("no results found")
+	}
 	for _, item := range resp {
+		verifiedName := ""
 		if item.VerifiedName != nil {
-			var msg = domainUser.CheckResponseData{Query: item.Query, IsInWhatsapp: item.IsIn, JID: fmt.Sprintf("%s", item.JID), VerifiedName: item.VerifiedName.Details.GetVerifiedName()}
-			uc.Users = append(uc.Users, msg)
-		} else {
-			var msg = domainUser.CheckResponseData{Query: item.Query, IsInWhatsapp: item.IsIn, JID: fmt.Sprintf("%s", item.JID), VerifiedName: ""}
-			uc.Users = append(uc.Users, msg)
+			verifiedName = item.VerifiedName.Details.GetVerifiedName()
 		}
+		msg := domainUser.CheckResponseData{
+			Query:        item.Query,
+			IsInWhatsapp: item.IsIn,
+			JID:         item.JID.String(),
+			VerifiedName: verifiedName,
+		}
+		uc.Users = append(uc.Users, msg)
 	}
 
 	if len(uc.Users) > 0 {
