@@ -22,6 +22,7 @@ func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
 	app.Post("/send/location", rest.SendLocation)
 	app.Post("/send/audio", rest.SendAudio)
 	app.Post("/send/poll", rest.SendPoll)
+	app.Post("/send/presence", rest.SendPresence)
 	return rest
 }
 
@@ -195,6 +196,22 @@ func (controller *Send) SendPoll(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendPoll(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) SendPresence(c *fiber.Ctx) error {
+	var request domainSend.PresenceRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	response, err := controller.Service.SendPresence(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

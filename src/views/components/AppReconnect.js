@@ -26,6 +26,7 @@ export default {
     template: `
     <div class="green card" @click="handleSubmit" style="cursor: pointer">
         <div class="content">
+            <a class="ui teal right ribbon label">App</a>
             <div class="header">Reconnect</div>
             <div class="description">
                 Please reconnect to the WhatsApp service if your API doesn't work or if your app is down.

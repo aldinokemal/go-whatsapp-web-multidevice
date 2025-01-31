@@ -5,7 +5,6 @@ export default {
     components: {
         FormRecipient
     },
-    // define props
     props: {
         maxVideoSize: {
             type: String,
@@ -20,12 +19,13 @@ export default {
             type: window.TYPEUSER,
             phone: '',
             loading: false,
+            selectedFileName: null,
         }
     },
     computed: {
         phone_id() {
             return this.phone + this.type;
-        }
+        },
     },
     methods: {
         openModal() {
@@ -35,7 +35,36 @@ export default {
                 }
             }).modal('show');
         },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
+        },
+        isValidForm() {
+            let isValid = true;
+
+            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+                isValid = false;
+            }
+
+            const fileInput = $("#file_video")[0];
+            if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+                console.log('fileInput', fileInput);
+                isValid = false;
+            } else {
+                const videoFile = fileInput.files[0];
+                // Validate file type
+                if (!videoFile.type.startsWith('video/')) {
+                    isValid = false;
+                    console.log('videoFile', videoFile);
+                }
+            }
+
+            return isValid;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -49,7 +78,7 @@ export default {
             try {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
-                payload.append("caption", this.caption)
+                payload.append("caption", this.caption.trim())
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append('video', $("#file_video")[0].files[0])
@@ -70,9 +99,15 @@ export default {
             this.view_once = false;
             this.compress = false;
             this.phone = '';
-            this.type = window.TYPEUSER;
+            this.selectedFileName = null;
             $("#file_video").val('');
         },
+        handleFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.selectedFileName = file.name;
+            }
+        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
@@ -96,21 +131,21 @@ export default {
         </div>
         <div class="content">
             <form class="ui form">
-                <FormRecipient v-model:type="type" v-model:phone="phone"/>
+                <FormRecipient v-model:type="type" v-model:phone="phone" :show-status="true"/>
                 
                 <div class="field">
                     <label>Caption</label>
                     <textarea v-model="caption" placeholder="Type some caption (optional)..."
                               aria-label="caption"></textarea>
                 </div>
-                <div class="field">
+                <div class="field" v-if="isShowAttributes()">
                     <label>View Once</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="view once" v-model="view_once">
                         <label>Check for enable one time view</label>
                     </div>
                 </div>
-                <div class="field">
+                <div class="field" v-if="isShowAttributes()">
                     <label>Compress</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="compress">
@@ -119,20 +154,27 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Video</label>
-                    <input type="file" style="display: none" accept="video/*" id="file_video">
+                    <input type="file" style="display: none" accept="video/*" id="file_video" @change="handleFileChange">
                     <label for="file_video" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload video
                     </label>
+                    <div v-if="selectedFileName" style="margin-top: 60px">
+                        <div class="ui message">
+                            <i class="file icon"></i>
+                            Selected file: {{ selectedFileName }}
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" 
+                 :class="{'loading': loading, 'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
                 Send
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

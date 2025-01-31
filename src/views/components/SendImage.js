@@ -13,13 +13,14 @@ export default {
             caption: '',
             type: window.TYPEUSER,
             loading: false,
-            selected_file: null
+            selected_file: null,
+            preview_url: null
         }
     },
     computed: {
         phone_id() {
             return this.phone + this.type;
-        }
+        },
     },
     methods: {
         openModal() {
@@ -29,7 +30,25 @@ export default {
                 }
             }).modal('show');
         },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
+        },
+        isValidForm() {
+            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+                return false;
+            }
+
+            if (!this.selected_file) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -65,9 +84,24 @@ export default {
             this.compress = false;
             this.phone = '';
             this.caption = '';
-            this.type = window.TYPEUSER;
+            this.preview_url = null;
+            this.selected_file = null;
             $("#file_image").val('');
         },
+        handleImageChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.preview_url = URL.createObjectURL(file);
+                // Add small delay to allow DOM update before scrolling
+                setTimeout(() => {
+                    const modalContent = document.querySelector('#modalSendImage .content');
+                    if (modalContent) {
+                        modalContent.scrollTop = modalContent.scrollHeight;
+                    }
+                    this.selected_file = file.name;
+                }, 100);
+            }
+        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor:pointer;">
@@ -88,23 +122,23 @@ export default {
         <div class="header">
             Send Image
         </div>
-        <div class="content">
+        <div class="content" style="max-height: 70vh; overflow-y: auto;">
             <form class="ui form">
-                <FormRecipient v-model:type="type" v-model:phone="phone"/>
+                <FormRecipient v-model:type="type" v-model:phone="phone" :show-status="true"/>
                 
                 <div class="field">
                     <label>Caption</label>
                     <textarea v-model="caption" type="text" placeholder="Hello this is image caption"
                               aria-label="caption"></textarea>
                 </div>
-                <div class="field">
+                <div class="field" v-if="isShowAttributes()">
                     <label>View Once</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="view once" v-model="view_once">
                         <label>Check for enable one time view</label>
                     </div>
                 </div>
-                <div class="field">
+                <div class="field" v-if="isShowAttributes()">
                     <label>Compress</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="compress">
@@ -113,20 +147,24 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
-                    <input type="file" style="display: none" id="file_image" accept="image/png,image/jpg,image/jpeg"/>
+                    <input type="file" style="display: none" id="file_image" accept="image/png,image/jpg,image/jpeg" @change="handleImageChange"/>
                     <label for="file_image" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload image
                     </label>
+                    <div v-if="preview_url" style="margin-top: 60px">
+                        <img :src="preview_url" style="max-width: 100%; max-height: 300px; object-fit: contain" />
+                    </div>
                 </div>
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" 
+                 :class="{'loading': this.loading, 'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
                 Send
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

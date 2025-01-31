@@ -8,6 +8,47 @@
     <link rel="stylesheet" type="text/css"
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
+    <link rel="stylesheet" href="assets/app.css">
+    <style>
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #00A884 0%, #008069 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-in-out;
+            color: white;
+        }
+        #splash-screen.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .splash-icon {
+            font-size: 5em;
+            color: white;
+            margin-bottom: 20px;
+            animation: bounce 2s infinite;
+        }
+        .splash-spinner {
+            margin-top: 20px;
+        }
+        .splash-title {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+    </style>
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
@@ -15,21 +56,33 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/axios@1.1.2/dist/axios.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-    <title>Whatsapp API Multi Device {{ .AppVersion }}</title>
-
-    <style>
-        .container {
-            padding-top: 2em;
-        }
-    </style>
+    <title>WhatsApp API {{ .AppVersion }}</title>
 </head>
 <body>
-<div class="ui container" id="app">
-    <h1 class="ui header center aligned">Whatsapp API Multi Device ({{ .AppVersion }})</h1>
+<div id="splash-screen">
+    <i class="whatsapp icon splash-icon"></i>
+    <h2 class="splash-title">WhatsApp API</h2>
+    <div class="ui active large inline loader splash-spinner"></div>
+</div>
+
+<div class="ui container" id="app" style="display: none;">
+    <div class="main-header">
+        <h1 class="ui header center aligned">
+            <div class="title-container">
+                <i class="whatsapp icon"></i>
+                WhatsApp API
+
+                <div class="version-label">
+                    {{ .AppVersion }}
+                </div>
+            </div>
+        </h1>
+    </div>
 
     <div class="ui success message" v-if="connected_devices != null">
         <div class="header">
-            Device has connected
+            <i class="check circle icon"></i>
+            Device Connected Successfully
         </div>
         <p>
             Device ID: <b>[[ connected_devices[0].device ]]</b>
@@ -62,6 +115,7 @@
 
         <send-audio></send-audio>
         <send-poll></send-poll>
+        <send-presence></send-presence>
     </div>
 
     <div class="ui horizontal divider">
@@ -100,6 +154,7 @@
 
     <div class="ui three column doubling grid cards">
         <account-avatar></account-avatar>
+        <account-change-avatar></account-change-avatar>
         <account-user-info></account-user-info>
         <account-privacy></account-privacy>
     </div>
@@ -109,6 +164,7 @@
     window.TYPEGROUP = "@g.us";
     window.TYPEUSER = "@s.whatsapp.net";
     window.TYPENEWSLETTER = "@newsletter";
+    window.TYPESTATUS = "status@broadcast";
     window.showErrorInfo = (message) => {
         $('body').toast({
             position: 'bottom right',
@@ -148,6 +204,7 @@
     import SendLocation from "./components/SendLocation.js";
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
+    import SendPresence from "./components/SendPresence.js";
     import MessageDelete from "./components/MessageDelete.js";
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
@@ -157,6 +214,7 @@
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
     import GroupAddParticipants from "./components/GroupManageParticipants.js";
     import AccountAvatar from "./components/AccountAvatar.js";
+    import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
     import NewsletterList from "./components/NewsletterList.js";
@@ -194,11 +252,11 @@
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
-            SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll,
+            SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar
         },
         delimiters: ['[[', ']]'],
         data() {
@@ -213,6 +271,9 @@
             }
         },
         mounted() {
+            // Initialize app container as hidden
+            document.getElementById('app').style.display = 'none';
+            
             if (window["WebSocket"]) {
                 this.app_ws = new WebSocket(constructWebSocketURL());
 
@@ -220,13 +281,24 @@
                     this.app_ws.send(JSON.stringify({
                         "code": "FETCH_DEVICES",
                         "message": "List device"
-                    }))
+                    }));
+                    
+                    // Show app container and hide splash screen with a slight delay
+                    setTimeout(() => {
+                        document.getElementById('app').style.display = 'block';
+                        document.getElementById('splash-screen').classList.add('fade-out');
+                    }, 1000);
                 };
 
                 this.app_ws.onerror = (error) => {
                      console.error('WebSocket error:', error);
                      showErrorInfo('Connection error occurred. Please refresh the page.');
-                 };
+                     // Hide splash screen and show error state
+                     setTimeout(() => {
+                         document.getElementById('app').style.display = 'block';
+                         document.getElementById('splash-screen').classList.add('fade-out');
+                     }, 1000);
+                };
 
                 this.app_ws.onmessage = (evt) => {
                     const message = JSON.parse(evt.data)
@@ -247,6 +319,8 @@
                 };
             } else {
                 console.error('Your browser does not support WebSockets');
+                // Hide splash screen if WebSocket is not supported
+                document.getElementById('splash-screen').classList.add('fade-out');
             }
         },
     }).mount('#app')

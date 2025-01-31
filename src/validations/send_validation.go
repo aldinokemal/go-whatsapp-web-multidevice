@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"fmt"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -204,4 +205,16 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 
 	return nil
 
+}
+
+func ValidateSendPresence(ctx context.Context, request domainSend.PresenceRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Type, validation.In("available", "unavailable")),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
 }

@@ -10,6 +10,7 @@ export default {
             phone: '',
             type: window.TYPEUSER,
             loading: false,
+            selectedFileName: null
         }
     },
     computed: {
@@ -25,7 +26,22 @@ export default {
                 }
             }).modal('show');
         },
+        isValidForm() {
+            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+                return false;
+            }
+
+            if (!this.selectedFileName) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -56,7 +72,14 @@ export default {
             this.phone = '';
             this.type = window.TYPEUSER;
             $("#file_audio").val('');
+            this.selectedFileName = null;
         },
+        handleFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.selectedFileName = file.name;
+            }
+        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
@@ -80,20 +103,26 @@ export default {
                 <FormRecipient v-model:type="type" v-model:phone="phone"/>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Audio</label>
-                    <input type="file" style="display: none" accept="audio/*" id="file_audio"/>
+                    <input type="file" style="display: none" accept="audio/*" id="file_audio" @change="handleFileChange"/>
                     <label for="file_audio" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload 
                     </label>
+                    <div v-if="selectedFileName" style="margin-top: 60px">
+                        <div class="ui message">
+                            <i class="file icon"></i>
+                            Selected file: {{ selectedFileName }}
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading, 'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
                 Send
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

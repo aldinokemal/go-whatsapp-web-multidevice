@@ -5,22 +5,23 @@ import (
 )
 
 var (
-	AppVersion             = "v4.22.1"
+	AppVersion             = "v5.0.0"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = "AldinoKemal"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
-	AppBasicAuthCredential string
+	AppBasicAuthCredential []string
 
-	PathQrCode    = "statics/qrcode"
-	PathSendItems = "statics/senditems"
-	PathMedia     = "statics/media"
-	PathStorages  = "storages"
+	PathQrCode      = "statics/qrcode"
+	PathSendItems   = "statics/senditems"
+	PathMedia       = "statics/media"
+	PathStorages    = "storages"
+	PathChatStorage = "storages/chat.txt"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
 
 	WhatsappAutoReplyMessage       string
-	WhatsappWebhook                string
+	WhatsappWebhook                []string
 	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"
 	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB

@@ -46,9 +46,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.AppPort, "port", "p", config.AppPort, "change port number with --port <number> | example: --port=8080")
 	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
 	rootCmd.PersistentFlags().StringVarP(&config.AppOs, "os", "", config.AppOs, `os name --os <string> | example: --os="Chrome"`)
-	rootCmd.PersistentFlags().StringVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
+	rootCmd.PersistentFlags().StringSliceVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
-	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
+	rootCmd.PersistentFlags().StringSliceVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
 	rootCmd.PersistentFlags().BoolVarP(&config.WhatsappAccountValidation, "account-validation", "", config.WhatsappAccountValidation, `enable or disable account validation --account-validation <true/false> | example: --account-validation=true`)
 	rootCmd.PersistentFlags().StringVarP(&config.DBURI, "db-uri", "", config.DBURI, `the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`)
@@ -74,12 +74,19 @@ func runRest(_ *cobra.Command, _ []string) {
 		Views:     engine,
 		BodyLimit: int(config.WhatsappSettingMaxVideoSize),
 	})
+
 	app.Static("/statics", "./statics")
 	app.Use("/components", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
 		PathPrefix: "views/components",
 		Browse:     true,
 	}))
+	app.Use("/assets", filesystem.New(filesystem.Config{
+		Root:       http.FS(EmbedViews),
+		PathPrefix: "views/assets",
+		Browse:     true,
+	}))
+
 	app.Use(middleware.Recovery())
 	app.Use(middleware.BasicAuth())
 	if config.AppDebug {
@@ -90,10 +97,9 @@ func runRest(_ *cobra.Command, _ []string) {
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
-	if config.AppBasicAuthCredential != "" {
+	if len(config.AppBasicAuthCredential) > 0 {
 		account := make(map[string]string)
-		multipleBA := strings.Split(config.AppBasicAuthCredential, ",")
-		for _, basicAuth := range multipleBA {
+		for _, basicAuth := range config.AppBasicAuthCredential {
 			ba := strings.Split(basicAuth, ":")
 			if len(ba) != 2 {
 				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")

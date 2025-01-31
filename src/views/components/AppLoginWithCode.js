@@ -2,8 +2,8 @@ export default {
     name: 'AppLoginWithCode',
     props: {
         connected: {
-            type: Boolean,
-            default: false,
+            type: Array,
+            default: [],
         }
     },
     watch: {
@@ -62,6 +62,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
+            <a class="ui teal right ribbon label">App</a>
             <div class="header">Login with Code</div>
             <div class="description">
                 Enter your pairing code to log in and access your devices.

@@ -28,6 +28,7 @@ export default {
     template: `
     <div class="green card" @click="handleSubmit" style="cursor: pointer">
         <div class="content">
+            <a class="ui teal right ribbon label">App</a>
             <div class="header">Logout</div>
             <div class="description">
                 Remove your login session in application

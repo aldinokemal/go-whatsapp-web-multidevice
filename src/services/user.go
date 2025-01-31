@@ -1,16 +1,20 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"time"
+
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/disintegration/imaging"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
-	"time"
 )
 
 type userService struct {
@@ -154,4 +158,58 @@ func (service userService) MyPrivacySetting(_ context.Context) (response domainU
 	response.ReadReceipts = string(resp.ReadReceipts)
 	response.Profile = string(resp.Profile)
 	return response, nil
+}
+
+func (service userService) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	file, err := request.Avatar.Open()
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Read original image
+	srcImage, err := imaging.Decode(file)
+	if err != nil {
+		return fmt.Errorf("failed to decode image: %v", err)
+	}
+
+	// Get original dimensions
+	bounds := srcImage.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// Calculate new dimensions for 1:1 aspect ratio
+	size := width
+	if height < width {
+		size = height
+	}
+	if size > 640 {
+		size = 640
+	}
+
+	// Create a square crop from the center
+	left := (width - size) / 2
+	top := (height - size) / 2
+	croppedImage := imaging.Crop(srcImage, image.Rect(left, top, left+size, top+size))
+
+	// Resize if needed
+	if size > 640 {
+		croppedImage = imaging.Resize(croppedImage, 640, 640, imaging.Lanczos)
+	}
+
+	// Convert to bytes
+	var buf bytes.Buffer
+	err = imaging.Encode(&buf, croppedImage, imaging.JPEG, imaging.JPEGQuality(80))
+	if err != nil {
+		return fmt.Errorf("failed to encode image: %v", err)
+	}
+
+	_, err = service.WaCli.SetGroupPhoto(types.JID{}, buf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

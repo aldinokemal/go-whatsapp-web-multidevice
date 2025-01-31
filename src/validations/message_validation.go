@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -67,6 +68,20 @@ func ValidateDeleteMessage(ctx context.Context, request domainMessage.DeleteRequ
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.MessageID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func ValidateStarMessage(ctx context.Context, request domainMessage.StarRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.IsStarred, validation.Required),
 	)
 
 	if err != nil {

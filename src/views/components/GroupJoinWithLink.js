@@ -14,7 +14,24 @@ export default {
                 }
             }).modal('show');
         },
+        isValidForm() {
+            if (!this.link.trim()) {
+                return false;
+            }
+
+            // should valid URL
+            try {
+                new URL(this.link);
+            } catch (error) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -72,11 +89,11 @@ export default {
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit" type="button">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading, 'disabled': !this.isValidForm() || this.loading}"
+                 @click.prevent="handleSubmit" type="button">
                 Join
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

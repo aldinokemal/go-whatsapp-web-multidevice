@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -14,10 +19,6 @@ import (
 	"go.mau.fi/libsignal/logger"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 type serviceApp struct {
@@ -98,10 +99,13 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 	}
 
 	// detect is already logged in
-	if service.WaCli.IsLoggedIn() {
+	if service.WaCli.Store.ID != nil {
 		logrus.Warn("User is already logged in")
 		return loginCode, pkgError.ErrAlreadyLoggedIn
 	}
+
+	// reconnect first
+	_ = service.Reconnect(ctx)
 
 	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {

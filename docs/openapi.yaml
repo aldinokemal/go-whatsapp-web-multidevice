@@ -1,7 +1,7 @@
-openapi: 3.0.0
+openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 4.4.0
+  version: 5.0.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -176,6 +176,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserAvatarResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    post:
+      operationId: userChangeAvatar
+      tags:
+        - user
+      summary: User Change Avatar
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+                  description: Avatar to send
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
         '400':
           description: Bad Request
           content:
@@ -637,6 +671,45 @@ paths:
                 - question
                 - options
                 - max_answer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/presence:
+    post:
+      operationId: sendPresence
+      tags:
+        - send
+      summary: Send presence status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                presence:
+                  type: string
+                  description: The presence status to send
+                  enum: [available, unavailable]
+                  example: 'available'
+              required:
+                - presence
       responses:
         '200':
           description: OK
