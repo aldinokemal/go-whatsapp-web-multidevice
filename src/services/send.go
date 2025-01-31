@@ -416,12 +416,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	getMetaDataFromURL := utils.GetMetaDataFromURL(request.Link)
 
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:         proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
-		Title:        proto.String(getMetaDataFromURL.Title),
-		CanonicalURL: proto.String(request.Link),
-		MatchedText:  proto.String(request.Link),
-		Description:  proto.String(getMetaDataFromURL.Description),
+		Text:        proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Title:       proto.String(getMetaDataFromURL.Title),
+		MatchedText: proto.String(request.Link),
+		Description: proto.String(getMetaDataFromURL.Description),
 	}}
+	
 	content := "🔗 " + request.Link
 	if request.Caption != "" {
 		content = "🔗 " + request.Caption

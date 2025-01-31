@@ -21,8 +21,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.58.0
 	go.mau.fi/libsignal v0.1.1
-	go.mau.fi/whatsmeow v0.0.0-20250104105216-918c879fcd19
-	google.golang.org/protobuf v1.36.3
+	go.mau.fi/whatsmeow v0.0.0-20250130221717-faf72d668860
+	google.golang.org/protobuf v1.36.4
 )
 
 require (
@@ -45,7 +45,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	go.mau.fi/util v0.8.4 // indirect
