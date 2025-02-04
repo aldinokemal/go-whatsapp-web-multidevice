@@ -66,8 +66,16 @@ export default {
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append("caption", this.caption)
-                payload.append('image', $("#file_image")[0].files[0])
-                payload.append('image_url', this.image_url)
+                
+                const fileInput = $("#file_image");
+                if (fileInput.length > 0 && fileInput[0].files.length > 0) {
+                    const file = fileInput[0].files[0];
+                    payload.append('image', file);
+                }
+                if (this.image_url) {
+                    payload.append('image_url', this.image_url)
+                }
+                
                 let response = await window.http.post(`/send/image`, payload)
                 this.handleReset();
                 return response.data.message;

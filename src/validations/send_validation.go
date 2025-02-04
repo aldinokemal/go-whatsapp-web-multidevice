@@ -45,8 +45,6 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 			"image/png":  true,
 		}
 
-		fmt.Println(request.Image.Header.Get("Content-Type"))
-
 		if !availableMimes[request.Image.Header.Get("Content-Type")] {
 			return pkgError.ValidationError("your image is not allowed. please use jpg/jpeg/png")
 		}
@@ -55,6 +53,11 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 	if request.ImageURL != nil {
 		if *request.ImageURL == "" {
 			return pkgError.ValidationError("ImageURL cannot be empty")
+		}
+
+		err := validation.Validate(*request.ImageURL, is.URL)
+		if err != nil {
+			return pkgError.ValidationError("ImageURL must be a valid URL")
 		}
 	}
 
