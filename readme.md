@@ -94,6 +94,32 @@ Now that we support ARM64 for Linux:
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
 ```
 
+### Production Mode (docker compose)
+
+create `docker-compose.yml` file with the following configuration:
+
+```yml
+services:
+  whatsapp:
+    image: aldinokemal2104/go-whatsapp-web-multidevice
+    container_name: whatsapp
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - whatsapp:/app/storages
+    command:
+      - --basic-auth=admin:admin
+      - --port=3000
+      - --debug=true
+      - --os=Chrome
+      - --account-validation=false
+
+volumes:
+  whatsapp:
+```
+
+
 ### Production Mode (binary)
 
 - download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
@@ -102,10 +128,10 @@ You can fork or edit this source code !
 
 ## Current API
 
-- [Api Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice)
-- You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API then paste
-  to [SwaggerEditor](https://editor.swagger.io).
-- Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
+- [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
+- Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
+- Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
+- Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
 | Feature | Menu                         | Method | URL                           |
 |---------|------------------------------|--------|-------------------------------|
@@ -135,7 +161,7 @@ You can fork or edit this source code !
 | ✅       | Delete Message               | POST   | /message/:message_id/delete   |
 | ✅       | Edit Message                 | POST   | /message/:message_id/update   |
 | ✅       | Read Message (DM)            | POST   | /message/:message_id/read     |
-| ❌       | Star message                 | POST   | /message/:message_id/star     |
+| ❌       | Star Message                 | POST   | /message/:message_id/star     |
 | ✅       | Join Group With Link         | POST   | /group/join-with-link         |
 | ✅       | Leave Group                  | POST   | /group/leave                  |
 | ✅       | Create Group                 | POST   | /group                        |
