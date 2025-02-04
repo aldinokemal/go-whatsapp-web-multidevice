@@ -24,6 +24,7 @@ var (
 	WhatsappWebhook                []string
 	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"
+	WhatsappSettingMaxImageSize    int64 = 20000000  // 20MB
 	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize    int64 = 100000000 // 100MB
 	WhatsappSettingMaxDownloadSize int64 = 500000000 // 500MB

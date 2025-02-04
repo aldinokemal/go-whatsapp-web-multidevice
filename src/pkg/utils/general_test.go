@@ -2,9 +2,9 @@ package utils_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/assert"
@@ -87,28 +87,31 @@ func (suite *UtilsTestSuite) TestStrToFloat64() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
-	// Mock HTTP server
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Use httptest.NewServer to mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<!DOCTYPE html><html><head><title>Test Title</title><meta name='description' content='Test Description'><meta property='og:image' content='http://example.com/image.jpg'></head><body></body></html>`))
-	})
-	go http.ListenAndServe(":8080", nil)
-	time.Sleep(1 * time.Second) // Allow server to start
+	}))
+	defer server.Close() // Ensure the server is closed when the test ends
 
-	meta := utils.GetMetaDataFromURL("http://localhost:8080")
+	meta := utils.GetMetaDataFromURL(server.URL)
 	assert.Equal(suite.T(), "Test Title", meta.Title)
 	assert.Equal(suite.T(), "Test Description", meta.Description)
 	assert.Equal(suite.T(), "http://example.com/image.jpg", meta.Image)
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURL() {
-	// Mock HTTP server
-	http.HandleFunc("/image.jpg", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("image data"))
-	})
-	go http.ListenAndServe(":8081", nil)
-	time.Sleep(1 * time.Second) // Allow server to start
+	// Use httptest.NewServer to mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/image.jpg" {
+			w.Header().Set("Content-Type", "image/jpeg") // Set content type to image
+			w.Write([]byte("image data"))
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close() // Ensure the server is closed when the test ends
 
-	imageData, fileName, err := utils.DownloadImageFromURL("http://localhost:8081/image.jpg")
+	imageData, fileName, err := utils.DownloadImageFromURL(server.URL + "/image.jpg")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), []byte("image data"), imageData)
 	assert.Equal(suite.T(), "image.jpg", fileName)
