@@ -2,12 +2,13 @@ package validations
 
 import (
 	"context"
+	"mime/multipart"
+	"testing"
+
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/assert"
-	"mime/multipart"
-	"testing"
 )
 
 func TestValidateSendMessage(t *testing.T) {
@@ -91,7 +92,7 @@ func TestValidateSendImage(t *testing.T) {
 				Phone: "1728937129312@s.whatsapp.net",
 				Image: nil,
 			}},
-			err: pkgError.ValidationError("image: cannot be blank."),
+			err: pkgError.ValidationError("either Image or ImageURL must be provided"),
 		},
 		{
 			name: "should error with invalid image type",
@@ -524,6 +525,186 @@ func TestValidateSendLocation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateSendLocation(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
+func TestValidateSendAudio(t *testing.T) {
+	audio := &multipart.FileHeader{
+		Filename: "sample-audio.mp3",
+		Size:     100,
+		Header:   map[string][]string{"Content-Type": {"audio/mp3"}},
+	}
+
+	type args struct {
+		request domainSend.AudioRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with normal condition",
+			args: args{request: domainSend.AudioRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+				Audio: audio,
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainSend.AudioRequest{
+				Phone: "",
+				Audio: audio,
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+		{
+			name: "should error with empty audio",
+			args: args{request: domainSend.AudioRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+				Audio: nil,
+			}},
+			err: pkgError.ValidationError("audio: cannot be blank."),
+		},
+		{
+			name: "should error with invalid audio type",
+			args: args{request: domainSend.AudioRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+				Audio: &multipart.FileHeader{
+					Filename: "sample-audio.txt",
+					Size:     100,
+					Header:   map[string][]string{"Content-Type": {"text/plain"}},
+				},
+			}},
+			err: pkgError.ValidationError("your audio type is not allowed. please use (audio/aac,audio/amr,audio/flac,audio/m4a,audio/m4r,audio/mp3,audio/mpeg,audio/ogg,audio/vnd.wav,audio/vnd.wave,audio/wav,audio/wave,audio/wma,audio/x-ms-wma,audio/x-pn-wav,audio/x-wav,)"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendAudio(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
+func TestValidateSendPoll(t *testing.T) {
+	type args struct {
+		request domainSend.PollRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with normal condition",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Question:  "What is your favorite color?",
+				Options:   []string{"Red", "Blue", "Green"},
+				MaxAnswer: 1,
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "",
+				Question:  "What is your favorite color?",
+				Options:   []string{"Red", "Blue", "Green"},
+				MaxAnswer: 1,
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+		{
+			name: "should error with empty question",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Question:  "",
+				Options:   []string{"Red", "Blue", "Green"},
+				MaxAnswer: 1,
+			}},
+			err: pkgError.ValidationError("question: cannot be blank."),
+		},
+		{
+			name: "should error with empty options",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Question:  "What is your favorite color?",
+				Options:   []string{},
+				MaxAnswer: 5,
+			}},
+			err: pkgError.ValidationError("options: cannot be blank."),
+		},
+		{
+			name: "should error with duplicate options",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Question:  "What is your favorite color?",
+				Options:   []string{"Red", "Red", "Green"},
+				MaxAnswer: 1,
+			}},
+			err: pkgError.ValidationError("options should be unique"),
+		},
+		{
+			name: "should error with max answer greater than options",
+			args: args{request: domainSend.PollRequest{
+				Phone:     "1728937129312@s.whatsapp.net",
+				Question:  "What is your favorite color?",
+				Options:   []string{"Red", "Blue", "Green"},
+				MaxAnswer: 5,
+			}},
+			err: pkgError.ValidationError("max_answer: must be no greater than 3."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendPoll(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
+func TestValidateSendPresence(t *testing.T) {
+	type args struct {
+		request domainSend.PresenceRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with available type",
+			args: args{request: domainSend.PresenceRequest{
+				Type: "available",
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with unavailable type",
+			args: args{request: domainSend.PresenceRequest{
+				Type: "unavailable",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with invalid type",
+			args: args{request: domainSend.PresenceRequest{
+				Type: "invalid",
+			}},
+			err: pkgError.ValidationError("type: must be a valid value."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendPresence(context.Background(), tt.args.request)
 			assert.Equal(t, tt.err, err)
 		})
 	}

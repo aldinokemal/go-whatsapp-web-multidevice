@@ -131,3 +131,35 @@ func ContainsMention(message string) []string {
 	}
 	return phoneNumbers
 }
+
+func DownloadImageFromURL(url string) ([]byte, string, error) {
+	response, err := http.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+
+	// Extract the file name from the URL and remove query parameters if present
+	segments := strings.Split(url, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+
+	// Check if the file extension is supported
+	allowedExtensions := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".webp": true,
+	}
+	extension := strings.ToLower(filepath.Ext(fileName))
+	if !allowedExtensions[extension] {
+		return nil, "", fmt.Errorf("unsupported file type: %s", extension)
+	}
+
+	imageData, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return imageData, fileName, nil
+}

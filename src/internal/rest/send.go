@@ -52,9 +52,10 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	file, err := c.FormFile("image")
-	utils.PanicIfNeeded(err)
+	if err == nil {
+		request.Image = file
+	}
 
-	request.Image = file
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
