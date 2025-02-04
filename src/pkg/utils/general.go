@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 // RemoveFile is removing file with delay
@@ -64,6 +66,8 @@ func StrToFloat64(text string) float64 {
 type Metadata struct {
 	Title       string
 	Description string
+	Image       string
+	ImageThumb  []byte
 }
 
 func GetMetaDataFromURL(url string) (meta Metadata) {
@@ -89,8 +93,26 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 		meta.Title = element.Text()
 	})
 
-	// Print the meta description
-	fmt.Println("Meta data:", meta)
+	document.Find("meta[property='og:image']").Each(func(index int, element *goquery.Selection) {
+		meta.Image, _ = element.Attr("content")
+	})
+
+	// If an og:image is found, download it and store its content in ImageThumb
+	if meta.Image != "" {
+		imageResponse, err := http.Get(meta.Image)
+		if err != nil {
+			log.Printf("Failed to download image: %v", err)
+		} else {
+			defer imageResponse.Body.Close()
+			imageData, err := io.ReadAll(imageResponse.Body)
+			if err != nil {
+				log.Printf("Failed to read image data: %v", err)
+			} else {
+				meta.ImageThumb = imageData
+			}
+		}
+	}
+
 	return meta
 }
 

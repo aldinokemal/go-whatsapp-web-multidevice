@@ -18,6 +18,10 @@ Now that we support ARM64 for Linux:
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
+- Mention someone
+  - `@phoneNumber`
+  - example: `Hello @628974812XXXX, @628974812XXXX`
+- Post Whatsapp Status
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -34,10 +38,10 @@ Now that we support ARM64 for Linux:
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
 - Webhook Secret
-
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.<br>
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
+
 - For more command `./main --help`
 
 ## Required (without docker)
@@ -99,7 +103,7 @@ You can fork or edit this source code !
 ## Current API
 
 - [Api Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice)
-- You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API or paste
+- You can check [docs/openapi.yml](./docs/openapi.yaml) for detail API then paste
   to [SwaggerEditor](https://editor.swagger.io).
 - Furthermore you can generate HTTP Client from this API using [openapi-generator](https://openapi-generator.tech/#try)
 
