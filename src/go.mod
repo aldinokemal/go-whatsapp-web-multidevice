@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.58.0
 	go.mau.fi/libsignal v0.1.1
-	go.mau.fi/whatsmeow v0.0.0-20250130221717-faf72d668860
+	go.mau.fi/whatsmeow v0.0.0-20250204095649-a75587ab11d7
 	google.golang.org/protobuf v1.36.4
 )
 
@@ -50,9 +50,9 @@ require (
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	go.mau.fi/util v0.8.4 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
-	golang.org/x/image v0.23.0 // indirect
+	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
