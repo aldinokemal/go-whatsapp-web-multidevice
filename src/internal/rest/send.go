@@ -52,14 +52,6 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	file, err := c.FormFile("image")
-	if err != nil && err != fiber.ErrNotFound {
-		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
-			Status:  fiber.StatusBadRequest,
-			Code:    "ERROR",
-			Message: "Failed to process image file",
-			Results: err.Error(),
-		})
-	}
 	if err == nil {
 		request.Image = file
 	}
