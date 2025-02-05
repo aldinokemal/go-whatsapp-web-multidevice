@@ -1,12 +1,21 @@
 package utils_test
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/assert"
-	"testing"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestContainsMention(t *testing.T) {
+type UtilsTestSuite struct {
+	suite.Suite
+}
+
+func (suite *UtilsTestSuite) TestContainsMention() {
 	type args struct {
 		message string
 	}
@@ -32,9 +41,82 @@ func TestContainsMention(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		suite.T().Run(tt.name, func(t *testing.T) {
 			got := utils.ContainsMention(tt.args.message)
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func (suite *UtilsTestSuite) TestRemoveFile() {
+	tempFile, err := os.CreateTemp("", "testfile")
+	assert.NoError(suite.T(), err)
+	tempFilePath := tempFile.Name()
+	tempFile.Close()
+
+	err = utils.RemoveFile(0, tempFilePath)
+	assert.NoError(suite.T(), err)
+	_, err = os.Stat(tempFilePath)
+	assert.True(suite.T(), os.IsNotExist(err))
+}
+
+func (suite *UtilsTestSuite) TestCreateFolder() {
+	tempDir := "testdir"
+	err := utils.CreateFolder(tempDir)
+	assert.NoError(suite.T(), err)
+	_, err = os.Stat(tempDir)
+	assert.NoError(suite.T(), err)
+	assert.True(suite.T(), err == nil)
+	os.RemoveAll(tempDir)
+}
+
+func (suite *UtilsTestSuite) TestPanicIfNeeded() {
+	assert.PanicsWithValue(suite.T(), "test error", func() {
+		utils.PanicIfNeeded("test error")
+	})
+
+	assert.NotPanics(suite.T(), func() {
+		utils.PanicIfNeeded(nil)
+	})
+}
+
+func (suite *UtilsTestSuite) TestStrToFloat64() {
+	assert.Equal(suite.T(), 123.45, utils.StrToFloat64("123.45"))
+	assert.Equal(suite.T(), 0.0, utils.StrToFloat64("invalid"))
+	assert.Equal(suite.T(), 0.0, utils.StrToFloat64(""))
+}
+
+func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
+	// Use httptest.NewServer to mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><head><title>Test Title</title><meta name='description' content='Test Description'><meta property='og:image' content='http://example.com/image.jpg'></head><body></body></html>`))
+	}))
+	defer server.Close() // Ensure the server is closed when the test ends
+
+	meta := utils.GetMetaDataFromURL(server.URL)
+	assert.Equal(suite.T(), "Test Title", meta.Title)
+	assert.Equal(suite.T(), "Test Description", meta.Description)
+	assert.Equal(suite.T(), "http://example.com/image.jpg", meta.Image)
+}
+
+func (suite *UtilsTestSuite) TestDownloadImageFromURL() {
+	// Use httptest.NewServer to mock HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/image.jpg" {
+			w.Header().Set("Content-Type", "image/jpeg") // Set content type to image
+			w.Write([]byte("image data"))
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close() // Ensure the server is closed when the test ends
+
+	imageData, fileName, err := utils.DownloadImageFromURL(server.URL + "/image.jpg")
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), []byte("image data"), imageData)
+	assert.Equal(suite.T(), "image.jpg", fileName)
+}
+
+func TestUtilsTestSuite(t *testing.T) {
+	suite.Run(t, new(UtilsTestSuite))
 }

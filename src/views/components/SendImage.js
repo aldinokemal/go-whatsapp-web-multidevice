@@ -14,6 +14,7 @@ export default {
             type: window.TYPEUSER,
             loading: false,
             selected_file: null,
+            image_url: null,
             preview_url: null
         }
     },
@@ -38,7 +39,7 @@ export default {
                 return false;
             }
 
-            if (!this.selected_file) {
+            if (!this.selected_file && !this.image_url) {
                 return false;
             }
 
@@ -65,8 +66,16 @@ export default {
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append("caption", this.caption)
-                payload.append('image', $("#file_image")[0].files[0])
-
+                
+                const fileInput = $("#file_image");
+                if (fileInput.length > 0 && fileInput[0].files.length > 0) {
+                    const file = fileInput[0].files[0];
+                    payload.append('image', file);
+                }
+                if (this.image_url) {
+                    payload.append('image_url', this.image_url)
+                }
+                
                 let response = await window.http.post(`/send/image`, payload)
                 this.handleReset();
                 return response.data.message;
@@ -86,6 +95,7 @@ export default {
             this.caption = '';
             this.preview_url = null;
             this.selected_file = null;
+            this.image_url = null;
             $("#file_image").val('');
         },
         handleImageChange(event) {
@@ -145,6 +155,12 @@ export default {
                         <label>Check for compressing image to smaller size</label>
                     </div>
                 </div>
+                <div class="field">
+                    <label>Image URL</label>
+                    <input type="text" v-model="image_url" placeholder="https://example.com/image.jpg"
+                           aria-label="image_url"/>
+                </div>
+                <div style="text-align: left; font-weight: bold; margin: 10px 0;">or you can upload image from your device</div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Image</label>
                     <input type="file" style="display: none" id="file_image" accept="image/png,image/jpg,image/jpeg" @change="handleImageChange"/>

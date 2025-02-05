@@ -119,14 +119,31 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	var (
 		imagePath      string
 		imageThumbnail string
+		imageName      string
 		deletedItems   []string
+		oriImagePath   string
 	)
 
-	// Save image to server
-	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
-	err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
-	if err != nil {
-		return response, err
+	if request.ImageURL != nil && *request.ImageURL != "" {
+		// Download image from URL
+		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
+		}
+		imageName = fileName
+		err = os.WriteFile(oriImagePath, imageData, 0644)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save downloaded image %v", err))
+		}
+	} else if request.Image != nil {
+		// Save image to server
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
+		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
+		if err != nil {
+			return response, err
+		}
+		imageName = request.Image.Filename
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
@@ -138,7 +155,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	// Resize Thumbnail
 	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
-	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
+	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
 	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
@@ -151,7 +168,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 		}
 		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
-		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
+		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, imageName)
 		if err = imaging.Save(newImage, newImagePath); err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
 		}

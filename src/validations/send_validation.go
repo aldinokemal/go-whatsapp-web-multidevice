@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -27,21 +28,37 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Image, validation.Required),
 	)
 
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	availableMimes := map[string]bool{
-		"image/jpeg": true,
-		"image/jpg":  true,
-		"image/png":  true,
+	if request.Image == nil && (request.ImageURL == nil || *request.ImageURL == "") {
+		return pkgError.ValidationError("either Image or ImageURL must be provided")
 	}
 
-	if !availableMimes[request.Image.Header.Get("Content-Type")] {
-		return pkgError.ValidationError("your image is not allowed. please use jpg/jpeg/png")
+	if request.Image != nil {
+		availableMimes := map[string]bool{
+			"image/jpeg": true,
+			"image/jpg":  true,
+			"image/png":  true,
+		}
+
+		if !availableMimes[request.Image.Header.Get("Content-Type")] {
+			return pkgError.ValidationError("your image is not allowed. please use jpg/jpeg/png")
+		}
+	}
+
+	if request.ImageURL != nil {
+		if *request.ImageURL == "" {
+			return pkgError.ValidationError("ImageURL cannot be empty")
+		}
+
+		err := validation.Validate(*request.ImageURL, is.URL)
+		if err != nil {
+			return pkgError.ValidationError("ImageURL must be a valid URL")
+		}
 	}
 
 	return nil
@@ -146,18 +163,16 @@ func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) err
 	}
 
 	availableMimes := map[string]bool{
-		"audio/aac":  true,
-		"audio/amr":  true,
-		"audio/flac": true,
-		"audio/m4a":  true,
-		"audio/m4r":  true,
-		"audio/mp3":  true,
-		"audio/mpeg": true,
-		"audio/ogg":  true,
-
+		"audio/aac":      true,
+		"audio/amr":      true,
+		"audio/flac":     true,
+		"audio/m4a":      true,
+		"audio/m4r":      true,
+		"audio/mp3":      true,
+		"audio/mpeg":     true,
+		"audio/ogg":      true,
 		"audio/wma":      true,
 		"audio/x-ms-wma": true,
-
 		"audio/wav":      true,
 		"audio/vnd.wav":  true,
 		"audio/vnd.wave": true,
@@ -166,7 +181,15 @@ func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) err
 		"audio/x-wav":    true,
 	}
 	availableMimesStr := ""
+
+	// Sort MIME types for consistent error message order
+	mimeKeys := make([]string, 0, len(availableMimes))
 	for k := range availableMimes {
+		mimeKeys = append(mimeKeys, k)
+	}
+	sort.Strings(mimeKeys)
+
+	for _, k := range mimeKeys {
 		availableMimesStr += k + ","
 	}
 
@@ -178,11 +201,15 @@ func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) err
 }
 
 func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error {
+	// Validate options first to ensure it is not blank before validating MaxAnswer
+	if len(request.Options) == 0 {
+		return pkgError.ValidationError("options: cannot be blank.")
+	}
+
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.Question, validation.Required),
 
-		validation.Field(&request.Options, validation.Required),
 		validation.Field(&request.Options, validation.Each(validation.Required)),
 
 		validation.Field(&request.MaxAnswer, validation.Required),
@@ -204,7 +231,6 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 	}
 
 	return nil
-
 }
 
 func ValidateSendPresence(ctx context.Context, request domainSend.PresenceRequest) error {

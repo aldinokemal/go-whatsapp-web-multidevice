@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 )
 
 // RemoveFile is removing file with delay
@@ -130,4 +131,51 @@ func ContainsMention(message string) []string {
 		}
 	}
 	return phoneNumbers
+}
+
+func DownloadImageFromURL(url string) ([]byte, string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+	response, err := client.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	contentType := response.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
+	}
+	// Check content length if available
+	if contentLength := response.ContentLength; contentLength > int64(config.WhatsappSettingMaxImageSize) {
+		return nil, "", fmt.Errorf("image size %d exceeds maximum allowed size %d", contentLength, config.WhatsappSettingMaxImageSize)
+	}
+	// Limit the size from config
+	reader := io.LimitReader(response.Body, int64(config.WhatsappSettingMaxImageSize))
+	// Extract the file name from the URL and remove query parameters if present
+	segments := strings.Split(url, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+	// Check if the file extension is supported
+	allowedExtensions := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".webp": true,
+	}
+	extension := strings.ToLower(filepath.Ext(fileName))
+	if !allowedExtensions[extension] {
+		return nil, "", fmt.Errorf("unsupported file type: %s", extension)
+	}
+	imageData, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", err
+	}
+	return imageData, fileName, nil
 }
