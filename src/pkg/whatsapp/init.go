@@ -12,7 +12,6 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
@@ -150,8 +149,6 @@ func handler(rawEvt interface{}) {
 		}
 
 		log.Infof("Received message %s from %s (%s): %+v", evt.Info.ID, evt.Info.SourceString(), strings.Join(metaParts, ", "), evt.Message)
-		message := ExtractMessageText(evt)
-		utils.RecordMessage(evt.Info.ID, evt.Info.Sender.String(), message)
 
 		if img := evt.Message.GetImageMessage(); img != nil {
 			if path, err := ExtractMedia(config.PathStorages, img); err != nil {

@@ -11,6 +11,8 @@ export default {
             phone: '',
             text: '',
             reply_message_id: '',
+            participant_jid: '',
+            quote: '',
             loading: false,
         }
     },
@@ -38,10 +40,11 @@ export default {
             const isMessageValid = this.text.trim().length > 0 && this.text.length <= 4096;
             
             // Validate reply_message_id format if provided
-            const isReplyIdValid = this.reply_message_id === '' || 
-                                 /^[A-F0-9]{32}\/[A-F0-9]{20}$/.test(this.reply_message_id);
+            const isReplyValid = this.reply_message_id === '' ||
+                /^[A-F0-9]{32}\/[A-F0-9]{20}$/.test(this.reply_message_id) &&
+                this.participant_jid.trim().length > 0 && this.quote.trim().length > 0;
 
-            return isPhoneValid && isMessageValid && isReplyIdValid;
+            return isPhoneValid && isMessageValid && isReplyValid;
         },
         async handleSubmit() {
             // Add validation check here to prevent submission when form is invalid
@@ -62,10 +65,12 @@ export default {
                 const payload = {
                     phone: this.phone_id,
                     message: this.text.trim(),
+                    reply: {
+                        reply_message_id: this.reply_message_id,
+                        participant_jid: this.participant_jid,
+                        quote: this.quote
+                    }
                 };
-                if (this.reply_message_id !== '') {
-                    payload.reply_message_id = this.reply_message_id;
-                }
 
                 const response = await window.http.post('/send/message', payload);
                 this.handleReset();
@@ -83,6 +88,8 @@ export default {
             this.phone = '';
             this.text = '';
             this.reply_message_id = '';
+            this.participant_jid = '';
+            this.quote = '';
         },
     },
     template: `
@@ -110,6 +117,18 @@ export default {
                     <input v-model="reply_message_id" type="text"
                            placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
                            aria-label="reply_message_id">
+                </div>
+                <div class="field" v-if="isShowReplyId() && reply_message_id !== ''">
+                    <label>Participant JID</label>
+                    <input v-model="participant_jid" type="text"
+                           placeholder="Quoted Participant JID"
+                           aria-label="participant_jid" required>
+                </div>
+                <div class="field" v-if="isShowReplyId() && reply_message_id !== ''">
+                    <label>Quote</label>
+                    <input v-model="quote" type="text"
+                           placeholder="Quote"
+                           aria-label="quote" required>
                 </div>
                 <div class="field">
                     <label>Message</label>

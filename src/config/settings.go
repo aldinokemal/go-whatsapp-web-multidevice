@@ -12,11 +12,10 @@ var (
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
 
-	PathQrCode      = "statics/qrcode"
-	PathSendItems   = "statics/senditems"
-	PathMedia       = "statics/media"
-	PathStorages    = "storages"
-	PathChatStorage = "storages/chat.txt"
+	PathQrCode    = "statics/qrcode"
+	PathSendItems = "statics/senditems"
+	PathMedia     = "statics/media"
+	PathStorages  = "storages"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
 

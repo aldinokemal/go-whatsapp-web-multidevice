@@ -44,8 +44,6 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.
 		return whatsmeow.SendResponse{}, err
 	}
 
-	utils.RecordMessage(ts.ID, service.WaCli.Store.ID.String(), content)
-
 	return ts, nil
 }
 
@@ -74,25 +72,21 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Reply message
-	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		record, err := utils.FindRecordFromStorage(*request.ReplyMessageID)
-		if err == nil { // Only set reply context if we found the message ID
-			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-				Text: proto.String(request.Message),
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:    request.ReplyMessageID,
-					Participant: proto.String(record.JID),
-					QuotedMessage: &waE2E.Message{
-						Conversation: proto.String(record.MessageContent),
-					},
+	if request.Reply != nil {
+		rply := *request.Reply
+		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+			Text: proto.String(request.Message),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:    &rply.ReplyMessageID,
+				Participant: proto.String(rply.ParticipantJID),
+				QuotedMessage: &waE2E.Message{
+					Conversation: proto.String(rply.Quote),
 				},
-			}
+			},
+		}
 
-			if len(parsedMentions) > 0 {
-				msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
-			}
-		} else {
-			logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *request.ReplyMessageID)
+		if len(parsedMentions) > 0 {
+			msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 		}
 	}
 
