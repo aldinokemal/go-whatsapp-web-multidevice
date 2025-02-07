@@ -5,18 +5,19 @@ import (
 )
 
 var (
-	AppVersion             = "v5.1.0"
-	AppPort                = "3000"
-	AppDebug               = false
-	AppOs                  = "AldinoKemal"
-	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
-	AppBasicAuthCredential []string
+	AppVersion               = "v5.1.0"
+	AppPort                  = "3000"
+	AppDebug                 = false
+	AppOs                    = "AldinoKemal"
+	AppPlatform              = waCompanionReg.DeviceProps_PlatformType(1)
+	AppBasicAuthCredential   []string
+	AppChatFlushIntervalDays = 7 // Number of days before flushing chat.csv
 
 	PathQrCode      = "statics/qrcode"
 	PathSendItems   = "statics/senditems"
 	PathMedia       = "statics/media"
 	PathStorages    = "storages"
-	PathChatStorage = "storages/chat.txt"
+	PathChatStorage = "storages/chat.csv"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
 

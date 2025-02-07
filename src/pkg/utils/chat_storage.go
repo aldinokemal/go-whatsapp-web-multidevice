@@ -1,12 +1,12 @@
 package utils
 
 import (
+	"encoding/csv"
 	"fmt"
 	"os"
-	"strings"
+	"sync"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/gofiber/fiber/v2/log"
 )
 
 type RecordedMessage struct {
@@ -15,30 +15,41 @@ type RecordedMessage struct {
 	MessageContent string `json:"message_content,omitempty"`
 }
 
+// mutex to prevent concurrent file access
+var fileMutex sync.Mutex
+
 func FindRecordFromStorage(messageID string) (RecordedMessage, error) {
-	data, err := os.ReadFile(config.PathChatStorage)
+	fileMutex.Lock()
+	defer fileMutex.Unlock()
+
+	file, err := os.OpenFile(config.PathChatStorage, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return RecordedMessage{}, err
+		return RecordedMessage{}, fmt.Errorf("failed to open storage file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return RecordedMessage{}, fmt.Errorf("failed to read CSV records: %w", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, ",")
-		if len(parts) == 3 && parts[0] == messageID {
+	for _, record := range records {
+		if len(record) == 3 && record[0] == messageID {
 			return RecordedMessage{
-				MessageID:      parts[0],
-				JID:            parts[1],
-				MessageContent: parts[2],
+				MessageID:      record[0],
+				JID:            record[1],
+				MessageContent: record[2],
 			}, nil
 		}
 	}
 	return RecordedMessage{}, fmt.Errorf("message ID %s not found in storage", messageID)
 }
 
-func RecordMessage(messageID string, senderJID string, messageContent string) {
+func RecordMessage(messageID string, senderJID string, messageContent string) error {
+	fileMutex.Lock()
+	defer fileMutex.Unlock()
+
 	message := RecordedMessage{
 		MessageID:      messageID,
 		JID:            senderJID,
@@ -46,53 +57,40 @@ func RecordMessage(messageID string, senderJID string, messageContent string) {
 	}
 
 	// Read existing messages
-	var messages []RecordedMessage
-	if data, err := os.ReadFile(config.PathChatStorage); err == nil {
-		// Split file by newlines and parse each line
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			if line == "" {
-				continue
-			}
-			parts := strings.Split(line, ",")
+	var records [][]string
+	if file, err := os.OpenFile(config.PathChatStorage, os.O_RDONLY|os.O_CREATE, 0644); err == nil {
+		defer file.Close()
+		reader := csv.NewReader(file)
+		records, err = reader.ReadAll()
+		if err != nil {
+			return fmt.Errorf("failed to read existing records: %w", err)
+		}
 
-			msg := RecordedMessage{
-				MessageID:      parts[0],
-				JID:            parts[1],
-				MessageContent: parts[2],
+		// Check for duplicates
+		for _, record := range records {
+			if len(record) == 3 && record[0] == messageID {
+				return nil // Skip if duplicate found
 			}
-			messages = append(messages, msg)
 		}
 	}
 
-	// Check for duplicates
-	for _, msg := range messages {
-		if msg.MessageID == message.MessageID {
-			return // Skip if duplicate found
-		}
-	}
+	// Prepare the new record
+	newRecord := []string{message.MessageID, message.JID, message.MessageContent}
+	records = append([][]string{newRecord}, records...) // Prepend new message
 
-	// Write new message at the top
-	f, err := os.OpenFile(config.PathChatStorage, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// Write all records back to file
+	file, err := os.OpenFile(config.PathChatStorage, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.Errorf("Failed to open received-chat.txt: %v", err)
-		return
+		return fmt.Errorf("failed to open file for writing: %w", err)
 	}
-	defer f.Close()
+	defer file.Close()
 
-	// Write new message first
-	csvLine := fmt.Sprintf("%s,%s,%s\n", message.MessageID, message.JID, message.MessageContent)
-	if _, err := f.WriteString(csvLine); err != nil {
-		log.Errorf("Failed to write to received-chat.txt: %v", err)
-		return
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	if err := writer.WriteAll(records); err != nil {
+		return fmt.Errorf("failed to write CSV records: %w", err)
 	}
 
-	// Write existing messages after
-	for _, msg := range messages {
-		csvLine := fmt.Sprintf("%s,%s,%s\n", msg.MessageID, msg.JID, msg.MessageContent)
-		if _, err := f.WriteString(csvLine); err != nil {
-			log.Errorf("Failed to write to received-chat.txt: %v", err)
-			return
-		}
-	}
+	return nil
 }

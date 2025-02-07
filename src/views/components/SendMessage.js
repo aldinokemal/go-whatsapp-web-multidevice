@@ -36,12 +36,8 @@ export default {
             
             // Validate message is not empty and has reasonable length
             const isMessageValid = this.text.trim().length > 0 && this.text.length <= 4096;
-            
-            // Validate reply_message_id format if provided
-            const isReplyIdValid = this.reply_message_id === '' || 
-                                 /^[A-F0-9]{32}\/[A-F0-9]{20}$/.test(this.reply_message_id);
 
-            return isPhoneValid && isMessageValid && isReplyIdValid;
+            return isPhoneValid && isMessageValid
         },
         async handleSubmit() {
             // Add validation check here to prevent submission when form is invalid

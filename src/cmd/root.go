@@ -52,6 +52,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
 	rootCmd.PersistentFlags().BoolVarP(&config.WhatsappAccountValidation, "account-validation", "", config.WhatsappAccountValidation, `enable or disable account validation --account-validation <true/false> | example: --account-validation=true`)
 	rootCmd.PersistentFlags().StringVarP(&config.DBURI, "db-uri", "", config.DBURI, `the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`)
+	rootCmd.PersistentFlags().IntVarP(&config.AppChatFlushIntervalDays, "chat-flush-interval", "", config.AppChatFlushIntervalDays, `the interval to flush the chat storage --chat-flush-interval <number> | example: --chat-flush-interval=7`)
 }
 
 func runRest(_ *cobra.Command, _ []string) {
@@ -148,6 +149,9 @@ func runRest(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appService)
 	// Set auto reconnect checking
 	go helpers.SetAutoReconnectChecking(cli)
+	// Start auto flush chat csv
+	go helpers.StartAutoFlushChatStorage()
+
 	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())
 	}
