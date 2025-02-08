@@ -1,10 +1,5 @@
-import FormCheckUserRecipient from "./generic/FormCheckUserRecipient.js";
-
 export default {
     name: 'AccountUserCheck',
-    components: {
-        FormCheckUserRecipient
-    },
     data() {
         return {
             type: window.TYPEUSER,
@@ -26,14 +21,28 @@ export default {
         }
     },
     methods: {
-        async openModal() {
-            this.handleReset();
-            $('#modalUserCheck').modal('show');
+        openModal() {
+            $('#modalUserCheck').modal({
+                onApprove: function () {
+                    return false;
+                }
+            }).modal('show');
+        },
+        isValidForm() {
+            if (!this.phone.trim()) {
+                return false;
+            }
+
+            return true;
         },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
-                await this.submitApi();
-                showSuccessInfo("Info fetched")
+                const response = await this.submitApi();
+                showSuccessInfo(response);
             } catch (err) {
                 showErrorInfo(err)
             }
@@ -71,8 +80,9 @@ export default {
         }
     },
     template: `
-    <div class="green card" @click="openModal" style="cursor: pointer;">
+    <div class="green card" @click="openModal()" style="cursor: pointer;">
         <div class="content">
+            <a class="ui olive right ribbon label">Account</a>
             <div class="header">User Check</div>
             <div class="description">
                 You can check if the user exists on whatapp
@@ -81,7 +91,7 @@ export default {
     </div>
     
     
-    <!--  Modal UserInfo  -->
+    <!--  Modal UserCheck  -->
     <div class="ui small modal" id="modalUserCheck">
         <i class="close icon"></i>
         <div class="header">
@@ -89,27 +99,37 @@ export default {
         </div>
         <div class="content">
             <form class="ui form">
-                <FormCheckUserRecipient v-model:type="type" v-model:phone="phone"/>
+                <div class="field">
+                    <label>Phone</label>
+                    <input v-model="phone" type="text"
+                           placeholder="Type your phone number"
+                           aria-label="Phone">
+                    <input :value="phone_id" disabled aria-label="whatsapp_id">
+                </div>
 
-                <button type="button" class="ui primary button" :class="{'loading': loading}"
-                        @click="handleSubmit">
-                    Search
-                </button>
             </form>
+        </div>
+        <div class="actions">
+            <button class="ui approve positive right labeled icon button" 
+                 :class="{'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
+                Search
+                <i class="search icon"></i>
+            </button>
+        </div>
 
-            <div v-if="is_in_whatsapp != null" class="center">
+        <div v-if="is_in_whatsapp != null" class="center">
+            <ol>
+                <li>Name: {{ verified_name }}</li>
+                <li>JID: {{ jid }}</li>
+            </ol>
+        </div>
+        <div v-else class="center">
+            <div v-if="code == 'INVALID_JID'" class="center">
                 <ol>
                     <li>Name: {{ verified_name }}</li>
                     <li>JID: {{ jid }}</li>
                 </ol>
-            </div>
-            <div v-else class="center">
-                <div v-if="code == 'INVALID_JID'" class="center">
-                    <ol>
-                        <li>Name: {{ verified_name }}</li>
-                        <li>JID: {{ jid }}</li>
-                    </ol>
-                </div>
             </div>
         </div>
     </div>
