@@ -25,7 +25,18 @@ export default {
             this.handleReset();
             $('#modalUserAvatar').modal('show');
         },
+        isValidForm() {
+            if (!this.phone.trim()) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 await this.submitApi();
                 showSuccessInfo("Avatar fetched")
@@ -56,6 +67,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer;">
         <div class="content">
+        <a class="ui olive right ribbon label">Account</a>
             <div class="header">Avatar</div>
             <div class="description">
                 You can search someone avatar by phone
@@ -89,8 +101,8 @@ export default {
                     </div>
                 </div>
 
-                <button type="button" class="ui primary button" :class="{'loading': loading}"
-                        @click="handleSubmit">
+                <button type="button" class="ui primary button" :class="{'loading': loading, 'disabled': !this.isValidForm() || this.loading}"
+                        @click.prevent="handleSubmit">
                     Search
                 </button>
             </form>

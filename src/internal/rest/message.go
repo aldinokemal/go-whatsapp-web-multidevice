@@ -19,6 +19,8 @@ func InitRestMessage(app *fiber.App, service domainMessage.IMessageService) Mess
 	app.Post("/message/:message_id/delete", rest.DeleteMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	app.Post("/message/:message_id/read", rest.MarkAsRead)
+	app.Post("/message/:message_id/star", rest.StarMessage)
+	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
 	return rest
 }
 
@@ -114,5 +116,44 @@ func (controller *Message) MarkAsRead(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: response.Status,
 		Results: response,
+	})
+}
+
+func (controller *Message) StarMessage(c *fiber.Ctx) error {
+	var request domainMessage.StarRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	whatsapp.SanitizePhone(&request.Phone)
+	request.IsStarred = true
+
+	err = controller.Service.StarMessage(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Starred message successfully",
+		Results: nil,
+	})
+}
+
+func (controller *Message) UnstarMessage(c *fiber.Ctx) error {
+	var request domainMessage.StarRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	whatsapp.SanitizePhone(&request.Phone)
+	request.IsStarred = false
+	err = controller.Service.StarMessage(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Unstarred message successfully",
+		Results: nil,
 	})
 }

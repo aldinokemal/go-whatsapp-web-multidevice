@@ -17,6 +17,7 @@ export default {
             type: window.TYPEUSER,
             phone: '',
             loading: false,
+            selectedFileName: null
         }
     },
     computed: {
@@ -32,7 +33,22 @@ export default {
                 }
             }).modal('show');
         },
+        isValidForm() {
+            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+                return false;
+            }
+
+            if (!this.selectedFileName) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -64,8 +80,15 @@ export default {
             this.caption = '';
             this.phone = '';
             this.type = window.TYPEUSER;
+            this.selectedFileName = null;
             $("#file_file").val('');
         },
+        handleFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.selectedFileName = file.name;
+            }
+        }
     },
     template: `
     <div class="blue card" @click="openModal()" style="cursor: pointer">
@@ -96,20 +119,26 @@ export default {
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>
-                    <input type="file" style="display: none" id="file_file">
+                    <input type="file" style="display: none" id="file_file" @change="handleFileChange">
                     <label for="file_file" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload file
                     </label>
+                    <div v-if="selectedFileName" style="margin-top: 60px; clear: both;">
+                        <div class="ui message">
+                            <i class="file icon"></i>
+                            Selected file: {{ selectedFileName }}
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading, 'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
                 Send
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

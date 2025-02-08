@@ -41,6 +41,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
+            <a class="ui teal right ribbon label">App</a>
             <div class="header">Login</div>
             <div class="description">
                 Scan your QR code to access all API capabilities.

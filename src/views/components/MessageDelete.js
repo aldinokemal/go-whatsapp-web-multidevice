@@ -26,7 +26,22 @@ export default {
                 }
             }).modal('show');
         },
+        isValidForm() {
+            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+                return false;
+            }
+
+            if (!this.message_id.trim()) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi()
                 showSuccessInfo(response)
@@ -89,11 +104,11 @@ export default {
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading, 'disabled': !isValidForm() || loading}"
+                 @click.prevent="handleSubmit">
                 Delete
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `

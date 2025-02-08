@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 )
 
 // RemoveFile is removing file with delay
@@ -64,6 +67,8 @@ func StrToFloat64(text string) float64 {
 type Metadata struct {
 	Title       string
 	Description string
+	Image       string
+	ImageThumb  []byte
 }
 
 func GetMetaDataFromURL(url string) (meta Metadata) {
@@ -89,8 +94,26 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 		meta.Title = element.Text()
 	})
 
-	// Print the meta description
-	fmt.Println("Meta data:", meta)
+	document.Find("meta[property='og:image']").Each(func(index int, element *goquery.Selection) {
+		meta.Image, _ = element.Attr("content")
+	})
+
+	// If an og:image is found, download it and store its content in ImageThumb
+	if meta.Image != "" {
+		imageResponse, err := http.Get(meta.Image)
+		if err != nil {
+			log.Printf("Failed to download image: %v", err)
+		} else {
+			defer imageResponse.Body.Close()
+			imageData, err := io.ReadAll(imageResponse.Body)
+			if err != nil {
+				log.Printf("Failed to read image data: %v", err)
+			} else {
+				meta.ImageThumb = imageData
+			}
+		}
+	}
+
 	return meta
 }
 
@@ -108,4 +131,51 @@ func ContainsMention(message string) []string {
 		}
 	}
 	return phoneNumbers
+}
+
+func DownloadImageFromURL(url string) ([]byte, string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+	response, err := client.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	contentType := response.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
+	}
+	// Check content length if available
+	if contentLength := response.ContentLength; contentLength > int64(config.WhatsappSettingMaxImageSize) {
+		return nil, "", fmt.Errorf("image size %d exceeds maximum allowed size %d", contentLength, config.WhatsappSettingMaxImageSize)
+	}
+	// Limit the size from config
+	reader := io.LimitReader(response.Body, int64(config.WhatsappSettingMaxImageSize))
+	// Extract the file name from the URL and remove query parameters if present
+	segments := strings.Split(url, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+	// Check if the file extension is supported
+	allowedExtensions := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".webp": true,
+	}
+	extension := strings.ToLower(filepath.Ext(fileName))
+	if !allowedExtensions[extension] {
+		return nil, "", fmt.Errorf("unsupported file type: %s", extension)
+	}
+	imageData, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", err
+	}
+	return imageData, fileName, nil
 }

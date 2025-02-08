@@ -3,6 +3,10 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -19,9 +23,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"os"
-	"os/exec"
 )
 
 type serviceSend struct {
@@ -34,6 +35,18 @@ func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainS
 		WaCli:      waCli,
 		appService: appService,
 	}
+}
+
+// wrapSendMessage wraps the message sending process with message ID saving
+func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
+	ts, err := service.WaCli.SendMessage(ctx, recipient, msg)
+	if err != nil {
+		return whatsmeow.SendResponse{}, err
+	}
+
+	utils.RecordMessage(ts.ID, service.WaCli.Store.ID.String(), content)
+
+	return ts, nil
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
@@ -62,32 +75,28 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		participantJID := dataWaRecipient.String()
-		if len(*request.ReplyMessageID) < 28 {
-			firstDevice, err := service.appService.FirstDevice(ctx)
-			if err != nil {
-				return response, err
-			}
-			participantJID = firstDevice.Device
-		}
-
-		msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-			Text: proto.String(request.Message),
-			ContextInfo: &waE2E.ContextInfo{
-				StanzaID:    request.ReplyMessageID,
-				Participant: proto.String(participantJID),
-				QuotedMessage: &waE2E.Message{
-					Conversation: proto.String(request.Message),
+		record, err := utils.FindRecordFromStorage(*request.ReplyMessageID)
+		if err == nil { // Only set reply context if we found the message ID
+			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+				Text: proto.String(request.Message),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID:    request.ReplyMessageID,
+					Participant: proto.String(record.JID),
+					QuotedMessage: &waE2E.Message{
+						Conversation: proto.String(record.MessageContent),
+					},
 				},
-			},
-		}
+			}
 
-		if len(parsedMentions) > 0 {
-			msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
+			if len(parsedMentions) > 0 {
+				msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
+			}
+		} else {
+			logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *request.ReplyMessageID)
 		}
 	}
 
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, request.Message)
 	if err != nil {
 		return response, err
 	}
@@ -110,14 +119,31 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	var (
 		imagePath      string
 		imageThumbnail string
+		imageName      string
 		deletedItems   []string
+		oriImagePath   string
 	)
 
-	// Save image to server
-	oriImagePath := fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
-	err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
-	if err != nil {
-		return response, err
+	if request.ImageURL != nil && *request.ImageURL != "" {
+		// Download image from URL
+		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
+		}
+		imageName = fileName
+		err = os.WriteFile(oriImagePath, imageData, 0644)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save downloaded image %v", err))
+		}
+	} else if request.Image != nil {
+		// Save image to server
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
+		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
+		if err != nil {
+			return response, err
+		}
+		imageName = request.Image.Filename
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
@@ -129,7 +155,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	// Resize Thumbnail
 	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
-	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, request.Image.Filename)
+	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
 	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
@@ -142,7 +168,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
 		}
 		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
-		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, request.Image.Filename)
+		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, imageName)
 		if err = imaging.Save(newImage, newImagePath); err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
 		}
@@ -180,7 +206,12 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+
+	caption := "🖼️ Image"
+	if request.Caption != "" {
+		caption = "🖼️ " + request.Caption
+	}
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -228,7 +259,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	caption := "📄 Document"
+	if request.Caption != "" {
+		caption = "📄 " + request.Caption
+	}
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
 	if err != nil {
 		return response, err
 	}
@@ -336,7 +371,11 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		ThumbnailSHA256:     dataWaThumbnail,
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	caption := "🎥 Video"
+	if request.Caption != "" {
+		caption = "🎥 " + request.Caption
+	}
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
 	go func() {
 		errDelete := utils.RemoveFile(1, deletedItems...)
 		if errDelete != nil {
@@ -368,7 +407,10 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+
+	content := "👤 " + request.ContactName
+
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -391,13 +433,18 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	getMetaDataFromURL := utils.GetMetaDataFromURL(request.Link)
 
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:         proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
-		Title:        proto.String(getMetaDataFromURL.Title),
-		CanonicalURL: proto.String(request.Link),
-		MatchedText:  proto.String(request.Link),
-		Description:  proto.String(getMetaDataFromURL.Description),
+		Text:          proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Title:         proto.String(getMetaDataFromURL.Title),
+		MatchedText:   proto.String(request.Link),
+		Description:   proto.String(getMetaDataFromURL.Description),
+		JPEGThumbnail: getMetaDataFromURL.ImageThumb,
 	}}
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+
+	content := "🔗 " + request.Link
+	if request.Caption != "" {
+		content = "🔗 " + request.Caption
+	}
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -425,8 +472,10 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 		},
 	}
 
+	content := "📍 " + request.Latitude + ", " + request.Longitude
+
 	// Send WhatsApp Message Proto
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -467,7 +516,9 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		},
 	}
 
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, msg)
+	content := "🎵 Audio"
+
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -487,13 +538,31 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 		return response, err
 	}
 
-	ts, err := service.WaCli.SendMessage(ctx, dataWaRecipient, service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer))
+	content := "📊 " + request.Question
+
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer), content)
 	if err != nil {
 		return response, err
 	}
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	return response, nil
+}
+
+func (service serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {
+	err = validations.ValidateSendPresence(ctx, request)
+	if err != nil {
+		return response, err
+	}
+
+	err = service.WaCli.SendPresence(types.Presence(request.Type))
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = "presence"
+	response.Status = fmt.Sprintf("Send presence success %s", request.Type)
 	return response, nil
 }
 
@@ -506,7 +575,6 @@ func (service serviceSend) getMentionFromText(_ context.Context, messages string
 		}
 	}
 	return result
-
 }
 
 func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {

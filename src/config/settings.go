@@ -5,24 +5,27 @@ import (
 )
 
 var (
-	AppVersion             = "v4.22.1"
-	AppPort                = "3000"
-	AppDebug               = false
-	AppOs                  = "AldinoKemal"
-	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
-	AppBasicAuthCredential string
+	AppVersion               = "v5.1.0"
+	AppPort                  = "3000"
+	AppDebug                 = false
+	AppOs                    = "AldinoKemal"
+	AppPlatform              = waCompanionReg.DeviceProps_PlatformType(1)
+	AppBasicAuthCredential   []string
+	AppChatFlushIntervalDays = 7 // Number of days before flushing chat.csv
 
-	PathQrCode    = "statics/qrcode"
-	PathSendItems = "statics/senditems"
-	PathMedia     = "statics/media"
-	PathStorages  = "storages"
+	PathQrCode      = "statics/qrcode"
+	PathSendItems   = "statics/senditems"
+	PathMedia       = "statics/media"
+	PathStorages    = "storages"
+	PathChatStorage = "storages/chat.csv"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
 
 	WhatsappAutoReplyMessage       string
-	WhatsappWebhook                string
+	WhatsappWebhook                []string
 	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"
+	WhatsappSettingMaxImageSize    int64 = 20000000  // 20MB
 	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize    int64 = 100000000 // 100MB
 	WhatsappSettingMaxDownloadSize int64 = 500000000 // 500MB

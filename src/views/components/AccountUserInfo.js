@@ -28,7 +28,18 @@ export default {
             this.handleReset();
             $('#modalUserInfo').modal('show');
         },
+        isValidForm() {
+            if (!this.phone.trim()) {
+                return false;
+            }
+
+            return true;
+        },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 await this.submitApi();
                 showSuccessInfo("Info fetched")
@@ -63,6 +74,7 @@ export default {
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer;">
         <div class="content">
+        <a class="ui olive right ribbon label">Account</a>
             <div class="header">User Info</div>
             <div class="description">
                 You can search someone user info by phone
@@ -81,8 +93,8 @@ export default {
             <form class="ui form">
                 <FormRecipient v-model:type="type" v-model:phone="phone"/>
 
-                <button type="button" class="ui primary button" :class="{'loading': loading}"
-                        @click="handleSubmit">
+                <button type="button" class="ui primary button" :class="{'loading': loading, 'disabled': !this.isValidForm() || this.loading}"
+                        @click.prevent="handleSubmit">
                     Search
                 </button>
             </form>

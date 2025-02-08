@@ -21,6 +21,13 @@ export default {
                 },
             }).modal('show');
         },
+        isValidForm() {
+            if (this.participants.length < 1 || this.participants.every(participant => !participant.trim())) {
+                return false;
+            }
+
+            return true;
+        },
         handleAddParticipant() {
             this.participants.push('');
         },
@@ -28,6 +35,10 @@ export default {
             this.participants.splice(index, 1);
         },
         async handleSubmit() {
+            if (!this.isValidForm() || this.loading) {
+                return;
+            }
+
             try {
                 let response = await this.submitApi();
                 showSuccessInfo(response);
@@ -137,11 +148,11 @@ export default {
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit" type="button">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading, 'disabled': !this.isValidForm() || this.loading}"
+                 @click.prevent="handleSubmit" type="button">
                 Submit
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `,

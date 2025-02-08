@@ -17,6 +17,22 @@ export default {
     computed: {
         phone_id() {
             return this.phone + this.type;
+        },
+        isValidForm() {
+            // Validate phone number is not empty except for status type
+            const isPhoneValid = this.type === window.TYPESTATUS || this.phone.trim().length > 0;
+            
+            // Validate latitude is between -90 and 90
+            const isLatitudeValid = !isNaN(this.latitude) && 
+                                  parseFloat(this.latitude) >= -90 && 
+                                  parseFloat(this.latitude) <= 90;
+            
+            // Validate longitude is between -180 and 180
+            const isLongitudeValid = !isNaN(this.longitude) && 
+                                   parseFloat(this.longitude) >= -180 && 
+                                   parseFloat(this.longitude) <= 180;
+
+            return isPhoneValid && isLatitudeValid && isLongitudeValid;
         }
     },
     methods: {
@@ -87,22 +103,22 @@ export default {
                 
                 <div class="field">
                     <label>Location Latitude</label>
-                    <input v-model="latitude" type="text" placeholder="Please enter latitude"
+                    <input v-model="latitude" type="text" placeholder="Please enter latitude (-90 to 90)"
                            aria-label="latitude">
                 </div>
                 <div class="field">
                     <label>Location Longitude</label>
-                    <input v-model="longitude" type="text" placeholder="Please enter longitude"
+                    <input v-model="longitude" type="text" placeholder="Please enter longitude (-180 to 180)"
                            aria-label="longitude">
                 </div>
             </form>
         </div>
         <div class="actions">
-            <div class="ui approve positive right labeled icon button" :class="{'loading': this.loading}"
-                 @click="handleSubmit">
+            <button class="ui approve positive right labeled icon button" :class="{'loading': this.loading}" 
+                 @click="handleSubmit" :disabled="!isValidForm">
                 Send
                 <i class="send icon"></i>
-            </div>
+            </button>
         </div>
     </div>
     `
