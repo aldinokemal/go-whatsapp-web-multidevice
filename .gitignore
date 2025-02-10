@@ -9,4 +9,4 @@ main.exe
 src/pkged.go
 storages
 .tool-versions
-
+.env
