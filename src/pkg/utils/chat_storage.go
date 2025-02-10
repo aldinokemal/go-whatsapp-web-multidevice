@@ -47,6 +47,10 @@ func FindRecordFromStorage(messageID string) (RecordedMessage, error) {
 }
 
 func RecordMessage(messageID string, senderJID string, messageContent string) error {
+	if !config.WhatsappChatStorage {
+		return nil
+	}
+
 	fileMutex.Lock()
 	defer fileMutex.Unlock()
 

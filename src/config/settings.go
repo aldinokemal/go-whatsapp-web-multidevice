@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion               = "v5.1.0"
+	AppVersion               = "v5.2.0"
 	AppPort                  = "3000"
 	AppDebug                 = false
 	AppOs                    = "AldinoKemal"
@@ -32,4 +32,5 @@ var (
 	WhatsappTypeUser                     = "@s.whatsapp.net"
 	WhatsappTypeGroup                    = "@g.us"
 	WhatsappAccountValidation            = true
+	WhatsappChatStorage                  = true
 )

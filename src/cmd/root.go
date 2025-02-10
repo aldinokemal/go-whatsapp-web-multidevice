@@ -26,6 +26,7 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -42,17 +43,133 @@ you can send whatsapp over http api but your whatsapp account have to be multi d
 }
 
 func init() {
+	// Load environment variables first
+	utils.LoadConfig(".")
+
+	// Initialize configurations, flag is higher priority than env
+	initEnvConfig()
+	initFlags()
+}
+
+// initEnvConfig loads configuration from environment variables
+func initEnvConfig() {
+	// Application settings
+	if envPort := viper.GetString("APP_PORT"); envPort != "" {
+		config.AppPort = envPort
+	}
+	if envDebug := viper.GetBool("APP_DEBUG"); envDebug {
+		config.AppDebug = envDebug
+	}
+	if envOs := viper.GetString("APP_OS"); envOs != "" {
+		config.AppOs = envOs
+	}
+	if envBasicAuth := viper.GetString("APP_BASIC_AUTH"); envBasicAuth != "" {
+		credential := strings.Split(envBasicAuth, ",")
+		config.AppBasicAuthCredential = credential
+	}
+	if envChatFlushInterval := viper.GetInt("APP_CHAT_FLUSH_INTERVAL"); envChatFlushInterval > 0 {
+		config.AppChatFlushIntervalDays = envChatFlushInterval
+	}
+
+	// Database settings
+	if envDBURI := viper.GetString("DB_URI"); envDBURI != "" {
+		config.DBURI = envDBURI
+	}
+
+	// WhatsApp settings
+	if envAutoReply := viper.GetString("WHATSAPP_AUTO_REPLY"); envAutoReply != "" {
+		config.WhatsappAutoReplyMessage = envAutoReply
+	}
+	if envWebhook := viper.GetString("WHATSAPP_WEBHOOK"); envWebhook != "" {
+		webhook := strings.Split(envWebhook, ",")
+		config.WhatsappWebhook = webhook
+	}
+	if envWebhookSecret := viper.GetString("WHATSAPP_WEBHOOK_SECRET"); envWebhookSecret != "" {
+		config.WhatsappWebhookSecret = envWebhookSecret
+	}
+	if envAccountValidation := viper.GetBool("WHATSAPP_ACCOUNT_VALIDATION"); envAccountValidation {
+		config.WhatsappAccountValidation = envAccountValidation
+	}
+	if envChatStorage := viper.GetBool("WHATSAPP_CHAT_STORAGE"); !envChatStorage {
+		config.WhatsappChatStorage = envChatStorage
+	}
+}
+
+// initFlags sets up command line flags that override environment variables
+func initFlags() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.PersistentFlags().StringVarP(&config.AppPort, "port", "p", config.AppPort, "change port number with --port <number> | example: --port=8080")
-	rootCmd.PersistentFlags().BoolVarP(&config.AppDebug, "debug", "d", config.AppDebug, "hide or displaying log with --debug <true/false> | example: --debug=true")
-	rootCmd.PersistentFlags().StringVarP(&config.AppOs, "os", "", config.AppOs, `os name --os <string> | example: --os="Chrome"`)
-	rootCmd.PersistentFlags().StringSliceVarP(&config.AppBasicAuthCredential, "basic-auth", "b", config.AppBasicAuthCredential, "basic auth credential | -b=yourUsername:yourPassword")
-	rootCmd.PersistentFlags().StringVarP(&config.WhatsappAutoReplyMessage, "autoreply", "", config.WhatsappAutoReplyMessage, `auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`)
-	rootCmd.PersistentFlags().StringSliceVarP(&config.WhatsappWebhook, "webhook", "w", config.WhatsappWebhook, `forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`)
-	rootCmd.PersistentFlags().StringVarP(&config.WhatsappWebhookSecret, "webhook-secret", "", config.WhatsappWebhookSecret, `secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`)
-	rootCmd.PersistentFlags().BoolVarP(&config.WhatsappAccountValidation, "account-validation", "", config.WhatsappAccountValidation, `enable or disable account validation --account-validation <true/false> | example: --account-validation=true`)
-	rootCmd.PersistentFlags().StringVarP(&config.DBURI, "db-uri", "", config.DBURI, `the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`)
-	rootCmd.PersistentFlags().IntVarP(&config.AppChatFlushIntervalDays, "chat-flush-interval", "", config.AppChatFlushIntervalDays, `the interval to flush the chat storage --chat-flush-interval <number> | example: --chat-flush-interval=7`)
+
+	// Application flags
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppPort,
+		"port", "p",
+		config.AppPort,
+		"change port number with --port <number> | example: --port=8080",
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.AppDebug,
+		"debug", "d",
+		config.AppDebug,
+		"hide or displaying log with --debug <true/false> | example: --debug=true",
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppOs,
+		"os", "",
+		config.AppOs,
+		`os name --os <string> | example: --os="Chrome"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.AppBasicAuthCredential,
+		"basic-auth", "b",
+		config.AppBasicAuthCredential,
+		"basic auth credential | -b=yourUsername:yourPassword",
+	)
+	rootCmd.PersistentFlags().IntVarP(
+		&config.AppChatFlushIntervalDays,
+		"chat-flush-interval", "",
+		config.AppChatFlushIntervalDays,
+		`the interval to flush the chat storage --chat-flush-interval <number> | example: --chat-flush-interval=7`,
+	)
+
+	// Database flags
+	rootCmd.PersistentFlags().StringVarP(
+		&config.DBURI,
+		"db-uri", "",
+		config.DBURI,
+		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`,
+	)
+
+	// WhatsApp flags
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappAutoReplyMessage,
+		"autoreply", "",
+		config.WhatsappAutoReplyMessage,
+		`auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.WhatsappWebhook,
+		"webhook", "w",
+		config.WhatsappWebhook,
+		`forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappWebhookSecret,
+		"webhook-secret", "",
+		config.WhatsappWebhookSecret,
+		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAccountValidation,
+		"account-validation", "",
+		config.WhatsappAccountValidation,
+		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappChatStorage,
+		"chat-storage", "",
+		config.WhatsappChatStorage,
+		`enable or disable chat storage --chat-storage <true/false>. If you disable this, reply feature maybe not working properly | example: --chat-storage=true`,
+	)
 }
 
 func runRest(_ *cobra.Command, _ []string) {
@@ -150,7 +267,9 @@ func runRest(_ *cobra.Command, _ []string) {
 	// Set auto reconnect checking
 	go helpers.SetAutoReconnectChecking(cli)
 	// Start auto flush chat csv
-	go helpers.StartAutoFlushChatStorage()
+	if config.WhatsappChatStorage {
+		go helpers.StartAutoFlushChatStorage()
+	}
 
 	if err = app.Listen(":" + config.AppPort); err != nil {
 		log.Fatalln("Failed to start: ", err.Error())

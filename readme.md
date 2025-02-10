@@ -42,6 +42,25 @@ Now that we support ARM64 for Linux:
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
 
+## Configuration
+
+You can configure the application using either command-line flags (shown above) or environment variables. Configuration can be set in three ways (in order of priority):
+
+1. Command-line flags (highest priority)
+2. Environment variables
+3. `.env` file (lowest priority)
+
+### Environment Variables
+
+To use environment variables:
+1. Copy `.env.example` to `.env` in your project root
+2. Modify the values in `.env` according to your needs
+3. Or set the same variables as system environment variables
+
+See [.env.example](./.env.example) for all available configuration options.
+
+Note: Command-line flags will override any values set in environment variables or `.env` file.
+
 - For more command `./main --help`
 
 ## Required (without docker)
