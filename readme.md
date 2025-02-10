@@ -57,7 +57,7 @@ To use environment variables:
 2. Modify the values in `.env` according to your needs
 3. Or set the same variables as system environment variables
 
-See [.env.example](./.env.example) for all available configuration options.
+See [.env.example](./src/.env.example) for all available configuration options.
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
