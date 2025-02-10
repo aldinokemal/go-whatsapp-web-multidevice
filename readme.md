@@ -138,6 +138,28 @@ volumes:
   whatsapp:
 ```
 
+or with env file
+
+```yml
+services:
+  whatsapp:
+    image: aldinokemal2104/go-whatsapp-web-multidevice
+    container_name: whatsapp
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - whatsapp:/app/storages
+    environment:
+      - APP_BASIC_AUTH=admin:admin
+      - APP_PORT=3000
+      - APP_DEBUG=true
+      - APP_OS=Chrome
+      - APP_ACCOUNT_VALIDATION=false
+
+volumes:
+  whatsapp:
+```
 
 ### Production Mode (binary)
 
