@@ -143,7 +143,7 @@ func initFlags() {
 		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
-		&config.DBURI,
+		&config.DBKeysURI,
 		"db-keys-uri", "",
 		config.DBKeysURI,
 		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared"`,

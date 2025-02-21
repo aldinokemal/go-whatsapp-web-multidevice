@@ -126,6 +126,7 @@ go.mau.fi/libsignal v0.1.2 h1:Vs16DXWxSKyzVtI+EEXLCSy5pVWzzCzp/2eqFGvLyP0=
 go.mau.fi/libsignal v0.1.2/go.mod h1:JpnLSSJptn/s1sv7I56uEMywvz8x4YzxeF5OzdPb6PE=
 go.mau.fi/util v0.8.5 h1:PwCAAtcfK0XxZ4sdErJyfBMkTEWoQU33aB7QqDDzQRI=
 go.mau.fi/util v0.8.5/go.mod h1:Ycug9mrbztlahHPEJ6H5r8Nu/xqZaWbE5vPHVWmfz6M=
+go.mau.fi/whatsmeow v0.0.0-20250216151842-97deed8f95f7 h1:K5Vgr6PUguay1zaiRwsd1St+1PUSAxk56CI71jJitXA=
 go.mau.fi/whatsmeow v0.0.0-20250216151842-97deed8f95f7/go.mod h1:6hRrUtDWI2wTRClOd6m17GwrFE2a8/p5R4pjJsIVn+U=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
