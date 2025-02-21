@@ -75,12 +75,12 @@ func InitWaDB(db_uri string) *sqlstore.Container {
 
 func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice()
-	if err != nil || device.ID == nil {
+	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
 		panic(err)
 	}
 
-	if device == nil {
+	if device == nil || device.ID == nil {
 		log.Errorf("No device found")
 		panic("No device found")
 	}
