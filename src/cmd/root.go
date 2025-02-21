@@ -3,6 +3,7 @@ package cmd
 import (
 	"embed"
 	"fmt"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"log"
 	"net/http"
 	"os"
@@ -75,6 +76,9 @@ func initEnvConfig() {
 	if envDBURI := viper.GetString("DB_URI"); envDBURI != "" {
 		config.DBURI = envDBURI
 	}
+	if envDBKEYSURI := viper.GetString("DB_KEYS_URI"); envDBKEYSURI != "" {
+		config.DBKeysURI = envDBKEYSURI
+	}
 
 	// WhatsApp settings
 	if envAutoReply := viper.GetString("WHATSAPP_AUTO_REPLY"); envAutoReply != "" {
@@ -137,6 +141,12 @@ func initFlags() {
 		"db-uri", "",
 		config.DBURI,
 		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.DBURI,
+		"db-keys-uri", "",
+		config.DBKeysURI,
+		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared"`,
 	)
 
 	// WhatsApp flags
@@ -230,8 +240,12 @@ func runRest(_ *cobra.Command, _ []string) {
 		}))
 	}
 
-	db := whatsapp.InitWaDB()
-	cli := whatsapp.InitWaCLI(db)
+	db := whatsapp.InitWaDB(config.DBURI)
+	var db_keys *sqlstore.Container
+	if config.DBKeysURI != "" {
+		db_keys = whatsapp.InitWaDB(config.DBKeysURI)
+	}
+	cli := whatsapp.InitWaCLI(db, db_keys)
 
 	// Service
 	appService := services.NewAppService(cli, db)

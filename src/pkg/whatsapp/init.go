@@ -50,20 +50,20 @@ type evtMessage struct {
 	QuotedMessage string `json:"quoted_message,omitempty"`
 }
 
-func InitWaDB() *sqlstore.Container {
+func InitWaDB(db_uri string) *sqlstore.Container {
 	// Running Whatsapp
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
 
 	var storeContainer *sqlstore.Container
 	var err error
-	if strings.HasPrefix(config.DBURI, "file:") {
-		storeContainer, err = sqlstore.New("sqlite3", config.DBURI, dbLog)
-	} else if strings.HasPrefix(config.DBURI, "postgres:") {
-		storeContainer, err = sqlstore.New("postgres", config.DBURI, dbLog)
+	if strings.HasPrefix(db_uri, "file:") {
+		storeContainer, err = sqlstore.New("sqlite3", db_uri, dbLog)
+	} else if strings.HasPrefix(db_uri, "postgres:") {
+		storeContainer, err = sqlstore.New("postgres", db_uri, dbLog)
 	} else {
-		log.Errorf("Unknown database type: %s", config.DBURI)
-		panic(pkgError.InternalServerError(fmt.Sprintf("Unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", config.DBURI)))
+		log.Errorf("Unknown database type: %s", db_uri)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", db_uri)))
 	}
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
@@ -73,7 +73,7 @@ func InitWaDB() *sqlstore.Container {
 	return storeContainer
 }
 
-func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
+func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice()
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
@@ -88,6 +88,17 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
+
+	if keysStoreContainer != nil {
+		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+		device.Identities = innerStore
+		device.Sessions = innerStore
+		device.PreKeys = innerStore
+		device.SenderKeys = innerStore
+		device.MsgSecrets = innerStore
+		device.PrivacyTokens = innerStore
+	}
+
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
