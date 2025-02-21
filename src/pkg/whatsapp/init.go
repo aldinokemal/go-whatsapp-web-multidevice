@@ -80,7 +80,7 @@ func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeo
 		panic(err)
 	}
 
-	if device == nil || device.ID == nil {
+	if device == nil {
 		log.Errorf("No device found")
 		panic("No device found")
 	}
@@ -89,7 +89,7 @@ func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeo
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 
-	if keysStoreContainer != nil {
+	if keysStoreContainer != nil && device.ID != nil {
 		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
 		device.Identities = innerStore
 		device.Sessions = innerStore
