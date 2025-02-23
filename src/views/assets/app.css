@@ -83,6 +83,8 @@ body {
     to { transform: rotate(360deg); }
 }
 
+
+
 .main-header .ui.header {
     position: relative;
     z-index: 2;
@@ -266,6 +268,11 @@ body {
     background: var(--gradient-start) !important;
     color: white !important;
     padding: 1.5em !important;
+}
+
+.ui.modal > .close {
+    top: 0.5rem;
+    right: 0.5rem;
 }
 
 .ui.modal > .actions {

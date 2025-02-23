@@ -18,6 +18,17 @@ func ValidateUserInfo(ctx context.Context, request domainUser.InfoRequest) error
 
 	return nil
 }
+func ValidateUserCheck(ctx context.Context, request domainUser.CheckRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
 func ValidateUserAvatar(ctx context.Context, request domainUser.AvatarRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),

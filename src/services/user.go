@@ -70,6 +70,41 @@ func (service userService) Info(ctx context.Context, request domainUser.InfoRequ
 	return response, nil
 }
 
+func (service userService) Check(ctx context.Context, request domainUser.CheckRequest) (response domainUser.CheckResponse, err error) {
+	err = validations.ValidateUserCheck(ctx, request)
+	if err != nil {
+		return response, err
+	}
+	
+	resp, err := service.WaCli.IsOnWhatsApp([]string{request.Phone})
+	if err != nil {
+		return response, err
+	}
+
+	uc := new(domainUser.UserCollection)
+	if len(resp) == 0 {
+		return response, errors.New("no results found")
+	}
+	for _, item := range resp {
+		verifiedName := ""
+		if item.VerifiedName != nil {
+			verifiedName = item.VerifiedName.Details.GetVerifiedName()
+		}
+		msg := domainUser.CheckResponseData{
+			Query:        item.Query,
+			IsInWhatsapp: item.IsIn,
+			JID:         item.JID.String(),
+			VerifiedName: verifiedName,
+		}
+		uc.Users = append(uc.Users, msg)
+	}
+
+	if len(uc.Users) > 0 {
+		response.Data = append(response.Data, uc.Users[0])
+	}
+	return response, nil
+}
+
 func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 
 	chanResp := make(chan domainUser.AvatarResponse)
