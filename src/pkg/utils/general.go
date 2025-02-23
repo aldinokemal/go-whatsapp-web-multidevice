@@ -69,20 +69,22 @@ type Metadata struct {
 	Description string
 	Image       string
 	ImageThumb  []byte
+	Height      *uint32
+	Width       *uint32
 }
 
-func GetMetaDataFromURL(url string) (meta Metadata) {
+func GetMetaDataFromURL(url string) (meta Metadata, err error) {
 	// Send an HTTP GET request to the website
 	response, err := http.Get(url)
 	if err != nil {
-		log.Fatal(err)
+		return meta, err
 	}
 	defer response.Body.Close()
 
 	// Parse the HTML document
 	document, err := goquery.NewDocumentFromReader(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		return meta, err
 	}
 
 	document.Find("meta[name='description']").Each(func(index int, element *goquery.Selection) {
@@ -96,6 +98,22 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 
 	document.Find("meta[property='og:image']").Each(func(index int, element *goquery.Selection) {
 		meta.Image, _ = element.Attr("content")
+	})
+
+	document.Find("meta[property='og:image:width']").Each(func(index int, element *goquery.Selection) {
+		if content, exists := element.Attr("content"); exists {
+			width, _ := strconv.Atoi(content)
+			widthUint32 := uint32(width)
+			meta.Width = &widthUint32
+		}
+	})
+
+	document.Find("meta[property='og:image:height']").Each(func(index int, element *goquery.Selection) {
+		if content, exists := element.Attr("content"); exists {
+			height, _ := strconv.Atoi(content)
+			heightUint32 := uint32(height)
+			meta.Height = &heightUint32
+		}
 	})
 
 	// If an og:image is found, download it and store its content in ImageThumb
@@ -114,7 +132,7 @@ func GetMetaDataFromURL(url string) (meta Metadata) {
 		}
 	}
 
-	return meta
+	return meta, nil
 }
 
 // ContainsMention is checking if message contains mention, then return only mention without @

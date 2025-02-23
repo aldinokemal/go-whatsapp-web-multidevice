@@ -41,7 +41,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
 	}
-	if message.Text != "" {
+	if message.ID != "" {
 		body["message"] = message
 	}
 	if pushname := evt.Info.PushName; pushname != "" {

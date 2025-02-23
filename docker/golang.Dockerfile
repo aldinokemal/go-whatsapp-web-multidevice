@@ -8,14 +8,14 @@ COPY ./src .
 
 # Fetch dependencies.
 RUN go mod download
-# Build the binary.
-RUN go build -o /app/whatsapp
+# Build the binary with optimizations
+RUN go build -a -ldflags="-w -s" -o /app/whatsapp
 
 #############################
 ## STEP 2 build a smaller image
 #############################
 FROM alpine:3.20
-RUN apk update && apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
