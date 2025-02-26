@@ -63,7 +63,7 @@ export default {
         }
     },
     template: `
-    <div class="blue card" @click="openModal()" style="cursor:pointer;">
+    <div class="olive card" @click="openModal()" style="cursor:pointer;">
         <div class="content">
             <a class="ui olive right ribbon label">Account</a>
             <div class="header">Change Avatar</div>

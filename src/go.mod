@@ -1,8 +1,6 @@
 module github.com/aldinokemal/go-whatsapp-web-multidevice
 
-go 1.23.0
-
-toolchain go1.24.0
+go 1.24.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.2
@@ -22,7 +20,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.59.0
 	go.mau.fi/libsignal v0.1.2
-	go.mau.fi/whatsmeow v0.0.0-20250221160813-35b965ceadf1
+	go.mau.fi/whatsmeow v0.0.0-20250225112721-b7530f3a5056
 	google.golang.org/protobuf v1.36.5
 )
 
@@ -58,10 +56,9 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/tcplisten v1.0.0 // indirect
 	go.mau.fi/util v0.8.5 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.34.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect

@@ -1,7 +1,6 @@
 package rest
 
 import (
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
@@ -82,7 +81,7 @@ func (controller *Message) UpdateMessage(c *fiber.Ctx) error {
 }
 
 func (controller *Message) ReactMessage(c *fiber.Ctx) error {
-	var request message.ReactionRequest
+	var request domainMessage.ReactionRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
@@ -101,7 +100,7 @@ func (controller *Message) ReactMessage(c *fiber.Ctx) error {
 }
 
 func (controller *Message) MarkAsRead(c *fiber.Ctx) error {
-	var request message.MarkAsReadRequest
+	var request domainMessage.MarkAsReadRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 

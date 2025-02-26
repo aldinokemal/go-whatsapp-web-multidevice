@@ -187,6 +187,7 @@ You can fork or edit this source code !
 | ✅       | User My Groups               | GET    | /user/my/groups               |
 | ✅       | User My Newsletter           | GET    | /user/my/newsletters          |
 | ✅       | User My Privacy Setting      | GET    | /user/my/privacy              |
+| ✅       | User My Contacts             | GET    | /user/my/contacts             |
 | ✅       | Send Message                 | POST   | /send/message                 |
 | ✅       | Send Image                   | POST   | /send/image                   |
 | ✅       | Send Audio                   | POST   | /send/audio                   |

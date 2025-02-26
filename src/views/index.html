@@ -157,6 +157,7 @@
         <account-change-avatar></account-change-avatar>
         <account-user-info></account-user-info>
         <account-privacy></account-privacy>
+        <account-contact></account-contact>
     </div>
 
 </div>
@@ -218,6 +219,7 @@
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
     import NewsletterList from "./components/NewsletterList.js";
+    import AccountContact from "./components/AccountContact.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -256,7 +258,7 @@
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact
         },
         delimiters: ['[[', ']]'],
         data() {

@@ -28,7 +28,7 @@ export default {
         },
     },
     template: `
-    <div class="green card" @click="openModal" style="cursor: pointer">
+    <div class="olive card" @click="openModal" style="cursor: pointer">
         <div class="content">
         <a class="ui olive right ribbon label">Account</a>
             <div class="header">My Privacy Setting</div>
