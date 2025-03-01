@@ -38,7 +38,8 @@ Now that we support ARM64 for Linux:
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
 - Webhook Secret
-  Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.<br>
+  Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
+  
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
 
@@ -53,6 +54,7 @@ You can configure the application using either command-line flags (shown above) 
 ### Environment Variables
 
 To use environment variables:
+
 1. Copy `.env.example` to `.env` in your project root
 2. Modify the values in `.env` according to your needs
 3. Or set the same variables as system environment variables
