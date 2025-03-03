@@ -3,6 +3,7 @@ package cmd
 import (
 	"embed"
 	"fmt"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"log"
 	"net/http"
 	"os"
@@ -240,7 +241,11 @@ func runRest(_ *cobra.Command, _ []string) {
 	}
 
 	db := whatsapp.InitWaDB(config.DBURI)
-	dbKeys := whatsapp.InitWaDB(config.DBKeysURI)
+	var dbKeys *sqlstore.Container
+	if config.DBKeysURI != "" {
+		dbKeys = whatsapp.InitWaDB(config.DBKeysURI)
+	}
+
 	cli := whatsapp.InitWaCLI(db, dbKeys)
 
 	// Service
