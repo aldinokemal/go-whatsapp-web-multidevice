@@ -11,6 +11,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -52,15 +53,29 @@ var (
 	startupTime   = time.Now().Unix()
 )
 
-// InitDatabase creates and returns a database store container based on the configured URI
-func InitDatabase(dbUri string, dbLog waLog.Logger) (*sqlstore.Container, error) {
-	if strings.HasPrefix(dbUri, "file:") {
-		return sqlstore.New("sqlite3", dbUri, dbLog)
-	} else if strings.HasPrefix(dbUri, "postgres:") {
-		return sqlstore.New("postgres", dbUri, dbLog)
+// InitWaDB initializes the WhatsApp database connection
+func InitWaDB(DBURI string) *sqlstore.Container {
+	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
+	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
+
+	storeContainer, err := initDatabase(dbLog, DBURI)
+	if err != nil {
+		log.Errorf("Database initialization error: %v", err)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
 	}
 
-	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", dbUri)
+	return storeContainer
+}
+
+// initDatabase creates and returns a database store container based on the configured URI
+func initDatabase(dbLog waLog.Logger, DBURI string) (*sqlstore.Container, error) {
+	if strings.HasPrefix(DBURI, "file:") {
+		return sqlstore.New("sqlite3", DBURI, dbLog)
+	} else if strings.HasPrefix(DBURI, "postgres:") {
+		return sqlstore.New("postgres", DBURI, dbLog)
+	}
+
+	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", DBURI)
 }
 
 // InitWaCLI initializes the WhatsApp client
@@ -82,15 +97,15 @@ func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeo
 	store.DeviceProps.Os = &osName
 
 	// Configure a separated database for accelerating encryption caching
-	if keysStoreContainer != nil && device.ID != nil {
-		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
-		device.Identities = innerStore
-		device.Sessions = innerStore
-		device.PreKeys = innerStore
-		device.SenderKeys = innerStore
-		device.MsgSecrets = innerStore
-		device.PrivacyTokens = innerStore
-	}
+	//if keysStoreContainer != nil && device.ID != nil {
+	//	innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+	//	device.Identities = innerStore
+	//	device.Sessions = innerStore
+	//	device.PreKeys = innerStore
+	//	device.SenderKeys = innerStore
+	//	device.MsgSecrets = innerStore
+	//	device.PrivacyTokens = innerStore
+	//}
 
 	// Create and configure the client
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
