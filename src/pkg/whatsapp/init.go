@@ -97,15 +97,15 @@ func InitWaCLI(storeContainer, keysStoreContainer *sqlstore.Container) *whatsmeo
 	store.DeviceProps.Os = &osName
 
 	// Configure a separated database for accelerating encryption caching
-	//if keysStoreContainer != nil && device.ID != nil {
-	//	innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
-	//	device.Identities = innerStore
-	//	device.Sessions = innerStore
-	//	device.PreKeys = innerStore
-	//	device.SenderKeys = innerStore
-	//	device.MsgSecrets = innerStore
-	//	device.PrivacyTokens = innerStore
-	//}
+	if keysStoreContainer != nil && device.ID != nil {
+		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+		device.Identities = innerStore
+		device.Sessions = innerStore
+		device.PreKeys = innerStore
+		device.SenderKeys = innerStore
+		device.MsgSecrets = innerStore
+		device.PrivacyTokens = innerStore
+	}
 
 	// Create and configure the client
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
