@@ -250,7 +250,7 @@ func runRest(_ *cobra.Command, _ []string) {
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
 	}
 
-	dbKeys, err := whatsapp.InitDatabase(config.DBURI, dbLogger)
+	dbKeys, err := whatsapp.InitDatabase(config.DBKeysURI, dbLogger)
 	if err != nil {
 		waLogger.Errorf("Database initialization error: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
