@@ -430,14 +430,19 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
-	getMetaDataFromURL := utils.GetMetaDataFromURL(request.Link)
+	getMetaDataFromURL, err := utils.GetMetaDataFromURL(request.Link)
+	if err != nil {
+		return response, err
+	}
 
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:          proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
-		Title:         proto.String(getMetaDataFromURL.Title),
-		MatchedText:   proto.String(request.Link),
-		Description:   proto.String(getMetaDataFromURL.Description),
-		JPEGThumbnail: getMetaDataFromURL.ImageThumb,
+		Text:            proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Title:           proto.String(getMetaDataFromURL.Title),
+		MatchedText:     proto.String(request.Link),
+		Description:     proto.String(getMetaDataFromURL.Description),
+		JPEGThumbnail:   getMetaDataFromURL.ImageThumb,
+		ThumbnailHeight: getMetaDataFromURL.Height,
+		ThumbnailWidth:  getMetaDataFromURL.Width,
 	}}
 
 	content := "🔗 " + request.Link

@@ -11,4 +11,5 @@ type IUserService interface {
 	MyListGroups(ctx context.Context) (response MyListGroupsResponse, err error)
 	MyListNewsletter(ctx context.Context) (response MyListNewsletterResponse, err error)
 	MyPrivacySetting(ctx context.Context) (response MyPrivacySettingResponse, err error)
+	MyListContacts(ctx context.Context) (response MyListContactsResponse, err error)
 }

@@ -160,6 +160,24 @@ func (service userService) MyPrivacySetting(_ context.Context) (response domainU
 	return response, nil
 }
 
+func (service userService) MyListContacts(ctx context.Context) (response domainUser.MyListContactsResponse, err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	contacts, err := service.WaCli.Store.Contacts.GetAllContacts()
+	if err != nil {
+		return
+	}
+
+	for jid, contact := range contacts {
+		response.Data = append(response.Data, domainUser.MyListContactsResponseData{
+			JID:  jid,
+			Name: contact.FullName,
+		})
+	}
+
+	return response, nil
+}
+
 func (service userService) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {
 	whatsapp.MustLogin(service.WaCli)
 

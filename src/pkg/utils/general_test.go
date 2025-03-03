@@ -93,7 +93,8 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
 	}))
 	defer server.Close() // Ensure the server is closed when the test ends
 
-	meta := utils.GetMetaDataFromURL(server.URL)
+	meta, err := utils.GetMetaDataFromURL(server.URL)
+	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "Test Title", meta.Title)
 	assert.Equal(suite.T(), "Test Description", meta.Description)
 	assert.Equal(suite.T(), "http://example.com/image.jpg", meta.Image)

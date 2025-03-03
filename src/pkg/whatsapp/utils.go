@@ -177,6 +177,18 @@ func MustLogin(waCli *whatsmeow.Client) {
 	}
 }
 
+func FormatJID(jid string) types.JID {
+	// Remove any :number suffix if present
+	if idx := strings.LastIndex(jid, ":"); idx != -1 && strings.Contains(jid, "@s.whatsapp.net") {
+		jid = jid[:idx] + jid[strings.Index(jid, "@s.whatsapp.net"):]
+	}
+	formattedJID, err := ParseJID(jid)
+	if err != nil {
+		return types.JID{}
+	}
+	return formattedJID
+}
+
 // isGroupJid is a helper function to check if the message is from group
 func isGroupJid(jid string) bool {
 	return strings.Contains(jid, "@g.us")

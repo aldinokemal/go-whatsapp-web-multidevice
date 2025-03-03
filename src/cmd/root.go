@@ -3,7 +3,8 @@ package cmd
 import (
 	"embed"
 	"fmt"
-	"go.mau.fi/whatsmeow/store/sqlstore"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"log"
 	"net/http"
 	"os"
@@ -240,12 +241,21 @@ func runRest(_ *cobra.Command, _ []string) {
 		}))
 	}
 
-	db := whatsapp.InitWaDB(config.DBURI)
-	var db_keys *sqlstore.Container
-	if config.DBKeysURI != "" {
-		db_keys = whatsapp.InitWaDB(config.DBKeysURI)
+	waLogger := waLog.Stdout("Main", config.WhatsappLogLevel, true)
+	dbLogger := waLog.Stdout("Database", config.WhatsappLogLevel, true)
+
+	db, err := whatsapp.InitDatabase(config.DBURI, dbLogger)
+	if err != nil {
+		waLogger.Errorf("Database initialization error: %v", err)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
 	}
-	cli := whatsapp.InitWaCLI(db, db_keys)
+
+	dbKeys, err := whatsapp.InitDatabase(config.DBURI, dbLogger)
+	if err != nil {
+		waLogger.Errorf("Database initialization error: %v", err)
+		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
+	}
+	cli := whatsapp.InitWaCLI(db, dbKeys)
 
 	// Service
 	appService := services.NewAppService(cli, db)

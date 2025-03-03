@@ -19,6 +19,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
 	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
 	app.Get("/user/my/groups", rest.UserMyListGroups)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
+	app.Get("/user/my/contacts", rest.UserMyListContacts)
 
 	return rest
 }
@@ -109,6 +110,18 @@ func (controller *User) UserMyListNewsletter(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get list newsletter",
+		Results: response,
+	})
+}
+
+func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
+	response, err := controller.Service.MyListContacts(c.UserContext())
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get list contacts",
 		Results: response,
 	})
 }

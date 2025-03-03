@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 5.1.0
+  version: 5.2.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -282,6 +282,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/contacts:
+    get:
+      operationId: userMyContacts
+      tags:
+        - user
+      summary: Get list of user contacts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyListContactsResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  
   /send/message:
     post:
       operationId: sendMessage
@@ -1646,6 +1666,31 @@ components:
             role:
               type: string
               example: "subscriber"
+    MyListContactsResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get list contacts"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyListContacts'
+    MyListContacts:
+      type: object
+      properties:
+        jid:
+          type: string
+          example: "628123123123123@s.whatsapp.net"
+        name:
+          type: string
+          example: "Aldino Kemal"
     GroupResponse:
       type: object
       properties:
