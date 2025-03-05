@@ -435,15 +435,37 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
+	// Log image dimensions if available, otherwise note it's a square image or dimensions not available
+	if getMetaDataFromURL.Width != nil && getMetaDataFromURL.Height != nil {
+		fmt.Printf("Image dimensions: %dx%d\n", *getMetaDataFromURL.Width, *getMetaDataFromURL.Height)
+	} else {
+		fmt.Println("Image dimensions: Square image or dimensions not available")
+	}
+
+	// Create the message
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:            proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
-		Title:           proto.String(getMetaDataFromURL.Title),
-		MatchedText:     proto.String(request.Link),
-		Description:     proto.String(getMetaDataFromURL.Description),
-		JPEGThumbnail:   getMetaDataFromURL.ImageThumb,
-		ThumbnailHeight: getMetaDataFromURL.Height,
-		ThumbnailWidth:  getMetaDataFromURL.Width,
+		Text:          proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Title:         proto.String(getMetaDataFromURL.Title),
+		MatchedText:   proto.String(request.Link),
+		Description:   proto.String(getMetaDataFromURL.Description),
+		JPEGThumbnail: getMetaDataFromURL.ImageThumb,
 	}}
+
+	// If we have a thumbnail image, upload it to WhatsApp's servers
+	if len(getMetaDataFromURL.ImageThumb) > 0 && getMetaDataFromURL.Height != nil && getMetaDataFromURL.Width != nil {
+		uploadedThumb, err := service.uploadMedia(ctx, whatsmeow.MediaImage, getMetaDataFromURL.ImageThumb, dataWaRecipient)
+		if err == nil {
+			// Update the message with the uploaded thumbnail information
+			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
+			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
+			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
+			msg.ExtendedTextMessage.MediaKey = uploadedThumb.MediaKey
+			msg.ExtendedTextMessage.ThumbnailHeight = getMetaDataFromURL.Height
+			msg.ExtendedTextMessage.ThumbnailWidth = getMetaDataFromURL.Width
+		} else {
+			logrus.Warnf("Failed to upload thumbnail: %v, continue without uploaded thumbnail", err)
+		}
+	}
 
 	content := "🔗 " + request.Link
 	if request.Caption != "" {

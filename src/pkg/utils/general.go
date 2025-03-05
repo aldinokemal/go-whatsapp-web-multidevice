@@ -1,7 +1,12 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	_ "image/gif"  // Register GIF format
+	_ "image/jpeg" // Register JPEG format
+	_ "image/png"  // Register PNG format
 	"io"
 	"log"
 	"net/http"
@@ -100,22 +105,6 @@ func GetMetaDataFromURL(url string) (meta Metadata, err error) {
 		meta.Image, _ = element.Attr("content")
 	})
 
-	document.Find("meta[property='og:image:width']").Each(func(index int, element *goquery.Selection) {
-		if content, exists := element.Attr("content"); exists {
-			width, _ := strconv.Atoi(content)
-			widthUint32 := uint32(width)
-			meta.Width = &widthUint32
-		}
-	})
-
-	document.Find("meta[property='og:image:height']").Each(func(index int, element *goquery.Selection) {
-		if content, exists := element.Attr("content"); exists {
-			height, _ := strconv.Atoi(content)
-			heightUint32 := uint32(height)
-			meta.Height = &heightUint32
-		}
-	})
-
 	// If an og:image is found, download it and store its content in ImageThumb
 	if meta.Image != "" {
 		imageResponse, err := http.Get(meta.Image)
@@ -123,11 +112,59 @@ func GetMetaDataFromURL(url string) (meta Metadata, err error) {
 			log.Printf("Failed to download image: %v", err)
 		} else {
 			defer imageResponse.Body.Close()
+
+			// Read image data
 			imageData, err := io.ReadAll(imageResponse.Body)
 			if err != nil {
 				log.Printf("Failed to read image data: %v", err)
 			} else {
 				meta.ImageThumb = imageData
+
+				// Get image dimensions from the actual image rather than OG tags
+				imageReader := bytes.NewReader(imageData)
+				img, _, err := image.Decode(imageReader)
+				if err == nil {
+					bounds := img.Bounds()
+					width := uint32(bounds.Max.X - bounds.Min.X)
+					height := uint32(bounds.Max.Y - bounds.Min.Y)
+
+					// Check if image is square (1:1 ratio)
+					if width == height {
+						// For 1:1 ratio, leave width and height as nil
+						meta.Width = nil
+						meta.Height = nil
+					} else {
+						meta.Width = &width
+						meta.Height = &height
+					}
+
+					log.Printf("Image dimensions: %dx%d", width, height)
+				} else {
+					log.Printf("Failed to decode image to get dimensions: %v", err)
+
+					// Fallback to OG tags if image decoding fails
+					document.Find("meta[property='og:image:width']").Each(func(index int, element *goquery.Selection) {
+						if content, exists := element.Attr("content"); exists {
+							width, _ := strconv.Atoi(content)
+							widthUint32 := uint32(width)
+							meta.Width = &widthUint32
+						}
+					})
+
+					document.Find("meta[property='og:image:height']").Each(func(index int, element *goquery.Selection) {
+						if content, exists := element.Attr("content"); exists {
+							height, _ := strconv.Atoi(content)
+							heightUint32 := uint32(height)
+							meta.Height = &heightUint32
+						}
+					})
+
+					// Check if the OG tags indicate a 1:1 ratio
+					if meta.Width != nil && meta.Height != nil && *meta.Width == *meta.Height {
+						meta.Width = nil
+						meta.Height = nil
+					}
+				}
 			}
 		}
 	}
