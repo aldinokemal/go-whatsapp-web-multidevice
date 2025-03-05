@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/gif"  // Register GIF format
-	_ "image/jpeg" // Register JPEG format
-	_ "image/png"  // Register PNG format
+	"image/color"
+	"image/draw"
+	_ "image/gif" // Register GIF format
+	"image/jpeg"  // For JPEG encoding
+	"image/png"   // For PNG encoding
 	"io"
 	"log"
 	"net/http"
@@ -122,14 +124,100 @@ func GetMetaDataFromURL(url string) (meta Metadata, err error) {
 
 				// Get image dimensions from the actual image rather than OG tags
 				imageReader := bytes.NewReader(imageData)
-				img, _, err := image.Decode(imageReader)
+				img, imgFormat, err := image.Decode(imageReader)
 				if err == nil {
 					bounds := img.Bounds()
 					width := uint32(bounds.Max.X - bounds.Min.X)
 					height := uint32(bounds.Max.Y - bounds.Min.Y)
 
+					// Check if image has transparency (alpha channel)
+					hasTransparency := false
+
+					// Check for transparency by examining image type and pixels
+					switch v := img.(type) {
+					case *image.NRGBA:
+						// NRGBA format - check alpha values
+						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
+							for x := bounds.Min.X; x < bounds.Max.X; x++ {
+								_, _, _, a := v.At(x, y).RGBA()
+								if a < 0xffff {
+									hasTransparency = true
+									break
+								}
+							}
+						}
+					case *image.RGBA:
+						// RGBA format - check alpha values
+						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
+							for x := bounds.Min.X; x < bounds.Max.X; x++ {
+								_, _, _, a := v.At(x, y).RGBA()
+								if a < 0xffff {
+									hasTransparency = true
+									break
+								}
+							}
+						}
+					case *image.NRGBA64:
+						// NRGBA64 format - check alpha values
+						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
+							for x := bounds.Min.X; x < bounds.Max.X; x++ {
+								_, _, _, a := v.At(x, y).RGBA()
+								if a < 0xffff {
+									hasTransparency = true
+									break
+								}
+							}
+						}
+					default:
+						// For other formats, check if the format typically supports transparency
+						hasTransparency = imgFormat == "png" || imgFormat == "gif"
+					}
+
+					// If image has transparency, create a new image with white background
+					if hasTransparency {
+						log.Printf("Image has transparency, setting white background")
+
+						// Create a new RGBA image with white background
+						newImg := image.NewRGBA(bounds)
+						draw.Draw(newImg, bounds, image.NewUniform(color.White), image.Point{}, draw.Src)
+
+						// Draw the original image on top of the white background
+						draw.Draw(newImg, bounds, img, bounds.Min, draw.Over)
+
+						// Convert the new image back to bytes
+						var buf bytes.Buffer
+						switch imgFormat {
+						case "png":
+							if err := png.Encode(&buf, newImg); err == nil {
+								meta.ImageThumb = buf.Bytes()
+							} else {
+								log.Printf("Failed to encode PNG image: %v", err)
+							}
+						case "jpeg", "jpg":
+							if err := jpeg.Encode(&buf, newImg, nil); err == nil {
+								meta.ImageThumb = buf.Bytes()
+							} else {
+								log.Printf("Failed to encode JPEG image: %v", err)
+							}
+						case "gif":
+							// Note: Simple conversion to PNG for GIF with transparency
+							if err := png.Encode(&buf, newImg); err == nil {
+								meta.ImageThumb = buf.Bytes()
+							} else {
+								log.Printf("Failed to encode GIF as PNG: %v", err)
+							}
+						default:
+							// For other formats, try PNG
+							if err := png.Encode(&buf, newImg); err == nil {
+								meta.ImageThumb = buf.Bytes()
+							} else {
+								log.Printf("Failed to encode image as PNG: %v", err)
+							}
+						}
+					}
+
 					// Check if image is square (1:1 ratio)
-					if width == height {
+					if width == height && width <= 200 {
 						// For 1:1 ratio, leave width and height as nil
 						meta.Width = nil
 						meta.Height = nil
