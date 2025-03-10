@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
-	_ "image/gif" // Register GIF format
-	"image/jpeg"  // For JPEG encoding
-	"image/png"   // For PNG encoding
+	_ "image/gif"  // Register GIF format
+	_ "image/jpeg" // For JPEG encoding
+	_ "image/png"  // For PNG encoding
 	"io"
-	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +19,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/sirupsen/logrus"
+	_ "golang.org/x/image/webp" // Register WebP format
 )
 
 // RemoveFile is removing file with delay
@@ -80,13 +80,34 @@ type Metadata struct {
 	Width       *uint32
 }
 
-func GetMetaDataFromURL(url string) (meta Metadata, err error) {
+func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	// Parse the base URL for resolving relative URLs later
+	baseURL, err := url.Parse(urlStr)
+	if err != nil {
+		return meta, fmt.Errorf("invalid URL: %v", err)
+	}
+
 	// Send an HTTP GET request to the website
-	response, err := http.Get(url)
+	response, err := client.Get(urlStr)
 	if err != nil {
 		return meta, err
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return meta, fmt.Errorf("HTTP request failed with status: %s", response.Status)
+	}
 
 	// Parse the HTML document
 	document, err := goquery.NewDocumentFromReader(response.Body)
@@ -98,159 +119,93 @@ func GetMetaDataFromURL(url string) (meta Metadata, err error) {
 		meta.Description, _ = element.Attr("content")
 	})
 
-	// find title
-	document.Find("title").Each(func(index int, element *goquery.Selection) {
-		meta.Title = element.Text()
+	// find title - try multiple sources
+	// First try og:title
+	document.Find("meta[property='og:title']").Each(func(index int, element *goquery.Selection) {
+		if content, exists := element.Attr("content"); exists && content != "" {
+			meta.Title = content
+		}
 	})
+	// If og:title not found, try regular title tag
+	if meta.Title == "" {
+		document.Find("title").Each(func(index int, element *goquery.Selection) {
+			meta.Title = element.Text()
+		})
+	}
 
+	// Try to find image URL from various sources
+	// First try og:image
 	document.Find("meta[property='og:image']").Each(func(index int, element *goquery.Selection) {
-		meta.Image, _ = element.Attr("content")
+		if content, exists := element.Attr("content"); exists && content != "" {
+			meta.Image = content
+		}
 	})
 
-	// If an og:image is found, download it and store its content in ImageThumb
+	// If og:image not found, try twitter:image
+	if meta.Image == "" {
+		document.Find("meta[name='twitter:image']").Each(func(index int, element *goquery.Selection) {
+			if content, exists := element.Attr("content"); exists && content != "" {
+				meta.Image = content
+			}
+		})
+	}
+
+	// If an image URL is found, resolve it if it's relative
 	if meta.Image != "" {
-		imageResponse, err := http.Get(meta.Image)
+		imgURL, err := url.Parse(meta.Image)
 		if err != nil {
-			log.Printf("Failed to download image: %v", err)
+			logrus.Warnf("Invalid image URL: %v", err)
 		} else {
-			defer imageResponse.Body.Close()
+			// Resolve relative URLs against the base URL
+			meta.Image = baseURL.ResolveReference(imgURL).String()
+		}
 
-			// Read image data
-			imageData, err := io.ReadAll(imageResponse.Body)
-			if err != nil {
-				log.Printf("Failed to read image data: %v", err)
+		// Download the image
+		imgResponse, err := client.Get(meta.Image)
+		if err != nil {
+			logrus.Warnf("Failed to download image: %v", err)
+		} else {
+			defer imgResponse.Body.Close()
+
+			if imgResponse.StatusCode != http.StatusOK {
+				logrus.Warnf("Image download failed with status: %s", imgResponse.Status)
 			} else {
-				meta.ImageThumb = imageData
-
-				// Get image dimensions from the actual image rather than OG tags
-				imageReader := bytes.NewReader(imageData)
-				img, imgFormat, err := image.Decode(imageReader)
-				if err == nil {
-					bounds := img.Bounds()
-					width := uint32(bounds.Max.X - bounds.Min.X)
-					height := uint32(bounds.Max.Y - bounds.Min.Y)
-
-					// Check if image has transparency (alpha channel)
-					hasTransparency := false
-
-					// Check for transparency by examining image type and pixels
-					switch v := img.(type) {
-					case *image.NRGBA:
-						// NRGBA format - check alpha values
-						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
-							for x := bounds.Min.X; x < bounds.Max.X; x++ {
-								_, _, _, a := v.At(x, y).RGBA()
-								if a < 0xffff {
-									hasTransparency = true
-									break
-								}
-							}
-						}
-					case *image.RGBA:
-						// RGBA format - check alpha values
-						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
-							for x := bounds.Min.X; x < bounds.Max.X; x++ {
-								_, _, _, a := v.At(x, y).RGBA()
-								if a < 0xffff {
-									hasTransparency = true
-									break
-								}
-							}
-						}
-					case *image.NRGBA64:
-						// NRGBA64 format - check alpha values
-						for y := bounds.Min.Y; y < bounds.Max.Y && !hasTransparency; y++ {
-							for x := bounds.Min.X; x < bounds.Max.X; x++ {
-								_, _, _, a := v.At(x, y).RGBA()
-								if a < 0xffff {
-									hasTransparency = true
-									break
-								}
-							}
-						}
-					default:
-						// For other formats, check if the format typically supports transparency
-						hasTransparency = imgFormat == "png" || imgFormat == "gif"
-					}
-
-					// If image has transparency, create a new image with white background
-					if hasTransparency {
-						log.Printf("Image has transparency, setting white background")
-
-						// Create a new RGBA image with white background
-						newImg := image.NewRGBA(bounds)
-						draw.Draw(newImg, bounds, image.NewUniform(color.White), image.Point{}, draw.Src)
-
-						// Draw the original image on top of the white background
-						draw.Draw(newImg, bounds, img, bounds.Min, draw.Over)
-
-						// Convert the new image back to bytes
-						var buf bytes.Buffer
-						switch imgFormat {
-						case "png":
-							if err := png.Encode(&buf, newImg); err == nil {
-								meta.ImageThumb = buf.Bytes()
-							} else {
-								log.Printf("Failed to encode PNG image: %v", err)
-							}
-						case "jpeg", "jpg":
-							if err := jpeg.Encode(&buf, newImg, nil); err == nil {
-								meta.ImageThumb = buf.Bytes()
-							} else {
-								log.Printf("Failed to encode JPEG image: %v", err)
-							}
-						case "gif":
-							// Note: Simple conversion to PNG for GIF with transparency
-							if err := png.Encode(&buf, newImg); err == nil {
-								meta.ImageThumb = buf.Bytes()
-							} else {
-								log.Printf("Failed to encode GIF as PNG: %v", err)
-							}
-						default:
-							// For other formats, try PNG
-							if err := png.Encode(&buf, newImg); err == nil {
-								meta.ImageThumb = buf.Bytes()
-							} else {
-								log.Printf("Failed to encode image as PNG: %v", err)
-							}
-						}
-					}
-
-					// Check if image is square (1:1 ratio)
-					if width == height && width <= 200 {
-						// For 1:1 ratio, leave width and height as nil
-						meta.Width = nil
-						meta.Height = nil
-					} else {
-						meta.Width = &width
-						meta.Height = &height
-					}
-
-					log.Printf("Image dimensions: %dx%d", width, height)
+				// Check content type
+				contentType := imgResponse.Header.Get("Content-Type")
+				if !strings.HasPrefix(contentType, "image/") {
+					logrus.Warnf("URL returned non-image content type: %s", contentType)
 				} else {
-					log.Printf("Failed to decode image to get dimensions: %v", err)
+					// Read image data with size limit
+					imageData, err := io.ReadAll(io.LimitReader(imgResponse.Body, int64(config.WhatsappSettingMaxImageSize)))
+					if err != nil {
+						logrus.Warnf("Failed to read image data: %v", err)
+					} else if len(imageData) == 0 {
+						logrus.Warn("Downloaded image data is empty")
+					} else {
+						meta.ImageThumb = imageData
 
-					// Fallback to OG tags if image decoding fails
-					document.Find("meta[property='og:image:width']").Each(func(index int, element *goquery.Selection) {
-						if content, exists := element.Attr("content"); exists {
-							width, _ := strconv.Atoi(content)
-							widthUint32 := uint32(width)
-							meta.Width = &widthUint32
+						// Validate image by decoding it
+						imageReader := bytes.NewReader(imageData)
+						img, _, err := image.Decode(imageReader)
+						if err != nil {
+							logrus.Warnf("Failed to decode image: %v", err)
+						} else {
+							bounds := img.Bounds()
+							width := uint32(bounds.Max.X - bounds.Min.X)
+							height := uint32(bounds.Max.Y - bounds.Min.Y)
+
+							// Check if image is square (1:1 ratio)
+							if width == height && width <= 200 {
+								// For small square images, leave width and height as nil
+								meta.Width = nil
+								meta.Height = nil
+							} else {
+								meta.Width = &width
+								meta.Height = &height
+							}
+
+							logrus.Debugf("Image dimensions: %dx%d", width, height)
 						}
-					})
-
-					document.Find("meta[property='og:image:height']").Each(func(index int, element *goquery.Selection) {
-						if content, exists := element.Attr("content"); exists {
-							height, _ := strconv.Atoi(content)
-							heightUint32 := uint32(height)
-							meta.Height = &heightUint32
-						}
-					})
-
-					// Check if the OG tags indicate a 1:1 ratio
-					if meta.Width != nil && meta.Height != nil && *meta.Width == *meta.Height {
-						meta.Width = nil
-						meta.Height = nil
 					}
 				}
 			}

@@ -116,6 +116,8 @@
         <send-audio></send-audio>
         <send-poll></send-poll>
         <send-presence></send-presence>
+        
+        <send-link></send-link>
     </div>
 
     <div class="ui horizontal divider">
@@ -201,6 +203,7 @@
     import SendImage from "./components/SendImage.js";
     import SendFile from "./components/SendFile.js";
     import SendVideo from "./components/SendVideo.js";
+    import SendLink from "./components/SendLink.js";
     import SendContact from "./components/SendContact.js";
     import SendLocation from "./components/SendLocation.js";
     import SendAudio from "./components/SendAudio.js";
@@ -254,7 +257,7 @@
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
-            SendMessage, SendImage, SendFile, SendVideo, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
+            SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
             NewsletterList,
