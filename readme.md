@@ -1,7 +1,7 @@
 # WhatsApp API Multi Device Version
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)  
-**If you're using this library to generate income, consider supporting its development by becoming a Patreon member!**  
+**If you're using this tools to generate income, consider supporting its development by becoming a Patreon member!**  
 Your support helps ensure the library stays maintained and receives regular updates. Join our community of supporters today!
 ___
 
