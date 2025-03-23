@@ -13,6 +13,7 @@ export default {
             caption: '',
             reply_message_id: '',
             loading: false,
+            is_forwarded: false
         }
     },
     computed: {
@@ -63,6 +64,7 @@ export default {
                     phone: this.phone_id,
                     link: this.link.trim(),
                     caption: this.caption.trim(),
+                    is_forwarded: this.is_forwarded
                 };
                 if (this.reply_message_id !== '') {
                     payload.reply_message_id = this.reply_message_id;
@@ -85,6 +87,7 @@ export default {
             this.link = '';
             this.caption = '';
             this.reply_message_id = '';
+            this.is_forwarded = false;
         },
     },
     template: `
@@ -122,6 +125,13 @@ export default {
                     <label>Caption</label>
                     <textarea v-model="caption" placeholder="Hello this is caption"
                               aria-label="caption"></textarea>
+                </div>
+                <div class="field" v-if="isShowReplyId()">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark link as forwarded</label>
+                    </div>
                 </div>
             </form>
         </div>

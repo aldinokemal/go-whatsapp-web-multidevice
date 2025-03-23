@@ -12,6 +12,7 @@ export default {
             card_name: '',
             card_phone: '',
             loading: false,
+            is_forwarded: false
         }
     },
     computed: {
@@ -26,6 +27,9 @@ export default {
                     return false;
                 }
             }).modal('show');
+        },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
         },
         isValidForm() {
             if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
@@ -44,18 +48,15 @@ export default {
         },
         async handleSubmit() {
             try {
-                this.loading = true;
                 let response = await this.submitApi()
                 showSuccessInfo(response)
                 $('#modalSendContact').modal('hide');
             } catch (err) {
                 showErrorInfo(err)
-            } finally {
-                this.loading = false;
             }
         },
         async submitApi() {
-            if (!this.isValidForm() || this.loading) {
+            if (!this.isValidForm()) {
                 return;
             }
 
@@ -64,7 +65,8 @@ export default {
                 const payload = {
                     phone: this.phone_id,
                     contact_name: this.card_name,
-                    contact_phone: this.card_phone
+                    contact_phone: this.card_phone,
+                    is_forwarded: this.is_forwarded
                 }
                 let response = await window.http.post(`/send/contact`, payload)
                 this.handleReset();
@@ -83,6 +85,7 @@ export default {
             this.card_name = '';
             this.card_phone = '';
             this.type = window.TYPEUSER;
+            this.is_forwarded = false;
         },
     },
     template: `
@@ -115,6 +118,13 @@ export default {
                     <label>Contact Phone</label>
                     <input v-model="card_phone" type="text" placeholder="Please enter contact phone"
                            aria-label="contact phone">
+                </div>
+                <div class="field" v-if="isShowAttributes()">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark contact as forwarded</label>
+                    </div>
                 </div>
             </form>
         </div>

@@ -17,7 +17,8 @@ export default {
             type: window.TYPEUSER,
             phone: '',
             loading: false,
-            selectedFileName: null
+            selectedFileName: null,
+            is_forwarded: false
         }
     },
     computed: {
@@ -32,6 +33,9 @@ export default {
                     return false;
                 }
             }).modal('show');
+        },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
         },
         isValidForm() {
             if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
@@ -63,6 +67,7 @@ export default {
                 let payload = new FormData();
                 payload.append("caption", this.caption)
                 payload.append("phone", this.phone_id)
+                payload.append("is_forwarded", this.is_forwarded)
                 payload.append("file", $("#file_file")[0].files[0])
                 let response = await window.http.post(`/send/file`, payload)
                 this.handleReset();
@@ -81,6 +86,7 @@ export default {
             this.phone = '';
             this.type = window.TYPEUSER;
             this.selectedFileName = null;
+            this.is_forwarded = false;
             $("#file_file").val('');
         },
         handleFileChange(event) {
@@ -116,6 +122,13 @@ export default {
                     <label>Caption</label>
                     <textarea v-model="caption" placeholder="Type some caption (optional)..."
                               aria-label="caption"></textarea>
+                </div>
+                <div class="field" v-if="isShowAttributes()">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark file as forwarded</label>
+                    </div>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>

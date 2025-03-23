@@ -12,6 +12,7 @@ export default {
             latitude: '',
             longitude: '',
             loading: false,
+            is_forwarded: false
         }
     },
     computed: {
@@ -43,6 +44,9 @@ export default {
                 }
             }).modal('show');
         },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
+        },
         async handleSubmit() {
             try {
                 let response = await this.submitApi()
@@ -58,7 +62,8 @@ export default {
                 const payload = {
                     phone: this.phone_id,
                     latitude: this.latitude,
-                    longitude: this.longitude
+                    longitude: this.longitude,
+                    is_forwarded: this.is_forwarded
                 };
 
                 const response = await window.http.post(`/send/location`, payload);
@@ -78,6 +83,7 @@ export default {
             this.latitude = '';
             this.longitude = '';
             this.type = window.TYPEUSER;
+            this.is_forwarded = false;
         },
     },
     template: `
@@ -110,6 +116,13 @@ export default {
                     <label>Location Longitude</label>
                     <input v-model="longitude" type="text" placeholder="Please enter longitude (-180 to 180)"
                            aria-label="longitude">
+                </div>
+                <div class="field" v-if="isShowAttributes()">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark location as forwarded</label>
+                    </div>
                 </div>
             </form>
         </div>

@@ -59,18 +59,23 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		return response, err
 	}
 
-	// Send message
+	// Create base message
 	msg := &waE2E.Message{
 		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-			Text: proto.String(request.Message),
+			Text:        proto.String(request.Message),
+			ContextInfo: &waE2E.ContextInfo{},
 		},
+	}
+
+	// Add forwarding context if IsForwarded is true
+	if request.IsForwarded {
+		msg.ExtendedTextMessage.ContextInfo.IsForwarded = proto.Bool(true)
+		msg.ExtendedTextMessage.ContextInfo.ForwardingScore = proto.Uint32(100)
 	}
 
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
 	if len(parsedMentions) > 0 {
-		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
-			MentionedJID: parsedMentions,
-		}
+		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 	}
 
 	// Reply message
@@ -207,6 +212,13 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 
+	if request.IsForwarded {
+		msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
 	caption := "🖼️ Image"
 	if request.Caption != "" {
 		caption = "🖼️ " + request.Caption
@@ -259,6 +271,14 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),
 	}}
+
+	if request.IsForwarded {
+		msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
 	caption := "📄 Document"
 	if request.Caption != "" {
 		caption = "📄 " + request.Caption
@@ -371,6 +391,14 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		ThumbnailSHA256:     dataWaThumbnail,
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
+
+	if request.IsForwarded {
+		msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
 	caption := "🎥 Video"
 	if request.Caption != "" {
 		caption = "🎥 " + request.Caption
@@ -407,6 +435,13 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		DisplayName: proto.String(request.ContactName),
 		Vcard:       proto.String(msgVCard),
 	}}
+
+	if request.IsForwarded {
+		msg.ContactMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
 
 	content := "👤 " + request.ContactName
 
@@ -450,6 +485,13 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		Description:   proto.String(metadata.Description),
 		JPEGThumbnail: metadata.ImageThumb,
 	}}
+
+	if request.IsForwarded {
+		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
@@ -499,6 +541,13 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 		},
 	}
 
+	if request.IsForwarded {
+		msg.LocationMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
 	content := "📍 " + request.Latitude + ", " + request.Longitude
 
 	// Send WhatsApp Message Proto
@@ -543,6 +592,13 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		},
 	}
 
+	if request.IsForwarded {
+		msg.AudioMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
 	content := "🎵 Audio"
 
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
@@ -567,7 +623,9 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	content := "📊 " + request.Question
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer), content)
+	msg := service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}

@@ -20,12 +20,21 @@ export default {
             phone: '',
             loading: false,
             selectedFileName: null,
+            is_forwarded: false
         }
     },
     computed: {
         phone_id() {
             return this.phone + this.type;
         },
+    },
+    watch: {
+        view_once(newValue) {
+            // If view_once is set to true, set is_forwarded to false
+            if (newValue === true) {
+                this.is_forwarded = false;
+            }
+        }
     },
     methods: {
         openModal() {
@@ -81,6 +90,7 @@ export default {
                 payload.append("caption", this.caption.trim())
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
+                payload.append("is_forwarded", this.is_forwarded)
                 payload.append('video', $("#file_video")[0].files[0])
                 let response = await window.http.post(`/send/video`, payload)
                 this.handleReset();
@@ -100,6 +110,7 @@ export default {
             this.compress = false;
             this.phone = '';
             this.selectedFileName = null;
+            this.is_forwarded = false;
             $("#file_video").val('');
         },
         handleFileChange(event) {
@@ -150,6 +161,13 @@ export default {
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="compress">
                         <label>Check for compressing video to smaller size</label>
+                    </div>
+                </div>
+                <div class="field" v-if="isShowAttributes() && !view_once">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark video as forwarded</label>
                     </div>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
