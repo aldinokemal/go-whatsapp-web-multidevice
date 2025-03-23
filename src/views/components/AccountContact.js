@@ -39,6 +39,38 @@ export default {
         },
         getPhoneNumber(jid) {
             return jid.split('@')[0];
+        },
+        exportToCSV() {
+            if (!this.contacts || this.contacts.length === 0) {
+                showErrorInfo("No contacts to export");
+                return;
+            }
+            
+            // Create CSV content with headers
+            let csvContent = "Phone Number,Name\n";
+            
+            // Add each contact as a row
+            this.contacts.forEach(contact => {
+                const phoneNumber = this.getPhoneNumber(contact.jid);
+                // Escape commas and quotes in the name field
+                const escapedName = contact.name ? contact.name.replace(/"/g, '""') : "";
+                csvContent += `${phoneNumber},"${escapedName}"\n`;
+            });
+            
+            // Create a Blob with the CSV data
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            // Create a download link and trigger download
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'contacts.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showSuccessInfo("Contacts exported to CSV");
         }
     },
     template: `
@@ -57,6 +89,9 @@ export default {
         <i class="close icon"></i>
         <div class="header">
             My Contacts
+            <button class="ui green right floated button" @click="exportToCSV">
+                <i class="download icon"></i> Export to CSV
+            </button>
         </div>
         <div class="content">
             <table class="ui celled table" id="account_contacts_table">
