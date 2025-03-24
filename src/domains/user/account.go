@@ -69,3 +69,7 @@ type MyListContactsResponseData struct {
 	JID  types.JID `json:"jid"`
 	Name string    `json:"name"`
 }
+
+type ChangePushNameRequest struct {
+	PushName string `json:"push_name" form:"push_name"`
+}

@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 5.2.0
+  version: 5.3.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -206,6 +206,44 @@ paths:
                   type: string
                   format: binary
                   description: Avatar to send
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/pushname:
+    post:
+      operationId: userChangePushName
+      tags:
+        - user
+      summary: User Change Push Name
+      description: Update the display name (push name) shown to others in WhatsApp
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                push_name:
+                  type: string
+                  example: 'John Doe'
+                  description: The new display name to set
+              required:
+                - push_name
       responses:
         '200':
           description: OK
