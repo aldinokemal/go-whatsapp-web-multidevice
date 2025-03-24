@@ -11,6 +11,7 @@ export default {
             phone: '',
             text: '',
             reply_message_id: '',
+            is_forwarded: false,
             loading: false,
         }
     },
@@ -58,6 +59,7 @@ export default {
                 const payload = {
                     phone: this.phone_id,
                     message: this.text.trim(),
+                    is_forwarded: this.is_forwarded
                 };
                 if (this.reply_message_id !== '') {
                     payload.reply_message_id = this.reply_message_id;
@@ -79,6 +81,7 @@ export default {
             this.phone = '';
             this.text = '';
             this.reply_message_id = '';
+            this.is_forwarded = false;
         },
     },
     template: `
@@ -111,6 +114,13 @@ export default {
                     <label>Message</label>
                     <textarea v-model="text" placeholder="Hello this is message text"
                               aria-label="message"></textarea>
+                </div>
+                <div class="field" v-if="isShowReplyId()">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark message as forwarded</label>
+                    </div>
                 </div>
             </form>
         </div>

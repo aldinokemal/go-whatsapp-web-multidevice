@@ -15,13 +15,22 @@ export default {
             loading: false,
             selected_file: null,
             image_url: null,
-            preview_url: null
+            preview_url: null,
+            is_forwarded: false
         }
     },
     computed: {
         phone_id() {
             return this.phone + this.type;
         },
+    },
+    watch: {
+        view_once(newValue) {
+            // If view_once is set to true, set is_forwarded to false
+            if (newValue === true) {
+                this.is_forwarded = false;
+            }
+        }
     },
     methods: {
         openModal() {
@@ -66,6 +75,7 @@ export default {
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append("caption", this.caption)
+                payload.append("is_forwarded", this.is_forwarded)
                 
                 const fileInput = $("#file_image");
                 if (fileInput.length > 0 && fileInput[0].files.length > 0) {
@@ -96,6 +106,7 @@ export default {
             this.preview_url = null;
             this.selected_file = null;
             this.image_url = null;
+            this.is_forwarded = false;
             $("#file_image").val('');
         },
         handleImageChange(event) {
@@ -153,6 +164,13 @@ export default {
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="compress">
                         <label>Check for compressing image to smaller size</label>
+                    </div>
+                </div>
+                <div class="field" v-if="isShowAttributes() && !view_once">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark image as forwarded</label>
                     </div>
                 </div>
                 <div class="field">

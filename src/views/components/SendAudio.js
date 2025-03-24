@@ -10,7 +10,8 @@ export default {
             phone: '',
             type: window.TYPEUSER,
             loading: false,
-            selectedFileName: null
+            selectedFileName: null,
+            is_forwarded: false
         }
     },
     computed: {
@@ -27,7 +28,7 @@ export default {
             }).modal('show');
         },
         isValidForm() {
-            if (this.type !== window.TYPESTATUS && !this.phone.trim()) {
+            if (this.type !== window.TYPEUSER && !this.phone.trim()) {
                 return false;
             }
 
@@ -55,6 +56,7 @@ export default {
             try {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
+                payload.append("is_forwarded", this.is_forwarded)
                 payload.append("audio", $("#file_audio")[0].files[0])
                 const response = await window.http.post(`/send/audio`, payload)
                 this.handleReset();
@@ -71,6 +73,7 @@ export default {
         handleReset() {
             this.phone = '';
             this.type = window.TYPEUSER;
+            this.is_forwarded = false;
             $("#file_audio").val('');
             this.selectedFileName = null;
         },
@@ -101,6 +104,13 @@ export default {
         <div class="content">
             <form class="ui form">
                 <FormRecipient v-model:type="type" v-model:phone="phone"/>
+                <div class="field">
+                    <label>Is Forwarded</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
+                        <label>Mark audio as forwarded</label>
+                    </div>
+                </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Audio</label>
                     <input type="file" style="display: none" accept="audio/*" id="file_audio" @change="handleFileChange"/>
