@@ -14,6 +14,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -229,5 +230,16 @@ func (service userService) ChangeAvatar(ctx context.Context, request domainUser.
 		return err
 	}
 
+	return nil
+}
+
+// ChangePushName implements user.IUserService.
+func (service *userService) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	err = service.WaCli.SendAppState(appstate.BuildSettingPushName(request.PushName))
+	if err != nil {
+		return err
+	}
 	return nil
 }
