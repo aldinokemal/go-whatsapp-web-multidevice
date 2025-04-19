@@ -90,7 +90,7 @@ export default {
             this.requestedMembers = [];
             
             try {
-                const response = await window.http.get(`/group/participants/requested?group_id=${group_id}`);
+                const response = await window.http.get(`/group/participant-requests?group_id=${group_id}`);
                 this.requestedMembers = response.data.results || [];
                 this.loadingRequestedMembers = false;
                 $('#modalRequestedMembers').modal('show');
@@ -111,56 +111,32 @@ export default {
             // open modal again
             this.openModal();
         },
-        async handleApproveRequest(member) {
+        async handleProcessRequest(member, action) {
             if (!this.selectedGroupId || !member) return;
-            
+
+            const actionText = action === 'approve' ? 'approve' : 'reject';
+            const confirmMsg = `Are you sure you want to ${actionText} this member request?`;
+            const ok = confirm(confirmMsg);
+            if (!ok) return;
+
             try {
                 this.processingMember = member.jid;
-                
+
                 const payload = {
                     group_id: this.selectedGroupId,
                     participants: [this.formatJID(member.jid)]
                 };
-                
-                await window.http.post('/group/participants/requested/approve', payload);
-                
-                // Remove the approved member from the list
+
+                await window.http.post(`/group/participant-requests/${action}`, payload);
+
+                // Remove the processed member from the list
                 this.requestedMembers = this.requestedMembers.filter(m => m.jid !== member.jid);
-                
-                showSuccessInfo("Member request approved");
+
+                showSuccessInfo(`Member request ${actionText}d`);
                 this.processingMember = null;
-                
             } catch (error) {
                 this.processingMember = null;
-                let errorMessage = "Failed to approve member request";
-                if (error.response) {
-                    errorMessage = error.response.data.message || errorMessage;
-                }
-                showErrorInfo(errorMessage);
-            }
-        },
-        async handleRejectRequest(member) {
-            if (!this.selectedGroupId || !member) return;
-            
-            try {
-                this.processingMember = member.jid;
-                
-                const payload = {
-                    group_id: this.selectedGroupId,
-                    participants: [this.formatJID(member.jid)]
-                };
-                
-                await window.http.post('/group/participants/requested/reject', payload);
-                
-                // Remove the rejected member from the list
-                this.requestedMembers = this.requestedMembers.filter(m => m.jid !== member.jid);
-                
-                showSuccessInfo("Member request rejected");
-                this.processingMember = null;
-                
-            } catch (error) {
-                this.processingMember = null;
-                let errorMessage = "Failed to reject member request";
+                let errorMessage = `Failed to ${actionText} member request`;
                 if (error.response) {
                     errorMessage = error.response.data.message || errorMessage;
                 }
@@ -243,14 +219,14 @@ export default {
                         <td>
                             <div class="ui mini buttons">
                                 <button class="ui green button" 
-                                        @click="handleApproveRequest(member)"
+                                        @click="handleProcessRequest(member, 'approve')"
                                         :disabled="processingMember === member.jid">
                                     <i v-if="processingMember === member.jid" class="spinner loading icon"></i>
                                     Approve
                                 </button>
                                 <div class="or"></div>
                                 <button class="ui red button" 
-                                        @click="handleRejectRequest(member)"
+                                        @click="handleProcessRequest(member, 'reject')"
                                         :disabled="processingMember === member.jid">
                                     <i v-if="processingMember === member.jid" class="spinner loading icon"></i>
                                     Reject

@@ -23,9 +23,9 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	app.Post("/group/participants/remove", rest.DeleteParticipants)
 	app.Post("/group/participants/promote", rest.PromoteParticipants)
 	app.Post("/group/participants/demote", rest.DemoteParticipants)
-	app.Get("/group/participants/requested", rest.RequestedParticipants)
-	app.Post("/group/participants/requested/approve", rest.ApproveRequestedParticipants)
-	app.Post("/group/participants/requested/reject", rest.RejectRequestedParticipants)
+	app.Get("/group/participant-requests", rest.ListParticipantRequests)
+	app.Post("/group/participant-requests/approve", rest.ApproveParticipantRequests)
+	app.Post("/group/participant-requests/reject", rest.RejectParticipantRequests)
 	return rest
 }
 
@@ -97,7 +97,7 @@ func (controller *Group) DemoteParticipants(c *fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeDemote, "Success demote participants")
 }
 
-func (controller *Group) RequestedParticipants(c *fiber.Ctx) error {
+func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 	var request domainGroup.GetGroupRequestParticipantsRequest
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
@@ -115,11 +115,11 @@ func (controller *Group) RequestedParticipants(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) ApproveRequestedParticipants(c *fiber.Ctx) error {
+func (controller *Group) ApproveParticipantRequests(c *fiber.Ctx) error {
 	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeApprove, "Success approve requested participants")
 }
 
-func (controller *Group) RejectRequestedParticipants(c *fiber.Ctx) error {
+func (controller *Group) RejectParticipantRequests(c *fiber.Ctx) error {
 	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeReject, "Success reject requested participants")
 }
 
