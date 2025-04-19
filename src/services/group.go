@@ -161,11 +161,19 @@ func (service groupService) ManageGroupRequestParticipants(ctx context.Context, 
 	}
 
 	for _, participant := range participants {
-		result = append(result, domainGroup.ParticipantStatus{
-			Participant: participant.JID.String(),
-			Status:      "success",
-			Message:     fmt.Sprintf("Action %s success", request.Action),
-		})
+		if participant.Error != 0 {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "error",
+				Message:     fmt.Sprintf("Action %s failed (code %d)", request.Action, participant.Error),
+			})
+		} else {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "success",
+				Message:     fmt.Sprintf("Action %s success", request.Action),
+			})
+		}
 	}
 
 	return result, nil

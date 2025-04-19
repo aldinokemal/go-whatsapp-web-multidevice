@@ -6,6 +6,7 @@ import (
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"go.mau.fi/whatsmeow"
 )
 
 func ValidateJoinGroupWithLink(ctx context.Context, request domainGroup.JoinGroupWithLinkRequest) error {
@@ -77,6 +78,7 @@ func ValidateManageGroupRequestParticipants(ctx context.Context, request domainG
 		validation.Field(&request.GroupID, validation.Required),
 		validation.Field(&request.Participants, validation.Required),
 		validation.Field(&request.Participants, validation.Each(validation.Required)),
+		validation.Field(&request.Action, validation.Required, validation.In(whatsmeow.ParticipantChangeApprove, whatsmeow.ParticipantChangeReject)),
 	)
 
 	if err != nil {
