@@ -102,6 +102,14 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
+	if request.GroupID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_GROUP_ID",
+			Message: "Group ID cannot be empty",
+		})
+	}
+
 	whatsapp.SanitizePhone(&request.GroupID)
 
 	result, err := controller.Service.GetGroupRequestParticipants(c.UserContext(), request)
