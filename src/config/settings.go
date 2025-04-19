@@ -19,7 +19,7 @@ var (
 	PathStorages    = "storages"
 	PathChatStorage = "storages/chat.csv"
 
-	DBURI = "file:storages/whatsapp.db?_foreign_keys=off"
+	DBURI = "file:storages/whatsapp.db?_foreign_keys=on"
 
 	WhatsappAutoReplyMessage       string
 	WhatsappWebhook                []string
