@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -46,6 +47,32 @@ func ValidateCreateGroup(ctx context.Context, request domainGroup.CreateGroupReq
 }
 
 func ValidateParticipant(ctx context.Context, request domainGroup.ParticipantRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+		validation.Field(&request.Participants, validation.Required),
+		validation.Field(&request.Participants, validation.Each(validation.Required)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func ValidateGetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func ValidateManageGroupRequestParticipants(ctx context.Context, request domainGroup.GroupRequestParticipantsRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.GroupID, validation.Required),
 		validation.Field(&request.Participants, validation.Required),
