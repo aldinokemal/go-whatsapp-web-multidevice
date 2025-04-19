@@ -2,7 +2,7 @@
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)  
 **If you're using this tools to generate income, consider supporting its development by becoming a Patreon member!**  
-Your support helps ensure the library stays maintained and receives regular updates. Join our community of supporters today!
+Your support helps ensure the library stays maintained and receives regular updates!
 ___
 
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
@@ -44,13 +44,14 @@ Now that we support ARM64 for Linux:
   - `-w="http://yourwebhook.site/handler"`
 - Webhook Secret
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
-  
+
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
 
 ## Configuration
 
-You can configure the application using either command-line flags (shown above) or environment variables. Configuration can be set in three ways (in order of priority):
+You can configure the application using either command-line flags (shown above) or environment variables. Configuration
+can be set in three ways (in order of priority):
 
 1. Command-line flags (highest priority)
 2. Environment variables
@@ -181,45 +182,48 @@ You can fork or edit this source code !
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
-| Feature | Menu                         | Method | URL                           |
-|---------|------------------------------|--------|-------------------------------|
-| ✅       | Login with Scan QR           | GET    | /app/login                    |
-| ✅       | Login With Pair Code         | GET    | /app/login-with-code          |
-| ✅       | Logout                       | GET    | /app/logout                   |  
-| ✅       | Reconnect                    | GET    | /app/reconnect                |
-| ✅       | Devices                      | GET    | /app/devices                  |
-| ✅       | User Info                    | GET    | /user/info                    |
-| ✅       | User Avatar                  | GET    | /user/avatar                  |
-| ✅       | User Change Avatar           | POST   | /user/avatar                  |
-| ✅       | User Change PushName         | POST   | /user/pushname                |
-| ✅       | User My Groups               | GET    | /user/my/groups               |
-| ✅       | User My Newsletter           | GET    | /user/my/newsletters          |
-| ✅       | User My Privacy Setting      | GET    | /user/my/privacy              |
-| ✅       | User My Contacts             | GET    | /user/my/contacts             |
-| ✅       | Send Message                 | POST   | /send/message                 |
-| ✅       | Send Image                   | POST   | /send/image                   |
-| ✅       | Send Audio                   | POST   | /send/audio                   |
-| ✅       | Send File                    | POST   | /send/file                    |
-| ✅       | Send Video                   | POST   | /send/video                   |
-| ✅       | Send Contact                 | POST   | /send/contact                 |
-| ✅       | Send Link                    | POST   | /send/link                    |
-| ✅       | Send Location                | POST   | /send/location                |
-| ✅       | Send Poll / Vote             | POST   | /send/poll                    |
-| ✅       | Send Presence                | POST   | /send/presence                |
-| ✅       | Revoke Message               | POST   | /message/:message_id/revoke   |
-| ✅       | React Message                | POST   | /message/:message_id/reaction |
-| ✅       | Delete Message               | POST   | /message/:message_id/delete   |
-| ✅       | Edit Message                 | POST   | /message/:message_id/update   |
-| ✅       | Read Message (DM)            | POST   | /message/:message_id/read     |
-| ❌       | Star Message                 | POST   | /message/:message_id/star     |
-| ✅       | Join Group With Link         | POST   | /group/join-with-link         |
-| ✅       | Leave Group                  | POST   | /group/leave                  |
-| ✅       | Create Group                 | POST   | /group                        |
-| ✅       | Add Participants in Group    | POST   | /group/participants           |
-| ✅       | Remove Participant in Group  | POST   | /group/participants/remove    |
-| ✅       | Promote Participant in Group | POST   | /group/participants/promote   |
-| ✅       | Demote Participant in Group  | POST   | /group/participants/demote    |
-| ✅       | Unfollow Newsletter          | POST   | /newsletter/unfollow          |
+| Feature | Menu                                   | Method | URL                                   |
+|---------|----------------------------------------|--------|---------------------------------------|
+| ✅       | Login with Scan QR                     | GET    | /app/login                            |
+| ✅       | Login With Pair Code                   | GET    | /app/login-with-code                  |
+| ✅       | Logout                                 | GET    | /app/logout                           |  
+| ✅       | Reconnect                              | GET    | /app/reconnect                        |
+| ✅       | Devices                                | GET    | /app/devices                          |
+| ✅       | User Info                              | GET    | /user/info                            |
+| ✅       | User Avatar                            | GET    | /user/avatar                          |
+| ✅       | User Change Avatar                     | POST   | /user/avatar                          |
+| ✅       | User Change PushName                   | POST   | /user/pushname                        |
+| ✅       | User My Groups                         | GET    | /user/my/groups                       |
+| ✅       | User My Newsletter                     | GET    | /user/my/newsletters                  |
+| ✅       | User My Privacy Setting                | GET    | /user/my/privacy                      |
+| ✅       | User My Contacts                       | GET    | /user/my/contacts                     |
+| ✅       | Send Message                           | POST   | /send/message                         |
+| ✅       | Send Image                             | POST   | /send/image                           |
+| ✅       | Send Audio                             | POST   | /send/audio                           |
+| ✅       | Send File                              | POST   | /send/file                            |
+| ✅       | Send Video                             | POST   | /send/video                           |
+| ✅       | Send Contact                           | POST   | /send/contact                         |
+| ✅       | Send Link                              | POST   | /send/link                            |
+| ✅       | Send Location                          | POST   | /send/location                        |
+| ✅       | Send Poll / Vote                       | POST   | /send/poll                            |
+| ✅       | Send Presence                          | POST   | /send/presence                        |
+| ✅       | Revoke Message                         | POST   | /message/:message_id/revoke           |
+| ✅       | React Message                          | POST   | /message/:message_id/reaction         |
+| ✅       | Delete Message                         | POST   | /message/:message_id/delete           |
+| ✅       | Edit Message                           | POST   | /message/:message_id/update           |
+| ✅       | Read Message (DM)                      | POST   | /message/:message_id/read             |
+| ✅       | Star Message                           | POST   | /message/:message_id/star             |
+| ✅       | Join Group With Link                   | POST   | /group/join-with-link                 |
+| ✅       | Leave Group                            | POST   | /group/leave                          |
+| ✅       | Create Group                           | POST   | /group                                |
+| ✅       | Add Participants in Group              | POST   | /group/participants                   |
+| ✅       | Remove Participant in Group            | POST   | /group/participants/remove            |
+| ✅       | Promote Participant in Group           | POST   | /group/participants/promote           |
+| ✅       | Demote Participant in Group            | POST   | /group/participants/demote            |
+| ✅       | List Requested Participants in Group   | POST   | /group/participants/requested         |
+| ✅       | Approve Requested Participant in Group | POST   | /group/participants/requested/approve |
+| ✅       | Reject Requested Participant in Group  | POST   | /group/participants/requested/reject  |
+| ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                  |
 
 ```txt
 ✅ = Available
@@ -261,3 +265,8 @@ You can fork or edit this source code !
 
 - Please do this if you have an error (invalid flag in pkg-config --cflags: -Xpreprocessor)
   `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
+
+## Important
+
+- This project is unofficial and not affiliated with WhatsApp.
+- Please use official WhatsApp API to avoid any issues.

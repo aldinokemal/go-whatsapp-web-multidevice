@@ -204,7 +204,7 @@ body {
     border-radius: 12px !important;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
     /* background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%) !important; */
-    background: var(--primary-color) !important;
+    /* background: var(--primary-color) !important; */
     color: white !important;
     font-weight: 600 !important;
     letter-spacing: 0.5px;

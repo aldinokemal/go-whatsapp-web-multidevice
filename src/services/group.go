@@ -115,7 +115,7 @@ func (service groupService) ManageParticipant(ctx context.Context, request domai
 	return result, nil
 }
 
-func (service groupService) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []string, err error) {
+func (service groupService) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []domainGroup.GetGroupRequestParticipantsResponse, err error) {
 	if err = validations.ValidateGetGroupRequestParticipants(ctx, request); err != nil {
 		return result, err
 	}
@@ -131,7 +131,10 @@ func (service groupService) GetGroupRequestParticipants(ctx context.Context, req
 	}
 
 	for _, participant := range participants {
-		result = append(result, participant.JID.String())
+		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
+			JID:         participant.JID.String(),
+			RequestedAt: participant.RequestedAt,
+		})
 	}
 
 	return result, nil
