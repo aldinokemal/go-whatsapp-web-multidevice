@@ -136,7 +136,7 @@
     </div>
 
     <div class="ui three column doubling grid cards">
-        <group-list></group-list>
+        <group-list :connected="connected_devices"></group-list>
         <group-create></group-create>
         <group-join-with-link></group-join-with-link>
         <group-add-participants></group-add-participants>
@@ -218,12 +218,12 @@
     import GroupCreate from "./components/GroupCreate.js";
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
     import GroupAddParticipants from "./components/GroupManageParticipants.js";
+    import NewsletterList from "./components/NewsletterList.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
     import AccountChangePushName from "./components/AccountChangePushName.js";
     import AccountUserInfo from "./components/AccountUserInfo.js";
     import AccountPrivacy from "./components/AccountPrivacy.js";
-    import NewsletterList from "./components/NewsletterList.js";
     import AccountContact from "./components/AccountContact.js";
 
     const showErrorInfo = (message) => {

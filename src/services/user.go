@@ -233,8 +233,7 @@ func (service userService) ChangeAvatar(ctx context.Context, request domainUser.
 	return nil
 }
 
-// ChangePushName implements user.IUserService.
-func (service *userService) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
+func (service userService) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
 	whatsapp.MustLogin(service.WaCli)
 
 	err = service.WaCli.SendAppState(appstate.BuildSettingPushName(request.PushName))

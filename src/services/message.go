@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
@@ -55,7 +54,7 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	return response, nil
 }
 
-func (service serviceMessage) ReactMessage(ctx context.Context, request message.ReactionRequest) (response message.GenericResponse, err error) {
+func (service serviceMessage) ReactMessage(ctx context.Context, request domainMessage.ReactionRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
 	}

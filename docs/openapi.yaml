@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 5.3.0
+  version: 5.4.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -18,6 +18,9 @@ tags:
     description: Group setting
   - name: newsletter
     description: newsletter setting
+security:
+  - basicAuth: []
+
 paths:
   /app/login:
     get:
@@ -1217,6 +1220,123 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participant-requests:
+    get:
+      operationId: getGroupParticipantRequests
+      tags:
+        - group
+      summary: Get list of participant requests to join group
+      parameters:
+        - name: group_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@g.us'
+          description: The group ID to get participant requests for
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupParticipantRequestListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participant-requests/approve:
+    post:
+      operationId: approveGroupParticipantRequest
+      tags:
+        - group
+      summary: Approve participant request to join group
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                participant_id:
+                  type: string
+                  example: '6281234567890'
+                  description: The participant's WhatsApp ID to approve
+              required:
+                - group_id
+                - participant_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participant-requests/reject:
+    post:
+      operationId: rejectGroupParticipantRequest
+      tags:
+        - group
+      summary: Reject participant request to join group
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                participant_id:
+                  type: string
+                  example: '6281234567890'
+                  description: The participant's WhatsApp ID to reject
+              required:
+                - group_id
+                - participant_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /group/leave:
     post:
       operationId: leaveGroup
@@ -1287,6 +1407,10 @@ paths:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
 components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
   schemas:
     CreateGroupResponse:
       type: object
@@ -1319,6 +1443,7 @@ components:
             - '6839241294719274'
     ManageParticipantResponse:
       type: object
+      additionalProperties: false
       properties:
         code:
           type: string
@@ -1329,6 +1454,8 @@ components:
         results:
           type: array
           items:
+            type: object
+            additionalProperties: false
             properties:
               participant:
                 type: string
@@ -1852,3 +1979,28 @@ components:
         AddRequest:
           type: string
           example: null
+    
+    GroupParticipantRequestListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success getting list requested participants"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  jid:
+                    type: string
+                    example: "6289685024091@s.whatsapp.net"
+                  requested_at:
+                    type: string
+                    format: date-time
+                    example: "2024-10-11T21:27:29+07:00"
