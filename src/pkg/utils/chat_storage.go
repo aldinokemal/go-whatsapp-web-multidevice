@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"net/url"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 )
@@ -79,7 +80,9 @@ func RecordMessage(messageID string, senderJID string, messageContent string) er
 	}
 
 	// Prepare the new record
-	newRecord := []string{message.MessageID, message.JID, message.MessageContent}
+	// Fix: message.MessageContent can have special characters which breaks saving to csv. -> Need to utf-8 encode
+	encodedMessageContent := url.QueryEscape(message.MessageContent)
+	newRecord := []string{message.MessageID, message.JID, encodedMessageContent}
 	records = append([][]string{newRecord}, records...) // Prepend new message
 
 	// Write all records back to file
