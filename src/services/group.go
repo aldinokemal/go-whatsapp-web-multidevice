@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"fmt"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -106,6 +108,70 @@ func (service groupService) ManageParticipant(ctx context.Context, request domai
 				Participant: participant.JID.String(),
 				Status:      "success",
 				Message:     "Action success",
+			})
+		}
+	}
+
+	return result, nil
+}
+
+func (service groupService) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []domainGroup.GetGroupRequestParticipantsResponse, err error) {
+	if err = validations.ValidateGetGroupRequestParticipants(ctx, request); err != nil {
+		return result, err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return result, err
+	}
+
+	participants, err := service.WaCli.GetGroupRequestParticipants(groupJID)
+	if err != nil {
+		return result, err
+	}
+
+	for _, participant := range participants {
+		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
+			JID:         participant.JID.String(),
+			RequestedAt: participant.RequestedAt,
+		})
+	}
+
+	return result, nil
+}
+
+func (service groupService) ManageGroupRequestParticipants(ctx context.Context, request domainGroup.GroupRequestParticipantsRequest) (result []domainGroup.ParticipantStatus, err error) {
+	if err = validations.ValidateManageGroupRequestParticipants(ctx, request); err != nil {
+		return result, err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return result, err
+	}
+
+	participantsJID, err := service.participantToJID(request.Participants)
+	if err != nil {
+		return result, err
+	}
+
+	participants, err := service.WaCli.UpdateGroupRequestParticipants(groupJID, participantsJID, request.Action)
+	if err != nil {
+		return result, err
+	}
+
+	for _, participant := range participants {
+		if participant.Error != 0 {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "error",
+				Message:     fmt.Sprintf("Action %s failed (code %d)", request.Action, participant.Error),
+			})
+		} else {
+			result = append(result, domainGroup.ParticipantStatus{
+				Participant: participant.JID.String(),
+				Status:      "success",
+				Message:     fmt.Sprintf("Action %s success", request.Action),
 			})
 		}
 	}

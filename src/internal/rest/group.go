@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
@@ -22,6 +23,9 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
 	app.Post("/group/participants/remove", rest.DeleteParticipants)
 	app.Post("/group/participants/promote", rest.PromoteParticipants)
 	app.Post("/group/participants/demote", rest.DemoteParticipants)
+	app.Get("/group/participant-requests", rest.ListParticipantRequests)
+	app.Post("/group/participant-requests/approve", rest.ApproveParticipantRequests)
+	app.Post("/group/participant-requests/reject", rest.RejectParticipantRequests)
 	return rest
 }
 
@@ -77,83 +81,86 @@ func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 		},
 	})
 }
-
 func (controller *Group) AddParticipants(c *fiber.Ctx) error {
-	var request domainGroup.ParticipantRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
-
-	whatsapp.SanitizePhone(&request.GroupID)
-
-	request.Action = whatsmeow.ParticipantChangeAdd
-
-	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
-
-	return c.JSON(utils.ResponseData{
-		Status:  200,
-		Code:    "SUCCESS",
-		Message: "Success add participants",
-		Results: result,
-	})
+	return controller.manageParticipants(c, whatsmeow.ParticipantChangeAdd, "Success add participants")
 }
 
 func (controller *Group) DeleteParticipants(c *fiber.Ctx) error {
-	var request domainGroup.ParticipantRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
-
-	whatsapp.SanitizePhone(&request.GroupID)
-
-	request.Action = whatsmeow.ParticipantChangeRemove
-
-	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
-
-	return c.JSON(utils.ResponseData{
-		Status:  200,
-		Code:    "SUCCESS",
-		Message: "Success delete participants",
-		Results: result,
-	})
+	return controller.manageParticipants(c, whatsmeow.ParticipantChangeRemove, "Success delete participants")
 }
 
 func (controller *Group) PromoteParticipants(c *fiber.Ctx) error {
-	var request domainGroup.ParticipantRequest
-	err := c.BodyParser(&request)
+	return controller.manageParticipants(c, whatsmeow.ParticipantChangePromote, "Success promote participants")
+}
+
+func (controller *Group) DemoteParticipants(c *fiber.Ctx) error {
+	return controller.manageParticipants(c, whatsmeow.ParticipantChangeDemote, "Success demote participants")
+}
+
+func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
+	var request domainGroup.GetGroupRequestParticipantsRequest
+	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
+
+	if request.GroupID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_GROUP_ID",
+			Message: "Group ID cannot be empty",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	request.Action = whatsmeow.ParticipantChangePromote
-
-	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
+	result, err := controller.Service.GetGroupRequestParticipants(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
-		Message: "Success promote participants",
+		Message: "Success getting list requested participants",
 		Results: result,
 	})
 }
 
-func (controller *Group) DemoteParticipants(c *fiber.Ctx) error {
+func (controller *Group) ApproveParticipantRequests(c *fiber.Ctx) error {
+	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeApprove, "Success approve requested participants")
+}
+
+func (controller *Group) RejectParticipantRequests(c *fiber.Ctx) error {
+	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeReject, "Success reject requested participants")
+}
+
+// Generalized participant management handler
+func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.ParticipantChange, successMsg string) error {
 	var request domainGroup.ParticipantRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
-
 	whatsapp.SanitizePhone(&request.GroupID)
-
-	request.Action = whatsmeow.ParticipantChangeDemote
-
+	request.Action = action
 	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
-
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
-		Message: "Success demote participants",
+		Message: successMsg,
+		Results: result,
+	})
+}
+
+// Generalized requested participants handler
+func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsmeow.ParticipantRequestChange, successMsg string) error {
+	var request domainGroup.GroupRequestParticipantsRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+	whatsapp.SanitizePhone(&request.GroupID)
+	request.Action = action
+	result, err := controller.Service.ManageGroupRequestParticipants(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: successMsg,
 		Results: result,
 	})
 }

@@ -16,6 +16,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
 	app.Get("/user/info", rest.UserInfo)
 	app.Get("/user/avatar", rest.UserAvatar)
 	app.Post("/user/avatar", rest.UserChangeAvatar)
+	app.Post("/user/pushname", rest.UserChangePushName)
 	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
 	app.Get("/user/my/groups", rest.UserMyListGroups)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
@@ -123,5 +124,20 @@ func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Success get list contacts",
 		Results: response,
+	})
+}
+
+func (controller *User) UserChangePushName(c *fiber.Ctx) error {
+	var request domainUser.ChangePushNameRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	err = controller.Service.ChangePushName(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success change push name",
 	})
 }

@@ -1,7 +1,7 @@
 import FormRecipient from "./generic/FormRecipient.js";
 
 export default {
-    name: 'SendMessage',
+    name: 'SendLink',
     components: {
         FormRecipient
     },
@@ -9,10 +9,11 @@ export default {
         return {
             type: window.TYPEUSER,
             phone: '',
-            text: '',
+            link: '',
+            caption: '',
             reply_message_id: '',
-            is_forwarded: false,
             loading: false,
+            is_forwarded: false
         }
     },
     computed: {
@@ -22,7 +23,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalSendMessage').modal({
+            $('#modalSendLink').modal({
                 onApprove: function () {
                     return false;
                 }
@@ -35,10 +36,13 @@ export default {
             // Validate phone number is not empty except for status type
             const isPhoneValid = this.type === window.TYPESTATUS || this.phone.trim().length > 0;
             
-            // Validate message is not empty and has reasonable length
-            const isMessageValid = this.text.trim().length > 0 && this.text.length <= 4096;
+            // Validate link is not empty and has reasonable length
+            const isLinkValid = this.link.trim().length > 0 && this.link.length <= 4096;
 
-            return isPhoneValid && isMessageValid
+            // Validate caption is not empty and has reasonable length
+            const isCaptionValid = this.caption.trim().length > 0 && this.caption.length <= 4096;
+
+            return isPhoneValid && isLinkValid && isCaptionValid
         },
         async handleSubmit() {
             // Add validation check here to prevent submission when form is invalid
@@ -48,7 +52,7 @@ export default {
             try {
                 const response = await this.submitApi();
                 showSuccessInfo(response);
-                $('#modalSendMessage').modal('hide');
+                $('#modalSendLink').modal('hide');
             } catch (err) {
                 showErrorInfo(err);
             }
@@ -58,14 +62,15 @@ export default {
             try {
                 const payload = {
                     phone: this.phone_id,
-                    message: this.text.trim(),
+                    link: this.link.trim(),
+                    caption: this.caption.trim(),
                     is_forwarded: this.is_forwarded
                 };
                 if (this.reply_message_id !== '') {
                     payload.reply_message_id = this.reply_message_id;
                 }
 
-                const response = await window.http.post('/send/message', payload);
+                const response = await window.http.post('/send/link', payload);
                 this.handleReset();
                 return response.data.message;
             } catch (error) {
@@ -79,7 +84,8 @@ export default {
         },
         handleReset() {
             this.phone = '';
-            this.text = '';
+            this.link = '';
+            this.caption = '';
             this.reply_message_id = '';
             this.is_forwarded = false;
         },
@@ -88,18 +94,18 @@ export default {
     <div class="blue card" @click="openModal()" style="cursor: pointer">
         <div class="content">
             <a class="ui blue right ribbon label">Send</a>
-            <div class="header">Send Message</div>
+            <div class="header">Send Link</div>
             <div class="description">
-                Send any message to user or group
+                Send link to user or group
             </div>
         </div>
     </div>
     
-    <!--  Modal SendMessage  -->
-    <div class="ui small modal" id="modalSendMessage">
+    <!--  Modal SendLink  -->
+    <div class="ui small modal" id="modalSendLink">
         <i class="close icon"></i>
         <div class="header">
-            Send Message
+            Send Link
         </div>
         <div class="content">
             <form class="ui form">
@@ -111,15 +117,20 @@ export default {
                            aria-label="reply_message_id">
                 </div>
                 <div class="field">
-                    <label>Message</label>
-                    <textarea v-model="text" placeholder="Hello this is message text"
-                              aria-label="message"></textarea>
+                    <label>Link</label>
+                    <input v-model="link" type="text" placeholder="https://www.google.com"
+                           aria-label="link">
+                </div>
+                <div class="field">
+                    <label>Caption</label>
+                    <textarea v-model="caption" placeholder="Hello this is caption"
+                              aria-label="caption"></textarea>
                 </div>
                 <div class="field" v-if="isShowReplyId()">
                     <label>Is Forwarded</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
-                        <label>Mark message as forwarded</label>
+                        <label>Mark link as forwarded</label>
                     </div>
                 </div>
             </form>
