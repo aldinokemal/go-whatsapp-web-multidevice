@@ -21,7 +21,13 @@ func InitMcpSend(sendService domainSend.ISendUsecase) *SendHandler {
 }
 
 func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
-	// Send text message
+	mcpServer.AddTool(s.toolSendText(), s.handleSendText)
+	mcpServer.AddTool(s.toolSendContact(), s.handleSendContact)
+	mcpServer.AddTool(s.toolSendLink(), s.handleSendLink)
+	mcpServer.AddTool(s.toolSendLocation(), s.handleSendLocation)
+}
+
+func (s *SendHandler) toolSendText() mcp.Tool {
 	sendTextTool := mcp.NewTool("whatsapp_send_text",
 		mcp.WithDescription("Send a text message to a WhatsApp contact or group."),
 		mcp.WithString("phone",
@@ -39,7 +45,8 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 			mcp.Description("Message ID to reply to (optional)"),
 		),
 	)
-	mcpServer.AddTool(sendTextTool, s.handleSendText)
+
+	return sendTextTool
 }
 
 func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -75,4 +82,178 @@ func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRe
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Message sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendContact() mcp.Tool {
+	sendContactTool := mcp.NewTool("whatsapp_send_contact",
+		mcp.WithDescription("Send a contact card to a WhatsApp contact or group."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send contact to"),
+		),
+		mcp.WithString("contact_name",
+			mcp.Required(),
+			mcp.Description("Name of the contact to send"),
+		),
+		mcp.WithString("contact_phone",
+			mcp.Required(),
+			mcp.Description("Phone number of the contact to send"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+
+	return sendContactTool
+}
+
+func (s *SendHandler) handleSendContact(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	contactName, ok := request.GetArguments()["contact_name"].(string)
+	if !ok {
+		return nil, errors.New("contact_name must be a string")
+	}
+
+	contactPhone, ok := request.GetArguments()["contact_phone"].(string)
+	if !ok {
+		return nil, errors.New("contact_phone must be a string")
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	res, err := s.sendService.SendContact(ctx, domainSend.ContactRequest{
+		Phone:        phone,
+		ContactName:  contactName,
+		ContactPhone: contactPhone,
+		IsForwarded:  isForwarded,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Contact sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendLink() mcp.Tool {
+	sendLinkTool := mcp.NewTool("whatsapp_send_link",
+		mcp.WithDescription("Send a link with caption to a WhatsApp contact or group."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send link to"),
+		),
+		mcp.WithString("link",
+			mcp.Required(),
+			mcp.Description("URL link to send"),
+		),
+		mcp.WithString("caption",
+			mcp.Required(),
+			mcp.Description("Caption or description for the link"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+
+	return sendLinkTool
+}
+
+func (s *SendHandler) handleSendLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	link, ok := request.GetArguments()["link"].(string)
+	if !ok {
+		return nil, errors.New("link must be a string")
+	}
+
+	caption, ok := request.GetArguments()["caption"].(string)
+	if !ok {
+		caption = ""
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	res, err := s.sendService.SendLink(ctx, domainSend.LinkRequest{
+		Phone:       phone,
+		Link:        link,
+		Caption:     caption,
+		IsForwarded: isForwarded,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Link sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendLocation() mcp.Tool {
+	sendLocationTool := mcp.NewTool("whatsapp_send_location",
+		mcp.WithDescription("Send a location coordinates to a WhatsApp contact or group."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send location to"),
+		),
+		mcp.WithString("latitude",
+			mcp.Required(),
+			mcp.Description("Latitude coordinate (as string)"),
+		),
+		mcp.WithString("longitude",
+			mcp.Required(),
+			mcp.Description("Longitude coordinate (as string)"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+
+	return sendLocationTool
+}
+
+func (s *SendHandler) handleSendLocation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	latitude, ok := request.GetArguments()["latitude"].(string)
+	if !ok {
+		return nil, errors.New("latitude must be a string")
+	}
+
+	longitude, ok := request.GetArguments()["longitude"].(string)
+	if !ok {
+		return nil, errors.New("longitude must be a string")
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	res, err := s.sendService.SendLocation(ctx, domainSend.LocationRequest{
+		Phone:       phone,
+		Latitude:    latitude,
+		Longitude:   longitude,
+		IsForwarded: isForwarded,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Location sent successfully with ID %s", res.MessageID)), nil
 }

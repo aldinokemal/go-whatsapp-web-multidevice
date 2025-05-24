@@ -48,6 +48,7 @@ The application is organized using domain-driven design principles:
   - [src/ui/rest/helpers/](mdc:src/ui/rest/helpers) - Helper functions for REST handlers
   - [src/ui/rest/middleware/](mdc:src/ui/rest/middleware) - Middleware components for request processing
 - [src/ui/websocket/](mdc:src/ui/websocket) - WebSocket implementation for real-time communication
+- [src/ui/mcp/](mdc:src/ui/mcp) - Model Context Protocol server to communication with AI Agent
 
 #### Utilities and Shared Components
 
