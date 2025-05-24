@@ -1,4 +1,4 @@
-package services
+package usecase
 
 import (
 	"context"
@@ -10,10 +10,10 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
@@ -27,10 +27,10 @@ import (
 
 type serviceSend struct {
 	WaCli      *whatsmeow.Client
-	appService app.IAppService
+	appService app.IAppUsecase
 }
 
-func NewSendService(waCli *whatsmeow.Client, appService app.IAppService) domainSend.ISendService {
+func NewSendService(waCli *whatsmeow.Client, appService app.IAppUsecase) domainSend.ISendUsecase {
 	return &serviceSend{
 		WaCli:      waCli,
 		appService: appService,

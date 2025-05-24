@@ -2,16 +2,16 @@ package rest
 
 import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 )
 
 type Message struct {
-	Service domainMessage.IMessageService
+	Service domainMessage.IMessageUsecase
 }
 
-func InitRestMessage(app *fiber.App, service domainMessage.IMessageService) Message {
+func InitRestMessage(app *fiber.App, service domainMessage.IMessageUsecase) Message {
 	rest := Message{Service: service}
 	app.Post("/message/:message_id/reaction", rest.ReactMessage)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)

@@ -2,16 +2,16 @@ package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 )
 
 type User struct {
-	Service domainUser.IUserService
+	Service domainUser.IUserUsecase
 }
 
-func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
+func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	rest := User{Service: service}
 	app.Get("/user/info", rest.UserInfo)
 	app.Get("/user/avatar", rest.UserAvatar)

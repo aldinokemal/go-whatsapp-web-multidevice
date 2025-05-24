@@ -2,7 +2,7 @@ package message
 
 import "context"
 
-type IMessageService interface {
+type IMessageUsecase interface {
 	MarkAsRead(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
 	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
 	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)

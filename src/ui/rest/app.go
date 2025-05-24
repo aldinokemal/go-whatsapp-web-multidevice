@@ -2,16 +2,17 @@ package rest
 
 import (
 	"fmt"
+
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
 
 type App struct {
-	Service domainApp.IAppService
+	Service domainApp.IAppUsecase
 }
 
-func InitRestApp(app *fiber.App, service domainApp.IAppService) App {
+func InitRestApp(app *fiber.App, service domainApp.IAppUsecase) App {
 	rest := App{Service: service}
 	app.Get("/app/login", rest.Login)
 	app.Get("/app/login-with-code", rest.LoginWithCode)

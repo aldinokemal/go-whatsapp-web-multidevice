@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-type ISendService interface {
+type ISendUsecase interface {
 	SendText(ctx context.Context, request MessageRequest) (response GenericResponse, err error)
 	SendImage(ctx context.Context, request ImageRequest) (response GenericResponse, err error)
 	SendFile(ctx context.Context, request FileRequest) (response GenericResponse, err error)

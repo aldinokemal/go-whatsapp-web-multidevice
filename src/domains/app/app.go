@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type IAppService interface {
+type IAppUsecase interface {
 	Login(ctx context.Context) (response LoginResponse, err error)
 	LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error)
 	Logout(ctx context.Context) (err error)

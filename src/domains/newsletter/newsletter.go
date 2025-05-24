@@ -2,7 +2,7 @@ package newsletter
 
 import "context"
 
-type INewsletterService interface {
+type INewsletterUsecase interface {
 	Unfollow(ctx context.Context, request UnfollowRequest) (err error)
 }
 

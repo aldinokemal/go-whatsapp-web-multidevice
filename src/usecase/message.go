@@ -1,4 +1,4 @@
-package services
+package usecase
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"time"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -22,7 +22,7 @@ type serviceMessage struct {
 	WaCli *whatsmeow.Client
 }
 
-func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageService {
+func NewMessageService(waCli *whatsmeow.Client) domainMessage.IMessageUsecase {
 	return &serviceMessage{
 		WaCli: waCli,
 	}

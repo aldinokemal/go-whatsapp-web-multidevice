@@ -1,4 +1,4 @@
-package services
+package usecase
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type serviceApp struct {
 	db    *sqlstore.Container
 }
 
-func NewAppService(waCli *whatsmeow.Client, db *sqlstore.Container) domainApp.IAppService {
+func NewAppService(waCli *whatsmeow.Client, db *sqlstore.Container) domainApp.IAppUsecase {
 	return &serviceApp{
 		WaCli: waCli,
 		db:    db,
