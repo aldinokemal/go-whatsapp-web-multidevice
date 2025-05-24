@@ -221,19 +221,19 @@ You can fork or edit this source code !
 
 ## Current API
 
-### HTTP REST API
-
-- [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
-- Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
-- Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
-- Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
-
 ### MCP (Model Context Protocol) API
 
 - MCP server provides standardized tools for AI agents to interact with WhatsApp
 - Supports Server-Sent Events (SSE) transport
 - Available tools: `whatsapp_send_text`, `whatsapp_send_contact`, `whatsapp_send_link`, `whatsapp_send_location`
 - Compatible with MCP-enabled AI tools and agents
+
+### HTTP REST API
+
+- [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
+- Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
+- Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
+- Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
 | Feature | Menu                                   | Method | URL                                   |
 |---------|----------------------------------------|--------|---------------------------------------|
@@ -283,7 +283,7 @@ You can fork or edit this source code !
 ❌ = Not Available Yet
 ```
 
-### User Interface
+## User Interface
 
 ### MCP UI
 
