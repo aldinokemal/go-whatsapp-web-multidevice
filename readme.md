@@ -17,8 +17,8 @@ ___
 
 Download:
 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) 
-- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) 
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 
 ## Feature
 
@@ -126,22 +126,27 @@ This application can also run as an MCP server, allowing AI agents and tools to 
 4. run `go run main.go mcp` or build the binary and run `./whatsapp mcp`
 5. The MCP server will start on `http://localhost:8080` by default
 
-#### MCP Server Options:
+#### MCP Server Options
+
 - `--host localhost` - Set the host for MCP server (default: localhost)
 - `--port 8080` - Set the port for MCP server (default: 8080)
 
-#### Available MCP Tools:
+#### Available MCP Tools
+
 - `whatsapp_send_text` - Send text messages
 - `whatsapp_send_contact` - Send contact cards
 - `whatsapp_send_link` - Send links with captions
 - `whatsapp_send_location` - Send location coordinates
 
-#### MCP Endpoints:
+#### MCP Endpoints
+
 - SSE endpoint: `http://localhost:8080/sse`
 - Message endpoint: `http://localhost:8080/message`
 
 ### MCP Configuration
+
 make sure you have running MCP server, `./whatsapp mcp`
+
 ```json
 {
   "mcpServers": {
@@ -217,12 +222,14 @@ You can fork or edit this source code !
 ## Current API
 
 ### HTTP REST API
+
 - [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
 - Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
 ### MCP (Model Context Protocol) API
+
 - MCP server provides standardized tools for AI agents to interact with WhatsApp
 - Supports Server-Sent Events (SSE) transport
 - Available tools: `whatsapp_send_text`, `whatsapp_send_contact`, `whatsapp_send_link`, `whatsapp_send_location`
@@ -277,6 +284,17 @@ You can fork or edit this source code !
 ```
 
 ### User Interface
+
+### MCP UI
+
+- Setup MCP (tested in cursor)
+![Setup MCP](https://i.ibb.co/vCg4zNWt/mcpsetup.png)
+- Test MCP
+![Test MCP](https://i.ibb.co/B2LX38DW/mcptest.png)
+- Successfully setup MCP
+![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
+
+### HTTP REST API UI
 
 | Description          | Image                                                                                    |
 |----------------------|------------------------------------------------------------------------------------------|
