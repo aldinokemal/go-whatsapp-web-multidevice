@@ -7,7 +7,7 @@ require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/gofiber/fiber/v2 v2.52.6
+	github.com/gofiber/fiber/v2 v2.52.8
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
@@ -19,8 +19,8 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.62.0
-	go.mau.fi/libsignal v0.1.2
-	go.mau.fi/whatsmeow v0.0.0-20250501130609-4c93ee4e6efa
+	go.mau.fi/libsignal v0.2.0
+	go.mau.fi/whatsmeow v0.0.0-20250521125706-91ac75c2f61a
 	golang.org/x/image v0.27.0
 	google.golang.org/protobuf v1.36.6
 )
@@ -55,7 +55,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	go.mau.fi/util v0.8.6 // indirect
+	go.mau.fi/util v0.8.7 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect

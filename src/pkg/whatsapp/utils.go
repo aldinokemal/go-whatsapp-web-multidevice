@@ -1,6 +1,7 @@
 package whatsapp
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,13 +24,13 @@ import (
 )
 
 // ExtractMedia is a helper function to extract media from whatsapp
-func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
+func ExtractMedia(ctx context.Context, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")
 		return extractedMedia, nil
 	}
 
-	data, err := cli.Download(mediaFile)
+	data, err := cli.Download(ctx, mediaFile)
 	if err != nil {
 		return extractedMedia, err
 	}

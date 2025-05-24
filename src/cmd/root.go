@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"log"
@@ -230,8 +231,9 @@ func runRest(_ *cobra.Command, _ []string) {
 		}))
 	}
 
-	db := whatsapp.InitWaDB()
-	cli := whatsapp.InitWaCLI(db)
+	ctx := context.Background()
+	db := whatsapp.InitWaDB(ctx)
+	cli := whatsapp.InitWaCLI(ctx, db)
 
 	// Service
 	appService := services.NewAppService(cli, db)

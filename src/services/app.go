@@ -107,7 +107,7 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 	// reconnect first
 	_ = service.Reconnect(ctx)
 
-	loginCode, err = service.WaCli.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	loginCode, err = service.WaCli.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		logrus.Errorf("Error when pairing phone: %s", err.Error())
 		return loginCode, err
@@ -117,7 +117,7 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 	return loginCode, nil
 }
 
-func (service serviceApp) Logout(_ context.Context) (err error) {
+func (service serviceApp) Logout(ctx context.Context) (err error) {
 	// delete history
 	files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages))
 	if err != nil {
@@ -158,7 +158,7 @@ func (service serviceApp) Logout(_ context.Context) (err error) {
 		}
 	}
 
-	err = service.WaCli.Logout()
+	err = service.WaCli.Logout(ctx)
 	return
 }
 
@@ -172,7 +172,7 @@ func (service serviceApp) FirstDevice(ctx context.Context) (response domainApp.D
 		return response, pkgError.ErrWaCLI
 	}
 
-	devices, err := service.db.GetFirstDevice()
+	devices, err := service.db.GetFirstDevice(ctx)
 	if err != nil {
 		return response, err
 	}
@@ -187,12 +187,12 @@ func (service serviceApp) FirstDevice(ctx context.Context) (response domainApp.D
 	return response, nil
 }
 
-func (service serviceApp) FetchDevices(_ context.Context) (response []domainApp.DevicesResponse, err error) {
+func (service serviceApp) FetchDevices(ctx context.Context) (response []domainApp.DevicesResponse, err error) {
 	if service.WaCli == nil {
 		return response, pkgError.ErrWaCLI
 	}
 
-	devices, err := service.db.GetAllDevices()
+	devices, err := service.db.GetAllDevices(ctx)
 	if err != nil {
 		return nil, err
 	}

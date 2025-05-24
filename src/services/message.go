@@ -131,7 +131,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 		}},
 	}
 
-	if err = service.WaCli.SendAppState(patchInfo); err != nil {
+	if err = service.WaCli.SendAppState(ctx, patchInfo); err != nil {
 		return err
 	}
 	return nil
@@ -176,7 +176,7 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 
 	patchInfo := appstate.BuildStar(dataWaRecipient.ToNonAD(), *service.WaCli.Store.ID, request.MessageID, isFromMe, request.IsStarred)
 
-	if err = service.WaCli.SendAppState(patchInfo); err != nil {
+	if err = service.WaCli.SendAppState(ctx, patchInfo); err != nil {
 		return err
 	}
 	return nil

@@ -53,11 +53,11 @@ var (
 )
 
 // InitWaDB initializes the WhatsApp database connection
-func InitWaDB() *sqlstore.Container {
+func InitWaDB(ctx context.Context) *sqlstore.Container {
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
 
-	storeContainer, err := initDatabase(dbLog)
+	storeContainer, err := initDatabase(ctx, dbLog)
 	if err != nil {
 		log.Errorf("Database initialization error: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
@@ -67,19 +67,19 @@ func InitWaDB() *sqlstore.Container {
 }
 
 // initDatabase creates and returns a database store container based on the configured URI
-func initDatabase(dbLog waLog.Logger) (*sqlstore.Container, error) {
+func initDatabase(ctx context.Context, dbLog waLog.Logger) (*sqlstore.Container, error) {
 	if strings.HasPrefix(config.DBURI, "file:") {
-		return sqlstore.New("sqlite3", config.DBURI, dbLog)
+		return sqlstore.New(ctx, "sqlite3", config.DBURI, dbLog)
 	} else if strings.HasPrefix(config.DBURI, "postgres:") {
-		return sqlstore.New("postgres", config.DBURI, dbLog)
+		return sqlstore.New(ctx, "postgres", config.DBURI, dbLog)
 	}
 
 	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", config.DBURI)
 }
 
 // InitWaCLI initializes the WhatsApp client
-func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
-	device, err := storeContainer.GetFirstDevice()
+func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsmeow.Client {
+	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
 		panic(err)
@@ -99,46 +99,48 @@ func InitWaCLI(storeContainer *sqlstore.Container) *whatsmeow.Client {
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
-	cli.AddEventHandler(handler)
+	cli.AddEventHandler(func(rawEvt interface{}) {
+		handler(ctx, rawEvt)
+	})
 
 	return cli
 }
 
 // handler is the main event handler for WhatsApp events
-func handler(rawEvt interface{}) {
+func handler(ctx context.Context, rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
-		handleDeleteForMe(evt)
+		handleDeleteForMe(ctx, evt)
 	case *events.AppStateSyncComplete:
-		handleAppStateSyncComplete(evt)
+		handleAppStateSyncComplete(ctx, evt)
 	case *events.PairSuccess:
-		handlePairSuccess(evt)
+		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut()
+		handleLoggedOut(ctx)
 	case *events.Connected, *events.PushNameSetting:
-		handleConnectionEvents()
+		handleConnectionEvents(ctx)
 	case *events.StreamReplaced:
-		handleStreamReplaced()
+		handleStreamReplaced(ctx)
 	case *events.Message:
-		handleMessage(evt)
+		handleMessage(ctx, evt)
 	case *events.Receipt:
-		handleReceipt(evt)
+		handleReceipt(ctx, evt)
 	case *events.Presence:
-		handlePresence(evt)
+		handlePresence(ctx, evt)
 	case *events.HistorySync:
-		handleHistorySync(evt)
+		handleHistorySync(ctx, evt)
 	case *events.AppState:
-		handleAppState(evt)
+		handleAppState(ctx, evt)
 	}
 }
 
 // Event handler functions
 
-func handleDeleteForMe(evt *events.DeleteForMe) {
+func handleDeleteForMe(_ context.Context, evt *events.DeleteForMe) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 }
 
-func handleAppStateSyncComplete(evt *events.AppStateSyncComplete) {
+func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {
 	if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
 		if err := cli.SendPresence(types.PresenceAvailable); err != nil {
 			log.Warnf("Failed to send available presence: %v", err)
@@ -148,21 +150,21 @@ func handleAppStateSyncComplete(evt *events.AppStateSyncComplete) {
 	}
 }
 
-func handlePairSuccess(evt *events.PairSuccess) {
+func handlePairSuccess(_ context.Context, evt *events.PairSuccess) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "LOGIN_SUCCESS",
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
 }
 
-func handleLoggedOut() {
+func handleLoggedOut(_ context.Context) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:   "LIST_DEVICES",
 		Result: nil,
 	}
 }
 
-func handleConnectionEvents() {
+func handleConnectionEvents(_ context.Context) {
 	if len(cli.Store.PushName) == 0 {
 		return
 	}
@@ -176,11 +178,11 @@ func handleConnectionEvents() {
 	}
 }
 
-func handleStreamReplaced() {
+func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleMessage(evt *events.Message) {
+func handleMessage(ctx context.Context, evt *events.Message) {
 	// Log message metadata
 	metaParts := buildMessageMetaParts(evt)
 	log.Infof("Received message %s from %s (%s): %+v",
@@ -195,13 +197,13 @@ func handleMessage(evt *events.Message) {
 	utils.RecordMessage(evt.Info.ID, evt.Info.Sender.String(), message)
 
 	// Handle image message if present
-	handleImageMessage(evt)
+	handleImageMessage(ctx, evt)
 
 	// Handle auto-reply if configured
 	handleAutoReply(evt)
 
 	// Forward to webhook if configured
-	handleWebhookForward(evt)
+	handleWebhookForward(ctx, evt)
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {
@@ -221,9 +223,9 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
-func handleImageMessage(evt *events.Message) {
+func handleImageMessage(ctx context.Context, evt *events.Message) {
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := ExtractMedia(config.PathStorages, img); err != nil {
+		if path, err := ExtractMedia(ctx, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", path)
@@ -244,19 +246,19 @@ func handleAutoReply(evt *events.Message) {
 	}
 }
 
-func handleWebhookForward(evt *events.Message) {
+func handleWebhookForward(ctx context.Context, evt *events.Message) {
 	if len(config.WhatsappWebhook) > 0 &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") &&
 		!isFromMySelf(evt.Info.SourceString()) {
 		go func(evt *events.Message) {
-			if err := forwardToWebhook(evt); err != nil {
+			if err := forwardToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
 			}
 		}(evt)
 	}
 }
 
-func handleReceipt(evt *events.Receipt) {
+func handleReceipt(_ context.Context, evt *events.Receipt) {
 	if evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf {
 		log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
 	} else if evt.Type == types.ReceiptTypeDelivered {
@@ -264,7 +266,7 @@ func handleReceipt(evt *events.Receipt) {
 	}
 }
 
-func handlePresence(evt *events.Presence) {
+func handlePresence(_ context.Context, evt *events.Presence) {
 	if evt.Unavailable {
 		if evt.LastSeen.IsZero() {
 			log.Infof("%s is now offline", evt.From)
@@ -276,7 +278,7 @@ func handlePresence(evt *events.Presence) {
 	}
 }
 
-func handleHistorySync(evt *events.HistorySync) {
+func handleHistorySync(_ context.Context, evt *events.HistorySync) {
 	id := atomic.AddInt32(&historySyncID, 1)
 	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
 		config.PathStorages,
@@ -303,6 +305,6 @@ func handleHistorySync(evt *events.HistorySync) {
 	log.Infof("Wrote history sync to %s", fileName)
 }
 
-func handleAppState(evt *events.AppState) {
+func handleAppState(ctx context.Context, evt *events.AppState) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 }

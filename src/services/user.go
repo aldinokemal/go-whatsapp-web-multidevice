@@ -146,10 +146,10 @@ func (service userService) MyListNewsletter(_ context.Context) (response domainU
 	return response, nil
 }
 
-func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
+func (service userService) MyPrivacySetting(ctx context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	resp, err := service.WaCli.TryFetchPrivacySettings(true)
+	resp, err := service.WaCli.TryFetchPrivacySettings(ctx, true)
 	if err != nil {
 		return
 	}
@@ -164,7 +164,7 @@ func (service userService) MyPrivacySetting(_ context.Context) (response domainU
 func (service userService) MyListContacts(ctx context.Context) (response domainUser.MyListContactsResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	contacts, err := service.WaCli.Store.Contacts.GetAllContacts()
+	contacts, err := service.WaCli.Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
 		return
 	}
@@ -236,7 +236,7 @@ func (service userService) ChangeAvatar(ctx context.Context, request domainUser.
 func (service userService) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	err = service.WaCli.SendAppState(appstate.BuildSettingPushName(request.PushName))
+	err = service.WaCli.SendAppState(ctx, appstate.BuildSettingPushName(request.PushName))
 	if err != nil {
 		return err
 	}
