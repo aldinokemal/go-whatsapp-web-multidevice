@@ -308,7 +308,7 @@ You can fork or edit this source code !
 | Send Contact         | ![Send Contact](https://i.ibb.co.com/NsFfQBv/send-Contact.png)                           |
 | Send Location        | ![Send Location](https://i.ibb.co.com/vDGmFvk/send-Location.png)                         |
 | Send Audio           | ![Send Audio](https://i.ibb.co.com/XJdQLP8/send-Audio.png)                               |
-| Send Poll            | ![Send Poll](https://i.ibb.co.com/4TswfT3/sendPoll.png)                                  |
+| Send Poll            | ![Send Poll](https://i.ibb.co.com/4TswfT3/sendPoll.png?v=1)                              |
 | Send Presence        | ![Send Presence](https://i.ibb.co.com/NSTC3QX/send-Presence.png)                         |
 | Revoke Message       | ![Revoke Message](https://i.ibb.co.com/r4nDc57/revoke-Message.png)                       |
 | Delete Message       | ![Delete Message](https://i.ibb.co.com/dtrTJ1M/delete-Message.png)                       |
