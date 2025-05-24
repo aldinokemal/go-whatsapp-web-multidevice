@@ -13,16 +13,17 @@ ___
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
-## Support `ARM` Architecture
+## Support for `ARM` & `AMD` Architecture along with `MCP` Support
 
-Now that we support ARM64 for Linux:
+Download Production:
 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64
-- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) 
+- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) 
 
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
+- **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
 - Mention someone
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
@@ -115,10 +116,45 @@ Note: Command-line flags will override any values set in environment variables o
         1. run `.\whatsapp.exe --help` for more detail flags
 6. open `http://localhost:3000` in browser
 
+### MCP Server (Model Context Protocol)
+
+This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a standardized protocol.
+
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
+2. Open the folder that was cloned via cmd/terminal.
+3. run `cd src`
+4. run `go run main.go mcp` or build the binary and run `./whatsapp mcp`
+5. The MCP server will start on `http://localhost:8080` by default
+
+#### MCP Server Options:
+- `--host localhost` - Set the host for MCP server (default: localhost)
+- `--port 8080` - Set the port for MCP server (default: 8080)
+
+#### Available MCP Tools:
+- `whatsapp_send_text` - Send text messages
+- `whatsapp_send_contact` - Send contact cards
+- `whatsapp_send_link` - Send links with captions
+- `whatsapp_send_location` - Send location coordinates
+
+#### MCP Endpoints:
+- SSE endpoint: `http://localhost:8080/sse`
+- Message endpoint: `http://localhost:8080/message`
+
+### MCP Configuration
+make sure you have running MCP server, `./whatsapp mcp`
+```json
+{
+  "mcpServers": {
+    "whatsapp": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+```
+
 ### Production Mode (docker)
 
 ```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode (docker compose)
@@ -136,6 +172,7 @@ services:
     volumes:
       - whatsapp:/app/storages
     command:
+      - rest
       - --basic-auth=admin:admin
       - --port=3000
       - --debug=true
@@ -177,10 +214,17 @@ You can fork or edit this source code !
 
 ## Current API
 
+### HTTP REST API
 - [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
 - Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
+
+### MCP (Model Context Protocol) API
+- MCP server provides standardized tools for AI agents to interact with WhatsApp
+- Supports Server-Sent Events (SSE) transport
+- Available tools: `whatsapp_send_text`, `whatsapp_send_contact`, `whatsapp_send_link`, `whatsapp_send_location`
+- Compatible with MCP-enabled AI tools and agents
 
 | Feature | Menu                                   | Method | URL                                   |
 |---------|----------------------------------------|--------|---------------------------------------|
@@ -270,3 +314,4 @@ You can fork or edit this source code !
 
 - This project is unofficial and not affiliated with WhatsApp.
 - Please use official WhatsApp API to avoid any issues.
+- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in the future.
