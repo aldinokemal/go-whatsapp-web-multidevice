@@ -15,7 +15,7 @@ ___
 
 ## Support for `ARM` & `AMD` Architecture along with `MCP` Support
 
-Download Production:
+Download:
 
 - [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) 
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) 
@@ -195,6 +195,8 @@ services:
       - "3000:3000"
     volumes:
       - whatsapp:/app/storages
+    command:
+      - rest
     environment:
       - APP_BASIC_AUTH=admin:admin
       - APP_PORT=3000
