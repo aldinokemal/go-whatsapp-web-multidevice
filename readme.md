@@ -20,6 +20,14 @@ Download:
 - [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 
+## Breaking Changes
+
+- `v6`
+  - For REST mode, you need to run `<binary> rest` instead of `<binary>`
+    - for example: `./whatsapp rest` instead of ~~./whatsapp~~
+  - For MCP mode, you need to run `<binary> mcp`
+    - for example: `./whatsapp mcp`
+
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
@@ -177,6 +185,7 @@ services:
     volumes:
       - whatsapp:/app/storages
     command:
+      - rest
       - --basic-auth=admin:admin
       - --port=3000
       - --debug=true
