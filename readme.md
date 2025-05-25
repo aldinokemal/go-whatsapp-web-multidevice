@@ -159,7 +159,7 @@ make sure you have running MCP server, `./whatsapp mcp`
 ### Production Mode REST (docker)
 
 ```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode REST (docker compose)
@@ -177,7 +177,6 @@ services:
     volumes:
       - whatsapp:/app/storages
     command:
-      - rest
       - --basic-auth=admin:admin
       - --port=3000
       - --debug=true
@@ -200,8 +199,6 @@ services:
       - "3000:3000"
     volumes:
       - whatsapp:/app/storages
-    command:
-      - rest
     environment:
       - APP_BASIC_AUTH=admin:admin
       - APP_PORT=3000
