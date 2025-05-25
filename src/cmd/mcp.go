@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/mark3labs/mcp-go/server"
@@ -27,12 +26,6 @@ func init() {
 }
 
 func mcpServer(_ *cobra.Command, _ []string) {
-	// Prepare folders if not exist
-	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
-	if err != nil {
-		log.Fatalf("Failed to create folders: %v", err)
-	}
-
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 	// Set auto reconnect checking

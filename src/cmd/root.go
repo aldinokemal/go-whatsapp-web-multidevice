@@ -17,6 +17,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.mau.fi/whatsmeow"
@@ -187,6 +188,11 @@ func initFlags() {
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
+	}
+	//preparing folder if not exist
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
+	if err != nil {
+		logrus.Errorln(err)
 	}
 
 	ctx := context.Background()

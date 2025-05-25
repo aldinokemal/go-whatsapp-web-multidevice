@@ -156,13 +156,13 @@ make sure you have running MCP server, `./whatsapp mcp`
   }
 ```
 
-### Production Mode (docker)
+### Production Mode REST (docker)
 
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
-### Production Mode (docker compose)
+### Production Mode REST (docker compose)
 
 create `docker-compose.yml` file with the following configuration:
 
