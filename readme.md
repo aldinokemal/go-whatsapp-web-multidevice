@@ -68,19 +68,52 @@ can be set in three ways (in order of priority):
 
 ### Environment Variables
 
+You can configure the application using environment variables. Configuration can be set in three ways (in order of priority):
+
+1. Command-line flags (highest priority)
+2. Environment variables
+3. `.env` file (lowest priority)
+
 To use environment variables:
 
-1. Copy `.env.example` to `.env` in your project root
+1. Copy `.env.example` to `.env` in your project root (`cp src/.env.example src/.env`)
 2. Modify the values in `.env` according to your needs
 3. Or set the same variables as system environment variables
 
-See [.env.example](./src/.env.example) for all available configuration options.
+#### Available Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `APP_PORT` | Application port | `3000` | `APP_PORT=8080` |
+| `APP_DEBUG` | Enable debug logging | `false` | `APP_DEBUG=true` |
+| `APP_OS` | OS name (device name in WhatsApp) | `Chrome` | `APP_OS=MyApp` |
+| `APP_BASIC_AUTH` | Basic authentication credentials | - | `APP_BASIC_AUTH=user1:pass1,user2:pass2` |
+| `APP_CHAT_FLUSH_INTERVAL` | Chat flush interval in days | `7` | `APP_CHAT_FLUSH_INTERVAL=30` |
+| `DB_URI` | Database connection URI | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db` |
+| `WHATSAPP_AUTO_REPLY` | Auto-reply message | - | `WHATSAPP_AUTO_REPLY="Auto reply message"` |
+| `WHATSAPP_WEBHOOK` | Webhook URL(s) for events (comma-separated) | - | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
+| `WHATSAPP_WEBHOOK_SECRET` | Webhook secret for validation | `secret` | `WHATSAPP_WEBHOOK_SECRET=super-secret-key` |
+| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation | `true` | `WHATSAPP_ACCOUNT_VALIDATION=false` |
+| `WHATSAPP_CHAT_STORAGE` | Enable chat storage | `true` | `WHATSAPP_CHAT_STORAGE=false` |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
-- For more command `./main --help`
+- For more command `./whatsapp --help`
 
-## Required (without docker)
+## Requirements
+
+### System Requirements
+
+- **Go 1.24.0 or higher** (for building from source)
+- **FFmpeg** (for media processing)
+
+### Platform Support
+
+- Linux (x86_64, ARM64)
+- macOS (Intel, Apple Silicon)
+- Windows (x86_64) - WSL recommended
+
+### Dependencies (without docker)
 
 - Mac OS:
   - `brew install ffmpeg`
@@ -89,7 +122,7 @@ Note: Command-line flags will override any values set in environment variables o
   - `sudo apt update`
   - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - install ffmpeg, download [here](https://www.ffmpeg.org/download.html#build-windows)
+  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
   - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ## How to use
@@ -99,7 +132,7 @@ Note: Command-line flags will override any values set in environment variables o
 1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `cd src`
-4. run `go run main.go`
+4. run `go run . rest` (for REST API mode)
 5. Open `http://localhost:3000`
 
 ### Docker (you don't need to install in required)
@@ -118,9 +151,9 @@ Note: Command-line flags will override any values set in environment variables o
     1. Linux & MacOS: `go build -o whatsapp`
     2. Windows (CMD / PowerShell): `go build -o whatsapp.exe`
 5. run
-    1. Linux & MacOS: `./whatsapp`
+    1. Linux & MacOS: `./whatsapp rest` (for REST API mode)
         1. run `./whatsapp --help` for more detail flags
-    2. Windows: `.\whatsapp.exe` or you can double-click it
+    2. Windows: `.\whatsapp.exe rest` (for REST API mode)
         1. run `.\whatsapp.exe --help` for more detail flags
 6. open `http://localhost:3000` in browser
 
@@ -131,7 +164,7 @@ This application can also run as an MCP server, allowing AI agents and tools to 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `cd src`
-4. run `go run main.go mcp` or build the binary and run `./whatsapp mcp`
+4. run `go run . mcp` or build the binary and run `./whatsapp mcp`
 5. The MCP server will start on `http://localhost:8080` by default
 
 #### MCP Server Options
@@ -153,7 +186,9 @@ This application can also run as an MCP server, allowing AI agents and tools to 
 
 ### MCP Configuration
 
-make sure you have running MCP server, `./whatsapp mcp`
+Make sure you have the MCP server running: `./whatsapp mcp`
+
+For AI tools that support MCP with SSE (like Cursor), add this configuration:
 
 ```json
 {
@@ -162,12 +197,13 @@ make sure you have running MCP server, `./whatsapp mcp`
       "url": "http://localhost:8080/sse"
     }
   }
+}
 ```
 
 ### Production Mode REST (docker)
 
 ```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode REST (docker compose)
@@ -272,6 +308,7 @@ You can fork or edit this source code !
 | ✅       | Edit Message                           | POST   | /message/:message_id/update           |
 | ✅       | Read Message (DM)                      | POST   | /message/:message_id/read             |
 | ✅       | Star Message                           | POST   | /message/:message_id/star             |
+| ✅       | Unstar Message                         | POST   | /message/:message_id/unstar           |
 | ✅       | Join Group With Link                   | POST   | /group/join-with-link                 |
 | ✅       | Leave Group                            | POST   | /group/leave                          |
 | ✅       | Create Group                           | POST   | /group                                |
@@ -279,9 +316,9 @@ You can fork or edit this source code !
 | ✅       | Remove Participant in Group            | POST   | /group/participants/remove            |
 | ✅       | Promote Participant in Group           | POST   | /group/participants/promote           |
 | ✅       | Demote Participant in Group            | POST   | /group/participants/demote            |
-| ✅       | List Requested Participants in Group   | POST   | /group/participants/requested         |
-| ✅       | Approve Requested Participant in Group | POST   | /group/participants/requested/approve |
-| ✅       | Reject Requested Participant in Group  | POST   | /group/participants/requested/reject  |
+| ✅       | List Requested Participants in Group   | GET    | /group/participant-requests           |
+| ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve   |
+| ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject    |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                  |
 
 ```txt
