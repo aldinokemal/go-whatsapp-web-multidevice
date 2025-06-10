@@ -73,3 +73,11 @@ type MyListContactsResponseData struct {
 type ChangePushNameRequest struct {
 	PushName string `json:"push_name" form:"push_name"`
 }
+
+type CheckRequest struct {
+	Phone string `json:"phone" query:"phone"`
+}
+
+type CheckResponse struct {
+	IsOnWhatsApp bool `json:"is_on_whatsapp"`
+}
