@@ -52,13 +52,20 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 
 		if strings.HasSuffix(from_user, "@lid") {
 			body["from_lid"] = from_user
-			jid, _ := types.ParseJID(from_user)
-			pn, _ := cli.Store.LIDs.GetPNForLID(context.Background(), jid)
-			if !pn.IsEmpty() {
-				if from_group != "" {
-					body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
-				} else {
-					body["from"] = pn.String()
+			jid, err := types.ParseJID(from_user)
+			if err != nil {
+				logrus.Errorf("Error when parse jid: %v", err)
+			} else {
+				pn, err := cli.Store.LIDs.GetPNForLID(ctx, jid)
+				if err != nil {
+					logrus.Errorf("Error when get pn for lid: %v", err)
+				}
+				if !pn.IsEmpty() {
+					if from_group != "" {
+						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
+					} else {
+						body["from"] = pn.String()
+					}
 				}
 			}
 		}
