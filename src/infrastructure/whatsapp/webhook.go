@@ -45,7 +45,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 		body["from"] = from
 
 		from_user, from_group := from, ""
-		if strings.Contains(" in ", from) {
+		if strings.Contains(from, " in ") {
 			from_user = strings.Split(from, " in ")[0]
 			from_group = strings.Split(from, " in ")[1]
 		}
