@@ -5,13 +5,16 @@ import (
 )
 
 var (
-	AppVersion               = "v5.6.1"
+	AppVersion               = "v6.0.2"
 	AppPort                  = "3000"
 	AppDebug                 = false
 	AppOs                    = "AldinoKemal"
 	AppPlatform              = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential   []string
 	AppChatFlushIntervalDays = 7 // Number of days before flushing chat.csv
+
+	McpPort = "8080"
+	McpHost = "localhost"
 
 	PathQrCode      = "statics/qrcode"
 	PathSendItems   = "statics/senditems"

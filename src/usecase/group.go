@@ -1,4 +1,4 @@
-package services
+package usecase
 
 import (
 	"context"
@@ -6,24 +6,24 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-type groupService struct {
+type serviceGroup struct {
 	WaCli *whatsmeow.Client
 }
 
-func NewGroupService(waCli *whatsmeow.Client) domainGroup.IGroupService {
-	return &groupService{
+func NewGroupService(waCli *whatsmeow.Client) domainGroup.IGroupUsecase {
+	return &serviceGroup{
 		WaCli: waCli,
 	}
 }
 
-func (service groupService) JoinGroupWithLink(ctx context.Context, request domainGroup.JoinGroupWithLinkRequest) (groupID string, err error) {
+func (service serviceGroup) JoinGroupWithLink(ctx context.Context, request domainGroup.JoinGroupWithLinkRequest) (groupID string, err error) {
 	if err = validations.ValidateJoinGroupWithLink(ctx, request); err != nil {
 		return groupID, err
 	}
@@ -36,7 +36,7 @@ func (service groupService) JoinGroupWithLink(ctx context.Context, request domai
 	return jid.String(), nil
 }
 
-func (service groupService) LeaveGroup(ctx context.Context, request domainGroup.LeaveGroupRequest) (err error) {
+func (service serviceGroup) LeaveGroup(ctx context.Context, request domainGroup.LeaveGroupRequest) (err error) {
 	if err = validations.ValidateLeaveGroup(ctx, request); err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (service groupService) LeaveGroup(ctx context.Context, request domainGroup.
 	return service.WaCli.LeaveGroup(JID)
 }
 
-func (service groupService) CreateGroup(ctx context.Context, request domainGroup.CreateGroupRequest) (groupID string, err error) {
+func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup.CreateGroupRequest) (groupID string, err error) {
 	if err = validations.ValidateCreateGroup(ctx, request); err != nil {
 		return groupID, err
 	}
@@ -75,7 +75,7 @@ func (service groupService) CreateGroup(ctx context.Context, request domainGroup
 	return groupInfo.JID.String(), nil
 }
 
-func (service groupService) ManageParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
+func (service serviceGroup) ManageParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
 	if err = validations.ValidateParticipant(ctx, request); err != nil {
 		return result, err
 	}
@@ -115,7 +115,7 @@ func (service groupService) ManageParticipant(ctx context.Context, request domai
 	return result, nil
 }
 
-func (service groupService) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []domainGroup.GetGroupRequestParticipantsResponse, err error) {
+func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []domainGroup.GetGroupRequestParticipantsResponse, err error) {
 	if err = validations.ValidateGetGroupRequestParticipants(ctx, request); err != nil {
 		return result, err
 	}
@@ -140,7 +140,7 @@ func (service groupService) GetGroupRequestParticipants(ctx context.Context, req
 	return result, nil
 }
 
-func (service groupService) ManageGroupRequestParticipants(ctx context.Context, request domainGroup.GroupRequestParticipantsRequest) (result []domainGroup.ParticipantStatus, err error) {
+func (service serviceGroup) ManageGroupRequestParticipants(ctx context.Context, request domainGroup.GroupRequestParticipantsRequest) (result []domainGroup.ParticipantStatus, err error) {
 	if err = validations.ValidateManageGroupRequestParticipants(ctx, request); err != nil {
 		return result, err
 	}
@@ -179,7 +179,7 @@ func (service groupService) ManageGroupRequestParticipants(ctx context.Context, 
 	return result, nil
 }
 
-func (service groupService) participantToJID(participants []string) ([]types.JID, error) {
+func (service serviceGroup) participantToJID(participants []string) ([]types.JID, error) {
 	var participantsJID []types.JID
 	for _, participant := range participants {
 		formattedParticipant := participant + config.WhatsappTypeUser

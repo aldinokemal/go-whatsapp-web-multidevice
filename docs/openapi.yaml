@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 5.4.0
+  version: 6.1.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -175,6 +175,12 @@ paths:
             type: boolean
           example: true
           description: Whether to fetch a preview of the avatar
+        - name: is_community
+          in: query
+          schema:
+            type: boolean
+          example: false
+          description: Whether to fetch a community avatar
       responses:
         '200':
           description: OK
@@ -342,6 +348,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/check:
+    get:
+      operationId: userCheck
+      tags:
+        - user
+      summary: Check if user is on WhatsApp
+      parameters:
+        - name: phone
+          in: query
+          schema:
+            type: string
+          example: '628912344551'
+          description: Phone number with country code
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCheckResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   
   /send/message:
     post:
@@ -367,6 +405,10 @@ paths:
                   type: string
                   example: 3EB089B9D6ADD58153C561
                   description: Message ID that you want reply
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -422,6 +464,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress image
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -461,6 +507,10 @@ paths:
                   type: string
                   format: binary
                   description: Audio to send
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -504,6 +554,10 @@ paths:
                   type: string
                   format: binary
                   description: File to send
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -545,7 +599,7 @@ paths:
                   description: Caption to send
                 view_once:
                   type: boolean
-                  example: 'false'
+                  example: false
                   description: View once
                 video:
                   type: string
@@ -553,8 +607,12 @@ paths:
                   description: Video to send
                 compress:
                   type: boolean
-                  example: 'false'
+                  example: false
                   description: Compress video
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -598,6 +656,10 @@ paths:
                   type: string
                   example: '6289685024992'
                   description: Contact phone number
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -641,6 +703,10 @@ paths:
                   type: string
                   example: 'Halo ini contoh caption'
                   description: Caption to send
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -684,6 +750,10 @@ paths:
                   type: string
                   example: '110.370529'
                   description: Longitude coordinate
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
       responses:
         '200':
           description: OK
@@ -771,13 +841,17 @@ paths:
             schema:
               type: object
               properties:
-                presence:
+                type:
                   type: string
-                  description: The presence status to send
+                  description: The presence type to send
                   enum: [available, unavailable]
                   example: 'available'
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded message
               required:
-                - presence
+                - type
       responses:
         '200':
           description: OK
@@ -1008,6 +1082,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/star:
+    post:
+      operationId: starMessage
+      tags:
+        - message
+      summary: Star message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+              required:
+                - phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/unstar:
+    post:
+      operationId: unstarMessage
+      tags:
+        - message
+      summary: Unstar message
+      parameters:
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+              required:
+                - phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
         '400':
           description: Bad Request
           content:
@@ -1269,13 +1431,15 @@ paths:
                   type: string
                   example: '120363024512399999@g.us'
                   description: The group ID
-                participant_id:
-                  type: string
-                  example: '6281234567890'
-                  description: The participant's WhatsApp ID to approve
+                participants:
+                  type: array
+                  items:
+                    type: string
+                  example: ['6281234567890']
+                  description: Array of participant WhatsApp IDs to approve
               required:
                 - group_id
-                - participant_id
+                - participants
       responses:
         '200':
           description: OK
@@ -1311,13 +1475,15 @@ paths:
                   type: string
                   example: '120363024512399999@g.us'
                   description: The group ID
-                participant_id:
-                  type: string
-                  example: '6281234567890'
-                  description: The participant's WhatsApp ID to reject
+                participants:
+                  type: array
+                  items:
+                    type: string
+                  example: ['6281234567890']
+                  description: Array of participant WhatsApp IDs to reject
               required:
                 - group_id
-                - participant_id
+                - participants
       responses:
         '200':
           description: OK
@@ -2004,3 +2170,18 @@ components:
                     type: string
                     format: date-time
                     example: "2024-10-11T21:27:29+07:00"
+    UserCheckResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success check user
+        results:
+          type: object
+          properties:
+            is_on_whatsapp:
+              type: boolean
+              example: true

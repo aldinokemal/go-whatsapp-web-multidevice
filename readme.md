@@ -13,16 +13,25 @@ ___
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
 
-## Support `ARM` Architecture
+## Support for `ARM` & `AMD` Architecture along with `MCP` Support
 
-Now that we support ARM64 for Linux:
+Download:
 
-- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest) for ARM64
-- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags) for ARM64.
+- [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
+
+## Breaking Changes
+
+- `v6`
+  - For REST mode, you need to run `<binary> rest` instead of `<binary>`
+    - for example: `./whatsapp rest` instead of ~~./whatsapp~~
+  - For MCP mode, you need to run `<binary> mcp`
+    - for example: `./whatsapp mcp`
 
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
+- **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
 - Mention someone
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
@@ -59,19 +68,52 @@ can be set in three ways (in order of priority):
 
 ### Environment Variables
 
+You can configure the application using environment variables. Configuration can be set in three ways (in order of priority):
+
+1. Command-line flags (highest priority)
+2. Environment variables
+3. `.env` file (lowest priority)
+
 To use environment variables:
 
-1. Copy `.env.example` to `.env` in your project root
+1. Copy `.env.example` to `.env` in your project root (`cp src/.env.example src/.env`)
 2. Modify the values in `.env` according to your needs
 3. Or set the same variables as system environment variables
 
-See [.env.example](./src/.env.example) for all available configuration options.
+#### Available Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `APP_PORT` | Application port | `3000` | `APP_PORT=8080` |
+| `APP_DEBUG` | Enable debug logging | `false` | `APP_DEBUG=true` |
+| `APP_OS` | OS name (device name in WhatsApp) | `Chrome` | `APP_OS=MyApp` |
+| `APP_BASIC_AUTH` | Basic authentication credentials | - | `APP_BASIC_AUTH=user1:pass1,user2:pass2` |
+| `APP_CHAT_FLUSH_INTERVAL` | Chat flush interval in days | `7` | `APP_CHAT_FLUSH_INTERVAL=30` |
+| `DB_URI` | Database connection URI | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db` |
+| `WHATSAPP_AUTO_REPLY` | Auto-reply message | - | `WHATSAPP_AUTO_REPLY="Auto reply message"` |
+| `WHATSAPP_WEBHOOK` | Webhook URL(s) for events (comma-separated) | - | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
+| `WHATSAPP_WEBHOOK_SECRET` | Webhook secret for validation | `secret` | `WHATSAPP_WEBHOOK_SECRET=super-secret-key` |
+| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation | `true` | `WHATSAPP_ACCOUNT_VALIDATION=false` |
+| `WHATSAPP_CHAT_STORAGE` | Enable chat storage | `true` | `WHATSAPP_CHAT_STORAGE=false` |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
-- For more command `./main --help`
+- For more command `./whatsapp --help`
 
-## Required (without docker)
+## Requirements
+
+### System Requirements
+
+- **Go 1.24.0 or higher** (for building from source)
+- **FFmpeg** (for media processing)
+
+### Platform Support
+
+- Linux (x86_64, ARM64)
+- macOS (Intel, Apple Silicon)
+- Windows (x86_64) - WSL recommended
+
+### Dependencies (without docker)
 
 - Mac OS:
   - `brew install ffmpeg`
@@ -80,7 +122,7 @@ Note: Command-line flags will override any values set in environment variables o
   - `sudo apt update`
   - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - install ffmpeg, download [here](https://www.ffmpeg.org/download.html#build-windows)
+  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
   - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ## How to use
@@ -90,7 +132,7 @@ Note: Command-line flags will override any values set in environment variables o
 1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
 3. run `cd src`
-4. run `go run main.go`
+4. run `go run . rest` (for REST API mode)
 5. Open `http://localhost:3000`
 
 ### Docker (you don't need to install in required)
@@ -109,19 +151,62 @@ Note: Command-line flags will override any values set in environment variables o
     1. Linux & MacOS: `go build -o whatsapp`
     2. Windows (CMD / PowerShell): `go build -o whatsapp.exe`
 5. run
-    1. Linux & MacOS: `./whatsapp`
+    1. Linux & MacOS: `./whatsapp rest` (for REST API mode)
         1. run `./whatsapp --help` for more detail flags
-    2. Windows: `.\whatsapp.exe` or you can double-click it
+    2. Windows: `.\whatsapp.exe rest` (for REST API mode)
         1. run `.\whatsapp.exe --help` for more detail flags
 6. open `http://localhost:3000` in browser
 
-### Production Mode (docker)
+### MCP Server (Model Context Protocol)
 
-```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice --autoreply="Dont't reply this message please"
+This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a standardized protocol.
+
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
+2. Open the folder that was cloned via cmd/terminal.
+3. run `cd src`
+4. run `go run . mcp` or build the binary and run `./whatsapp mcp`
+5. The MCP server will start on `http://localhost:8080` by default
+
+#### MCP Server Options
+
+- `--host localhost` - Set the host for MCP server (default: localhost)
+- `--port 8080` - Set the port for MCP server (default: 8080)
+
+#### Available MCP Tools
+
+- `whatsapp_send_text` - Send text messages
+- `whatsapp_send_contact` - Send contact cards
+- `whatsapp_send_link` - Send links with captions
+- `whatsapp_send_location` - Send location coordinates
+
+#### MCP Endpoints
+
+- SSE endpoint: `http://localhost:8080/sse`
+- Message endpoint: `http://localhost:8080/message`
+
+### MCP Configuration
+
+Make sure you have the MCP server running: `./whatsapp mcp`
+
+For AI tools that support MCP with SSE (like Cursor), add this configuration:
+
+```json
+{
+  "mcpServers": {
+    "whatsapp": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
 ```
 
-### Production Mode (docker compose)
+### Production Mode REST (docker)
+
+```bash
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
+```
+
+### Production Mode REST (docker compose)
 
 create `docker-compose.yml` file with the following configuration:
 
@@ -136,6 +221,7 @@ services:
     volumes:
       - whatsapp:/app/storages
     command:
+      - rest
       - --basic-auth=admin:admin
       - --port=3000
       - --debug=true
@@ -177,6 +263,15 @@ You can fork or edit this source code !
 
 ## Current API
 
+### MCP (Model Context Protocol) API
+
+- MCP server provides standardized tools for AI agents to interact with WhatsApp
+- Supports Server-Sent Events (SSE) transport
+- Available tools: `whatsapp_send_text`, `whatsapp_send_contact`, `whatsapp_send_link`, `whatsapp_send_location`
+- Compatible with MCP-enabled AI tools and agents
+
+### HTTP REST API
+
 - [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
 - Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
@@ -213,6 +308,7 @@ You can fork or edit this source code !
 | ✅       | Edit Message                           | POST   | /message/:message_id/update           |
 | ✅       | Read Message (DM)                      | POST   | /message/:message_id/read             |
 | ✅       | Star Message                           | POST   | /message/:message_id/star             |
+| ✅       | Unstar Message                         | POST   | /message/:message_id/unstar           |
 | ✅       | Join Group With Link                   | POST   | /group/join-with-link                 |
 | ✅       | Leave Group                            | POST   | /group/leave                          |
 | ✅       | Create Group                           | POST   | /group                                |
@@ -220,9 +316,9 @@ You can fork or edit this source code !
 | ✅       | Remove Participant in Group            | POST   | /group/participants/remove            |
 | ✅       | Promote Participant in Group           | POST   | /group/participants/promote           |
 | ✅       | Demote Participant in Group            | POST   | /group/participants/demote            |
-| ✅       | List Requested Participants in Group   | POST   | /group/participants/requested         |
-| ✅       | Approve Requested Participant in Group | POST   | /group/participants/requested/approve |
-| ✅       | Reject Requested Participant in Group  | POST   | /group/participants/requested/reject  |
+| ✅       | List Requested Participants in Group   | GET    | /group/participant-requests           |
+| ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve   |
+| ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject    |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                  |
 
 ```txt
@@ -230,7 +326,18 @@ You can fork or edit this source code !
 ❌ = Not Available Yet
 ```
 
-### User Interface
+## User Interface
+
+### MCP UI
+
+- Setup MCP (tested in cursor)
+![Setup MCP](https://i.ibb.co/vCg4zNWt/mcpsetup.png)
+- Test MCP
+![Test MCP](https://i.ibb.co/B2LX38DW/mcptest.png)
+- Successfully setup MCP
+![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
+
+### HTTP REST API UI
 
 | Description          | Image                                                                                    |
 |----------------------|------------------------------------------------------------------------------------------|
@@ -244,7 +351,7 @@ You can fork or edit this source code !
 | Send Contact         | ![Send Contact](https://i.ibb.co.com/NsFfQBv/send-Contact.png)                           |
 | Send Location        | ![Send Location](https://i.ibb.co.com/vDGmFvk/send-Location.png)                         |
 | Send Audio           | ![Send Audio](https://i.ibb.co.com/XJdQLP8/send-Audio.png)                               |
-| Send Poll            | ![Send Poll](https://i.ibb.co.com/4TswfT3/sendPoll.png)                                  |
+| Send Poll            | ![Send Poll](https://i.ibb.co.com/4TswfT3/sendPoll.png?v=1)                              |
 | Send Presence        | ![Send Presence](https://i.ibb.co.com/NSTC3QX/send-Presence.png)                         |
 | Revoke Message       | ![Revoke Message](https://i.ibb.co.com/r4nDc57/revoke-Message.png)                       |
 | Delete Message       | ![Delete Message](https://i.ibb.co.com/dtrTJ1M/delete-Message.png)                       |
@@ -270,3 +377,4 @@ You can fork or edit this source code !
 
 - This project is unofficial and not affiliated with WhatsApp.
 - Please use official WhatsApp API to avoid any issues.
+- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in the future.

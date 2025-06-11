@@ -1,4 +1,4 @@
-package services
+package usecase
 
 import (
 	"bytes"
@@ -9,8 +9,8 @@ import (
 	"time"
 
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
 	"go.mau.fi/whatsmeow"
@@ -18,17 +18,17 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-type userService struct {
+type serviceUser struct {
 	WaCli *whatsmeow.Client
 }
 
-func NewUserService(waCli *whatsmeow.Client) domainUser.IUserService {
-	return &userService{
+func NewUserService(waCli *whatsmeow.Client) domainUser.IUserUsecase {
+	return &serviceUser{
 		WaCli: waCli,
 	}
 }
 
-func (service userService) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
+func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
 	err = validations.ValidateUserInfo(ctx, request)
 	if err != nil {
 		return response, err
@@ -71,7 +71,7 @@ func (service userService) Info(ctx context.Context, request domainUser.InfoRequ
 	return response, nil
 }
 
-func (service userService) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
+func (service serviceUser) Avatar(ctx context.Context, request domainUser.AvatarRequest) (response domainUser.AvatarResponse, err error) {
 
 	chanResp := make(chan domainUser.AvatarResponse)
 	chanErr := make(chan error)
@@ -118,7 +118,7 @@ func (service userService) Avatar(ctx context.Context, request domainUser.Avatar
 
 }
 
-func (service userService) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
+func (service serviceUser) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
 	groups, err := service.WaCli.GetJoinedGroups()
@@ -132,7 +132,7 @@ func (service userService) MyListGroups(_ context.Context) (response domainUser.
 	return response, nil
 }
 
-func (service userService) MyListNewsletter(_ context.Context) (response domainUser.MyListNewsletterResponse, err error) {
+func (service serviceUser) MyListNewsletter(_ context.Context) (response domainUser.MyListNewsletterResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
 	datas, err := service.WaCli.GetSubscribedNewsletters()
@@ -146,10 +146,10 @@ func (service userService) MyListNewsletter(_ context.Context) (response domainU
 	return response, nil
 }
 
-func (service userService) MyPrivacySetting(_ context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
+func (service serviceUser) MyPrivacySetting(ctx context.Context) (response domainUser.MyPrivacySettingResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	resp, err := service.WaCli.TryFetchPrivacySettings(true)
+	resp, err := service.WaCli.TryFetchPrivacySettings(ctx, true)
 	if err != nil {
 		return
 	}
@@ -161,10 +161,10 @@ func (service userService) MyPrivacySetting(_ context.Context) (response domainU
 	return response, nil
 }
 
-func (service userService) MyListContacts(ctx context.Context) (response domainUser.MyListContactsResponse, err error) {
+func (service serviceUser) MyListContacts(ctx context.Context) (response domainUser.MyListContactsResponse, err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	contacts, err := service.WaCli.Store.Contacts.GetAllContacts()
+	contacts, err := service.WaCli.Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
 		return
 	}
@@ -179,7 +179,7 @@ func (service userService) MyListContacts(ctx context.Context) (response domainU
 	return response, nil
 }
 
-func (service userService) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {
+func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {
 	whatsapp.MustLogin(service.WaCli)
 
 	file, err := request.Avatar.Open()
@@ -233,12 +233,22 @@ func (service userService) ChangeAvatar(ctx context.Context, request domainUser.
 	return nil
 }
 
-func (service userService) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
+func (service serviceUser) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {
 	whatsapp.MustLogin(service.WaCli)
 
-	err = service.WaCli.SendAppState(appstate.BuildSettingPushName(request.PushName))
+	err = service.WaCli.SendAppState(ctx, appstate.BuildSettingPushName(request.PushName))
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.CheckRequest) (response domainUser.CheckResponse, err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response.IsOnWhatsApp = whatsapp.IsOnWhatsapp(service.WaCli, request.Phone)
+
+	return response, nil
 }
