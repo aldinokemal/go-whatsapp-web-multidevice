@@ -43,12 +43,23 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
-		if strings.HasSuffix(body["from"].(string), "@lid") {
-			body["from_lid"] = body["from"]
-			jid, _ := types.ParseJID(body["from"].(string))
+
+		from_user, from_group := from, ""
+		if strings.Contains(" in ", from) {
+			from_user = strings.Split(from, " in ")[0]
+			from_group = strings.Split(from, " in ")[1]
+		}
+
+		if strings.HasSuffix(from_user, "@lid") {
+			body["from_lid"] = from_user
+			jid, _ := types.ParseJID(from_user)
 			pn, _ := cli.Store.LIDs.GetPNForLID(context.Background(), jid)
 			if !pn.IsEmpty() {
-				body["from"] = pn.String()
+				if from_group != "" {
+					body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
+				} else {
+					body["from"] = pn.String()
+				}
 			}
 		}
 	}
