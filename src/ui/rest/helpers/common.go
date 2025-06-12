@@ -2,13 +2,14 @@ package helpers
 
 import (
 	"context"
-	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"go.mau.fi/whatsmeow"
 	"mime/multipart"
 	"time"
+
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"go.mau.fi/whatsmeow"
 )
 
-func SetAutoConnectAfterBooting(service domainApp.IAppService) {
+func SetAutoConnectAfterBooting(service domainApp.IAppUsecase) {
 	time.Sleep(2 * time.Second)
 	_ = service.Reconnect(context.Background())
 }

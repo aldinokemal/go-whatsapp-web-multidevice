@@ -4,17 +4,17 @@ import (
 	"fmt"
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 	"go.mau.fi/whatsmeow"
 )
 
 type Group struct {
-	Service domainGroup.IGroupService
+	Service domainGroup.IGroupUsecase
 }
 
-func InitRestGroup(app *fiber.App, service domainGroup.IGroupService) Group {
+func InitRestGroup(app *fiber.App, service domainGroup.IGroupUsecase) Group {
 	rest := Group{Service: service}
 	app.Post("/group", rest.CreateGroup)
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)

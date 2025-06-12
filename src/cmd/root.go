@@ -1,38 +1,46 @@
 package cmd
 
 import (
+	"context"
 	"embed"
-	"fmt"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	"log"
-	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/helpers"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/rest/middleware"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/websocket"
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/services"
-	"github.com/dustin/go-humanize"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/basicauth"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/template/html/v2"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.mau.fi/whatsmeow"
 )
 
 var (
 	EmbedIndex embed.FS
 	EmbedViews embed.FS
+
+	// Whatsapp
+	whatsappCli *whatsmeow.Client
+	whatsappDB  *sqlstore.Container
+
+	// Usecase
+	appUsecase        domainApp.IAppUsecase
+	sendUsecase       domainSend.ISendUsecase
+	userUsecase       domainUser.IUserUsecase
+	messageUsecase    domainMessage.IMessageUsecase
+	groupUsecase      domainGroup.IGroupUsecase
+	newsletterUsecase domainNewsletter.INewsletterUsecase
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -40,16 +48,21 @@ var rootCmd = &cobra.Command{
 	Short: "Send free whatsapp API",
 	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice, 
 you can send whatsapp over http api but your whatsapp account have to be multi device version`,
-	Run: runRest,
 }
 
 func init() {
 	// Load environment variables first
 	utils.LoadConfig(".")
 
-	// Initialize configurations, flag is higher priority than env
-	initEnvConfig()
+	time.Local = time.UTC
+
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Initialize flags first, before any subcommands are added
 	initFlags()
+
+	// Then initialize other components
+	cobra.OnInitialize(initEnvConfig, initApp)
 }
 
 // initEnvConfig loads configuration from environment variables
@@ -99,10 +112,7 @@ func initEnvConfig() {
 	}
 }
 
-// initFlags sets up command line flags that override environment variables
 func initFlags() {
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
-
 	// Application flags
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppPort,
@@ -110,6 +120,7 @@ func initFlags() {
 		config.AppPort,
 		"change port number with --port <number> | example: --port=8080",
 	)
+
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.AppDebug,
 		"debug", "d",
@@ -140,7 +151,7 @@ func initFlags() {
 		&config.DBURI,
 		"db-uri", "",
 		config.DBURI,
-		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=off or postgres://user:password@localhost:5432/whatsapp"`,
+		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=on or postgres://user:password@localhost:5432/whatsapp"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.DBKeysURI,
@@ -182,113 +193,32 @@ func initFlags() {
 	)
 }
 
-func runRest(_ *cobra.Command, _ []string) {
+func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
 	}
-
-	// TODO: Init Rest App
 	//preparing folder if not exist
 	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
 	if err != nil {
-		log.Fatalln(err)
+		logrus.Errorln(err)
 	}
 
-	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
-	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
-		return token != nil
-	})
-	app := fiber.New(fiber.Config{
-		Views:     engine,
-		BodyLimit: int(config.WhatsappSettingMaxVideoSize),
-	})
-
-	app.Static("/statics", "./statics")
-	app.Use("/components", filesystem.New(filesystem.Config{
-		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/components",
-		Browse:     true,
-	}))
-	app.Use("/assets", filesystem.New(filesystem.Config{
-		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/assets",
-		Browse:     true,
-	}))
-
-	app.Use(middleware.Recovery())
-	app.Use(middleware.BasicAuth())
-	if config.AppDebug {
-		app.Use(logger.New())
-	}
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept",
-	}))
-
-	if len(config.AppBasicAuthCredential) > 0 {
-		account := make(map[string]string)
-		for _, basicAuth := range config.AppBasicAuthCredential {
-			ba := strings.Split(basicAuth, ":")
-			if len(ba) != 2 {
-				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
-			}
-			account[ba[0]] = ba[1]
-		}
-
-		app.Use(basicauth.New(basicauth.Config{
-			Users: account,
-		}))
-	}
-
-	db := whatsapp.InitWaDB(config.DBURI)
+	ctx := context.Background()
+	whatsappDB = whatsapp.InitWaDB(ctx, config.DBURI)
 	var dbKeys *sqlstore.Container
 	if config.DBKeysURI != "" {
-		dbKeys = whatsapp.InitWaDB(config.DBKeysURI)
+		dbKeys = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
 
-	cli := whatsapp.InitWaCLI(db, dbKeys)
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, dbKeys)
 
-	// Service
-	appService := services.NewAppService(cli, db)
-	sendService := services.NewSendService(cli, appService)
-	userService := services.NewUserService(cli)
-	messageService := services.NewMessageService(cli)
-	groupService := services.NewGroupService(cli)
-	newsletterService := services.NewNewsletterService(cli)
-
-	// Rest
-	rest.InitRestApp(app, appService)
-	rest.InitRestSend(app, sendService)
-	rest.InitRestUser(app, userService)
-	rest.InitRestMessage(app, messageService)
-	rest.InitRestGroup(app, groupService)
-	rest.InitRestNewsletter(app, newsletterService)
-
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.Render("views/index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
-			"AppVersion":     config.AppVersion,
-			"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
-			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
-		})
-	})
-
-	websocket.RegisterRoutes(app, appService)
-	go websocket.RunHub()
-
-	// Set auto reconnect to whatsapp server after booting
-	go helpers.SetAutoConnectAfterBooting(appService)
-	// Set auto reconnect checking
-	go helpers.SetAutoReconnectChecking(cli)
-	// Start auto flush chat csv
-	if config.WhatsappChatStorage {
-		go helpers.StartAutoFlushChatStorage()
-	}
-
-	if err = app.Listen(":" + config.AppPort); err != nil {
-		log.Fatalln("Failed to start: ", err.Error())
-	}
+	// Usecase
+	appUsecase = usecase.NewAppService(whatsappCli, whatsappDB)
+	sendUsecase = usecase.NewSendService(whatsappCli, appUsecase)
+	userUsecase = usecase.NewUserService(whatsappCli)
+	messageUsecase = usecase.NewMessageService(whatsappCli)
+	groupUsecase = usecase.NewGroupService(whatsappCli)
+	newsletterUsecase = usecase.NewNewsletterService(whatsappCli)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

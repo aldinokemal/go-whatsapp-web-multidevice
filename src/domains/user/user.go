@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-type IUserService interface {
+type IUserUsecase interface {
 	Info(ctx context.Context, request InfoRequest) (response InfoResponse, err error)
 	Avatar(ctx context.Context, request AvatarRequest) (response AvatarResponse, err error)
 	ChangeAvatar(ctx context.Context, request ChangeAvatarRequest) (err error)
@@ -13,4 +13,5 @@ type IUserService interface {
 	MyListNewsletter(ctx context.Context) (response MyListNewsletterResponse, err error)
 	MyPrivacySetting(ctx context.Context) (response MyPrivacySettingResponse, err error)
 	MyListContacts(ctx context.Context) (response MyListContactsResponse, err error)
+	IsOnWhatsApp(ctx context.Context, request CheckRequest) (response CheckResponse, err error)
 }

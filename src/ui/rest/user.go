@@ -2,16 +2,16 @@ package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 )
 
 type User struct {
-	Service domainUser.IUserService
+	Service domainUser.IUserUsecase
 }
 
-func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
+func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	rest := User{Service: service}
 	app.Get("/user/info", rest.UserInfo)
 	app.Get("/user/avatar", rest.UserAvatar)
@@ -21,6 +21,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserService) User {
 	app.Get("/user/my/groups", rest.UserMyListGroups)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
+	app.Get("/user/check", rest.UserCheck)
 
 	return rest
 }
@@ -139,5 +140,21 @@ func (controller *User) UserChangePushName(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success change push name",
+	})
+}
+
+func (controller *User) UserCheck(c *fiber.Ctx) error {
+	var request domainUser.CheckRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	response, err := controller.Service.IsOnWhatsApp(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success check user",
+		Results: response,
 	})
 }

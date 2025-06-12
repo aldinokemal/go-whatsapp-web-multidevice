@@ -2,16 +2,16 @@ package rest
 
 import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/whatsapp"
 	"github.com/gofiber/fiber/v2"
 )
 
 type Send struct {
-	Service domainSend.ISendService
+	Service domainSend.ISendUsecase
 }
 
-func InitRestSend(app *fiber.App, service domainSend.ISendService) Send {
+func InitRestSend(app *fiber.App, service domainSend.ISendUsecase) Send {
 	rest := Send{Service: service}
 	app.Post("/send/message", rest.SendText)
 	app.Post("/send/image", rest.SendImage)

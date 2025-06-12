@@ -7,7 +7,7 @@ import (
 	"go.mau.fi/whatsmeow"
 )
 
-type IGroupService interface {
+type IGroupUsecase interface {
 	JoinGroupWithLink(ctx context.Context, request JoinGroupWithLinkRequest) (groupID string, err error)
 	LeaveGroup(ctx context.Context, request LeaveGroupRequest) (err error)
 	CreateGroup(ctx context.Context, request CreateGroupRequest) (groupID string, err error)
