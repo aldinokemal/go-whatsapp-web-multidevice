@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.mau.fi/whatsmeow/types"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -41,8 +44,53 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
+
+		from_user, from_group := from, ""
+		if strings.Contains(from, " in ") {
+			from_user = strings.Split(from, " in ")[0]
+			from_group = strings.Split(from, " in ")[1]
+		}
+
+		if strings.HasSuffix(from_user, "@lid") {
+			body["from_lid"] = from_user
+			lid, err := types.ParseJID(from_user)
+			if err != nil {
+				logrus.Errorf("Error when parse jid: %v", err)
+			} else {
+				pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+				if err != nil {
+					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+				}
+				if !pn.IsEmpty() {
+					if from_group != "" {
+						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
+					} else {
+						body["from"] = pn.String()
+					}
+				}
+			}
+		}
 	}
 	if message.ID != "" {
+		tags := regexp.MustCompile(`\B@\w+`).FindAllString(message.Text, -1)
+		tagsMap := make(map[string]bool)
+		for _, tag := range tags {
+			tagsMap[tag] = true
+		}
+		for tag := range tagsMap {
+			lid, err := types.ParseJID(tag[1:] + "@lid")
+			if err != nil {
+				logrus.Errorf("Error when parse jid: %v", err)
+			} else {
+				pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+				if err != nil {
+					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+				}
+				if !pn.IsEmpty() {
+					message.Text = strings.Replace(message.Text, tag, fmt.Sprintf("@%s", pn.User), -1)
+				}
+			}
+		}
 		body["message"] = message
 	}
 	if pushname := evt.Info.PushName; pushname != "" {
