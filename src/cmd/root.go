@@ -47,7 +47,7 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Short: "Send free whatsapp API",
-	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice, 
+	Long: `This application is from clone https://github.com/aldinokemal/go-whatsapp-web-multidevice,
 you can send whatsapp over http api but your whatsapp account have to be multi device version`,
 }
 
@@ -107,6 +107,9 @@ func initEnvConfig() {
 	}
 	if envChatStorage := viper.GetBool("WHATSAPP_CHAT_STORAGE"); !envChatStorage {
 		config.WhatsappChatStorage = envChatStorage
+	}
+	if envCallWebhookOnMessageToSelf := viper.GetBool("CALL_WEBHOOK_ON_MESSAGE_TO_SELF"); envCallWebhookOnMessageToSelf {
+		config.WhatsappCallWebhookOnMessageToSelf = envCallWebhookOnMessageToSelf
 	}
 }
 
@@ -182,6 +185,12 @@ func initFlags() {
 		"chat-storage", "",
 		config.WhatsappChatStorage,
 		`enable or disable chat storage --chat-storage <true/false>. If you disable this, reply feature maybe not working properly | example: --chat-storage=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappCallWebhookOnMessageToSelf,
+		"call-webhook-on-message-to-self", "",
+		config.WhatsappCallWebhookOnMessageToSelf,
+		`enable or disable webhook calls for messages from yourself --call-webhook-on-message-to-self <true/false> | example: --call-webhook-on-message-to-self=true`,
 	)
 }
 

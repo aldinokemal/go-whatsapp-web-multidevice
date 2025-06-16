@@ -247,9 +247,15 @@ func handleAutoReply(evt *events.Message) {
 }
 
 func handleWebhookForward(ctx context.Context, evt *events.Message) {
-	if len(config.WhatsappWebhook) > 0 &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") &&
-		!isFromMySelf(evt.Info.SourceString()) {
+	shouldCallWebhook := len(config.WhatsappWebhook) > 0 &&
+		!strings.Contains(evt.Info.SourceString(), "broadcast")
+
+	// Check if message is from myself and whether we should call webhook for self messages
+	if isFromMySelf(evt.Info.SourceString()) && !config.WhatsappCallWebhookOnMessageToSelf {
+		shouldCallWebhook = false
+	}
+
+	if shouldCallWebhook {
 		go func(evt *events.Message) {
 			if err := forwardToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
