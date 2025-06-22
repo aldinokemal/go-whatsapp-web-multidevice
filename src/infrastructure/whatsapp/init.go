@@ -53,11 +53,11 @@ var (
 )
 
 // InitWaDB initializes the WhatsApp database connection
-func InitWaDB(ctx context.Context) *sqlstore.Container {
+func InitWaDB(ctx context.Context, DBURI string) *sqlstore.Container {
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
 
-	storeContainer, err := initDatabase(ctx, dbLog)
+	storeContainer, err := initDatabase(ctx, dbLog, DBURI)
 	if err != nil {
 		log.Errorf("Database initialization error: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
@@ -67,18 +67,18 @@ func InitWaDB(ctx context.Context) *sqlstore.Container {
 }
 
 // initDatabase creates and returns a database store container based on the configured URI
-func initDatabase(ctx context.Context, dbLog waLog.Logger) (*sqlstore.Container, error) {
+func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlstore.Container, error) {
 	if strings.HasPrefix(config.DBURI, "file:") {
-		return sqlstore.New(ctx, "sqlite3", config.DBURI, dbLog)
-	} else if strings.HasPrefix(config.DBURI, "postgres:") {
-		return sqlstore.New(ctx, "postgres", config.DBURI, dbLog)
+		return sqlstore.New(ctx, "sqlite3", DBURI, dbLog)
+	} else if strings.HasPrefix(DBURI, "postgres:") {
+		return sqlstore.New(ctx, "postgres", DBURI, dbLog)
 	}
 
-	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", config.DBURI)
+	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", DBURI)
 }
 
 // InitWaCLI initializes the WhatsApp client
-func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsmeow.Client {
+func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container, keysStoreContainer *sqlstore.Container) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
@@ -94,6 +94,17 @@ func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsme
 	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
+
+	// Configure a separated database for accelerating encryption caching
+	if keysStoreContainer != nil && device.ID != nil {
+		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+		device.Identities = innerStore
+		device.Sessions = innerStore
+		device.PreKeys = innerStore
+		device.SenderKeys = innerStore
+		device.MsgSecrets = innerStore
+		device.PrivacyTokens = innerStore
+	}
 
 	// Create and configure the client
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))

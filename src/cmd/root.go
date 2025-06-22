@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"embed"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"strings"
 	"time"
@@ -17,14 +18,12 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store/sqlstore"
-
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -90,6 +89,9 @@ func initEnvConfig() {
 	if envDBURI := viper.GetString("DB_URI"); envDBURI != "" {
 		config.DBURI = envDBURI
 	}
+	if envDBKEYSURI := viper.GetString("DB_KEYS_URI"); envDBKEYSURI != "" {
+		config.DBKeysURI = envDBKEYSURI
+	}
 
 	// WhatsApp settings
 	if envAutoReply := viper.GetString("WHATSAPP_AUTO_REPLY"); envAutoReply != "" {
@@ -151,6 +153,12 @@ func initFlags() {
 		config.DBURI,
 		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=on or postgres://user:password@localhost:5432/whatsapp"`,
 	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.DBKeysURI,
+		"db-keys-uri", "",
+		config.DBKeysURI,
+		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared"`,
+	)
 
 	// WhatsApp flags
 	rootCmd.PersistentFlags().StringVarP(
@@ -196,8 +204,13 @@ func initApp() {
 	}
 
 	ctx := context.Background()
-	whatsappDB = whatsapp.InitWaDB(ctx)
-	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB)
+	whatsappDB = whatsapp.InitWaDB(ctx, config.DBURI)
+	var dbKeys *sqlstore.Container
+	if config.DBKeysURI != "" {
+		dbKeys = whatsapp.InitWaDB(ctx, config.DBKeysURI)
+	}
+
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, dbKeys)
 
 	// Usecase
 	appUsecase = usecase.NewAppService(whatsappCli, whatsappDB)
