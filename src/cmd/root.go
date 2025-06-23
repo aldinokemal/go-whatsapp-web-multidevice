@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"embed"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -68,45 +69,46 @@ func init() {
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
+	fmt.Println(viper.AllSettings())
 	// Application settings
-	if envPort := viper.GetString("APP_PORT"); envPort != "" {
+	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
 	}
-	if envDebug := viper.GetBool("APP_DEBUG"); envDebug {
+	if envDebug := viper.GetBool("app_debug"); envDebug {
 		config.AppDebug = envDebug
 	}
-	if envOs := viper.GetString("APP_OS"); envOs != "" {
+	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
 	}
-	if envBasicAuth := viper.GetString("APP_BASIC_AUTH"); envBasicAuth != "" {
+	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
 	}
-	if envChatFlushInterval := viper.GetInt("APP_CHAT_FLUSH_INTERVAL"); envChatFlushInterval > 0 {
+	if envChatFlushInterval := viper.GetInt("app_chat_flush_interval"); envChatFlushInterval > 0 {
 		config.AppChatFlushIntervalDays = envChatFlushInterval
 	}
 
 	// Database settings
-	if envDBURI := viper.GetString("DB_URI"); envDBURI != "" {
+	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
 		config.DBURI = envDBURI
 	}
 
 	// WhatsApp settings
-	if envAutoReply := viper.GetString("WHATSAPP_AUTO_REPLY"); envAutoReply != "" {
+	if envAutoReply := viper.GetString("whatsapp_auto_reply"); envAutoReply != "" {
 		config.WhatsappAutoReplyMessage = envAutoReply
 	}
-	if envWebhook := viper.GetString("WHATSAPP_WEBHOOK"); envWebhook != "" {
+	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
 		webhook := strings.Split(envWebhook, ",")
 		config.WhatsappWebhook = webhook
 	}
-	if envWebhookSecret := viper.GetString("WHATSAPP_WEBHOOK_SECRET"); envWebhookSecret != "" {
+	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
 		config.WhatsappWebhookSecret = envWebhookSecret
 	}
-	if envAccountValidation := viper.GetBool("WHATSAPP_ACCOUNT_VALIDATION"); envAccountValidation {
-		config.WhatsappAccountValidation = envAccountValidation
+	if viper.IsSet("whatsapp_account_validation") {
+		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
-	if envChatStorage := viper.GetBool("WHATSAPP_CHAT_STORAGE"); !envChatStorage {
-		config.WhatsappChatStorage = envChatStorage
+	if viper.IsSet("whatsapp_chat_storage") {
+		config.WhatsappChatStorage = viper.GetBool("whatsapp_chat_storage")
 	}
 }
 
