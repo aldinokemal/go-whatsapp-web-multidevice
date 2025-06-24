@@ -247,18 +247,22 @@ func handleAutoReply(evt *events.Message) {
 }
 
 func handleWebhookForward(ctx context.Context, evt *events.Message) {
-	// Skip webhook for specific protocol messages that shouldn't trigger webhooks
 	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
 		protocolType := protocolMessage.GetType().String()
-		// Skip EPHEMERAL_SYNC_RESPONSE but allow REVOKE and MESSAGE_EDIT
 		if protocolType == "EPHEMERAL_SYNC_RESPONSE" {
 			log.Debugf("Skipping webhook for EPHEMERAL_SYNC_RESPONSE message")
 			return
 		}
 	}
 
-	if len(config.WhatsappWebhook) > 0 &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") {
+	shouldCallWebhook := len(config.WhatsappWebhook) > 0 &&
+		!strings.Contains(evt.Info.SourceString(), "broadcast")
+	
+	if isFromMySelf(evt.Info.SourceString()) && !config.WhatsappCallWebhookOnMessageToSelf {
+		shouldCallWebhook = false
+	}
+	
+	if shouldCallWebhook {
 		go func(evt *events.Message) {
 			if err := forwardToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
