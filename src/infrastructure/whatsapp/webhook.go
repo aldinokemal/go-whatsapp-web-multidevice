@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.mau.fi/whatsmeow/types"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -107,6 +108,32 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 	if timestamp := evt.Info.Timestamp.Format(time.RFC3339); timestamp != "" {
 		body["timestamp"] = timestamp
+	}
+
+	// Handle protocol messages (revoke, etc.)
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		protocolType := protocolMessage.GetType().String()
+
+		switch protocolType {
+		case "REVOKE":
+			body["action"] = "message_revoked"
+			if key := protocolMessage.GetKey(); key != nil {
+				body["revoked_message_id"] = key.GetID()
+				body["revoked_from_me"] = key.GetFromMe()
+				if key.GetRemoteJID() != "" {
+					body["revoked_chat"] = key.GetRemoteJID()
+				}
+			}
+		case "MESSAGE_EDIT":
+			body["action"] = "message_edited"
+			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+				if editedText := editedMessage.GetExtendedTextMessage(); editedText != nil {
+					body["edited_text"] = editedText.GetText()
+				} else if editedConv := editedMessage.GetConversation(); editedConv != "" {
+					body["edited_text"] = editedConv
+				}
+			}
+		}
 	}
 
 	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {

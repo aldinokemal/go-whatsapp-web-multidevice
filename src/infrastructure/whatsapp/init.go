@@ -247,14 +247,21 @@ func handleAutoReply(evt *events.Message) {
 }
 
 func handleWebhookForward(ctx context.Context, evt *events.Message) {
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		protocolType := protocolMessage.GetType().String()
+		if protocolType == "EPHEMERAL_SYNC_RESPONSE" {
+			log.Debugf("Skipping webhook for EPHEMERAL_SYNC_RESPONSE message")
+			return
+		}
+	}
+
 	shouldCallWebhook := len(config.WhatsappWebhook) > 0 &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast")
-
-	// Check if message is from myself and whether we should call webhook for self messages
+	
 	if isFromMySelf(evt.Info.SourceString()) && !config.WhatsappCallWebhookOnMessageToSelf {
 		shouldCallWebhook = false
 	}
-
+	
 	if shouldCallWebhook {
 		go func(evt *events.Message) {
 			if err := forwardToWebhook(ctx, evt); err != nil {
@@ -265,9 +272,10 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 }
 
 func handleReceipt(_ context.Context, evt *events.Receipt) {
-	if evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf {
+	switch evt.Type {
+	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
-	} else if evt.Type == types.ReceiptTypeDelivered {
+	case types.ReceiptTypeDelivered:
 		log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
 	}
 }
