@@ -89,7 +89,7 @@ export default {
             
             // Check if current user is an admin in participants
             const currentUserJID = `${this.currentUserId}@s.whatsapp.net`;
-            const participant = group.Participants.find(p => p.JID === currentUserJID);
+            const participant = group.Participants.find(p => p.PhoneNumber === currentUserJID);
             return participant && participant.IsAdmin;
         },
         async handleSeeRequestedMember(group_id) {
