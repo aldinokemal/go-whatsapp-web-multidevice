@@ -20,6 +20,11 @@ Download:
 - [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
 - [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 
+## Support n8n package (n8n.io)
+
+- [n8n package](https://www.npmjs.com/package/@aldinokemal2104/n8n-nodes-gowa)
+- Go to Settings -> Community Nodes -> Input `@aldinokemal2104/n8n-nodes-gowa` -> Install
+
 ## Breaking Changes
 
 - `v6`
