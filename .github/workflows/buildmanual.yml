@@ -1,32 +1,27 @@
-name: Build WhatsApp Binary with GLIBC 2.31
+name: Build go-whatsapp-web-multidevice (Static Binary)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: debian:bullseye  # GLIBC 2.31
+    runs-on: ubuntu-latest  # tidak perlu ubuntu-20.04 karena tidak pakai GLIBC
     steps:
-      - name: Install dependencies
-        run: |
-          apt update
-          apt install -y curl git gcc make wget unzip
-          curl -OL https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
-          tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
-          echo "export PATH=$PATH:/usr/local/go/bin" >> $GITHUB_ENV
-
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Build binary
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+
+      - name: Build static binary
         run: |
-          export PATH=$PATH:/usr/local/go/bin
-          go build -buildvcs=false -o whatsapp ./src
+          cd src
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o whatsapp
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: whatsapp-binary
-          path: whatsapp
+          path: src/whatsapp
