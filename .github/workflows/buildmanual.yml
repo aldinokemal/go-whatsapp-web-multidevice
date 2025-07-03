@@ -24,7 +24,7 @@ jobs:
         run: |
           export PATH=$PATH:/usr/local/go/bin
           cd src
-          go build -o whatsapp
+          go build -o -buildvcs=false whatsapp
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
