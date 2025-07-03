@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: debian:bullseye  # Debian 11 = GLIBC 2.31
+      image: debian:bullseye  # GLIBC 2.31
     steps:
       - name: Install dependencies
         run: |
@@ -23,11 +23,10 @@ jobs:
       - name: Build binary
         run: |
           export PATH=$PATH:/usr/local/go/bin
-          cd src
-          go build -o -buildvcs=false whatsapp
+          go build -buildvcs=false -o whatsapp ./src
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: whatsapp-binary
-          path: src/whatsapp
+          path: whatsapp
