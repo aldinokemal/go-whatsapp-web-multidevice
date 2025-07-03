@@ -21,6 +21,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/groups", rest.UserMyListGroups)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
+	app.Get("/user/check", rest.UserCheck)
 
 	return rest
 }
@@ -139,5 +140,21 @@ func (controller *User) UserChangePushName(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success change push name",
+	})
+}
+
+func (controller *User) UserCheck(c *fiber.Ctx) error {
+	var request domainUser.CheckRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	response, err := controller.Service.IsOnWhatsApp(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success check user",
+		Results: response,
 	})
 }

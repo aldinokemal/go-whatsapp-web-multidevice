@@ -242,3 +242,13 @@ func (service serviceUser) ChangePushName(ctx context.Context, request domainUse
 	}
 	return nil
 }
+
+func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.CheckRequest) (response domainUser.CheckResponse, err error) {
+	whatsapp.MustLogin(service.WaCli)
+
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response.IsOnWhatsApp = whatsapp.IsOnWhatsapp(service.WaCli, request.Phone)
+
+	return response, nil
+}

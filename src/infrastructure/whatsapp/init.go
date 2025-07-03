@@ -247,9 +247,18 @@ func handleAutoReply(evt *events.Message) {
 }
 
 func handleWebhookForward(ctx context.Context, evt *events.Message) {
+	// Skip webhook for specific protocol messages that shouldn't trigger webhooks
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		protocolType := protocolMessage.GetType().String()
+		// Skip EPHEMERAL_SYNC_RESPONSE but allow REVOKE and MESSAGE_EDIT
+		if protocolType == "EPHEMERAL_SYNC_RESPONSE" {
+			log.Debugf("Skipping webhook for EPHEMERAL_SYNC_RESPONSE message")
+			return
+		}
+	}
+
 	if len(config.WhatsappWebhook) > 0 &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") &&
-		!isFromMySelf(evt.Info.SourceString()) {
+		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(evt *events.Message) {
 			if err := forwardToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
@@ -259,9 +268,10 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 }
 
 func handleReceipt(_ context.Context, evt *events.Receipt) {
-	if evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf {
+	switch evt.Type {
+	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
-	} else if evt.Type == types.ReceiptTypeDelivered {
+	case types.ReceiptTypeDelivered:
 		log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
 	}
 }

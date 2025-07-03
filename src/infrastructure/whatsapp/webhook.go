@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
+
+	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -41,8 +45,53 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
+
+		from_user, from_group := from, ""
+		if strings.Contains(from, " in ") {
+			from_user = strings.Split(from, " in ")[0]
+			from_group = strings.Split(from, " in ")[1]
+		}
+
+		if strings.HasSuffix(from_user, "@lid") {
+			body["from_lid"] = from_user
+			lid, err := types.ParseJID(from_user)
+			if err != nil {
+				logrus.Errorf("Error when parse jid: %v", err)
+			} else {
+				pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+				if err != nil {
+					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+				}
+				if !pn.IsEmpty() {
+					if from_group != "" {
+						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
+					} else {
+						body["from"] = pn.String()
+					}
+				}
+			}
+		}
 	}
 	if message.ID != "" {
+		tags := regexp.MustCompile(`\B@\w+`).FindAllString(message.Text, -1)
+		tagsMap := make(map[string]bool)
+		for _, tag := range tags {
+			tagsMap[tag] = true
+		}
+		for tag := range tagsMap {
+			lid, err := types.ParseJID(tag[1:] + "@lid")
+			if err != nil {
+				logrus.Errorf("Error when parse jid: %v", err)
+			} else {
+				pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+				if err != nil {
+					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+				}
+				if !pn.IsEmpty() {
+					message.Text = strings.Replace(message.Text, tag, fmt.Sprintf("@%s", pn.User), -1)
+				}
+			}
+		}
 		body["message"] = message
 	}
 	if pushname := evt.Info.PushName; pushname != "" {
@@ -59,6 +108,32 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 	if timestamp := evt.Info.Timestamp.Format(time.RFC3339); timestamp != "" {
 		body["timestamp"] = timestamp
+	}
+
+	// Handle protocol messages (revoke, etc.)
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		protocolType := protocolMessage.GetType().String()
+
+		switch protocolType {
+		case "REVOKE":
+			body["action"] = "message_revoked"
+			if key := protocolMessage.GetKey(); key != nil {
+				body["revoked_message_id"] = key.GetID()
+				body["revoked_from_me"] = key.GetFromMe()
+				if key.GetRemoteJID() != "" {
+					body["revoked_chat"] = key.GetRemoteJID()
+				}
+			}
+		case "MESSAGE_EDIT":
+			body["action"] = "message_edited"
+			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+				if editedText := editedMessage.GetExtendedTextMessage(); editedText != nil {
+					body["edited_text"] = editedText.GetText()
+				} else if editedConv := editedMessage.GetConversation(); editedConv != "" {
+					body["edited_text"] = editedConv
+				}
+			}
+		}
 	}
 
 	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {

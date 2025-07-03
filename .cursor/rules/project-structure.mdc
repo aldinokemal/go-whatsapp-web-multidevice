@@ -1,5 +1,5 @@
 ---
-description: 
+description: complete guide about project structure
 globs: 
 alwaysApply: false
 ---
@@ -21,7 +21,9 @@ The main source code is organized in the `src` directory with the following stru
 
 #### Command Line Interface
 
-- [src/cmd/root.go](mdc:src/cmd/root.go) - Main entry point using Cobra for CLI commands, handles configuration loading and server initialization
+- [src/cmd/root.go](mdc:src/cmd/root.go) - Root command using Cobra for CLI commands, handles configuration loading
+- [src/cmd/rest.go](mdc:src/cmd/rest.go) - REST server command implementation
+- [src/cmd/mcp.go](mdc:src/cmd/mcp.go) - Model Context Protocol server command implementation
 
 #### Configuration
 
@@ -32,6 +34,7 @@ The main source code is organized in the `src` directory with the following stru
 The application is organized using domain-driven design principles:
 
 - [src/domains/app/](mdc:src/domains/app) - Core application domain models
+- [src/domains/device/](mdc:src/domains/device) - Device-related domain models
 - [src/domains/group/](mdc:src/domains/group) - Group-related domain models
 - [src/domains/message/](mdc:src/domains/message) - Message-related domain models
 - [src/domains/newsletter/](mdc:src/domains/newsletter) - Newsletter-related domain models
@@ -66,14 +69,6 @@ The application is organized using domain-driven design principles:
   - [src/statics/qrcode/](mdc:src/statics/qrcode) - QR code images for WhatsApp authentication
   - [src/statics/senditems/](mdc:src/statics/senditems) - Items to be sent via WhatsApp
 
-#### Storage
-
-- [src/storages/](mdc:src/storages) - Storage-related functionality and database connection
-
-#### Temporary Files
-
-- [src/tmp/](mdc:src/tmp) - Temporary files and directories
-
 #### Validation
 
 - [src/validations/](mdc:src/validations) - Request validation logic
@@ -88,17 +83,13 @@ The application is organized using domain-driven design principles:
 ### Documentation
 
 - [docs/](mdc:docs) - Project documentation
+  - [docs/openapi.yaml](mdc:docs/openapi.yaml) - OpenAPI specification for the REST API
   - [docs/sdk/](mdc:docs/sdk) - SDK documentation
 
 ### Docker
 
 - [docker/](mdc:docker) - Docker-related files and configurations
-
-### GitHub Configuration
-
-- [.github/](mdc:.github) - GitHub-specific configuration
-  - [.github/ISSUE_TEMPLATE/](mdc:.github/ISSUE_TEMPLATE) - Templates for GitHub issues
-  - [.github/workflows/](mdc:.github/workflows) - GitHub Actions workflows
+  - [docker/golang.Dockerfile](mdc:docker/golang.Dockerfile) - Dockerfile for building the Go application
 
 ## Key Application Features
 
@@ -109,14 +100,24 @@ The application is organized using domain-driven design principles:
 - WebSocket real-time updates
 - Webhooks for message events
 - Auto-reply functionality
+- Model Context Protocol (MCP) server for AI agent communication
 
 ## Application Flow
 
+### REST Server Mode
 1. The application starts from [src/cmd/root.go](mdc:src/cmd/root.go)
-2. Configuration is loaded from environment variables or command line flags
-3. The REST server is initialized using Fiber framework
-4. WhatsApp client is initialized and services are created
-5. REST routes are registered for different domains
-6. WebSocket hub is started for real-time communication
-7. Background tasks are started (auto-reconnect, chat storage flushing)
-8. The server listens for requests on the configured port
+2. REST server command is executed via [src/cmd/rest.go](mdc:src/cmd/rest.go)
+3. Configuration is loaded from environment variables or command line flags
+4. The REST server is initialized using Fiber framework
+5. WhatsApp client is initialized and services are created
+6. REST routes are registered for different domains
+7. WebSocket hub is started for real-time communication
+8. Background tasks are started (auto-reconnect, chat storage flushing)
+9. The server listens for requests on the configured port
+
+### MCP Server Mode
+1. The application starts from [src/cmd/root.go](mdc:src/cmd/root.go)
+2. MCP server command is executed via [src/cmd/mcp.go](mdc:src/cmd/mcp.go)
+3. Model Context Protocol server is initialized for AI agent communication
+4. WhatsApp client services are made available through MCP protocol
+5. The MCP server listens for AI agent requests
