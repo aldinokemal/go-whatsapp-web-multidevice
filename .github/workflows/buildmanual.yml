@@ -1,0 +1,27 @@
+name: Build go-whatsapp-web-multidevice
+
+on:
+  workflow_dispatch:  # Bisa dijalankan manual dari UI GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04  # GLIBC 2.31 (kompatibel untuk banyak hosting)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+
+      - name: Build binary
+        run: |
+          cd src
+          go build -o whatsapp
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-binary
+          path: src/whatsap
