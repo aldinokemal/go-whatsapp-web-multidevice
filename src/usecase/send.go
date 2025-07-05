@@ -562,19 +562,36 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 }
 
 func (service serviceSend) SendAudio(ctx context.Context, request domainSend.AudioRequest) (response domainSend.GenericResponse, err error) {
+	// Validate request
 	err = validations.ValidateSendAudio(ctx, request)
 	if err != nil {
 		return response, err
 	}
+
 	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	autioBytes := helpers.MultipartFormFileHeaderToBytes(request.Audio)
-	audioMimeType := http.DetectContentType(autioBytes)
+	var (
+		audioBytes   []byte
+		audioMimeType string
+	)
 
-	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, autioBytes, dataWaRecipient)
+	// Handle audio from URL or file
+	if request.AudioURL != nil && *request.AudioURL != "" {
+		audioBytes, _, err = utils.DownloadAudioFromURL(*request.AudioURL)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
+		}
+		audioMimeType = http.DetectContentType(audioBytes)
+	} else if request.Audio != nil {
+		audioBytes = helpers.MultipartFormFileHeaderToBytes(request.Audio)
+		audioMimeType = http.DetectContentType(audioBytes)
+	}
+
+	// upload to WhatsApp servers
+	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
 		return response, err

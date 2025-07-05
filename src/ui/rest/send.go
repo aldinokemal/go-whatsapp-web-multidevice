@@ -172,10 +172,11 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	audio, err := c.FormFile("audio")
-	utils.PanicIfNeeded(err)
+	// Try to get file but ignore error if not provided
+	if audioFile, errFile := c.FormFile("audio"); errFile == nil {
+		request.Audio = audioFile
+	}
 
-	request.Audio = audio
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendAudio(c.UserContext(), request)
