@@ -247,6 +247,11 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", response.Status)
+	}
+
 	contentType := response.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") {
 		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
@@ -299,6 +304,10 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
 
 	// Extract only the MIME type portion (ignore parameters like charset)
 	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
