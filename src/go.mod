@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.63.0
 	go.mau.fi/libsignal v0.2.0
-	go.mau.fi/whatsmeow v0.0.0-20250630101711-a0eb38c885c5
+	go.mau.fi/whatsmeow v0.0.0-20250701221811-9adf672adc90
 	golang.org/x/image v0.28.0
 	google.golang.org/protobuf v1.36.6
 )

@@ -144,6 +144,8 @@ go.mau.fi/whatsmeow v0.0.0-20250617170509-947866bb9f75 h1:5SvY8TY8Yo0wXpn+enqE1s
 go.mau.fi/whatsmeow v0.0.0-20250617170509-947866bb9f75/go.mod h1:bEyyFvXlwr/18B2pOkdX1vWAx1+y1NJX+sCXVyw01UA=
 go.mau.fi/whatsmeow v0.0.0-20250630101711-a0eb38c885c5 h1:e6TbliVnWP/FUoMwpkzT2lBzINogtoK0VR2dI0iUl1M=
 go.mau.fi/whatsmeow v0.0.0-20250630101711-a0eb38c885c5/go.mod h1:bEyyFvXlwr/18B2pOkdX1vWAx1+y1NJX+sCXVyw01UA=
+go.mau.fi/whatsmeow v0.0.0-20250701221811-9adf672adc90 h1:K9knC6oQMLPutKwDVnqdgrDEjMJ8D5nREE9Li3dH71k=
+go.mau.fi/whatsmeow v0.0.0-20250701221811-9adf672adc90/go.mod h1:bEyyFvXlwr/18B2pOkdX1vWAx1+y1NJX+sCXVyw01UA=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

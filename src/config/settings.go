@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion               = "v6.1.2"
+	AppVersion               = "v6.2.0"
 	AppPort                  = "3000"
 	AppDebug                 = false
 	AppOs                    = "AldinoKemal"
