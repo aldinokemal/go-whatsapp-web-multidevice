@@ -574,7 +574,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	var (
-		audioBytes   []byte
+		audioBytes    []byte
 		audioMimeType string
 	)
 
