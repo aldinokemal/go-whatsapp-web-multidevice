@@ -321,9 +321,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
 		}
 		// Build file path to save the downloaded video temporarily
-		if fileName == "" {
-			fileName = generateUUID + ".mp4"
-		}
 		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+fileName)
 		if errWrite := os.WriteFile(oriVideoPath, videoBytes, 0644); errWrite != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store downloaded video in server %v", errWrite))
