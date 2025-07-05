@@ -9,4 +9,5 @@ type VideoRequest struct {
 	ViewOnce    bool                  `json:"view_once" form:"view_once"`
 	Compress    bool                  `json:"compress"`
 	IsForwarded bool                  `json:"is_forwarded" form:"is_forwarded"`
+	VideoURL    *string               `json:"video_url" form:"video_url"`
 }

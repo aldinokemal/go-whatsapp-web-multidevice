@@ -368,3 +368,73 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 
 	return audioData, fileName, nil
 }
+
+// DownloadVideoFromURL downloads a video file from the provided URL and returns the bytes and sanitized filename.
+// It validates that the content-type returned by the server is one of the supported WhatsApp video formats and
+// that the size does not exceed WhatsappSettingMaxDownloadSize to avoid memory exhaustion.
+func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Get(videoURL)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	// Extract MIME type without parameters
+	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+
+	allowedMimes := map[string]bool{
+		"video/mp4":        true,
+		"video/x-matroska": true, // mkv
+		"video/avi":        true,
+		"video/x-msvideo":  true,
+	}
+
+	if !allowedMimes[contentType] {
+		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
+	}
+
+	// Validate content length if provided
+	maxSize := config.WhatsappSettingMaxDownloadSize
+	if resp.ContentLength > 0 && resp.ContentLength > maxSize {
+		return nil, "", fmt.Errorf("video size %d exceeds maximum allowed size %d", resp.ContentLength, maxSize)
+	}
+
+	// Guard against unknown Content-Length by limiting reader
+	limit := maxSize
+	if limit < math.MaxInt64 {
+		limit++
+	}
+
+	limitedReader := &io.LimitedReader{R: resp.Body, N: limit}
+	videoData, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(videoData)) > maxSize {
+		return nil, "", fmt.Errorf("downloaded video size of %d bytes exceeds the maximum allowed size of %d bytes", len(videoData), maxSize)
+	}
+
+	// Derive filename from URL path
+	segments := strings.Split(videoURL, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+	if fileName == "" {
+		fileName = fmt.Sprintf("video_%d.mp4", time.Now().Unix())
+	}
+
+	return videoData, fileName, nil
+}

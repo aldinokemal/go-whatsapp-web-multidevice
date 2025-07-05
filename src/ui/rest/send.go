@@ -96,10 +96,11 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	video, err := c.FormFile("video")
-	utils.PanicIfNeeded(err)
+	// Try to get file but ignore error if not provided
+	if videoFile, errFile := c.FormFile("video"); errFile == nil {
+		request.Video = videoFile
+	}
 
-	request.Video = video
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)

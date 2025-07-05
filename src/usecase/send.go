@@ -309,12 +309,40 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		deletedItems   []string
 	)
 
+	// Ensure temporary files are always removed, even on early returns
+	defer func() {
+		if len(deletedItems) > 0 {
+			// Run cleanup in background with slight delay to avoid race with open handles
+			go utils.RemoveFile(1, deletedItems...)
+		}
+	}()
+
 	generateUUID := fiberUtils.UUIDv4()
-	// Save video to server
-	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
-	err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+
+	var oriVideoPath string
+
+	// Determine source of video (URL or uploaded file)
+	if request.VideoURL != nil && *request.VideoURL != "" {
+		// Download video bytes
+		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(*request.VideoURL)
+		if errDownload != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
+		}
+		// Build file path to save the downloaded video temporarily
+		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+fileName)
+		if errWrite := os.WriteFile(oriVideoPath, videoBytes, 0644); errWrite != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store downloaded video in server %v", errWrite))
+		}
+	} else if request.Video != nil {
+		// Save uploaded video to server
+		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
+		err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+		}
+	} else {
+		// This should not happen due to validation, but guard anyway
+		return response, pkgError.ValidationError("either Video or VideoURL must be provided")
 	}
 
 	// Check if ffmpeg is installed
@@ -323,7 +351,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError("ffmpeg not installed")
 	}
 
-	// Get thumbnail video with ffmpeg
+	// Generate thumbnail using ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
 	err = cmdThumbnail.Run()
@@ -346,21 +374,41 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
 	videoThumbnail = thumbnailResizeVideoPath
 
+	// Compress if requested
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
 
-		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
-		err = cmdCompress.Run()
+		// Use proper compression settings to reduce file size
+		// -crf 28: Constant Rate Factor (18-28 is good range, higher = smaller file)
+		// -preset medium: Balance between encoding speed and compression efficiency
+		// -c:v libx264: Use H.264 codec for video
+		// -c:a aac: Use AAC codec for audio
+		// -movflags +faststart: Optimize for web streaming
+		// -vf scale=720:-2: Scale video to max width 720px, maintain aspect ratio
+		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath,
+			"-c:v", "libx264",
+			"-crf", "28",
+			"-preset", "fast",
+			"-vf", "scale=720:-2",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-movflags", "+faststart",
+			"-y", // Overwrite output file if it exists
+			compresVideoPath)
+
+		// Capture both stdout and stderr for better error reporting
+		output, err := cmdCompress.CombinedOutput()
 		if err != nil {
-			return response, pkgError.InternalServerError("failed to compress video")
+			logrus.Errorf("ffmpeg compression failed: %v, output: %s", err, string(output))
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to compress video: %v", err))
 		}
 
 		videoPath = compresVideoPath
 		deletedItems = append(deletedItems, compresVideoPath)
 	} else {
 		videoPath = oriVideoPath
-		deletedItems = append(deletedItems, oriVideoPath)
 	}
+	deletedItems = append(deletedItems, oriVideoPath)
 
 	//Send to WA server
 	dataWaVideo, err := os.ReadFile(videoPath)
@@ -404,12 +452,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		caption = "🎥 " + request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
-	go func() {
-		errDelete := utils.RemoveFile(1, deletedItems...)
-		if errDelete != nil {
-			logrus.Infof("error when deleting picture: %v", errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
