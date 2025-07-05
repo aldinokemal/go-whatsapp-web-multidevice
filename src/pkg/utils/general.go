@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg" // For JPEG encoding
 	_ "image/png"  // For PNG encoding
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -246,6 +247,11 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", response.Status)
+	}
+
 	contentType := response.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") {
 		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
@@ -276,4 +282,89 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return imageData, fileName, nil
+}
+
+// DownloadAudioFromURL downloads an audio file from the provided URL and returns the bytes and sanitized filename.
+// It validates that the content-type returned by the server starts with "audio/" and that the size is below
+// WhatsappSettingMaxDownloadSize limit to avoid memory exhaustion. Only the MIME types defined in audio validation
+// are allowed to ensure WhatsApp compatibility.
+func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Get(audioURL)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	// Extract only the MIME type portion (ignore parameters like charset)
+	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+
+	// Align audio MIME validation with the one used for uploaded files to ensure consistency with WhatsApp requirements.
+	allowedMimes := map[string]bool{
+		"audio/aac":      true,
+		"audio/amr":      true,
+		"audio/flac":     true,
+		"audio/m4a":      true,
+		"audio/m4r":      true,
+		"audio/mp3":      true,
+		"audio/mpeg":     true,
+		"audio/ogg":      true,
+		"audio/wma":      true,
+		"audio/x-ms-wma": true,
+		"audio/wav":      true,
+		"audio/vnd.wav":  true,
+		"audio/vnd.wave": true,
+		"audio/wave":     true,
+		"audio/x-pn-wav": true,
+		"audio/x-wav":    true,
+	}
+
+	if !allowedMimes[contentType] {
+		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
+	}
+
+	// Validate content length when it is provided by the server.
+	maxSize := config.WhatsappSettingMaxDownloadSize
+	if resp.ContentLength > 0 && resp.ContentLength > maxSize {
+		return nil, "", fmt.Errorf("audio size %d exceeds maximum allowed size %d", resp.ContentLength, maxSize)
+	}
+
+	// Guard against servers that do not set Content-Length by reading at most (maxSize+1) bytes
+	// and erroring if the limit is exceeded.
+	limit := maxSize
+	if limit < math.MaxInt64 {
+		limit++
+	}
+
+	limitedReader := &io.LimitedReader{R: resp.Body, N: limit}
+	audioData, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(audioData)) > maxSize {
+		return nil, "", fmt.Errorf("downloaded audio size of %d bytes exceeds the maximum allowed size of %d bytes", len(audioData), maxSize)
+	}
+
+	// Derive filename from URL path (strip query parameters if present)
+	segments := strings.Split(audioURL, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+	if fileName == "" {
+		fileName = fmt.Sprintf("audio_%d", time.Now().Unix())
+	}
+
+	return audioData, fileName, nil
 }

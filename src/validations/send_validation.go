@@ -155,46 +155,64 @@ func ValidateSendLocation(ctx context.Context, request domainSend.LocationReques
 func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Audio, validation.Required),
 	)
 
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	availableMimes := map[string]bool{
-		"audio/aac":      true,
-		"audio/amr":      true,
-		"audio/flac":     true,
-		"audio/m4a":      true,
-		"audio/m4r":      true,
-		"audio/mp3":      true,
-		"audio/mpeg":     true,
-		"audio/ogg":      true,
-		"audio/wma":      true,
-		"audio/x-ms-wma": true,
-		"audio/wav":      true,
-		"audio/vnd.wav":  true,
-		"audio/vnd.wave": true,
-		"audio/wave":     true,
-		"audio/x-pn-wav": true,
-		"audio/x-wav":    true,
-	}
-	availableMimesStr := ""
-
-	// Sort MIME types for consistent error message order
-	mimeKeys := make([]string, 0, len(availableMimes))
-	for k := range availableMimes {
-		mimeKeys = append(mimeKeys, k)
-	}
-	sort.Strings(mimeKeys)
-
-	for _, k := range mimeKeys {
-		availableMimesStr += k + ","
+	// Ensure at least one of Audio or AudioURL is provided
+	if request.Audio == nil && (request.AudioURL == nil || *request.AudioURL == "") {
+		return pkgError.ValidationError("either Audio or AudioURL must be provided")
 	}
 
-	if !availableMimes[request.Audio.Header.Get("Content-Type")] {
-		return pkgError.ValidationError(fmt.Sprintf("your audio type is not allowed. please use (%s)", availableMimesStr))
+	// If Audio file is provided, validate file MIME
+	if request.Audio != nil {
+		availableMimes := map[string]bool{
+			"audio/aac":      true,
+			"audio/amr":      true,
+			"audio/flac":     true,
+			"audio/m4a":      true,
+			"audio/m4r":      true,
+			"audio/mp3":      true,
+			"audio/mpeg":     true,
+			"audio/ogg":      true,
+			"audio/wma":      true,
+			"audio/x-ms-wma": true,
+			"audio/wav":      true,
+			"audio/vnd.wav":  true,
+			"audio/vnd.wave": true,
+			"audio/wave":     true,
+			"audio/x-pn-wav": true,
+			"audio/x-wav":    true,
+		}
+		availableMimesStr := ""
+
+		// Sort MIME types for consistent error message order
+		mimeKeys := make([]string, 0, len(availableMimes))
+		for k := range availableMimes {
+			mimeKeys = append(mimeKeys, k)
+		}
+		sort.Strings(mimeKeys)
+
+		for _, k := range mimeKeys {
+			availableMimesStr += k + ","
+		}
+
+		if !availableMimes[request.Audio.Header.Get("Content-Type")] {
+			return pkgError.ValidationError(fmt.Sprintf("your audio type is not allowed. please use (%s)", availableMimesStr))
+		}
+	}
+
+	// If AudioURL provided, basic URL validation
+	if request.AudioURL != nil {
+		if *request.AudioURL == "" {
+			return pkgError.ValidationError("AudioURL cannot be empty")
+		}
+
+		if err := validation.Validate(*request.AudioURL, is.URL); err != nil {
+			return pkgError.ValidationError("AudioURL must be a valid URL")
+		}
 	}
 
 	return nil
