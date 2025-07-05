@@ -228,7 +228,7 @@ func TestValidateSendVideo(t *testing.T) {
 				ViewOnce: false,
 				Compress: false,
 			}},
-			err: pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi"),
+			err: pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi/x-msvideo"),
 		},
 		{
 			name: "should error with empty video and video_url",
