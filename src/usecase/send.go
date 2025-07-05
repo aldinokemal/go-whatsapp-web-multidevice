@@ -378,10 +378,29 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
 
-		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath, "-strict", "-2", compresVideoPath)
-		err = cmdCompress.Run()
+		// Use proper compression settings to reduce file size
+		// -crf 28: Constant Rate Factor (18-28 is good range, higher = smaller file)
+		// -preset medium: Balance between encoding speed and compression efficiency
+		// -c:v libx264: Use H.264 codec for video
+		// -c:a aac: Use AAC codec for audio
+		// -movflags +faststart: Optimize for web streaming
+		// -vf scale=720:-2: Scale video to max width 720px, maintain aspect ratio
+		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath,
+			"-c:v", "libx264",
+			"-crf", "28",
+			"-preset", "fast",
+			"-vf", "scale=720:-2",
+			"-c:a", "aac",
+			"-b:a", "128k",
+			"-movflags", "+faststart",
+			"-y", // Overwrite output file if it exists
+			compresVideoPath)
+
+		// Capture both stdout and stderr for better error reporting
+		output, err := cmdCompress.CombinedOutput()
 		if err != nil {
-			return response, pkgError.InternalServerError("failed to compress video")
+			logrus.Errorf("ffmpeg compression failed: %v, output: %s", err, string(output))
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to compress video: %v", err))
 		}
 
 		videoPath = compresVideoPath
