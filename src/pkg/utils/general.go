@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg" // For JPEG encoding
 	_ "image/png"  // For PNG encoding
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -299,29 +300,61 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 	}
 	defer resp.Body.Close()
 
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "audio/") {
+	// Extract only the MIME type portion (ignore parameters like charset)
+	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+
+	// Align audio MIME validation with the one used for uploaded files to ensure consistency with WhatsApp requirements.
+	allowedMimes := map[string]bool{
+		"audio/aac":      true,
+		"audio/amr":      true,
+		"audio/flac":     true,
+		"audio/m4a":      true,
+		"audio/m4r":      true,
+		"audio/mp3":      true,
+		"audio/mpeg":     true,
+		"audio/ogg":      true,
+		"audio/wma":      true,
+		"audio/x-ms-wma": true,
+		"audio/wav":      true,
+		"audio/vnd.wav":  true,
+		"audio/vnd.wave": true,
+		"audio/wave":     true,
+		"audio/x-pn-wav": true,
+		"audio/x-wav":    true,
+	}
+
+	if !allowedMimes[contentType] {
 		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
 	}
 
-	if resp.ContentLength > 0 && resp.ContentLength > config.WhatsappSettingMaxDownloadSize {
-		return nil, "", fmt.Errorf("audio size %d exceeds maximum allowed size %d", resp.ContentLength, config.WhatsappSettingMaxDownloadSize)
+	// Validate content length when it is provided by the server.
+	maxSize := config.WhatsappSettingMaxDownloadSize
+	if resp.ContentLength > 0 && resp.ContentLength > maxSize {
+		return nil, "", fmt.Errorf("audio size %d exceeds maximum allowed size %d", resp.ContentLength, maxSize)
 	}
 
-	// Limit reader to prevent large downloads when Content-Length is not provided
-	reader := io.LimitReader(resp.Body, config.WhatsappSettingMaxDownloadSize)
+	// Guard against servers that do not set Content-Length by reading at most (maxSize+1) bytes
+	// and erroring if the limit is exceeded.
+	limit := maxSize
+	if limit < math.MaxInt64 {
+		limit++
+	}
 
-	// Derive filename from URL path (without query params)
+	limitedReader := &io.LimitedReader{R: resp.Body, N: limit}
+	audioData, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(audioData)) > maxSize {
+		return nil, "", fmt.Errorf("downloaded audio size of %d bytes exceeds the maximum allowed size of %d bytes", len(audioData), maxSize)
+	}
+
+	// Derive filename from URL path (strip query parameters if present)
 	segments := strings.Split(audioURL, "/")
 	fileName := segments[len(segments)-1]
 	fileName = strings.Split(fileName, "?")[0]
 	if fileName == "" {
 		fileName = fmt.Sprintf("audio_%d", time.Now().Unix())
-	}
-
-	audioData, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, "", err
 	}
 
 	return audioData, fileName, nil
