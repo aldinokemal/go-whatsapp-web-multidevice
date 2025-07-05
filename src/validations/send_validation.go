@@ -102,11 +102,11 @@ func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) err
 		availableMimes := map[string]bool{
 			"video/mp4":        true,
 			"video/x-matroska": true,
-			"video/avi":        true,
+			"video/x-msvideo":  true,
 		}
 
 		if !availableMimes[request.Video.Header.Get("Content-Type")] {
-			return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi")
+			return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/x-msvideo")
 		}
 
 		if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB

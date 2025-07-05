@@ -400,6 +400,7 @@ func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
 		"video/mp4":        true,
 		"video/x-matroska": true, // mkv
 		"video/avi":        true,
+		"video/x-msvideo":  true,
 	}
 
 	if !allowedMimes[contentType] {
