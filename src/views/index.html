@@ -9,46 +9,6 @@
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
     <link rel="stylesheet" href="assets/app.css">
-    <style>
-        #splash-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #00A884 0%, #008069 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            transition: opacity 0.5s ease-in-out;
-            color: white;
-        }
-        #splash-screen.fade-out {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .splash-icon {
-            font-size: 5em;
-            color: white;
-            margin-bottom: 20px;
-            animation: bounce 2s infinite;
-        }
-        .splash-spinner {
-            margin-top: 20px;
-        }
-        .splash-title {
-            font-size: 2em;
-            font-weight: bold;
-            margin: 10px 0;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-        }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
-        }
-    </style>
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
@@ -60,7 +20,9 @@
 </head>
 <body>
 <div id="splash-screen">
-    <i class="whatsapp icon splash-icon"></i>
+    <!-- Clean squircle logo without background wrapper -->
+    <img src="assets/gowa.svg" alt="GoWA Logo" class="splash-icon" id="main-logo">
+    
     <h2 class="splash-title">WhatsApp API</h2>
     <div class="ui active large inline loader splash-spinner"></div>
 </div>
@@ -69,9 +31,10 @@
     <div class="main-header">
         <h1 class="ui header center aligned">
             <div class="title-container">
-                <i class="whatsapp icon"></i>
-                WhatsApp API
-
+                <img src="assets/gowa.svg" alt="GoWA Logo">
+                
+                <span>WhatsApp API</span>
+                
                 <div class="version-label">
                     {{ .AppVersion }}
                 </div>
@@ -188,6 +151,7 @@
             classProgress: 'green'
         });
     }
+
 
     window.http = axios.create({
         baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
