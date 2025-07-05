@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg" // For JPEG encoding
 	_ "image/png"  // For PNG encoding
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -334,13 +335,18 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 
 	// Guard against servers that do not set Content-Length by reading at most (maxSize+1) bytes
 	// and erroring if the limit is exceeded.
-	limitedReader := &io.LimitedReader{R: resp.Body, N: maxSize + 1}
+	limit := maxSize
+	if limit < math.MaxInt64 {
+		limit++
+	}
+
+	limitedReader := &io.LimitedReader{R: resp.Body, N: limit}
 	audioData, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, "", err
 	}
 	if int64(len(audioData)) > maxSize {
-		return nil, "", fmt.Errorf("audio size exceeds maximum allowed size %d", maxSize)
+		return nil, "", fmt.Errorf("downloaded audio size of %d bytes exceeds the maximum allowed size of %d bytes", len(audioData), maxSize)
 	}
 
 	// Derive filename from URL path (strip query parameters if present)
