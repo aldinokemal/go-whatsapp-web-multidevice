@@ -310,11 +310,34 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	)
 
 	generateUUID := fiberUtils.UUIDv4()
-	// Save video to server
-	oriVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
-	err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+
+	var oriVideoPath string
+
+	// Determine source of video (URL or uploaded file)
+	if request.VideoURL != nil && *request.VideoURL != "" {
+		// Download video bytes
+		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(*request.VideoURL)
+		if errDownload != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
+		}
+		// Build file path to save the downloaded video temporarily
+		if fileName == "" {
+			fileName = generateUUID + ".mp4"
+		}
+		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+fileName)
+		if errWrite := os.WriteFile(oriVideoPath, videoBytes, 0644); errWrite != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store downloaded video in server %v", errWrite))
+		}
+	} else if request.Video != nil {
+		// Save uploaded video to server
+		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
+		err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
+		}
+	} else {
+		// This should not happen due to validation, but guard anyway
+		return response, pkgError.ValidationError("either Video or VideoURL must be provided")
 	}
 
 	// Check if ffmpeg is installed
@@ -323,7 +346,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError("ffmpeg not installed")
 	}
 
-	// Get thumbnail video with ffmpeg
+	// Generate thumbnail using ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
 	err = cmdThumbnail.Run()
@@ -346,6 +369,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
 	videoThumbnail = thumbnailResizeVideoPath
 
+	// Compress if requested
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
 
@@ -359,8 +383,8 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		deletedItems = append(deletedItems, compresVideoPath)
 	} else {
 		videoPath = oriVideoPath
-		deletedItems = append(deletedItems, oriVideoPath)
 	}
+	deletedItems = append(deletedItems, oriVideoPath)
 
 	//Send to WA server
 	dataWaVideo, err := os.ReadFile(videoPath)

@@ -211,7 +211,7 @@ func TestValidateSendVideo(t *testing.T) {
 				ViewOnce: false,
 				Compress: false,
 			}},
-			err: pkgError.ValidationError("video: cannot be blank."),
+			err: pkgError.ValidationError("either Video or VideoURL must be provided"),
 		},
 		{
 			name: "should error with invalid format video",
@@ -229,6 +229,30 @@ func TestValidateSendVideo(t *testing.T) {
 				Compress: false,
 			}},
 			err: pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi"),
+		},
+		{
+			name: "should error with empty video and video_url",
+			args: args{request: domainSend.VideoRequest{
+				Phone:    "1728937129312@s.whatsapp.net",
+				Caption:  "simple caption",
+				Video:    nil,
+				VideoURL: func() *string { s := ""; return &s }(),
+				ViewOnce: false,
+				Compress: false,
+			}},
+			err: pkgError.ValidationError("either Video or VideoURL must be provided"),
+		},
+		{
+			name: "should success with video_url provided",
+			args: args{request: domainSend.VideoRequest{
+				Phone:    "1728937129312@s.whatsapp.net",
+				Caption:  "simple caption",
+				Video:    nil,
+				VideoURL: func() *string { s := "https://example.com/sample.mp4"; return &s }(),
+				ViewOnce: false,
+				Compress: false,
+			}},
+			err: nil,
 		},
 	}
 
@@ -567,7 +591,7 @@ func TestValidateSendAudio(t *testing.T) {
 				Phone: "1728937129312@s.whatsapp.net",
 				Audio: nil,
 			}},
-			err: pkgError.ValidationError("audio: cannot be blank."),
+			err: pkgError.ValidationError("either Audio or AudioURL must be provided"),
 		},
 		{
 			name: "should error with invalid audio type",

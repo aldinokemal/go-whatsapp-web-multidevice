@@ -83,28 +83,47 @@ func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error
 }
 
 func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) error {
+	// Validate common required fields
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
-		validation.Field(&request.Video, validation.Required),
 	)
 
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	availableMimes := map[string]bool{
-		"video/mp4":        true,
-		"video/x-matroska": true,
-		"video/avi":        true,
+	// Ensure at least one of Video or VideoURL is provided
+	if request.Video == nil && (request.VideoURL == nil || *request.VideoURL == "") {
+		return pkgError.ValidationError("either Video or VideoURL must be provided")
 	}
 
-	if !availableMimes[request.Video.Header.Get("Content-Type")] {
-		return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi")
+	// If Video file provided perform MIME / size validation
+	if request.Video != nil {
+		availableMimes := map[string]bool{
+			"video/mp4":        true,
+			"video/x-matroska": true,
+			"video/avi":        true,
+		}
+
+		if !availableMimes[request.Video.Header.Get("Content-Type")] {
+			return pkgError.ValidationError("your video type is not allowed. please use mp4/mkv/avi")
+		}
+
+		if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
+			maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
+			return pkgError.ValidationError(fmt.Sprintf("max video upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
+		}
 	}
 
-	if request.Video.Size > config.WhatsappSettingMaxVideoSize { // 30MB
-		maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize))
-		return pkgError.ValidationError(fmt.Sprintf("max video upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
+	// If VideoURL provided, validate url
+	if request.VideoURL != nil {
+		if *request.VideoURL == "" {
+			return pkgError.ValidationError("VideoURL cannot be empty")
+		}
+
+		if err := validation.Validate(*request.VideoURL, is.URL); err != nil {
+			return pkgError.ValidationError("VideoURL must be a valid URL")
+		}
 	}
 
 	return nil
