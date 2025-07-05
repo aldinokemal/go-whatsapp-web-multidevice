@@ -1,7 +1,15 @@
+<!-- markdownlint-disable MD041 -->
+<!-- markdownlint-disable-next-line MD033 -->
+<div align="center">
+  <!-- markdownlint-disable-next-line MD033 -->
+  <img src="src/views/assets/gowa.svg" alt="GoWA Logo" width="200" height="200">
+  
 # WhatsApp API Multi Device Version
 
-[![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)  
-**If you're using this tools to generate income, consider supporting its development by becoming a Patreon member!**  
+</div>
+
+[![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
+**If you're using this tools to generate income, consider supporting its development by becoming a Patreon member!**
 Your support helps ensure the library stays maintained and receives regular updates!
 ___
 
