@@ -309,6 +309,14 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		deletedItems   []string
 	)
 
+	// Ensure temporary files are always removed, even on early returns
+	defer func() {
+		if len(deletedItems) > 0 {
+			// Run cleanup in background with slight delay to avoid race with open handles
+			go utils.RemoveFile(1, deletedItems...)
+		}
+	}()
+
 	generateUUID := fiberUtils.UUIDv4()
 
 	var oriVideoPath string
@@ -425,12 +433,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		caption = "🎥 " + request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
-	go func() {
-		errDelete := utils.RemoveFile(1, deletedItems...)
-		if errDelete != nil {
-			logrus.Infof("error when deleting picture: %v", errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
