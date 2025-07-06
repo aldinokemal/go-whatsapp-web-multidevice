@@ -22,6 +22,11 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
+
+	// Custom validation for optional Duration
+	if request.Duration != nil && *request.Duration <= 0 {
+		return pkgError.ValidationError("duration must be greater than 0 second")
+	}
 	return nil
 }
 

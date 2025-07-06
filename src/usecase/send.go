@@ -73,6 +73,11 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.ForwardingScore = proto.Uint32(100)
 	}
 
+	// Set disappearing message duration if provided
+	if request.Duration != nil && *request.Duration > 0 {
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	}
+
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
 	if len(parsedMentions) > 0 {
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
@@ -91,6 +96,11 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 						Conversation: proto.String(record.MessageContent),
 					},
 				},
+			}
+
+			// Preserve expiration if provided
+			if request.Duration != nil && *request.Duration > 0 {
+				msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 			}
 
 			if len(parsedMentions) > 0 {
