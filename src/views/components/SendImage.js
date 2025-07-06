@@ -30,6 +30,7 @@ export default {
             // If view_once is set to true, set is_forwarded to false
             if (newValue === true) {
                 this.is_forwarded = false;
+                this.duration = 0;
             }
         }
     },
