@@ -13,7 +13,6 @@ export default {
             loading: false,
             question: '',
             options: ['', ''],
-            max_vote: 1,
             max_answer: 1,
             duration: 0,
         }
@@ -86,7 +85,6 @@ export default {
             this.type = window.TYPEUSER;
             this.question = '';
             this.options = ['', ''];
-            this.max_vote = 1;
             this.max_answer = 1;
             this.duration = 0;
         },
@@ -139,11 +137,6 @@ export default {
                             </button>
                         </div>
                     </div>
-                </div>
-                <div class="field">
-                    <label>Max Vote</label>
-                    <input v-model="max_vote" type="number" placeholder="Max Vote"
-                           aria-label="poll max votes" min="0">
                 </div>
                 <div class="field">
                     <label>Max Answer</label>
