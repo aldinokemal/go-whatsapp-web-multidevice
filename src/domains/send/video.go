@@ -10,4 +10,5 @@ type VideoRequest struct {
 	Compress    bool                  `json:"compress"`
 	IsForwarded bool                  `json:"is_forwarded" form:"is_forwarded"`
 	VideoURL    *string               `json:"video_url" form:"video_url"`
+	Duration    *int                  `json:"duration,omitempty" form:"duration"`
 }

@@ -5,4 +5,5 @@ type ContactRequest struct {
 	ContactName  string `json:"contact_name" form:"contact_name"`
 	ContactPhone string `json:"contact_phone" form:"contact_phone"`
 	IsForwarded  bool   `json:"is_forwarded" form:"is_forwarded"`
+	Duration     *int   `json:"duration,omitempty" form:"duration"`
 }

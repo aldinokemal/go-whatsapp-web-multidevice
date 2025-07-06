@@ -229,6 +229,14 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 	}
 
+	// Set duration expiration
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.ImageMessage.ContextInfo == nil {
+			msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	}
+
 	caption := "🖼️ Image"
 	if request.Caption != "" {
 		caption = "🖼️ " + request.Caption
@@ -287,6 +295,13 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
+	}
+
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.DocumentMessage.ContextInfo == nil {
+			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 	}
 
 	caption := "📄 Document"
@@ -457,6 +472,13 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 	}
 
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.VideoMessage.ContextInfo == nil {
+			msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	}
+
 	caption := "🎥 Video"
 	if request.Caption != "" {
 		caption = "🎥 " + request.Caption
@@ -493,6 +515,13 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
+	}
+
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.ContactMessage.ContextInfo == nil {
+			msg.ContactMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 	}
 
 	content := "👤 " + request.ContactName
@@ -543,6 +572,13 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
+	}
+
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.ExtendedTextMessage.ContextInfo == nil {
+			msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 	}
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
@@ -598,6 +634,13 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
+	}
+
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.LocationMessage.ContextInfo == nil {
+			msg.LocationMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.LocationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 	}
 
 	content := "📍 " + request.Latitude + ", " + request.Longitude
@@ -668,6 +711,13 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		}
 	}
 
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.AudioMessage.ContextInfo == nil {
+			msg.AudioMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	}
+
 	content := "🎵 Audio"
 
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
@@ -693,6 +743,13 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	content := "📊 " + request.Question
 
 	msg := service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+
+	if request.Duration != nil && *request.Duration > 0 {
+		if msg.ContextInfo == nil {
+			msg.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	}
 
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
 	if err != nil {

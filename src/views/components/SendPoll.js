@@ -14,6 +14,8 @@ export default {
             question: '',
             options: ['', ''],
             max_vote: 1,
+            max_answer: 1,
+            duration: 0,
         }
     },
     computed: {
@@ -63,8 +65,9 @@ export default {
                 const payload = {
                     phone: this.phone_id,
                     question: this.question,
-                    max_answer: this.max_vote,
-                    options: this.options
+                    options: this.options,
+                    max_answer: this.max_answer,
+                    ...(this.duration && this.duration > 0 ? {duration: this.duration} : {})
                 }
                 const response = await window.http.post(`/send/poll`, payload)
                 this.handleReset();
@@ -84,6 +87,8 @@ export default {
             this.question = '';
             this.options = ['', ''];
             this.max_vote = 1;
+            this.max_answer = 1;
+            this.duration = 0;
         },
         addOption() {
             this.options.push('')
@@ -139,6 +144,15 @@ export default {
                     <label>Max Vote</label>
                     <input v-model="max_vote" type="number" placeholder="Max Vote"
                            aria-label="poll max votes" min="0">
+                </div>
+                <div class="field">
+                    <label>Max Answer</label>
+                    <input v-model="max_answer" type="number" placeholder="Max Answer"
+                           aria-label="poll max answers" min="0">
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
             </form>
         </div>

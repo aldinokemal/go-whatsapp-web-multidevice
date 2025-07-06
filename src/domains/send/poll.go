@@ -5,4 +5,5 @@ type PollRequest struct {
 	Question  string   `json:"question" form:"question"`
 	Options   []string `json:"options" form:"options"`
 	MaxAnswer int      `json:"max_answer" form:"max_answer"`
+	Duration  *int     `json:"duration,omitempty" form:"duration"`
 }

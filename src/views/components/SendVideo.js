@@ -21,7 +21,8 @@ export default {
             loading: false,
             video_url: null,
             selectedFileName: null,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -34,6 +35,7 @@ export default {
             // If view_once is set to true, set is_forwarded to false
             if (newValue === true) {
                 this.is_forwarded = false;
+                this.duration = 0;
             }
         }
     },
@@ -93,6 +95,9 @@ export default {
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append("is_forwarded", this.is_forwarded)
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
 
                 const fileInput = $("#file_video")[0];
                 if (fileInput && fileInput.files && fileInput.files[0]) {
@@ -122,6 +127,7 @@ export default {
             this.selectedFileName = null;
             this.video_url = null;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_video").val('');
         },
         handleFileChange(event) {
@@ -180,6 +186,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark video as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
                 <div class="field">
                     <label>Video URL</label>

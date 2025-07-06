@@ -7,4 +7,5 @@ type FileRequest struct {
 	File        *multipart.FileHeader `json:"file" form:"file"`
 	Caption     string                `json:"caption" form:"caption"`
 	IsForwarded bool                  `json:"is_forwarded" form:"is_forwarded"`
+	Duration    *int                  `json:"duration,omitempty" form:"duration"`
 }

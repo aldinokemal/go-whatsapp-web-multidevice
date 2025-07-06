@@ -18,7 +18,8 @@ export default {
             phone: '',
             loading: false,
             selectedFileName: null,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -68,6 +69,9 @@ export default {
                 payload.append("caption", this.caption)
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
                 payload.append("file", $("#file_file")[0].files[0])
                 let response = await window.http.post(`/send/file`, payload)
                 this.handleReset();
@@ -87,6 +91,7 @@ export default {
             this.type = window.TYPEUSER;
             this.selectedFileName = null;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_file").val('');
         },
         handleFileChange(event) {
@@ -129,6 +134,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark file as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>File</label>

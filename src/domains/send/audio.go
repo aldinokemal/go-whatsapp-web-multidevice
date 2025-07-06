@@ -7,4 +7,5 @@ type AudioRequest struct {
 	Audio       *multipart.FileHeader `json:"audio" form:"audio"`
 	AudioURL    *string               `json:"audio_url" form:"audio_url"`
 	IsForwarded bool                  `json:"is_forwarded" form:"is_forwarded"`
+	Duration    *int                  `json:"duration,omitempty" form:"duration"`
 }

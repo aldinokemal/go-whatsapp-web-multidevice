@@ -5,4 +5,5 @@ type LocationRequest struct {
 	Latitude    string `json:"latitude" form:"latitude"`
 	Longitude   string `json:"longitude" form:"longitude"`
 	IsForwarded bool   `json:"is_forwarded" form:"is_forwarded"`
+	Duration    *int   `json:"duration,omitempty" form:"duration"`
 }

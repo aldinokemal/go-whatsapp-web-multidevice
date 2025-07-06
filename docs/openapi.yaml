@@ -409,6 +409,10 @@ paths:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
+                duration:
+                  type: integer
+                  example: 3600
+                  description: Disappearing message duration in seconds (optional)
       responses:
         '200':
           description: OK
@@ -464,6 +468,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress image
+                duration:
+                  type: integer
+                  example: 3600
+                  description: Disappearing message duration in seconds (optional)
                 is_forwarded:
                   type: boolean
                   example: false
@@ -617,6 +625,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress video
+                duration:
+                  type: integer
+                  example: 3600
+                  description: Disappearing message duration in seconds (optional)
                 is_forwarded:
                   type: boolean
                   example: false
