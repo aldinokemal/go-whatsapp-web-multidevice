@@ -87,19 +87,34 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
 		record, err := utils.FindRecordFromStorage(*request.ReplyMessageID)
 		if err == nil { // Only set reply context if we found the message ID
-			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-				Text: proto.String(request.Message),
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:    request.ReplyMessageID,
-					Participant: proto.String(record.JID),
-					QuotedMessage: &waE2E.Message{
-						Conversation: proto.String(record.MessageContent),
-					},
+			// Build base ContextInfo with reply details
+			ctxInfo := &waE2E.ContextInfo{
+				StanzaID:    request.ReplyMessageID,
+				Participant: proto.String(record.JID),
+				QuotedMessage: &waE2E.Message{
+					Conversation: proto.String(record.MessageContent),
 				},
 			}
 
+			// Preserve forwarding flag if set
+			if request.BaseRequest.IsForwarded {
+				ctxInfo.IsForwarded = proto.Bool(true)
+				ctxInfo.ForwardingScore = proto.Uint32(100)
+			}
+
+			// Preserve disappearing message duration if provided
+			if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+				ctxInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+			}
+
+			// Preserve mentions
 			if len(parsedMentions) > 0 {
-				msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
+				ctxInfo.MentionedJID = parsedMentions
+			}
+
+			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+				Text:        proto.String(request.Message),
+				ContextInfo: ctxInfo,
 			}
 		} else {
 			logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *request.ReplyMessageID)
