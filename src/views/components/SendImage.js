@@ -16,7 +16,8 @@ export default {
             selected_file: null,
             image_url: null,
             preview_url: null,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -29,6 +30,7 @@ export default {
             // If view_once is set to true, set is_forwarded to false
             if (newValue === true) {
                 this.is_forwarded = false;
+                this.duration = 0;
             }
         }
     },
@@ -76,6 +78,9 @@ export default {
                 payload.append("compress", this.compress)
                 payload.append("caption", this.caption)
                 payload.append("is_forwarded", this.is_forwarded)
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
                 
                 const fileInput = $("#file_image");
                 if (fileInput.length > 0 && fileInput[0].files.length > 0) {
@@ -107,6 +112,7 @@ export default {
             this.selected_file = null;
             this.image_url = null;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_image").val('');
         },
         handleImageChange(event) {
@@ -172,6 +178,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark image as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
                 <div class="field">
                     <label>Image URL</label>

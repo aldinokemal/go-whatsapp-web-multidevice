@@ -12,7 +12,8 @@ export default {
             card_name: '',
             card_phone: '',
             loading: false,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -66,7 +67,8 @@ export default {
                     phone: this.phone_id,
                     contact_name: this.card_name,
                     contact_phone: this.card_phone,
-                    is_forwarded: this.is_forwarded
+                    is_forwarded: this.is_forwarded,
+                    ...(this.duration && this.duration > 0 ? {duration: this.duration} : {})
                 }
                 let response = await window.http.post(`/send/contact`, payload)
                 this.handleReset();
@@ -86,6 +88,7 @@ export default {
             this.card_phone = '';
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
+            this.duration = 0;
         },
     },
     template: `
@@ -125,6 +128,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark contact as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
             </form>
         </div>

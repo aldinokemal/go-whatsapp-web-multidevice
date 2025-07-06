@@ -12,7 +12,8 @@ export default {
             latitude: '',
             longitude: '',
             loading: false,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -63,7 +64,8 @@ export default {
                     phone: this.phone_id,
                     latitude: this.latitude,
                     longitude: this.longitude,
-                    is_forwarded: this.is_forwarded
+                    is_forwarded: this.is_forwarded,
+                    ...(this.duration && this.duration > 0 ? {duration: this.duration} : {})
                 };
 
                 const response = await window.http.post(`/send/location`, payload);
@@ -84,6 +86,7 @@ export default {
             this.longitude = '';
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
+            this.duration = 0;
         },
     },
     template: `
@@ -123,6 +126,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark location as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
             </form>
         </div>

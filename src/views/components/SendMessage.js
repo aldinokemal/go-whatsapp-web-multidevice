@@ -12,6 +12,7 @@ export default {
             text: '',
             reply_message_id: '',
             is_forwarded: false,
+            duration: 0,
             loading: false,
         }
     },
@@ -65,6 +66,10 @@ export default {
                     payload.reply_message_id = this.reply_message_id;
                 }
 
+                if (this.duration && this.duration > 0) {
+                    payload.duration = this.duration;
+                }
+
                 const response = await window.http.post('/send/message', payload);
                 this.handleReset();
                 return response.data.message;
@@ -82,6 +87,7 @@ export default {
             this.text = '';
             this.reply_message_id = '';
             this.is_forwarded = false;
+            this.duration = 0;
         },
     },
     template: `
@@ -121,6 +127,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark message as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
             </form>
         </div>

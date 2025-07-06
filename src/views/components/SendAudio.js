@@ -13,6 +13,7 @@ export default {
             selectedFileName: null,
             is_forwarded: false,
             audio_url: null,
+            duration: 0,
         }
     },
     computed: {
@@ -58,6 +59,9 @@ export default {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
 
                 const fileInput = $("#file_audio");
                 if (fileInput.length > 0 && fileInput[0].files.length > 0) {
@@ -84,6 +88,7 @@ export default {
             this.phone = '';
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_audio").val('');
             this.selectedFileName = null;
             this.audio_url = null;
@@ -121,6 +126,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark audio as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
                 <div class="field">
                     <label>Audio URL</label>

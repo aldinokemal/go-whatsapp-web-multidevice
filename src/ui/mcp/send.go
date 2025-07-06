@@ -72,9 +72,11 @@ func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRe
 	}
 
 	res, err := s.sendService.SendText(ctx, domainSend.MessageRequest{
-		Phone:          phone,
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
 		Message:        message,
-		IsForwarded:    isForwarded,
 		ReplyMessageID: &replyMessageId,
 	})
 
@@ -130,10 +132,12 @@ func (s *SendHandler) handleSendContact(ctx context.Context, request mcp.CallToo
 	}
 
 	res, err := s.sendService.SendContact(ctx, domainSend.ContactRequest{
-		Phone:        phone,
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
 		ContactName:  contactName,
 		ContactPhone: contactPhone,
-		IsForwarded:  isForwarded,
 	})
 
 	if err != nil {
@@ -188,10 +192,12 @@ func (s *SendHandler) handleSendLink(ctx context.Context, request mcp.CallToolRe
 	}
 
 	res, err := s.sendService.SendLink(ctx, domainSend.LinkRequest{
-		Phone:       phone,
-		Link:        link,
-		Caption:     caption,
-		IsForwarded: isForwarded,
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		Link:    link,
+		Caption: caption,
 	})
 
 	if err != nil {
@@ -246,10 +252,12 @@ func (s *SendHandler) handleSendLocation(ctx context.Context, request mcp.CallTo
 	}
 
 	res, err := s.sendService.SendLocation(ctx, domainSend.LocationRequest{
-		Phone:       phone,
-		Latitude:    latitude,
-		Longitude:   longitude,
-		IsForwarded: isForwarded,
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		Latitude:  latitude,
+		Longitude: longitude,
 	})
 
 	if err != nil {
@@ -319,11 +327,13 @@ func (s *SendHandler) handleSendImage(ctx context.Context, request mcp.CallToolR
 
 	// Create image request
 	imageRequest := domainSend.ImageRequest{
-		Phone:       phone,
-		Caption:     caption,
-		ViewOnce:    viewOnce,
-		Compress:    compress,
-		IsForwarded: isForwarded,
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		Caption:  caption,
+		ViewOnce: viewOnce,
+		Compress: compress,
 	}
 
 	if imageURLOk && imageURL != "" {
