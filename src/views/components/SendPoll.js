@@ -43,6 +43,10 @@ export default {
                 return false;
             }
 
+            if (this.max_answer < 1 || this.max_answer > this.options.length) {
+                return false;
+            }
+
             return true;
         },
         async handleSubmit() {
@@ -139,9 +143,12 @@ export default {
                     </div>
                 </div>
                 <div class="field">
-                    <label>Max Answer</label>
-                    <input v-model="max_answer" type="number" placeholder="Max Answer"
-                           aria-label="poll max answers" min="0">
+                    <label>Max Answers Allowed</label>
+                    <input v-model.number="max_answer" type="number" placeholder="Maximum answers per user" 
+                           aria-label="poll max answers" min="1" max="50">
+                    <div class="ui pointing label">
+                        How many options each user can select
+                    </div>
                 </div>
                 <div class="field">
                     <label>Disappearing Duration (seconds)</label>

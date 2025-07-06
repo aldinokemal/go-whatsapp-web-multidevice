@@ -315,6 +315,6 @@ func handleHistorySync(_ context.Context, evt *events.HistorySync) {
 	log.Infof("Wrote history sync to %s", fileName)
 }
 
-func handleAppState(ctx context.Context, evt *events.AppState) {
+func handleAppState(_ context.Context, evt *events.AppState) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 }

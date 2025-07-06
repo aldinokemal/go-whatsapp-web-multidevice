@@ -54,7 +54,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -68,14 +68,14 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Add forwarding context if IsForwarded is true
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.ExtendedTextMessage.ContextInfo.IsForwarded = proto.Bool(true)
 		msg.ExtendedTextMessage.ContextInfo.ForwardingScore = proto.Uint32(100)
 	}
 
 	// Set disappearing message duration if provided
-	if request.Duration != nil && *request.Duration > 0 {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
@@ -96,11 +96,6 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 						Conversation: proto.String(record.MessageContent),
 					},
 				},
-			}
-
-			// Preserve expiration if provided
-			if request.Duration != nil && *request.Duration > 0 {
-				msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
 			}
 
 			if len(parsedMentions) > 0 {
@@ -222,7 +217,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
@@ -230,11 +225,11 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 
 	// Set duration expiration
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.ImageMessage.ContextInfo == nil {
 			msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	caption := "🖼️ Image"
@@ -253,7 +248,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -262,7 +257,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -290,18 +285,18 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		Caption:       proto.String(request.Caption),
 	}}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.DocumentMessage.ContextInfo == nil {
 			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	caption := "📄 Document"
@@ -314,7 +309,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -323,7 +318,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -465,18 +460,18 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.VideoMessage.ContextInfo == nil {
 			msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	caption := "🎥 Video"
@@ -489,7 +484,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -498,7 +493,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -510,18 +505,18 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		Vcard:       proto.String(msgVCard),
 	}}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.ContactMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.ContactMessage.ContextInfo == nil {
 			msg.ContactMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	content := "👤 " + request.ContactName
@@ -532,7 +527,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Contact sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -541,7 +536,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -567,18 +562,18 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		JPEGThumbnail: metadata.ImageThumb,
 	}}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.ExtendedTextMessage.ContextInfo == nil {
 			msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
@@ -607,7 +602,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -616,7 +611,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -629,18 +624,18 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 		},
 	}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.LocationMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.LocationMessage.ContextInfo == nil {
 			msg.LocationMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.LocationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.LocationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	content := "📍 " + request.Latitude + ", " + request.Longitude
@@ -652,7 +647,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Send location success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -663,7 +658,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -704,18 +699,18 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		},
 	}
 
-	if request.IsForwarded {
+	if request.BaseRequest.IsForwarded {
 		msg.AudioMessage.ContextInfo = &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(100),
 		}
 	}
 
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.AudioMessage.ContextInfo == nil {
 			msg.AudioMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	content := "🎵 Audio"
@@ -726,7 +721,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Send audio success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Send audio success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
@@ -735,7 +730,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -744,11 +739,11 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	msg := service.WaCli.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
 
-	if request.Duration != nil && *request.Duration > 0 {
-		if msg.ContextInfo == nil {
-			msg.ContextInfo = &waE2E.ContextInfo{}
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+		if msg.PollCreationMessage.ContextInfo == nil {
+			msg.PollCreationMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
-		msg.ContextInfo.Expiration = proto.Uint32(uint32(*request.Duration))
+		msg.PollCreationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
 	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
@@ -757,7 +752,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	}
 
 	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 
