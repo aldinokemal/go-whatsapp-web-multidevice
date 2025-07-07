@@ -7,7 +7,6 @@ import (
 	"image/jpeg"
 	"io"
 	"mime/multipart"
-	"path/filepath"
 
 	"github.com/disintegration/imaging"
 )
@@ -178,26 +177,4 @@ func ValidateGroupPhotoFormat(file *multipart.FileHeader) error {
 	}
 
 	return nil
-}
-
-// CreateMultipartFileFromBuffer creates a multipart file header from processed image data
-func CreateMultipartFileFromBuffer(buf *bytes.Buffer, originalFilename string) *multipart.FileHeader {
-	// Create a new filename with .jpg extension
-	newFilename := "processed_group_photo.jpg"
-	if originalFilename != "" {
-		// Keep original name but change extension
-		newFilename = originalFilename[:len(originalFilename)-len(filepath.Ext(originalFilename))] + ".jpg"
-	}
-
-	// Create a mock multipart file header
-	// Note: This is a simplified version. In a real implementation,
-	// you might want to create a proper multipart.File interface
-	header := &multipart.FileHeader{
-		Filename: newFilename,
-		Size:     int64(buf.Len()),
-		Header:   make(map[string][]string),
-	}
-	header.Header.Set("Content-Type", "image/jpeg")
-
-	return header
 }
