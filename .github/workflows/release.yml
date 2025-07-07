@@ -129,7 +129,7 @@ jobs:
 
       - name: Run GoReleaser for Linux/Windows
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: goreleaser release --config /tmp/.goreleaser-linux-windows.yml --clean --timeout 60m --skip-validate
 
   build-macos:
@@ -201,5 +201,5 @@ jobs:
 
       - name: Run GoReleaser for macOS
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: goreleaser release --config /tmp/.goreleaser-macos.yml --timeout 60m --skip-validate
