@@ -9,9 +9,9 @@ builds:
       - linux
       - darwin
     goarch:
-      - amd64   # 64-bit
-      - arm64   # Apple Silicon & Linux arm64
-      - 386     # 32-bit Windows (issue #155)
+      - "amd64"   # 64-bit
+      - "arm64"   # Apple Silicon & Linux arm64
+      - "386"     # 32-bit Windows (issue #155)
     # Output executable name pattern
     ldflags: -s -w
     # Name artifacts per OS/Arch similar to previous manual build names
@@ -29,7 +29,6 @@ checksum:
 
 release:
   draft: false
-  prerelease: false
   github:
     owner: "aldinokemal"
     name: "go-whatsapp-web-multidevice"

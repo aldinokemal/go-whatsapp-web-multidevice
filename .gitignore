@@ -10,3 +10,4 @@ src/pkged.go
 storages
 .env
 bin
+dist
