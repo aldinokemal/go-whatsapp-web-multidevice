@@ -127,12 +127,12 @@ func ParseJID(arg string) (types.JID, error) {
 
 	recipient, err := types.ParseJID(arg)
 	if err != nil {
-		fmt.Printf("invalid JID %s: %v", arg, err)
+		logrus.Errorf("invalid JID %s: %v", arg, err)
 		return recipient, pkgError.ErrInvalidJID
 	}
 
 	if recipient.User == "" {
-		fmt.Printf("invalid JID %v: no server specified", arg)
+		logrus.Errorf("invalid JID %v: no server specified", arg)
 		return recipient, pkgError.ErrInvalidJID
 	}
 	return recipient, nil

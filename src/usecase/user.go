@@ -125,7 +125,7 @@ func (service serviceUser) MyListGroups(_ context.Context) (response domainUser.
 	if err != nil {
 		return
 	}
-	fmt.Printf("%+v\n", groups)
+	logrus.Debugf("Retrieved joined groups: %+v", groups)
 	for _, group := range groups {
 		response.Data = append(response.Data, *group)
 	}
@@ -139,7 +139,7 @@ func (service serviceUser) MyListNewsletter(_ context.Context) (response domainU
 	if err != nil {
 		return
 	}
-	fmt.Printf("%+v\n", datas)
+	logrus.Debugf("Retrieved subscribed newsletters: %+v", datas)
 	for _, data := range datas {
 		response.Data = append(response.Data, *data)
 	}

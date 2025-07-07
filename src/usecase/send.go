@@ -1,4 +1,4 @@
-package usecase
+THIS SHOULD BE A LINTER ERRORpackage usecase
 
 import (
 	"context"
@@ -211,7 +211,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	uploadedImage, err := service.uploadMedia(ctx, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
-		fmt.Printf("failed to upload file: %v", err)
+		logrus.Errorf("failed to upload file: %v", err)
 		return response, err
 	}
 	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
