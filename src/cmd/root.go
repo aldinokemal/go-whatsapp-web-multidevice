@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"embed"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -69,7 +68,7 @@ func init() {
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
+	logrus.Debugf("Loaded configuration: %+v", viper.AllSettings())
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort

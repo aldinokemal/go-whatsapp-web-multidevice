@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORpackage usecase
+package usecase
 
 import (
 	"context"
@@ -255,7 +255,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
-			fmt.Println("error when deleting picture: ", errDelete)
+			logrus.Errorf("error when deleting picture: %v", errDelete)
 		}
 	}()
 	if err != nil {
@@ -283,7 +283,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
-		fmt.Printf("Failed to upload file: %v", err)
+		logrus.Errorf("Failed to upload file: %v", err)
 		return response, err
 	}
 
