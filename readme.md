@@ -3,7 +3,7 @@
 <div align="center">
   <!-- markdownlint-disable-next-line MD033 -->
   <img src="src/views/assets/gowa.svg" alt="GoWA Logo" width="200" height="200">
-  
+
 ## Golang WhatsApp - Built with Go for efficient memory use
 
 </div>
@@ -36,39 +36,39 @@ Download:
 ## Breaking Changes
 
 - `v6`
-  - For REST mode, you need to run `<binary> rest` instead of `<binary>`
-    - for example: `./whatsapp rest` instead of ~~./whatsapp~~
-  - For MCP mode, you need to run `<binary> mcp`
-    - for example: `./whatsapp mcp`
+    - For REST mode, you need to run `<binary> rest` instead of `<binary>`
+        - for example: `./whatsapp rest` instead of ~~./whatsapp~~
+    - For MCP mode, you need to run `<binary> mcp`
+        - for example: `./whatsapp mcp`
 
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
 - Mention someone
-  - `@phoneNumber`
-  - example: `Hello @628974812XXXX, @628974812XXXX`
+    - `@phoneNumber`
+    - example: `Hello @628974812XXXX, @628974812XXXX`
 - Post Whatsapp Status
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
-  - `--os=Chrome` or `--os=MyApplication`
+    - `--os=Chrome` or `--os=MyApplication`
 - Basic Auth (able to add multi credentials)
-  - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
-  - `-b=kemal:secret,toni:password,userName:secretPassword`
+    - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
+    - `-b=kemal:secret,toni:password,userName:secretPassword`
 - Customizable port and debug mode
-  - `--port 8000`
-  - `--debug true`
+    - `--port 8000`
+    - `--debug true`
 - Auto reply message
-  - `--autoreply="Don't reply this message"`
+    - `--autoreply="Don't reply this message"`
 - Webhook for received message
-  - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
-  - `-w="http://yourwebhook.site/handler"`
+    - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
+    - `-w="http://yourwebhook.site/handler"`
 - Webhook Secret
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
 
   You may modify this by using the option below:
-  - `--webhook-secret="secret"`
+    - `--webhook-secret="secret"`
 
 ## Configuration
 
@@ -81,7 +81,8 @@ can be set in three ways (in order of priority):
 
 ### Environment Variables
 
-You can configure the application using environment variables. Configuration can be set in three ways (in order of priority):
+You can configure the application using environment variables. Configuration can be set in three ways (in order of
+priority):
 
 1. Command-line flags (highest priority)
 2. Environment variables
@@ -95,19 +96,19 @@ To use environment variables:
 
 #### Available Environment Variables
 
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `APP_PORT` | Application port | `3000` | `APP_PORT=8080` |
-| `APP_DEBUG` | Enable debug logging | `false` | `APP_DEBUG=true` |
-| `APP_OS` | OS name (device name in WhatsApp) | `Chrome` | `APP_OS=MyApp` |
-| `APP_BASIC_AUTH` | Basic authentication credentials | - | `APP_BASIC_AUTH=user1:pass1,user2:pass2` |
-| `APP_CHAT_FLUSH_INTERVAL` | Chat flush interval in days | `7` | `APP_CHAT_FLUSH_INTERVAL=30` |
-| `DB_URI` | Database connection URI | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db` |
-| `WHATSAPP_AUTO_REPLY` | Auto-reply message | - | `WHATSAPP_AUTO_REPLY="Auto reply message"` |
-| `WHATSAPP_WEBHOOK` | Webhook URL(s) for events (comma-separated) | - | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
-| `WHATSAPP_WEBHOOK_SECRET` | Webhook secret for validation | `secret` | `WHATSAPP_WEBHOOK_SECRET=super-secret-key` |
-| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation | `true` | `WHATSAPP_ACCOUNT_VALIDATION=false` |
-| `WHATSAPP_CHAT_STORAGE` | Enable chat storage | `true` | `WHATSAPP_CHAT_STORAGE=false` |
+| Variable                      | Description                                 | Default                                      | Example                                     |
+|-------------------------------|---------------------------------------------|----------------------------------------------|---------------------------------------------|
+| `APP_PORT`                    | Application port                            | `3000`                                       | `APP_PORT=8080`                             |
+| `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
+| `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
+| `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
+| `APP_CHAT_FLUSH_INTERVAL`     | Chat flush interval in days                 | `7`                                          | `APP_CHAT_FLUSH_INTERVAL=30`                |
+| `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
+| `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
+| `WHATSAPP_WEBHOOK`            | Webhook URL(s) for events (comma-separated) | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
+| `WHATSAPP_WEBHOOK_SECRET`     | Webhook secret for validation               | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`  |
+| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation                   | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`         |
+| `WHATSAPP_CHAT_STORAGE`       | Enable chat storage                         | `true`                                       | `WHATSAPP_CHAT_STORAGE=false`               |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
@@ -129,14 +130,14 @@ Note: Command-line flags will override any values set in environment variables o
 ### Dependencies (without docker)
 
 - Mac OS:
-  - `brew install ffmpeg`
-  - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
+    - `brew install ffmpeg`
+    - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
-  - `sudo apt update`
-  - `sudo apt install ffmpeg`
+    - `sudo apt update`
+    - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
-  - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+    - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
+    - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ## How to use
 
@@ -172,7 +173,8 @@ Note: Command-line flags will override any values set in environment variables o
 
 ### MCP Server (Model Context Protocol)
 
-This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a standardized protocol.
+This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a
+standardized protocol.
 
 1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
@@ -290,49 +292,49 @@ You can fork or edit this source code !
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
-| Feature | Menu                                   | Method | URL                                   |
-|---------|----------------------------------------|--------|---------------------------------------|
-| ✅       | Login with Scan QR                     | GET    | /app/login                            |
-| ✅       | Login With Pair Code                   | GET    | /app/login-with-code                  |
-| ✅       | Logout                                 | GET    | /app/logout                           |  
-| ✅       | Reconnect                              | GET    | /app/reconnect                        |
-| ✅       | Devices                                | GET    | /app/devices                          |
-| ✅       | User Info                              | GET    | /user/info                            |
-| ✅       | User Avatar                            | GET    | /user/avatar                          |
-| ✅       | User Change Avatar                     | POST   | /user/avatar                          |
-| ✅       | User Change PushName                   | POST   | /user/pushname                        |
-| ✅       | User My Groups                         | GET    | /user/my/groups                       |
-| ✅       | User My Newsletter                     | GET    | /user/my/newsletters                  |
-| ✅       | User My Privacy Setting                | GET    | /user/my/privacy                      |
-| ✅       | User My Contacts                       | GET    | /user/my/contacts                     |
-| ✅       | Send Message                           | POST   | /send/message                         |
-| ✅       | Send Image                             | POST   | /send/image                           |
-| ✅       | Send Audio                             | POST   | /send/audio                           |
-| ✅       | Send File                              | POST   | /send/file                            |
-| ✅       | Send Video                             | POST   | /send/video                           |
-| ✅       | Send Contact                           | POST   | /send/contact                         |
-| ✅       | Send Link                              | POST   | /send/link                            |
-| ✅       | Send Location                          | POST   | /send/location                        |
-| ✅       | Send Poll / Vote                       | POST   | /send/poll                            |
-| ✅       | Send Presence                          | POST   | /send/presence                        |
-| ✅       | Revoke Message                         | POST   | /message/:message_id/revoke           |
-| ✅       | React Message                          | POST   | /message/:message_id/reaction         |
-| ✅       | Delete Message                         | POST   | /message/:message_id/delete           |
-| ✅       | Edit Message                           | POST   | /message/:message_id/update           |
-| ✅       | Read Message (DM)                      | POST   | /message/:message_id/read             |
-| ✅       | Star Message                           | POST   | /message/:message_id/star             |
-| ✅       | Unstar Message                         | POST   | /message/:message_id/unstar           |
-| ✅       | Join Group With Link                   | POST   | /group/join-with-link                 |
-| ✅       | Leave Group                            | POST   | /group/leave                          |
-| ✅       | Create Group                           | POST   | /group                                |
-| ✅       | Add Participants in Group              | POST   | /group/participants                   |
-| ✅       | Remove Participant in Group            | POST   | /group/participants/remove            |
-| ✅       | Promote Participant in Group           | POST   | /group/participants/promote           |
-| ✅       | Demote Participant in Group            | POST   | /group/participants/demote            |
-| ✅       | List Requested Participants in Group   | GET    | /group/participant-requests           |
-| ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve   |
-| ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject    |
-| ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                  |
+| Feature | Menu                                   | Method | URL                                 |
+|---------|----------------------------------------|--------|-------------------------------------|
+| ✅       | Login with Scan QR                     | GET    | /app/login                          |
+| ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
+| ✅       | Logout                                 | GET    | /app/logout                         |  
+| ✅       | Reconnect                              | GET    | /app/reconnect                      |
+| ✅       | Devices                                | GET    | /app/devices                        |
+| ✅       | User Info                              | GET    | /user/info                          |
+| ✅       | User Avatar                            | GET    | /user/avatar                        |
+| ✅       | User Change Avatar                     | POST   | /user/avatar                        |
+| ✅       | User Change PushName                   | POST   | /user/pushname                      |
+| ✅       | User My Groups                         | GET    | /user/my/groups                     |
+| ✅       | User My Newsletter                     | GET    | /user/my/newsletters                |
+| ✅       | User My Privacy Setting                | GET    | /user/my/privacy                    |
+| ✅       | User My Contacts                       | GET    | /user/my/contacts                   |
+| ✅       | Send Message                           | POST   | /send/message                       |
+| ✅       | Send Image                             | POST   | /send/image                         |
+| ✅       | Send Audio                             | POST   | /send/audio                         |
+| ✅       | Send File                              | POST   | /send/file                          |
+| ✅       | Send Video                             | POST   | /send/video                         |
+| ✅       | Send Contact                           | POST   | /send/contact                       |
+| ✅       | Send Link                              | POST   | /send/link                          |
+| ✅       | Send Location                          | POST   | /send/location                      |
+| ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
+| ✅       | Send Presence                          | POST   | /send/presence                      |
+| ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |
+| ✅       | React Message                          | POST   | /message/:message_id/reaction       |
+| ✅       | Delete Message                         | POST   | /message/:message_id/delete         |
+| ✅       | Edit Message                           | POST   | /message/:message_id/update         |
+| ✅       | Read Message (DM)                      | POST   | /message/:message_id/read           |
+| ✅       | Star Message                           | POST   | /message/:message_id/star           |
+| ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
+| ✅       | Join Group With Link                   | POST   | /group/join-with-link               |
+| ✅       | Leave Group                            | POST   | /group/leave                        |
+| ✅       | Create Group                           | POST   | /group                              |
+| ✅       | Add Participants in Group              | POST   | /group/participants                 |
+| ✅       | Remove Participant in Group            | POST   | /group/participants/remove          |
+| ✅       | Promote Participant in Group           | POST   | /group/participants/promote         |
+| ✅       | Demote Participant in Group            | POST   | /group/participants/demote          |
+| ✅       | List Requested Participants in Group   | GET    | /group/participant-requests         |
+| ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve |
+| ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject  |
+| ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 
 ```txt
 ✅ = Available
@@ -344,42 +346,35 @@ You can fork or edit this source code !
 ### MCP UI
 
 - Setup MCP (tested in cursor)
-![Setup MCP](https://i.ibb.co/vCg4zNWt/mcpsetup.png)
+  ![Setup MCP](https://i.ibb.co/vCg4zNWt/mcpsetup.png)
 - Test MCP
-![Test MCP](https://i.ibb.co/B2LX38DW/mcptest.png)
+  ![Test MCP](https://i.ibb.co/B2LX38DW/mcptest.png)
 - Successfully setup MCP
-![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
+  ![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
 
 ### HTTP REST API UI
 
-| Description          | Image                                                                                    |
-|----------------------|------------------------------------------------------------------------------------------|
-| Homepage             | ![Homepage](https://i.ibb.co/251sHyF/Homepage.png)                                       |
-| Login                | ![Login](https://i.ibb.co.com/xJyCWv8/login.png)                                         |
-| Login With Code      | ![Login With Code](https://i.ibb.co.com/YDjyXby/login-With-Code.png)                     |
-| Send Message         | ![Send Message](https://i.ibb.co.com/7Y0wJ5R/send-Message.png)                           |
-| Send Image           | ![Send Image](https://i.ibb.co.com/NtyLLdS/send-Image.png)                               |
-| Send File            | ![Send File](https://i.ibb.co.com/D94yvnX/sendFile.png)                                  |
-| Send Video           | ![Send Video](https://i.ibb.co.com/r0LdRFH/send-Video.png)                               |
-| Send Contact         | ![Send Contact](https://i.ibb.co.com/NsFfQBv/send-Contact.png)                           |
-| Send Location        | ![Send Location](https://i.ibb.co.com/vDGmFvk/send-Location.png)                         |
-| Send Audio           | ![Send Audio](https://i.ibb.co.com/XJdQLP8/send-Audio.png)                               |
-| Send Poll            | ![Send Poll](https://i.ibb.co.com/4TswfT3/sendPoll.png?v=1)                              |
-| Send Presence        | ![Send Presence](https://i.ibb.co.com/NSTC3QX/send-Presence.png)                         |
-| Revoke Message       | ![Revoke Message](https://i.ibb.co.com/r4nDc57/revoke-Message.png)                       |
-| Delete Message       | ![Delete Message](https://i.ibb.co.com/dtrTJ1M/delete-Message.png)                       |
-| Reaction Message     | ![Reaction Message](https://i.ibb.co.com/fNqJXF0/react-Message.png)                      |
-| Edit Message         | ![Edit Message](https://i.ibb.co.com/Vx5cQMg/update-Message.png)                         |
-| User Info            | ![User Info](https://i.ibb.co.com/qd7J7Nd/Search-User-Info.png)                          |
-| User Avatar          | ![User Avatar](https://i.ibb.co.com/zbSzpP3/Search-Avatar.png)                           |
-| My Privacy           | ![My Privacy](https://i.ibb.co.com/HCLxGHr/My-Privacy.png)                               |
-| My Group             | ![My Group](https://i.ibb.co.com/p19dFQ5/list-Group.png)                                 |
-| Create Group         | ![My Group](https://i.ibb.co.com/YLT5Hyh/create-Group.png)                               |
-| Join Group with LInk | ![My Group](https://i.ibb.co.com/x5p95J7/join-Group-With-Link.png)                       |
-| Auto Reply           | ![Auto Reply](https://i.ibb.co.com/D4rTytX/IMG-20220517-162500.jpg)                      |
-| Basic Auth Prompt    | ![Basic Auth Prompt](https://i.ibb.co.com/PDjQ92W/Screenshot-2022-11-06-at-14-06-29.png) |
-| Manage Participant   | ![Manage Participant](https://i.ibb.co.com/x7yn9nY/Manage-Participant.png)               |
-| My Newsletter        | ![List Newsletter](https://i.ibb.co.com/BLvyS9j/My-Newsletter.png)                       |
+| Description          | Image                                                         |
+|----------------------|---------------------------------------------------------------|
+| Homepage             | ![Homepage](./gallery/homepage.png)                           |
+| Login                | ![Login](./gallery/login.png)                                 |
+| Login With Code      | ![Login With Code](./gallery/login-with-code.png)             |
+| Send Message         | ![Send Message](./gallery/send-message.png)                   |
+| Send Image           | ![Send Image](./gallery/send-image.png)                       |
+| Send File            | ![Send File](./gallery/send-file.png)                         |
+| Send Video           | ![Send Video](./gallery/send-video.png)                       |
+| Send Contact         | ![Send Contact](./gallery/send-contact.png)                   |
+| Send Location        | ![Send Location](./gallery/send-location.png)                 |
+| Send Audio           | ![Send Audio](./gallery/send-audio.png)                       |
+| Send Poll            | ![Send Poll](./gallery/send-poll.png)                         |
+| Send Presence        | ![Send Presence](./gallery/send-presence.png)                 |
+| Send Link            | ![Send Link](./gallery/send-link.png)                         |
+| My Group             | ![My Group](./gallery/group-list.png)                         |
+| Create Group         | ![Create Group](./gallery/group-create.png)                   |
+| Join Group with LInk | ![Join Group with Link](./gallery/group-join-link.png)        |
+| Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
+| My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
+| My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |
 
 ### Mac OS NOTE
 
@@ -390,4 +385,5 @@ You can fork or edit this source code !
 
 - This project is unofficial and not affiliated with WhatsApp.
 - Please use official WhatsApp API to avoid any issues.
-- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in the future.
+- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in
+  the future.
