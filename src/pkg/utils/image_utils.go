@@ -154,7 +154,9 @@ func ValidateGroupPhotoFormat(file *multipart.FileHeader) error {
 	}
 
 	// Reset to beginning
-	src.Seek(0, 0)
+	if _, err := src.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to reset file position: %w", err)
+	}
 
 	// Detect image format from header
 	_, format, err := image.DecodeConfig(src)
