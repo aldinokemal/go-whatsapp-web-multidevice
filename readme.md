@@ -4,7 +4,7 @@
   <!-- markdownlint-disable-next-line MD033 -->
   <img src="src/views/assets/gowa.svg" alt="GoWA Logo" width="200" height="200">
   
-## Golang WhatsApp - Built in Go for efficient memory use
+## Golang WhatsApp - Built with Go for efficient memory use
 
 </div>
 
