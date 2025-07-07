@@ -1,0 +1,39 @@
+project_name: whatsapp
+
+builds:
+  - id: default
+    # The root of the Go module containing main.go
+    main: ./src
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64   # 64-bit
+      - arm64   # Apple Silicon & Linux arm64
+      - 386     # 32-bit Windows (issue #155)
+    # Output executable name pattern
+    ldflags: -s -w
+    # Name artifacts per OS/Arch similar to previous manual build names
+    binary: "{{ .Os }}-{{ .Arch }}"
+
+archives:
+  - id: binaries
+    builds:
+      - default
+    format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    replacements:
+      windows: windows
+      darwin: macOS
+      linux: linux
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: "{{ .Env.REPO_OWNER | default `aldinokemal` }}"
+    name: "{{ .Env.REPO_NAME | default `go-whatsapp-web-multidevice` }}"
+    draft: false
+    prerelease: false
