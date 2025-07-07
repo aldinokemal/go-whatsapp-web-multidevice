@@ -87,6 +87,15 @@ func cropToSquare(img image.Image) image.Image {
 // compressToJPEG converts an image to JPEG format with specified quality
 // and tries to compress it to stay under the file size limit
 func compressToJPEG(img image.Image, quality int) (*bytes.Buffer, error) {
+	return compressToJPEGWithDepth(img, quality, 0)
+}
+
+func compressToJPEGWithDepth(img image.Image, quality int, depth int) (*bytes.Buffer, error) {
+	const maxDepth = 10 // Prevent infinite recursion
+	if depth > maxDepth {
+		return nil, fmt.Errorf("exceeded maximum compression attempts")
+	}
+
 	var buf bytes.Buffer
 
 	// Try with initial quality
@@ -97,7 +106,7 @@ func compressToJPEG(img image.Image, quality int) (*bytes.Buffer, error) {
 
 	// If file is too large, reduce quality and try again
 	if buf.Len() > MaxGroupPhotoSize && quality > 10 {
-		return compressToJPEG(img, quality-10)
+		return compressToJPEGWithDepth(img, quality-10, depth+1)
 	}
 
 	// If still too large even at low quality, resize the image smaller
@@ -109,7 +118,7 @@ func compressToJPEG(img image.Image, quality int) (*bytes.Buffer, error) {
 		}
 
 		resized := imaging.Resize(img, newSize, newSize, imaging.Lanczos)
-		return compressToJPEG(resized, quality)
+		return compressToJPEGWithDepth(resized, quality, depth+1)
 	}
 
 	return &buf, nil
