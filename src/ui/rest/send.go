@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"fmt"
+
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -28,13 +30,24 @@ func InitRestSend(app *fiber.App, service domainSend.ISendUsecase) Send {
 
 func (controller *Send) SendText(c *fiber.Ctx) error {
 	var request domainSend.MessageRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendText(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_TEXT_FAILED",
+			Message: fmt.Sprintf("Failed to send text message: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -48,8 +61,13 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	var request domainSend.ImageRequest
 	request.Compress = true
 
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	file, err := c.FormFile("image")
 	if err == nil {
@@ -59,7 +77,13 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_IMAGE_FAILED",
+			Message: fmt.Sprintf("Failed to send image: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -71,17 +95,34 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 
 func (controller *Send) SendFile(c *fiber.Ctx) error {
 	var request domainSend.FileRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	file, err := c.FormFile("file")
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "FILE_REQUIRED",
+			Message: "File is required for this operation",
+		})
+	}
 
 	request.File = file
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_FILE_FAILED",
+			Message: fmt.Sprintf("Failed to send file: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -93,8 +134,13 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 
 func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	var request domainSend.VideoRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	// Try to get file but ignore error if not provided
 	if videoFile, errFile := c.FormFile("video"); errFile == nil {
@@ -104,7 +150,13 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_VIDEO_FAILED",
+			Message: fmt.Sprintf("Failed to send video: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -116,13 +168,24 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 
 func (controller *Send) SendContact(c *fiber.Ctx) error {
 	var request domainSend.ContactRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_CONTACT_FAILED",
+			Message: fmt.Sprintf("Failed to send contact: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -134,13 +197,24 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 
 func (controller *Send) SendLink(c *fiber.Ctx) error {
 	var request domainSend.LinkRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_LINK_FAILED",
+			Message: fmt.Sprintf("Failed to send link: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -152,13 +226,24 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 
 func (controller *Send) SendLocation(c *fiber.Ctx) error {
 	var request domainSend.LocationRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLocation(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_LOCATION_FAILED",
+			Message: fmt.Sprintf("Failed to send location: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -170,8 +255,13 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 
 func (controller *Send) SendAudio(c *fiber.Ctx) error {
 	var request domainSend.AudioRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	// Try to get file but ignore error if not provided
 	if audioFile, errFile := c.FormFile("audio"); errFile == nil {
@@ -181,7 +271,13 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendAudio(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_AUDIO_FAILED",
+			Message: fmt.Sprintf("Failed to send audio: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -193,13 +289,24 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 
 func (controller *Send) SendPoll(c *fiber.Ctx) error {
 	var request domainSend.PollRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendPoll(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_POLL_FAILED",
+			Message: fmt.Sprintf("Failed to send poll: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -211,11 +318,22 @@ func (controller *Send) SendPoll(c *fiber.Ctx) error {
 
 func (controller *Send) SendPresence(c *fiber.Ctx) error {
 	var request domainSend.PresenceRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	response, err := controller.Service.SendPresence(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SEND_PRESENCE_FAILED",
+			Message: fmt.Sprintf("Failed to send presence: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,

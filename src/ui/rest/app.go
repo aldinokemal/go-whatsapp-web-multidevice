@@ -25,7 +25,13 @@ func InitRestApp(app *fiber.App, service domainApp.IAppUsecase) App {
 
 func (handler *App) Login(c *fiber.Ctx) error {
 	response, err := handler.Service.Login(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LOGIN_FAILED",
+			Message: fmt.Sprintf("Failed to login: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -39,8 +45,23 @@ func (handler *App) Login(c *fiber.Ctx) error {
 }
 
 func (handler *App) LoginWithCode(c *fiber.Ctx) error {
-	pairCode, err := handler.Service.LoginWithCode(c.UserContext(), c.Query("phone"))
-	utils.PanicIfNeeded(err)
+	phone := c.Query("phone")
+	if phone == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "PHONE_REQUIRED",
+			Message: "Phone number is required",
+		})
+	}
+
+	pairCode, err := handler.Service.LoginWithCode(c.UserContext(), phone)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LOGIN_WITH_CODE_FAILED",
+			Message: fmt.Sprintf("Failed to login with code: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -53,8 +74,13 @@ func (handler *App) LoginWithCode(c *fiber.Ctx) error {
 }
 
 func (handler *App) Logout(c *fiber.Ctx) error {
-	err := handler.Service.Logout(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err := handler.Service.Logout(c.UserContext()); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LOGOUT_FAILED",
+			Message: fmt.Sprintf("Failed to logout: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -65,8 +91,13 @@ func (handler *App) Logout(c *fiber.Ctx) error {
 }
 
 func (handler *App) Reconnect(c *fiber.Ctx) error {
-	err := handler.Service.Reconnect(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err := handler.Service.Reconnect(c.UserContext()); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "RECONNECT_FAILED",
+			Message: fmt.Sprintf("Failed to reconnect: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -78,7 +109,13 @@ func (handler *App) Reconnect(c *fiber.Ctx) error {
 
 func (handler *App) Devices(c *fiber.Ctx) error {
 	devices, err := handler.Service.FetchDevices(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "FETCH_DEVICES_FAILED",
+			Message: fmt.Sprintf("Failed to fetch devices: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,

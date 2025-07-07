@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"fmt"
+
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -28,13 +30,24 @@ func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 
 func (controller *User) UserInfo(c *fiber.Ctx) error {
 	var request domainUser.InfoRequest
-	err := c.QueryParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.QueryParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse query parameters",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Info(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "USER_INFO_FAILED",
+			Message: fmt.Sprintf("Failed to get user info: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -46,13 +59,24 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 
 func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	var request domainUser.AvatarRequest
-	err := c.QueryParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.QueryParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse query parameters",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Avatar(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "USER_AVATAR_FAILED",
+			Message: fmt.Sprintf("Failed to get user avatar: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -64,14 +88,31 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 
 func (controller *User) UserChangeAvatar(c *fiber.Ctx) error {
 	var request domainUser.ChangeAvatarRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
-	request.Avatar, err = c.FormFile("avatar")
-	utils.PanicIfNeeded(err)
+	avatar, err := c.FormFile("avatar")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "AVATAR_REQUIRED",
+			Message: "Avatar file is required",
+		})
+	}
+	request.Avatar = avatar
 
-	err = controller.Service.ChangeAvatar(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.ChangeAvatar(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "CHANGE_AVATAR_FAILED",
+			Message: fmt.Sprintf("Failed to change avatar: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -82,7 +123,13 @@ func (controller *User) UserChangeAvatar(c *fiber.Ctx) error {
 
 func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 	response, err := controller.Service.MyPrivacySetting(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "PRIVACY_SETTINGS_FAILED",
+			Message: fmt.Sprintf("Failed to get privacy settings: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -94,7 +141,13 @@ func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 
 func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
 	response, err := controller.Service.MyListGroups(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LIST_GROUPS_FAILED",
+			Message: fmt.Sprintf("Failed to get groups list: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -106,7 +159,13 @@ func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
 
 func (controller *User) UserMyListNewsletter(c *fiber.Ctx) error {
 	response, err := controller.Service.MyListNewsletter(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LIST_NEWSLETTER_FAILED",
+			Message: fmt.Sprintf("Failed to get newsletter list: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -118,7 +177,13 @@ func (controller *User) UserMyListNewsletter(c *fiber.Ctx) error {
 
 func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
 	response, err := controller.Service.MyListContacts(c.UserContext())
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LIST_CONTACTS_FAILED",
+			Message: fmt.Sprintf("Failed to get contacts list: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -130,11 +195,21 @@ func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
 
 func (controller *User) UserChangePushName(c *fiber.Ctx) error {
 	var request domainUser.ChangePushNameRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
-	err = controller.Service.ChangePushName(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.ChangePushName(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "CHANGE_PUSHNAME_FAILED",
+			Message: fmt.Sprintf("Failed to change push name: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -145,11 +220,22 @@ func (controller *User) UserChangePushName(c *fiber.Ctx) error {
 
 func (controller *User) UserCheck(c *fiber.Ctx) error {
 	var request domainUser.CheckRequest
-	err := c.QueryParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.QueryParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse query parameters",
+		})
+	}
 
 	response, err := controller.Service.IsOnWhatsApp(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "USER_CHECK_FAILED",
+			Message: fmt.Sprintf("Failed to check user: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,

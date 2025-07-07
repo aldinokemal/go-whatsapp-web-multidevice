@@ -38,11 +38,22 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupUsecase) Group {
 
 func (controller *Group) JoinGroupWithLink(c *fiber.Ctx) error {
 	var request domainGroup.JoinGroupWithLinkRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	response, err := controller.Service.JoinGroupWithLink(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "JOIN_GROUP_FAILED",
+			Message: fmt.Sprintf("Failed to join group: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -56,13 +67,23 @@ func (controller *Group) JoinGroupWithLink(c *fiber.Ctx) error {
 
 func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 	var request domainGroup.LeaveGroupRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.LeaveGroup(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.LeaveGroup(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "LEAVE_GROUP_FAILED",
+			Message: fmt.Sprintf("Failed to leave group: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -73,11 +94,22 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 
 func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 	var request domainGroup.CreateGroupRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	groupID, err := controller.Service.CreateGroup(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "CREATE_GROUP_FAILED",
+			Message: fmt.Sprintf("Failed to create group: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -88,6 +120,7 @@ func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 		},
 	})
 }
+
 func (controller *Group) AddParticipants(c *fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeAdd, "Success add participants")
 }
@@ -106,8 +139,13 @@ func (controller *Group) DemoteParticipants(c *fiber.Ctx) error {
 
 func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 	var request domainGroup.GetGroupRequestParticipantsRequest
-	err := c.QueryParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.QueryParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse query parameters",
+		})
+	}
 
 	if request.GroupID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
@@ -120,7 +158,13 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 	whatsapp.SanitizePhone(&request.GroupID)
 
 	result, err := controller.Service.GetGroupRequestParticipants(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "GET_PARTICIPANTS_FAILED",
+			Message: fmt.Sprintf("Failed to get participant requests: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -141,12 +185,26 @@ func (controller *Group) RejectParticipantRequests(c *fiber.Ctx) error {
 // Generalized participant management handler
 func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.ParticipantChange, successMsg string) error {
 	var request domainGroup.ParticipantRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
+
 	whatsapp.SanitizePhone(&request.GroupID)
 	request.Action = action
+
 	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "MANAGE_PARTICIPANTS_FAILED",
+			Message: fmt.Sprintf("Failed to manage participants: %v", err),
+		})
+	}
+
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
@@ -158,12 +216,26 @@ func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.Parti
 // Generalized requested participants handler
 func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsmeow.ParticipantRequestChange, successMsg string) error {
 	var request domainGroup.GroupRequestParticipantsRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
+
 	whatsapp.SanitizePhone(&request.GroupID)
 	request.Action = action
+
 	result, err := controller.Service.ManageGroupRequestParticipants(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "HANDLE_PARTICIPANT_REQUESTS_FAILED",
+			Message: fmt.Sprintf("Failed to handle participant requests: %v", err),
+		})
+	}
+
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
@@ -174,8 +246,13 @@ func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsm
 
 func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 	var request domainGroup.SetGroupPhotoRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
@@ -202,8 +279,12 @@ func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 	pictureID, err := controller.Service.SetGroupPhoto(c.UserContext(), request)
 	if err != nil {
 		logrus.Printf("ERROR: WhatsApp service failed to set group photo - %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SET_GROUP_PHOTO_FAILED",
+			Message: fmt.Sprintf("Failed to set group photo: %v", err),
+		})
 	}
-	utils.PanicIfNeeded(err)
 
 	message := "Success update group photo"
 	if request.Photo == nil {
@@ -223,13 +304,23 @@ func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 
 func (controller *Group) SetGroupName(c *fiber.Ctx) error {
 	var request domainGroup.SetGroupNameRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupName(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.SetGroupName(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SET_GROUP_NAME_FAILED",
+			Message: fmt.Sprintf("Failed to set group name: %v", err),
+		})
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -240,13 +331,23 @@ func (controller *Group) SetGroupName(c *fiber.Ctx) error {
 
 func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
 	var request domainGroup.SetGroupLockedRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupLocked(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.SetGroupLocked(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SET_GROUP_LOCKED_FAILED",
+			Message: fmt.Sprintf("Failed to set group locked status: %v", err),
+		})
+	}
 
 	message := "Success set group as unlocked"
 	if request.Locked {
@@ -262,13 +363,23 @@ func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
 
 func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
 	var request domainGroup.SetGroupAnnounceRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupAnnounce(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.SetGroupAnnounce(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SET_GROUP_ANNOUNCE_FAILED",
+			Message: fmt.Sprintf("Failed to set group announce mode: %v", err),
+		})
+	}
 
 	message := "Success disable announce mode"
 	if request.Announce {
@@ -284,13 +395,23 @@ func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
 
 func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
 	var request domainGroup.SetGroupTopicRequest
-	err := c.BodyParser(&request)
-	utils.PanicIfNeeded(err)
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "INVALID_REQUEST",
+			Message: "Failed to parse request body",
+		})
+	}
 
 	whatsapp.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupTopic(c.UserContext(), request)
-	utils.PanicIfNeeded(err)
+	if err := controller.Service.SetGroupTopic(c.UserContext(), request); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
+			Status:  500,
+			Code:    "SET_GROUP_TOPIC_FAILED",
+			Message: fmt.Sprintf("Failed to set group topic: %v", err),
+		})
+	}
 
 	message := "Success update group topic"
 	if request.Topic == "" {
