@@ -1,26 +1,108 @@
 project_name: whatsapp
 
 builds:
-  - id: default
+  # Linux builds (native and cross-compile)
+  - id: linux-amd64
     dir: ./src
     main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=gcc
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags: -s -w
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  - id: linux-arm64
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+    goos:
+      - linux
+    goarch:
+      - arm64
+    ldflags: -s -w
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  - id: linux-386
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=gcc
+    goos:
+      - linux
+    goarch:
+      - "386"
+    ldflags: -s -w
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  # Windows builds
+  - id: windows-amd64
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
     goos:
       - windows
-      - linux
+    goarch:
+      - amd64
+    ldflags: -s -w
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  - id: windows-386
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+      - CC=i686-w64-mingw32-gcc
+    goos:
+      - windows
+    goarch:
+      - "386"
+    ldflags: -s -w
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  # macOS builds (will only work on macOS runners)
+  - id: darwin-amd64
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+    goos:
       - darwin
     goarch:
-      - "amd64"   # 64-bit
-      - "arm64"   # Apple Silicon & Linux arm64
-      - "386"     # 32-bit Windows (issue #155)
-    # Output executable name pattern
+      - amd64
     ldflags: -s -w
-    # Name artifacts per OS/Arch similar to previous manual build names
+    binary: "{{ .Os }}-{{ .Arch }}"
+    
+  - id: darwin-arm64
+    dir: ./src
+    main: .
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags: -s -w
     binary: "{{ .Os }}-{{ .Arch }}"
 
 archives:
   - id: binaries
     builds:
-      - default
+      - linux-amd64
+      - linux-arm64
+      - linux-386
+      - windows-amd64
+      - windows-386
+      - darwin-amd64
+      - darwin-arm64
     format: zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 

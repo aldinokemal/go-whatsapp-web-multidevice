@@ -14,9 +14,7 @@ Your support helps ensure the library stays maintained and receives regular upda
 ___
 
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
-
 ![Build Image](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/build-docker-image.yaml/badge.svg)
-
 ![release windows](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-windows.yml/badge.svg)
 ![release linux](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-linux.yml/badge.svg)
 ![release macos](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release-mac.yml/badge.svg)
@@ -36,39 +34,41 @@ Download:
 ## Breaking Changes
 
 - `v6`
-    - For REST mode, you need to run `<binary> rest` instead of `<binary>`
-        - for example: `./whatsapp rest` instead of ~~./whatsapp~~
-    - For MCP mode, you need to run `<binary> mcp`
-        - for example: `./whatsapp mcp`
-
+  - For REST mode, you need to run `<binary> rest` instead of `<binary>`
+    - for example: `./whatsapp rest` instead of ~~./whatsapp~~
+  - For MCP mode, you need to run `<binary> mcp`
+    - for example: `./whatsapp mcp`
+- `v7`
+  - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+  
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
 - **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
 - Mention someone
-    - `@phoneNumber`
-    - example: `Hello @628974812XXXX, @628974812XXXX`
+  - `@phoneNumber`
+  - example: `Hello @628974812XXXX, @628974812XXXX`
 - Post Whatsapp Status
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
-    - `--os=Chrome` or `--os=MyApplication`
+  - `--os=Chrome` or `--os=MyApplication`
 - Basic Auth (able to add multi credentials)
-    - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
-    - `-b=kemal:secret,toni:password,userName:secretPassword`
+  - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
+  - `-b=kemal:secret,toni:password,userName:secretPassword`
 - Customizable port and debug mode
-    - `--port 8000`
-    - `--debug true`
+  - `--port 8000`
+  - `--debug true`
 - Auto reply message
-    - `--autoreply="Don't reply this message"`
+  - `--autoreply="Don't reply this message"`
 - Webhook for received message
-    - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
-    - `-w="http://yourwebhook.site/handler"`
+  - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
+  - `-w="http://yourwebhook.site/handler"`
 - Webhook Secret
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
 
   You may modify this by using the option below:
-    - `--webhook-secret="secret"`
+  - `--webhook-secret="secret"`
 
 ## Configuration
 
@@ -130,14 +130,14 @@ Note: Command-line flags will override any values set in environment variables o
 ### Dependencies (without docker)
 
 - Mac OS:
-    - `brew install ffmpeg`
-    - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
+  - `brew install ffmpeg`
+  - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
-    - `sudo apt update`
-    - `sudo apt install ffmpeg`
+  - `sudo apt update`
+  - `sudo apt install ffmpeg`
 - Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-    - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
-    - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
+  - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
 
 ## How to use
 
