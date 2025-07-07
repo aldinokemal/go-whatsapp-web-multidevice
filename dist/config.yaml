@@ -30,8 +30,8 @@ builds:
       - linux_386
       - darwin_amd64_v1
       - darwin_arm64
-    dir: .
-    main: ./src
+    dir: ./src
+    main: .
     binary: '{{ .Os }}-{{ .Arch }}'
     builder: go
     gobinary: go

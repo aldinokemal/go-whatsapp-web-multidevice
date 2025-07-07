@@ -2,8 +2,8 @@ project_name: whatsapp
 
 builds:
   - id: default
-    # The root of the Go module containing main.go
-    main: ./src
+    dir: ./src
+    main: .
     goos:
       - windows
       - linux
