@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.4.0
+  version: 6.5.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -1581,6 +1581,218 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /group/photo:
+    post:
+      operationId: setGroupPhoto
+      tags:
+        - group
+      summary: Set group photo
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                photo:
+                  type: string
+                  format: binary
+                  description: Group photo to upload (JPEG format recommended). Leave empty to remove photo.
+              required:
+                - group_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetGroupPhotoResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/name:
+    post:
+      operationId: setGroupName
+      tags:
+        - group
+      summary: Set group name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                name:
+                  type: string
+                  example: 'New Group Name'
+                  description: The new group name (max 25 characters)
+                  maxLength: 25
+              required:
+                - group_id
+                - name
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/locked:
+    post:
+      operationId: setGroupLocked
+      tags:
+        - group
+      summary: Set group locked status
+      description: Lock/unlock group so only admins can modify group info
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                locked:
+                  type: boolean
+                  example: true
+                  description: Whether to lock the group (true) or unlock it (false)
+              required:
+                - group_id
+                - locked
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/announce:
+    post:
+      operationId: setGroupAnnounce
+      tags:
+        - group
+      summary: Set group announce mode
+      description: Enable/disable announce mode so only admins can send messages
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                announce:
+                  type: boolean
+                  example: true
+                  description: Whether to enable announce mode (true) or disable it (false)
+              required:
+                - group_id
+                - announce
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /group/topic:
+    post:
+      operationId: setGroupTopic
+      tags:
+        - group
+      summary: Set group topic
+      description: Set or remove group topic/description
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_id:
+                  type: string
+                  example: '120363024512399999@g.us'
+                  description: The group ID
+                topic:
+                  type: string
+                  example: 'Welcome to our group! Please follow the rules.'
+                  description: The group topic/description. Leave empty to remove the topic.
+              required:
+                - group_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /newsletter/unfollow:
     post:
       operationId: unfollowNewsletter
@@ -1676,6 +1888,25 @@ components:
               message:
                 type: string
                 example: Participant added
+    SetGroupPhotoResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success update group photo
+        results:
+          type: object
+          properties:
+            picture_id:
+              type: string
+              example: "1647874123"
+              description: The ID of the uploaded picture, or 'remove' if photo was removed
+            message:
+              type: string
+              example: Success update group photo
 
     UserGroupResponse:
       type: object

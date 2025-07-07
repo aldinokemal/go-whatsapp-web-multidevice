@@ -3,7 +3,8 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"log"
+
+	"github.com/sirupsen/logrus"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/gofiber/fiber/v2"
@@ -27,24 +28,24 @@ var (
 
 func handleRegister(conn *websocket.Conn) {
 	Clients[conn] = client{}
-	log.Println("connection registered")
+	logrus.Println("connection registered")
 }
 
 func handleUnregister(conn *websocket.Conn) {
 	delete(Clients, conn)
-	log.Println("connection unregistered")
+	logrus.Println("connection unregistered")
 }
 
 func broadcastMessage(message BroadcastMessage) {
 	marshalMessage, err := json.Marshal(message)
 	if err != nil {
-		log.Println("marshal error:", err)
+		logrus.Println("marshal error:", err)
 		return
 	}
 
 	for conn := range Clients {
 		if err := conn.WriteMessage(websocket.TextMessage, marshalMessage); err != nil {
-			log.Println("write error:", err)
+			logrus.Println("write error:", err)
 			closeConnection(conn)
 		}
 	}
@@ -52,10 +53,10 @@ func broadcastMessage(message BroadcastMessage) {
 
 func closeConnection(conn *websocket.Conn) {
 	if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
-		log.Println("write close message error:", err)
+		logrus.Println("write close message error:", err)
 	}
 	if err := conn.Close(); err != nil {
-		log.Println("close connection error:", err)
+		logrus.Println("close connection error:", err)
 	}
 	delete(Clients, conn)
 }
@@ -70,7 +71,7 @@ func RunHub() {
 			handleUnregister(conn)
 
 		case message := <-Broadcast:
-			log.Println("message received:", message)
+			logrus.Println("message received:", message)
 			broadcastMessage(message)
 		}
 	}
@@ -96,7 +97,7 @@ func RegisterRoutes(app *fiber.App, service domainApp.IAppUsecase) {
 			messageType, message, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Println("read error:", err)
+					logrus.Println("read error:", err)
 				}
 				return
 			}
@@ -104,7 +105,7 @@ func RegisterRoutes(app *fiber.App, service domainApp.IAppUsecase) {
 			if messageType == websocket.TextMessage {
 				var messageData BroadcastMessage
 				if err := json.Unmarshal(message, &messageData); err != nil {
-					log.Println("unmarshal error:", err)
+					logrus.Println("unmarshal error:", err)
 					return
 				}
 
@@ -117,7 +118,7 @@ func RegisterRoutes(app *fiber.App, service domainApp.IAppUsecase) {
 					}
 				}
 			} else {
-				log.Println("unsupported message type:", messageType)
+				logrus.Println("unsupported message type:", messageType)
 			}
 		}
 	}))
