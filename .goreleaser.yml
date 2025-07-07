@@ -23,17 +23,13 @@ archives:
       - default
     format: zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    replacements:
-      windows: windows
-      darwin: macOS
-      linux: linux
 
 checksum:
   name_template: "checksums.txt"
 
 release:
+  draft: false
+  prerelease: false
   github:
-    owner: "{{ .Env.REPO_OWNER | default `aldinokemal` }}"
-    name: "{{ .Env.REPO_NAME | default `go-whatsapp-web-multidevice` }}"
-    draft: false
-    prerelease: false
+    owner: "aldinokemal"
+    name: "go-whatsapp-web-multidevice"
