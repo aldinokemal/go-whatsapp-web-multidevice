@@ -1,1 +1,1 @@
-{"project_name":"whatsapp","tag":"v6.2.0","previous_tag":"v6.1.2","version":"6.2.0-SNAPSHOT-e8dfc0b","commit":"e8dfc0baf697c4dc8e60d7aa5fb6832b6628076d","date":"2025-07-07T13:31:46.768949327Z","runtime":{"goos":"linux","goarch":"amd64"}}
+{"project_name":"whatsapp","tag":"v6.2.0","previous_tag":"v6.1.2","version":"6.2.0-SNAPSHOT-828286e","commit":"828286e57fbbf2abe582adb17cb92755fa1cb267","date":"2025-07-07T13:42:22.191615073Z","runtime":{"goos":"linux","goarch":"amd64"}}
