@@ -13,6 +13,9 @@ import (
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
+// maxDuration represents the maximum allowed duration in seconds (uint32 max).
+const maxDuration int64 = 4294967295
+
 func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
@@ -24,7 +27,7 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 	}
 
 	// Custom validation for optional Duration
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 	return nil
@@ -67,7 +70,7 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 	}
 
 	// Validate duration
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -89,7 +92,7 @@ func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error
 		return pkgError.ValidationError(fmt.Sprintf("max file upload is %s, please upload in cloud and send via text if your file is higher than %s", maxSizeString, maxSizeString))
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -141,7 +144,7 @@ func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) err
 		}
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -159,7 +162,7 @@ func ValidateSendContact(ctx context.Context, request domainSend.ContactRequest)
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -177,7 +180,7 @@ func ValidateSendLink(ctx context.Context, request domainSend.LinkRequest) error
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -195,7 +198,7 @@ func ValidateSendLocation(ctx context.Context, request domainSend.LocationReques
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -265,7 +268,7 @@ func ValidateSendAudio(ctx context.Context, request domainSend.AudioRequest) err
 		}
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
@@ -293,7 +296,7 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if request.Duration != nil && (*request.Duration < 0 || *request.Duration > 4294967295) {
+	if request.Duration != nil && (*request.Duration < 0 || int64(*request.Duration) > maxDuration) {
 		return pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)")
 	}
 
