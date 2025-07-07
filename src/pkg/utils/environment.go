@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -28,19 +28,19 @@ func Env[T any](key string, defValue ...T) T {
 func MustHaveEnv(key string) string {
 	env := viper.GetString(key)
 	if env == "" {
-		log.Warn(context.Background(), map[string]interface{}{
+		logrus.Warn(context.Background(), map[string]interface{}{
 			"field": key,
 		}, "variable is not well set, reading from .env file")
 		viper.SetConfigFile(".env")
 		viper.SetConfigType("env")
 		err := viper.ReadInConfig()
 		if err != nil {
-			log.Fatal(err, "can't read .env file")
+			logrus.Fatal(err, "can't read .env file")
 		}
 		env = viper.GetString(key)
 	}
 	if env == "" {
-		log.Fatal(fmt.Sprintf("%s is not well set", key))
+		logrus.Fatal(fmt.Sprintf("%s is not well set", key))
 	}
 	return env
 }
@@ -56,7 +56,7 @@ func MustHaveEnvInt(key string) int {
 	env := MustHaveEnv(key)
 	number, err := strconv.ParseInt(env, 10, 64)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("%s is not well set", key))
+		logrus.Fatal(fmt.Sprintf("%s is not well set", key))
 	}
 	return int(number)
 }
@@ -66,7 +66,7 @@ func MustHaveEnvMinuteDuration(key string) time.Duration {
 	env := MustHaveEnv(key)
 	number, err := strconv.ParseInt(env, 10, 64)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("%s is not well set", key))
+		logrus.Fatal(fmt.Sprintf("%s is not well set", key))
 	}
 
 	return time.Duration(number) * time.Minute

@@ -103,6 +103,11 @@
         <group-create></group-create>
         <group-join-with-link></group-join-with-link>
         <group-add-participants></group-add-participants>
+        <group-set-photo></group-set-photo>
+        <group-set-name></group-set-name>
+        <group-set-locked></group-set-locked>
+        <group-set-announce></group-set-announce>
+        <group-set-topic></group-set-topic>
     </div>
 
     <div class="ui horizontal divider">
@@ -183,6 +188,11 @@
     import GroupCreate from "./components/GroupCreate.js";
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
     import GroupAddParticipants from "./components/GroupManageParticipants.js";
+    import GroupSetPhoto from "./components/GroupSetPhoto.js";
+    import GroupSetName from "./components/GroupSetName.js";
+    import GroupSetLocked from "./components/GroupSetLocked.js";
+    import GroupSetAnnounce from "./components/GroupSetAnnounce.js";
+    import GroupSetTopic from "./components/GroupSetTopic.js";
     import NewsletterList from "./components/NewsletterList.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
@@ -227,7 +237,7 @@
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
-            GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
+            GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck
         },

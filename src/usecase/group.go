@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -193,4 +196,94 @@ func (service serviceGroup) participantToJID(participants []string) ([]types.JID
 		}
 	}
 	return participantsJID, nil
+}
+
+func (service serviceGroup) SetGroupPhoto(ctx context.Context, request domainGroup.SetGroupPhotoRequest) (pictureID string, err error) {
+	if err = validations.ValidateSetGroupPhoto(ctx, request); err != nil {
+		return pictureID, err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return pictureID, err
+	}
+
+	var photoBytes []byte
+	if request.Photo != nil {
+		// Process the image for WhatsApp group photo requirements
+		logrus.Printf("Processing group photo: %s (size: %d bytes)", request.Photo.Filename, request.Photo.Size)
+
+		processedImageBuffer, err := utils.ProcessGroupPhoto(request.Photo)
+		if err != nil {
+			logrus.Printf("Failed to process group photo: %v", err)
+			return pictureID, err
+		}
+
+		logrus.Printf("Successfully processed group photo: %d bytes -> %d bytes",
+			request.Photo.Size, processedImageBuffer.Len())
+
+		// Convert buffer to byte slice
+		photoBytes = processedImageBuffer.Bytes()
+	}
+
+	pictureID, err = service.WaCli.SetGroupPhoto(groupJID, photoBytes)
+	if err != nil {
+		logrus.Printf("Failed to set group photo: %v", err)
+		return pictureID, err
+	}
+
+	return pictureID, nil
+}
+
+func (service serviceGroup) SetGroupName(ctx context.Context, request domainGroup.SetGroupNameRequest) (err error) {
+	if err = validations.ValidateSetGroupName(ctx, request); err != nil {
+		return err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return err
+	}
+
+	return service.WaCli.SetGroupName(groupJID, request.Name)
+}
+
+func (service serviceGroup) SetGroupLocked(ctx context.Context, request domainGroup.SetGroupLockedRequest) (err error) {
+	if err = validations.ValidateSetGroupLocked(ctx, request); err != nil {
+		return err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return err
+	}
+
+	return service.WaCli.SetGroupLocked(groupJID, request.Locked)
+}
+
+func (service serviceGroup) SetGroupAnnounce(ctx context.Context, request domainGroup.SetGroupAnnounceRequest) (err error) {
+	if err = validations.ValidateSetGroupAnnounce(ctx, request); err != nil {
+		return err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return err
+	}
+
+	return service.WaCli.SetGroupAnnounce(groupJID, request.Announce)
+}
+
+func (service serviceGroup) SetGroupTopic(ctx context.Context, request domainGroup.SetGroupTopicRequest) (err error) {
+	if err = validations.ValidateSetGroupTopic(ctx, request); err != nil {
+		return err
+	}
+
+	groupJID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.GroupID)
+	if err != nil {
+		return err
+	}
+
+	// SetGroupTopic with auto-generated IDs (previousID and newID will be handled automatically)
+	return service.WaCli.SetGroupTopic(groupJID, "", "", request.Topic)
 }
