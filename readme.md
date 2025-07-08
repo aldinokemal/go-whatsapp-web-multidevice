@@ -384,6 +384,7 @@ You can fork or edit this source code !
 | Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
 | My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
 | My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |
+| Business Profile     | ![Business Profile](./gallery/business-profile.png)            |
 
 ### Mac OS NOTE
 
