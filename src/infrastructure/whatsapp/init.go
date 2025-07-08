@@ -199,6 +199,9 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 	// Handle image message if present
 	handleImageMessage(ctx, evt)
 
+	// Auto-mark message as read if configured
+	handleAutoMarkRead(ctx, evt)
+
 	// Handle auto-reply if configured
 	handleAutoReply(evt)
 
@@ -230,6 +233,25 @@ func handleImageMessage(ctx context.Context, evt *events.Message) {
 		} else {
 			log.Infof("Image downloaded to %s", path)
 		}
+	}
+}
+
+func handleAutoMarkRead(_ context.Context, evt *events.Message) {
+	// Only mark read if auto-mark read is enabled and message is incoming
+	if !config.WhatsappAutoMarkRead || evt.Info.IsFromMe {
+		return
+	}
+
+	// Mark the message as read
+	messageIDs := []types.MessageID{evt.Info.ID}
+	timestamp := time.Now()
+	chat := evt.Info.Chat
+	sender := evt.Info.Sender
+
+	if err := cli.MarkRead(messageIDs, timestamp, chat, sender); err != nil {
+		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
+	} else {
+		log.Debugf("Marked message %s as read", evt.Info.ID)
 	}
 }
 

@@ -25,6 +25,7 @@ var (
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=on"
 
 	WhatsappAutoReplyMessage       string
+	WhatsappAutoMarkRead           = false // Auto-mark incoming messages as read
 	WhatsappWebhook                []string
 	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"

@@ -97,6 +97,9 @@ func initEnvConfig() {
 	if envAutoReply := viper.GetString("whatsapp_auto_reply"); envAutoReply != "" {
 		config.WhatsappAutoReplyMessage = envAutoReply
 	}
+	if viper.IsSet("whatsapp_auto_mark_read") {
+		config.WhatsappAutoMarkRead = viper.GetBool("whatsapp_auto_mark_read")
+	}
 	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
 		webhook := strings.Split(envWebhook, ",")
 		config.WhatsappWebhook = webhook
@@ -160,6 +163,12 @@ func initFlags() {
 		"autoreply", "",
 		config.WhatsappAutoReplyMessage,
 		`auto reply when received message --autoreply <string> | example: --autoreply="Don't reply this message"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAutoMarkRead,
+		"auto-mark-read", "",
+		config.WhatsappAutoMarkRead,
+		`auto mark incoming messages as read --auto-mark-read <true/false> | example: --auto-mark-read=true`,
 	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.WhatsappWebhook,
