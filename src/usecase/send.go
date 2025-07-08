@@ -1,11 +1,13 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -152,10 +154,36 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if request.ImageURL != nil && *request.ImageURL != "" {
 		// Download image from URL
 		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
-		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
 		}
+
+		// Check if the downloaded image is WebP and convert to PNG if needed
+		mimeType := http.DetectContentType(imageData)
+		if mimeType == "image/webp" {
+			// Convert WebP to PNG
+			webpImage, err := imaging.Decode(bytes.NewReader(imageData))
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to decode WebP image %v", err))
+			}
+
+			// Change file extension to PNG
+			if strings.HasSuffix(strings.ToLower(fileName), ".webp") {
+				fileName = fileName[:len(fileName)-5] + ".png"
+			} else {
+				fileName = fileName + ".png"
+			}
+
+			// Convert to PNG format
+			var pngBuffer bytes.Buffer
+			err = imaging.Encode(&pngBuffer, webpImage, imaging.PNG)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert WebP to PNG %v", err))
+			}
+			imageData = pngBuffer.Bytes()
+		}
+
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
 		imageName = fileName
 		err = os.WriteFile(oriImagePath, imageData, 0644)
 		if err != nil {
