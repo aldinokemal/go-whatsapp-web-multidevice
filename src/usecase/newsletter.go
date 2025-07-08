@@ -6,17 +6,12 @@ import (
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
-	"go.mau.fi/whatsmeow"
 )
 
-type serviceNewsletter struct {
-	WaCli *whatsmeow.Client
-}
+type serviceNewsletter struct{}
 
-func NewNewsletterService(waCli *whatsmeow.Client) domainNewsletter.INewsletterUsecase {
-	return &serviceNewsletter{
-		WaCli: waCli,
-	}
+func NewNewsletterService() domainNewsletter.INewsletterUsecase {
+	return &serviceNewsletter{}
 }
 
 func (service serviceNewsletter) Unfollow(ctx context.Context, request domainNewsletter.UnfollowRequest) (err error) {
@@ -24,10 +19,10 @@ func (service serviceNewsletter) Unfollow(ctx context.Context, request domainNew
 		return err
 	}
 
-	JID, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.NewsletterID)
+	JID, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.NewsletterID)
 	if err != nil {
 		return err
 	}
 
-	return service.WaCli.UnfollowNewsletter(JID)
+	return whatsapp.GetClient().UnfollowNewsletter(JID)
 }
