@@ -14,4 +14,5 @@ type IUserUsecase interface {
 	MyPrivacySetting(ctx context.Context) (response MyPrivacySettingResponse, err error)
 	MyListContacts(ctx context.Context) (response MyListContactsResponse, err error)
 	IsOnWhatsApp(ctx context.Context, request CheckRequest) (response CheckResponse, err error)
+	BusinessProfile(ctx context.Context, request BusinessProfileRequest) (response BusinessProfileResponse, err error)
 }

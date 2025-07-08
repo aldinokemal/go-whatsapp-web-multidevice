@@ -22,6 +22,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
+	app.Get("/user/business-profile", rest.UserBusinessProfile)
 
 	return rest
 }
@@ -155,6 +156,24 @@ func (controller *User) UserCheck(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success check user",
+		Results: response,
+	})
+}
+
+func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
+	var request domainUser.BusinessProfileRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	whatsapp.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.BusinessProfile(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get business profile",
 		Results: response,
 	})
 }

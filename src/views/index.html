@@ -128,6 +128,7 @@
         <account-change-avatar></account-change-avatar>
         <account-change-push-name></account-change-push-name>
         <account-user-info></account-user-info>
+        <account-business-profile></account-business-profile>
         <account-privacy></account-privacy>
         <account-contact></account-contact>
         <account-user-check></account-user-check>
@@ -203,6 +204,7 @@
     import AccountPrivacy from "./components/AccountPrivacy.js";
     import AccountContact from "./components/AccountContact.js";
     import AccountUserCheck from "./components/AccountUserCheck.js";
+    import AccountBusinessProfile from "./components/AccountBusinessProfile.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -241,7 +243,7 @@
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile
         },
         delimiters: ['[[', ']]'],
         data() {

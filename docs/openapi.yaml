@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.5.0
+  version: 6.6.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -368,6 +368,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserCheckResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/business-profile:
+    get:
+      operationId: userBusinessProfile
+      tags:
+        - user
+      summary: Get Business Profile Information
+      description: Retrieve detailed business profile information for a WhatsApp business account
+      parameters:
+        - name: phone
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: Phone number with country code of the business account
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessProfileResponse'
         '400':
           description: Bad Request
           content:
@@ -2505,3 +2539,67 @@ components:
             is_on_whatsapp:
               type: boolean
               example: true
+    BusinessProfileResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get business profile
+        results:
+          type: object
+          properties:
+            jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+              description: Business account JID
+            email:
+              type: string
+              example: 'business@example.com'
+              description: Business email address
+            address:
+              type: string
+              example: '123 Business Street, City, Country'
+              description: Business physical address
+            categories:
+              type: array
+              description: Business categories
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: 'retail'
+                  name:
+                    type: string
+                    example: 'Retail Store'
+            profile_options:
+              type: object
+              description: Additional profile options
+              example:
+                website: 'https://example.com'
+                description: 'Business description'
+            business_hours_timezone:
+              type: string
+              example: 'Asia/Jakarta'
+              description: Business hours timezone
+            business_hours:
+              type: array
+              description: Business operating hours
+              items:
+                type: object
+                properties:
+                  day_of_week:
+                    type: string
+                    example: 'monday'
+                  mode:
+                    type: string
+                    example: 'open'
+                  open_time:
+                    type: string
+                    example: '09:00'
+                  close_time:
+                    type: string
+                    example: '18:00'

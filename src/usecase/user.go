@@ -11,6 +11,7 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
 	"go.mau.fi/whatsmeow"
@@ -125,7 +126,7 @@ func (service serviceUser) MyListGroups(_ context.Context) (response domainUser.
 	if err != nil {
 		return
 	}
-	fmt.Printf("%+v\n", groups)
+
 	for _, group := range groups {
 		response.Data = append(response.Data, *group)
 	}
@@ -139,7 +140,7 @@ func (service serviceUser) MyListNewsletter(_ context.Context) (response domainU
 	if err != nil {
 		return
 	}
-	fmt.Printf("%+v\n", datas)
+
 	for _, data := range datas {
 		response.Data = append(response.Data, *data)
 	}
@@ -249,6 +250,58 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 	whatsapp.SanitizePhone(&request.Phone)
 
 	response.IsOnWhatsApp = whatsapp.IsOnWhatsapp(service.WaCli, request.Phone)
+
+	return response, nil
+}
+
+func (service serviceUser) BusinessProfile(ctx context.Context, request domainUser.BusinessProfileRequest) (response domainUser.BusinessProfileResponse, err error) {
+	err = validations.ValidateBusinessProfile(ctx, request)
+	if err != nil {
+		return response, err
+	}
+
+	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	profile, err := service.WaCli.GetBusinessProfile(dataWaRecipient)
+	if err != nil {
+		return response, err
+	}
+
+	// Convert profile to response format
+	response.JID = dataWaRecipient.String()
+	response.Email = profile.Email
+	response.Address = profile.Address
+
+	// Convert categories
+	for _, category := range profile.Categories {
+		response.Categories = append(response.Categories, domainUser.BusinessProfileCategory{
+			ID:   category.ID,
+			Name: category.Name,
+		})
+	}
+
+	// Convert profile options
+	if profile.ProfileOptions != nil {
+		response.ProfileOptions = make(map[string]string)
+		for key, value := range profile.ProfileOptions {
+			response.ProfileOptions[key] = value
+		}
+	}
+
+	response.BusinessHoursTimeZone = profile.BusinessHoursTimeZone
+
+	// Convert business hours
+	for _, hours := range profile.BusinessHours {
+		response.BusinessHours = append(response.BusinessHours, domainUser.BusinessProfileHoursConfig{
+			DayOfWeek: hours.DayOfWeek,
+			Mode:      hours.Mode,
+			OpenTime:  utils.FormatBusinessHourTime(hours.OpenTime),
+			CloseTime: utils.FormatBusinessHourTime(hours.CloseTime),
+		})
+	}
 
 	return response, nil
 }

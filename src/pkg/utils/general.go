@@ -438,3 +438,37 @@ func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
 
 	return videoData, fileName, nil
 }
+
+// FormatBusinessHourTime converts numeric time format (e.g., 600, 1200) to HH:MM format (e.g., "06:00", "12:00")
+func FormatBusinessHourTime(timeValue interface{}) string {
+	var timeInt int
+
+	switch v := timeValue.(type) {
+	case int:
+		timeInt = v
+	case int32:
+		timeInt = int(v)
+	case int64:
+		timeInt = int(v)
+	case uint:
+		timeInt = int(v)
+	case uint32:
+		timeInt = int(v)
+	case uint64:
+		timeInt = int(v)
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return v // Return as-is if it's already a string and can't be parsed
+		}
+		timeInt = parsed
+	default:
+		return fmt.Sprintf("%v", timeValue) // Return as-is for unknown types
+	}
+
+	// Extract hours and minutes
+	hours := timeInt / 100
+	minutes := timeInt % 100
+
+	return fmt.Sprintf("%02d:%02d", hours, minutes)
+}
