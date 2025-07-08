@@ -308,6 +308,8 @@ You can fork or edit this source code !
 | ✅       | User My Newsletter                     | GET    | /user/my/newsletters                |
 | ✅       | User My Privacy Setting                | GET    | /user/my/privacy                    |
 | ✅       | User My Contacts                       | GET    | /user/my/contacts                   |
+| ✅       | User Check                             | GET    | /user/check                         |
+| ✅       | User Business Profile                  | GET    | /user/business-profile              |
 | ✅       | Send Message                           | POST   | /send/message                       |
 | ✅       | Send Image                             | POST   | /send/image                         |
 | ✅       | Send Audio                             | POST   | /send/audio                         |
@@ -336,6 +338,11 @@ You can fork or edit this source code !
 | ✅       | List Requested Participants in Group   | GET    | /group/participant-requests         |
 | ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve |
 | ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject  |
+| ✅       | Set Group Photo                        | POST   | /group/photo                        |
+| ✅       | Set Group Name                         | POST   | /group/name                         |
+| ✅       | Set Group Locked                       | POST   | /group/locked                       |
+| ✅       | Set Group Announce                     | POST   | /group/announce                     |
+| ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 
 ```txt
