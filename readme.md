@@ -389,3 +389,9 @@ You can fork or edit this source code !
 - Please use official WhatsApp API to avoid any issues.
 - We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in
   the future.
+
+
+## Repo Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=aldinokemal/go-whatsapp-web-multidevice&type=Date)](https://www.star-history.com/#aldinokemal/go-whatsapp-web-multidevice&Date)
+  
