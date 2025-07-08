@@ -80,6 +80,7 @@
         <send-poll></send-poll>
         <send-presence></send-presence>
         
+        <send-chat-presence></send-chat-presence>
         <send-link></send-link>
     </div>
 
@@ -180,6 +181,7 @@
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
     import SendPresence from "./components/SendPresence.js";
+    import SendChatPresence from "./components/SendChatPresence.js";
     import MessageDelete from "./components/MessageDelete.js";
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
@@ -235,7 +237,7 @@
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
-            SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
+            SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
             NewsletterList,

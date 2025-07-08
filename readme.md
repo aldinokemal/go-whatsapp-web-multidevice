@@ -318,6 +318,7 @@ You can fork or edit this source code !
 | ✅       | Send Location                          | POST   | /send/location                      |
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
+| ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
 | ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |
 | ✅       | React Message                          | POST   | /message/:message_id/reaction       |
 | ✅       | Delete Message                         | POST   | /message/:message_id/delete         |

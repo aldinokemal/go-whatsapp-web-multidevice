@@ -787,6 +787,44 @@ func (service serviceSend) SendPresence(ctx context.Context, request domainSend.
 	return response, nil
 }
 
+func (service serviceSend) SendChatPresence(ctx context.Context, request domainSend.ChatPresenceRequest) (response domainSend.GenericResponse, err error) {
+	err = validations.ValidateSendChatPresence(ctx, request)
+	if err != nil {
+		return response, err
+	}
+
+	userJid, err := whatsapp.ValidateJidWithLogin(service.WaCli, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	var presenceType types.ChatPresence
+	var messageID string
+	var statusMessage string
+
+	switch request.Action {
+	case "start":
+		presenceType = types.ChatPresenceComposing
+		messageID = "chat-presence-start"
+		statusMessage = fmt.Sprintf("Send chat presence start typing success %s", request.Phone)
+	case "stop":
+		presenceType = types.ChatPresencePaused
+		messageID = "chat-presence-stop"
+		statusMessage = fmt.Sprintf("Send chat presence stop typing success %s", request.Phone)
+	default:
+		return response, fmt.Errorf("invalid action: %s. Must be 'start' or 'stop'", request.Action)
+	}
+
+	err = service.WaCli.SendChatPresence(userJid, presenceType, "")
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = messageID
+	response.Status = statusMessage
+	return response, nil
+}
+
 func (service serviceSend) getMentionFromText(_ context.Context, messages string) (result []string) {
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {

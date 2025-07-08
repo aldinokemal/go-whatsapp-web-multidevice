@@ -915,6 +915,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /send/chat-presence:
+    post:
+      operationId: sendChatPresence
+      tags:
+        - send
+      summary: Send chat presence (typing indicator)
+      description: Send typing indicator to start or stop showing that you are composing a message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '6289685024051@s.whatsapp.net'
+                  description: Phone number with country code
+                action:
+                  type: string
+                  enum: [start, stop]
+                  example: 'start'
+                  description: Action to perform - "start" to begin typing indicator, "stop" to end typing indicator
+              required:
+                - phone
+                - action
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /message/{message_id}/revoke:
     post:
       operationId: revokeMessage

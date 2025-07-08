@@ -336,3 +336,16 @@ func ValidateSendPresence(ctx context.Context, request domainSend.PresenceReques
 
 	return nil
 }
+
+func ValidateSendChatPresence(ctx context.Context, request domainSend.ChatPresenceRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.Action, validation.Required, validation.In("start", "stop")),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
