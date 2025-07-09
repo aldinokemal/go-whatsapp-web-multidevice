@@ -102,7 +102,6 @@ To use environment variables:
 | `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
 | `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
 | `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
-| `APP_CHAT_FLUSH_INTERVAL`     | Chat flush interval in days                 | `7`                                          | `APP_CHAT_FLUSH_INTERVAL=30`                |
 | `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
 | `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
 | `WHATSAPP_AUTO_MARK_READ`     | Auto-mark incoming messages as read         | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`              |

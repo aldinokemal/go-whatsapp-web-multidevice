@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -83,7 +83,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger) (*sqlstore.Container,
 }
 
 // InitWaCLI initializes the WhatsApp client
-func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsmeow.Client {
+func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container, chatStorageRepo *chatstorage.Storage) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
@@ -105,7 +105,7 @@ func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsme
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
 	cli.AddEventHandler(func(rawEvt interface{}) {
-		handler(ctx, rawEvt)
+		handler(ctx, rawEvt, chatStorageRepo)
 	})
 
 	return cli
@@ -207,11 +207,11 @@ func CleanupTemporaryFiles() error {
 }
 
 // ReinitializeWhatsAppComponents reinitializes database and client components
-func ReinitializeWhatsAppComponents(ctx context.Context) (*sqlstore.Container, *whatsmeow.Client, error) {
+func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
 	newDB := InitWaDB(ctx)
-	newCli := InitWaCLI(ctx, newDB)
+	newCli := InitWaCLI(ctx, newDB, chatStorageRepo)
 
 	// Update global references
 	db = newDB
@@ -223,7 +223,7 @@ func ReinitializeWhatsAppComponents(ctx context.Context) (*sqlstore.Container, *
 }
 
 // PerformCompleteCleanup performs all cleanup operations in the correct order
-func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
+func PerformCompleteCleanup(ctx context.Context, logPrefix string, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
 	logrus.Infof("[%s] Starting complete cleanup process...", logPrefix)
 
 	// Disconnect current client if it exists
@@ -238,7 +238,7 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Co
 	}
 
 	// Reinitialize components
-	newDB, newCli, err := ReinitializeWhatsAppComponents(ctx)
+	newDB, newCli, err := ReinitializeWhatsAppComponents(ctx, chatStorageRepo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reinitialization failed: %v", err)
 	}
@@ -257,8 +257,8 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Co
 
 // PerformCleanupAndUpdateGlobals is a convenience function that performs cleanup
 // and ensures global client synchronization
-func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
-	newDB, newCli, err := PerformCompleteCleanup(ctx, logPrefix)
+func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
+	newDB, newCli, err := PerformCompleteCleanup(ctx, logPrefix, chatStorageRepo)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -270,7 +270,7 @@ func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string) (*sql
 }
 
 // handleRemoteLogout performs cleanup when user logs out from their phone
-func handleRemoteLogout(ctx context.Context) {
+func handleRemoteLogout(ctx context.Context, chatStorageRepo *chatstorage.Storage) {
 	logrus.Info("[REMOTE_LOGOUT] User logged out from phone - starting cleanup...")
 
 	// Log database state before cleanup
@@ -284,7 +284,7 @@ func handleRemoteLogout(ctx context.Context) {
 	}
 
 	// Perform complete cleanup with global client synchronization
-	_, _, err := PerformCleanupAndUpdateGlobals(ctx, "REMOTE_LOGOUT")
+	_, _, err := PerformCleanupAndUpdateGlobals(ctx, "REMOTE_LOGOUT", chatStorageRepo)
 	if err != nil {
 		logrus.Errorf("[REMOTE_LOGOUT] Cleanup failed: %v", err)
 		return
@@ -294,7 +294,7 @@ func handleRemoteLogout(ctx context.Context) {
 }
 
 // handler is the main event handler for WhatsApp events
-func handler(ctx context.Context, rawEvt interface{}) {
+func handler(ctx context.Context, rawEvt interface{}, chatStorageRepo *chatstorage.Storage) {
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
 		handleDeleteForMe(ctx, evt)
@@ -303,13 +303,13 @@ func handler(ctx context.Context, rawEvt interface{}) {
 	case *events.PairSuccess:
 		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx)
+		handleLoggedOut(ctx, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx)
 	case *events.StreamReplaced:
 		handleStreamReplaced(ctx)
 	case *events.Message:
-		handleMessage(ctx, evt)
+		handleMessage(ctx, evt, chatStorageRepo)
 	case *events.Receipt:
 		handleReceipt(ctx, evt)
 	case *events.Presence:
@@ -344,7 +344,7 @@ func handlePairSuccess(_ context.Context, evt *events.PairSuccess) {
 	}
 }
 
-func handleLoggedOut(ctx context.Context) {
+func handleLoggedOut(ctx context.Context, chatStorageRepo *chatstorage.Storage) {
 	logrus.Warn("[REMOTE_LOGOUT] Received LoggedOut event - user logged out from phone")
 
 	// Broadcast immediate notification about remote logout
@@ -355,7 +355,7 @@ func handleLoggedOut(ctx context.Context) {
 	}
 
 	// Perform comprehensive cleanup
-	handleRemoteLogout(ctx)
+	handleRemoteLogout(ctx, chatStorageRepo)
 
 	// Broadcast final notification that cleanup is complete and ready for new login
 	websocket.Broadcast <- websocket.BroadcastMessage{
@@ -383,7 +383,7 @@ func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleMessage(ctx context.Context, evt *events.Message) {
+func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo *chatstorage.Storage) {
 	// Log message metadata
 	metaParts := buildMessageMetaParts(evt)
 	log.Infof("Received message %s from %s (%s): %+v",
@@ -393,9 +393,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		evt.Message,
 	)
 
-	// Record the message
-	message := ExtractMessageText(evt)
-	utils.RecordMessage(evt.Info.ID, evt.Info.Sender.String(), message)
+	chatStorageRepo.CreateMessage(ctx, evt)
 
 	// Handle image message if present
 	handleImageMessage(ctx, evt)

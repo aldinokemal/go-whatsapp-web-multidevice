@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -28,12 +30,14 @@ import (
 )
 
 type serviceSend struct {
-	appService app.IAppUsecase
+	appService      app.IAppUsecase
+	chatStorageRepo *chatstorage.Storage
 }
 
-func NewSendService(appService app.IAppUsecase) domainSend.ISendUsecase {
+func NewSendService(appService app.IAppUsecase, chatStorageRepo *chatstorage.Storage) domainSend.ISendUsecase {
 	return &serviceSend{
-		appService: appService,
+		appService:      appService,
+		chatStorageRepo: chatStorageRepo,
 	}
 }
 
@@ -44,7 +48,19 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.
 		return whatsmeow.SendResponse{}, err
 	}
 
-	utils.RecordMessage(ts.ID, whatsapp.GetClient().Store.ID.String(), content)
+	// Store the sent message using chatstorage
+	senderJID := ""
+	if whatsapp.GetClient().Store.ID != nil {
+		senderJID = whatsapp.GetClient().Store.ID.String()
+	}
+
+	go func(messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) {
+		err = service.chatStorageRepo.StoreSentMessage(messageID, senderJID, recipientJID, content, timestamp)
+		if err != nil {
+			logrus.Warnf("Failed to store sent message: %v", err)
+			// Don't fail the send operation if storage fails
+		}
+	}(ts.ID, senderJID, recipient.String(), content, ts.Timestamp)
 
 	return ts, nil
 }
@@ -85,14 +101,14 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		record, err := utils.FindRecordFromStorage(*request.ReplyMessageID)
-		if err == nil { // Only set reply context if we found the message ID
+		message, err := service.chatStorageRepo.FindMessageByID(*request.ReplyMessageID)
+		if err == nil && message != nil { // Only set reply context if we found the message
 			// Build base ContextInfo with reply details
 			ctxInfo := &waE2E.ContextInfo{
 				StanzaID:    request.ReplyMessageID,
-				Participant: proto.String(record.JID),
+				Participant: proto.String(message.Sender),
 				QuotedMessage: &waE2E.Message{
-					Conversation: proto.String(record.MessageContent),
+					Conversation: proto.String(message.Content),
 				},
 			}
 
