@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -19,6 +20,7 @@ func InitRestApp(app *fiber.App, service domainApp.IAppUsecase) App {
 	app.Get("/app/logout", rest.Logout)
 	app.Get("/app/reconnect", rest.Reconnect)
 	app.Get("/app/devices", rest.Devices)
+	app.Get("/app/status", rest.ConnectionStatus)
 
 	return App{Service: service}
 }
@@ -85,5 +87,20 @@ func (handler *App) Devices(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Fetch device success",
 		Results: devices,
+	})
+}
+
+func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
+	isConnected, isLoggedIn, deviceID := whatsapp.GetConnectionStatus()
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Connection status retrieved",
+		Results: map[string]any{
+			"is_connected": isConnected,
+			"is_logged_in": isLoggedIn,
+			"device_id":    deviceID,
+		},
 	})
 }

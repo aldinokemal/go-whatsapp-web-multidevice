@@ -300,6 +300,19 @@
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
                             break;
+                        case 'REMOTE_LOGOUT':
+                            // Handle remote logout from phone
+                            showErrorInfo('⚠️ ' + message.message)
+                            this.connected_devices = null
+                            console.log('[REMOTE_LOGOUT] User logged out from phone:', message)
+                            break;
+                        case 'LOGOUT_COMPLETE':
+                            // Handle successful cleanup after remote logout
+                            showSuccessInfo('✅ ' + message.message)
+                            console.log('[LOGOUT_COMPLETE] Remote logout cleanup completed:', message)
+                            // Optionally refresh the device list
+                            this.handleReloadDevice()
+                            break;
                         default:
                             console.log(message)
                     }

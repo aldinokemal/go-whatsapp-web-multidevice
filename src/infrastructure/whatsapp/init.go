@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -47,6 +48,7 @@ type evtMessage struct {
 // Global variables
 var (
 	cli           *whatsmeow.Client
+	db            *sqlstore.Container // Add global database reference for cleanup
 	log           waLog.Logger
 	historySyncID int32
 	startupTime   = time.Now().Unix()
@@ -62,6 +64,9 @@ func InitWaDB(ctx context.Context) *sqlstore.Container {
 		log.Errorf("Database initialization error: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
 	}
+
+	// Set global database reference for remote logout cleanup
+	db = storeContainer
 
 	return storeContainer
 }
@@ -104,6 +109,188 @@ func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsme
 	})
 
 	return cli
+}
+
+// UpdateGlobalClient updates the global cli variable with a new client instance
+// This is needed when reinitializing the client after logout to ensure all
+// infrastructure code uses the new client instance
+func UpdateGlobalClient(newCli *whatsmeow.Client) {
+	cli = newCli
+	log.Infof("Global WhatsApp client updated successfully")
+}
+
+// GetGlobalClient returns the current global client instance
+func GetGlobalClient() *whatsmeow.Client {
+	return cli
+}
+
+// GetClient returns the current global client instance (alias for GetGlobalClient)
+func GetClient() *whatsmeow.Client {
+	return cli
+}
+
+// GetConnectionStatus returns the current connection status of the global client
+func GetConnectionStatus() (isConnected bool, isLoggedIn bool, deviceID string) {
+	if cli == nil {
+		return false, false, ""
+	}
+
+	isConnected = cli.IsConnected()
+	isLoggedIn = cli.IsLoggedIn()
+
+	if cli.Store != nil && cli.Store.ID != nil {
+		deviceID = cli.Store.ID.String()
+	}
+
+	return isConnected, isLoggedIn, deviceID
+}
+
+// CleanupDatabase removes the database file to prevent foreign key constraint issues
+func CleanupDatabase() error {
+	dbPath := strings.TrimPrefix(config.DBURI, "file:")
+	if strings.Contains(dbPath, "?") {
+		dbPath = strings.Split(dbPath, "?")[0]
+	}
+
+	logrus.Infof("[CLEANUP] Removing database file: %s", dbPath)
+	if err := os.Remove(dbPath); err != nil {
+		if !os.IsNotExist(err) {
+			logrus.Errorf("[CLEANUP] Error removing database file: %v", err)
+			return err
+		} else {
+			logrus.Info("[CLEANUP] Database file already removed")
+		}
+	} else {
+		logrus.Info("[CLEANUP] Database file removed successfully")
+	}
+	return nil
+}
+
+// CleanupTemporaryFiles removes history files, QR images, and send items
+func CleanupTemporaryFiles() error {
+	// Clean up history files
+	if files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages)); err == nil {
+		for _, f := range files {
+			if err := os.Remove(f); err != nil {
+				logrus.Errorf("[CLEANUP] Error removing history file %s: %v", f, err)
+				return err
+			}
+		}
+		logrus.Info("[CLEANUP] History files cleaned up")
+	}
+
+	// Clean up QR images
+	if qrImages, err := filepath.Glob(fmt.Sprintf("./%s/scan-*", config.PathQrCode)); err == nil {
+		for _, f := range qrImages {
+			if err := os.Remove(f); err != nil {
+				logrus.Errorf("[CLEANUP] Error removing QR image %s: %v", f, err)
+				return err
+			}
+		}
+		logrus.Info("[CLEANUP] QR images cleaned up")
+	}
+
+	// Clean up send items
+	if qrItems, err := filepath.Glob(fmt.Sprintf("./%s/*", config.PathSendItems)); err == nil {
+		for _, f := range qrItems {
+			if !strings.Contains(f, ".gitignore") {
+				if err := os.Remove(f); err != nil {
+					logrus.Errorf("[CLEANUP] Error removing send item %s: %v", f, err)
+					return err
+				}
+			}
+		}
+		logrus.Info("[CLEANUP] Send items cleaned up")
+	}
+
+	return nil
+}
+
+// ReinitializeWhatsAppComponents reinitializes database and client components
+func ReinitializeWhatsAppComponents(ctx context.Context) (*sqlstore.Container, *whatsmeow.Client, error) {
+	logrus.Info("[CLEANUP] Reinitializing database and client...")
+
+	newDB := InitWaDB(ctx)
+	newCli := InitWaCLI(ctx, newDB)
+
+	// Update global references
+	db = newDB
+	cli = newCli
+
+	logrus.Info("[CLEANUP] Database and client reinitialized successfully")
+
+	return newDB, newCli, nil
+}
+
+// PerformCompleteCleanup performs all cleanup operations in the correct order
+func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
+	logrus.Infof("[%s] Starting complete cleanup process...", logPrefix)
+
+	// Disconnect current client if it exists
+	if cli != nil {
+		cli.Disconnect()
+		logrus.Infof("[%s] Client disconnected", logPrefix)
+	}
+
+	// Clean up database
+	if err := CleanupDatabase(); err != nil {
+		return nil, nil, fmt.Errorf("database cleanup failed: %v", err)
+	}
+
+	// Reinitialize components
+	newDB, newCli, err := ReinitializeWhatsAppComponents(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reinitialization failed: %v", err)
+	}
+
+	// Clean up temporary files
+	if err := CleanupTemporaryFiles(); err != nil {
+		logrus.Errorf("[%s] Temporary file cleanup failed (non-critical): %v", logPrefix, err)
+		// Don't return error for file cleanup as it's non-critical
+	}
+
+	logrus.Infof("[%s] Complete cleanup process finished successfully", logPrefix)
+	logrus.Infof("[%s] Application is ready for next login without restart", logPrefix)
+
+	return newDB, newCli, nil
+}
+
+// PerformCleanupAndUpdateGlobals is a convenience function that performs cleanup
+// and ensures global client synchronization
+func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
+	newDB, newCli, err := PerformCompleteCleanup(ctx, logPrefix)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Ensure global client is properly synchronized
+	UpdateGlobalClient(newCli)
+
+	return newDB, newCli, nil
+}
+
+// handleRemoteLogout performs cleanup when user logs out from their phone
+func handleRemoteLogout(ctx context.Context) {
+	logrus.Info("[REMOTE_LOGOUT] User logged out from phone - starting cleanup...")
+
+	// Log database state before cleanup
+	if db != nil {
+		devices, dbErr := db.GetAllDevices(ctx)
+		if dbErr != nil {
+			logrus.Errorf("[REMOTE_LOGOUT] Error getting devices before cleanup: %v", dbErr)
+		} else {
+			logrus.Infof("[REMOTE_LOGOUT] Devices before cleanup: %d found", len(devices))
+		}
+	}
+
+	// Perform complete cleanup with global client synchronization
+	_, _, err := PerformCleanupAndUpdateGlobals(ctx, "REMOTE_LOGOUT")
+	if err != nil {
+		logrus.Errorf("[REMOTE_LOGOUT] Cleanup failed: %v", err)
+		return
+	}
+
+	logrus.Info("[REMOTE_LOGOUT] Remote logout cleanup completed successfully")
 }
 
 // handler is the main event handler for WhatsApp events
@@ -157,10 +344,24 @@ func handlePairSuccess(_ context.Context, evt *events.PairSuccess) {
 	}
 }
 
-func handleLoggedOut(_ context.Context) {
+func handleLoggedOut(ctx context.Context) {
+	logrus.Warn("[REMOTE_LOGOUT] Received LoggedOut event - user logged out from phone")
+
+	// Broadcast immediate notification about remote logout
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:   "LIST_DEVICES",
-		Result: nil,
+		Code:    "REMOTE_LOGOUT",
+		Message: "User logged out from phone - cleaning up session...",
+		Result:  nil,
+	}
+
+	// Perform comprehensive cleanup
+	handleRemoteLogout(ctx)
+
+	// Broadcast final notification that cleanup is complete and ready for new login
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "LOGOUT_COMPLETE",
+		Message: "Remote logout cleanup completed - ready for new login",
+		Result:  nil,
 	}
 }
 

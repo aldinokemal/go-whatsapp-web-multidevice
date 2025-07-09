@@ -208,15 +208,15 @@ func initApp() {
 
 	ctx := context.Background()
 	whatsappDB = whatsapp.InitWaDB(ctx)
-	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB)
+	whatsapp.InitWaCLI(ctx, whatsappDB)
 
 	// Usecase
-	appUsecase = usecase.NewAppService(whatsappCli, whatsappDB)
-	sendUsecase = usecase.NewSendService(whatsappCli, appUsecase)
-	userUsecase = usecase.NewUserService(whatsappCli)
-	messageUsecase = usecase.NewMessageService(whatsappCli)
-	groupUsecase = usecase.NewGroupService(whatsappCli)
-	newsletterUsecase = usecase.NewNewsletterService(whatsappCli)
+	appUsecase = usecase.NewAppService(whatsappDB)
+	sendUsecase = usecase.NewSendService(appUsecase)
+	userUsecase = usecase.NewUserService()
+	messageUsecase = usecase.NewMessageService()
+	groupUsecase = usecase.NewGroupService()
+	newsletterUsecase = usecase.NewNewsletterService()
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

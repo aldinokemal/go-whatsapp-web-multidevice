@@ -1,15 +1,8 @@
 package message
 
-import "context"
+// NOTE: imports moved to interfaces.go
 
-type IMessageUsecase interface {
-	MarkAsRead(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
-	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
-	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)
-	UpdateMessage(ctx context.Context, request UpdateMessageRequest) (response GenericResponse, err error)
-	DeleteMessage(ctx context.Context, request DeleteRequest) (err error)
-	StarMessage(ctx context.Context, request StarRequest) (err error)
-}
+// NOTE: IMessageUsecase is now defined in interfaces.go with proper segregation
 
 type GenericResponse struct {
 	MessageID string `json:"message_id"`
