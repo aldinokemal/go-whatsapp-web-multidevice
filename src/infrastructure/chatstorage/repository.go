@@ -18,6 +18,7 @@ type Repository interface {
 
 	// Message operations
 	StoreMessage(message *Message) error
+	StoreMessagesBatch(messages []*Message) error
 	GetMessage(id, chatJID string) (*Message, error)
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	GetMediaInfo(id, chatJID string) (*MediaInfo, error)
@@ -209,6 +210,68 @@ func (r *SQLiteRepository) StoreMessage(message *Message) error {
 	)
 
 	return err
+}
+
+// StoreMessagesBatch creates or updates multiple messages in a single transaction
+func (r *SQLiteRepository) StoreMessagesBatch(messages []*Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare the statement once for better performance
+	stmt, err := tx.Prepare(`
+		INSERT INTO messages (
+			id, chat_jid, sender, content, timestamp, is_from_me, 
+			media_type, filename, url, media_key, file_sha256, 
+			file_enc_sha256, file_length, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id, chat_jid) DO UPDATE SET
+			sender = excluded.sender,
+			content = excluded.content,
+			timestamp = excluded.timestamp,
+			is_from_me = excluded.is_from_me,
+			media_type = excluded.media_type,
+			filename = excluded.filename,
+			url = excluded.url,
+			media_key = excluded.media_key,
+			file_sha256 = excluded.file_sha256,
+			file_enc_sha256 = excluded.file_enc_sha256,
+			file_length = excluded.file_length,
+			updated_at = excluded.updated_at
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	for _, message := range messages {
+		// Skip empty messages
+		if message.Content == "" && message.MediaType == "" {
+			continue
+		}
+
+		message.CreatedAt = now
+		message.UpdatedAt = now
+
+		_, err = stmt.Exec(
+			message.ID, message.ChatJID, message.Sender, message.Content,
+			message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
+			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+			message.FileLength, message.CreatedAt, message.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to store message %s: %w", message.ID, err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetMessage retrieves a specific message

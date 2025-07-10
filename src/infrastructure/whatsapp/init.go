@@ -19,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -32,18 +33,6 @@ type ExtractedMedia struct {
 	MediaPath string `json:"media_path"`
 	MimeType  string `json:"mime_type"`
 	Caption   string `json:"caption"`
-}
-
-type evtReaction struct {
-	ID      string `json:"id,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type evtMessage struct {
-	ID            string `json:"id,omitempty"`
-	Text          string `json:"text,omitempty"`
-	RepliedId     string `json:"replied_id,omitempty"`
-	QuotedMessage string `json:"quoted_message,omitempty"`
 }
 
 // Global variables
@@ -316,7 +305,7 @@ func handler(ctx context.Context, rawEvt interface{}, chatStorageRepo *chatstora
 	case *events.Presence:
 		handlePresence(ctx, evt)
 	case *events.HistorySync:
-		handleHistorySync(ctx, evt)
+		handleHistorySync(ctx, evt, chatStorageRepo)
 	case *events.AppState:
 		handleAppState(ctx, evt)
 	}
@@ -510,7 +499,7 @@ func handlePresence(_ context.Context, evt *events.Presence) {
 	}
 }
 
-func handleHistorySync(_ context.Context, evt *events.HistorySync) {
+func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorageRepo *chatstorage.Storage) {
 	id := atomic.AddInt32(&historySyncID, 1)
 	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
 		config.PathStorages,
@@ -535,8 +524,206 @@ func handleHistorySync(_ context.Context, evt *events.HistorySync) {
 	}
 
 	log.Infof("Wrote history sync to %s", fileName)
+
+	// Process history sync data to database
+	if chatStorageRepo != nil {
+		if err := processHistorySync(ctx, evt.Data, chatStorageRepo); err != nil {
+			log.Errorf("Failed to process history sync to database: %v", err)
+		}
+	}
 }
 
 func handleAppState(_ context.Context, evt *events.AppState) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
+}
+
+// processHistorySync processes history sync data and stores messages in the database
+func processHistorySync(ctx context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	if data == nil {
+		return nil
+	}
+
+	syncType := data.GetSyncType()
+	log.Infof("Processing history sync type: %s", syncType.String())
+
+	switch syncType {
+	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT:
+		// Process conversation messages
+		return processConversationMessages(ctx, data, chatStorageRepo)
+	case waHistorySync.HistorySync_PUSH_NAME:
+		// Process push names to update chat names
+		return processPushNames(ctx, data, chatStorageRepo)
+	default:
+		// Other sync types are not needed for message storage
+		log.Debugf("Skipping history sync type: %s", syncType.String())
+		return nil
+	}
+}
+
+// processConversationMessages processes and stores conversation messages from history sync
+func processConversationMessages(_ context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	conversations := data.GetConversations()
+	log.Infof("Processing %d conversations from history sync", len(conversations))
+
+	for _, conv := range conversations {
+		chatJID := conv.GetID()
+		if chatJID == "" {
+			continue
+		}
+
+		// Parse JID to get proper format
+		jid, err := types.ParseJID(chatJID)
+		if err != nil {
+			log.Warnf("Failed to parse JID %s: %v", chatJID, err)
+			continue
+		}
+
+		displayName := conv.GetDisplayName()
+
+		// Get or create chat
+		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
+
+		// Process messages in the conversation
+		messages := conv.GetMessages()
+		log.Debugf("Processing %d messages for chat %s", len(messages), chatJID)
+
+		// Collect messages for batch processing
+		var messageBatch []*chatstorage.Message
+		var latestTimestamp time.Time
+
+		for _, histMsg := range messages {
+			if histMsg == nil || histMsg.Message == nil {
+				continue
+			}
+
+			msg := histMsg.Message
+			msgKey := msg.GetKey()
+			if msgKey == nil {
+				continue
+			}
+
+			// Skip messages without ID
+			messageID := msgKey.GetID()
+			if messageID == "" {
+				continue
+			}
+
+			// Extract message content and media info
+			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
+			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
+
+			// Skip if there's no content and no media
+			if content == "" && mediaType == "" {
+				continue
+			}
+
+			// Determine sender
+			sender := ""
+			isFromMe := msgKey.GetFromMe()
+			if isFromMe {
+				if cli.Store.ID != nil {
+					sender = cli.Store.ID.User
+				}
+			} else {
+				participant := msgKey.GetParticipant()
+				if participant != "" {
+					// For group messages, participant contains the actual sender
+					if senderJID, err := types.ParseJID(participant); err == nil {
+						sender = senderJID.User
+					} else {
+						sender = participant
+					}
+				} else {
+					// For individual chats, use the chat JID as sender
+					sender = jid.User
+				}
+			}
+
+			// Convert timestamp from Unix seconds to time.Time
+			timestamp := time.Unix(int64(msg.GetMessageTimestamp()), 0)
+
+			// Track latest timestamp
+			if timestamp.After(latestTimestamp) {
+				latestTimestamp = timestamp
+			}
+
+			// Create message object and add to batch
+			message := &chatstorage.Message{
+				ID:            messageID,
+				ChatJID:       chatJID,
+				Sender:        sender,
+				Content:       content,
+				Timestamp:     timestamp,
+				IsFromMe:      isFromMe,
+				MediaType:     mediaType,
+				Filename:      filename,
+				URL:           url,
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    fileLength,
+			}
+
+			messageBatch = append(messageBatch, message)
+		}
+
+		// Store or update the chat with latest message time
+		if len(messageBatch) > 0 {
+			chat := &chatstorage.Chat{
+				JID:                 chatJID,
+				Name:                chatName,
+				LastMessageTime:     latestTimestamp,
+				EphemeralExpiration: 0, // Will be updated from individual messages
+			}
+
+			// Store or update the chat
+			if err := chatStorageRepo.StoreChat(chat); err != nil {
+				log.Warnf("Failed to store chat %s: %v", chatJID, err)
+				continue
+			}
+
+			// Store messages in batch
+			if err := chatStorageRepo.StoreMessagesBatch(messageBatch); err != nil {
+				log.Warnf("Failed to store messages batch for chat %s: %v", chatJID, err)
+			} else {
+				log.Debugf("Stored %d messages for chat %s", len(messageBatch), chatJID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// processPushNames processes push names from history sync to update chat names
+func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	pushnames := data.GetPushnames()
+	log.Infof("Processing %d push names from history sync", len(pushnames))
+
+	for _, pushname := range pushnames {
+		jidStr := pushname.GetId()
+		name := pushname.GetPushname()
+
+		if jidStr == "" || name == "" {
+			continue
+		}
+
+		// Check if chat exists
+		existingChat, err := chatStorageRepo.GetChat(jidStr)
+		if err != nil || existingChat == nil {
+			// Chat doesn't exist yet, skip
+			continue
+		}
+
+		// Update chat name if it's different
+		if existingChat.Name != name {
+			existingChat.Name = name
+			if err := chatStorageRepo.StoreChat(existingChat); err != nil {
+				log.Warnf("Failed to update chat name for %s: %v", jidStr, err)
+			} else {
+				log.Debugf("Updated chat name for %s to %s", jidStr, name)
+			}
+		}
+	}
+
+	return nil
 }

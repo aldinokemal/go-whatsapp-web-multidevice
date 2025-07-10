@@ -251,3 +251,23 @@ func (s *Storage) FindMessageByID(messageID string) (*Message, error) {
 
 	return nil, fmt.Errorf("message with ID %s not found", messageID)
 }
+
+// GetChat retrieves a chat by its JID
+func (s *Storage) GetChat(jid string) (*Chat, error) {
+	return s.repo.GetChat(jid)
+}
+
+// StoreChat stores or updates a chat
+func (s *Storage) StoreChat(chat *Chat) error {
+	return s.repo.StoreChat(chat)
+}
+
+// StoreMessage stores a message
+func (s *Storage) StoreMessage(message *Message) error {
+	return s.repo.StoreMessage(message)
+}
+
+// StoreMessagesBatch stores multiple messages in a single transaction
+func (s *Storage) StoreMessagesBatch(messages []*Message) error {
+	return s.repo.StoreMessagesBatch(messages)
+}
