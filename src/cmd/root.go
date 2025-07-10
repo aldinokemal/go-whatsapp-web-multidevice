@@ -196,7 +196,8 @@ func initApp() {
 
 	chatStorageRepo, err = chatstorage.NewStorage(chatstorage.DefaultConfig())
 	if err != nil {
-		logrus.Errorln(err)
+		// Terminate the application if chat storage fails to initialize to avoid nil pointer panics later.
+		logrus.Fatalf("failed to initialize chat storage: %v", err)
 	}
 
 	whatsappDB = whatsapp.InitWaDB(ctx)
