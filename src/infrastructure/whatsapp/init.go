@@ -634,26 +634,38 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 			sender := ""
 			isFromMe := msgKey.GetFromMe()
 			if isFromMe {
+				// For self-messages, use the full JID format to match regular message processing
 				if cli.Store.ID != nil {
-					sender = cli.Store.ID.User
+					sender = cli.Store.ID.String() // Use full JID instead of just User part
+				} else {
+					// Skip messages where we can't determine the sender to avoid NOT NULL violations
+					log.Warnf("Skipping self-message %s: client ID unavailable", messageID)
+					continue
 				}
 			} else {
 				participant := msgKey.GetParticipant()
 				if participant != "" {
 					// For group messages, participant contains the actual sender
 					if senderJID, err := types.ParseJID(participant); err == nil {
-						sender = senderJID.User
+						sender = senderJID.String() // Use full JID format for consistency
 					} else {
-						sender = participant
+						// Fallback to participant string, but ensure it's not empty
+						if participant != "" {
+							sender = participant
+						} else {
+							log.Warnf("Skipping message %s: empty participant", messageID)
+							continue
+						}
 					}
 				} else {
-					// For individual chats, use the chat JID as sender
-					sender = jid.User
+					// For individual chats, use the chat JID as sender with full format
+					sender = jid.String() // Use full JID format for consistency
 				}
 			}
 
-			// Convert timestamp from Unix seconds to time.Time
-			timestamp := time.Unix(int64(msg.GetMessageTimestamp()), 0)
+			// Convert timestamp from Unix milliseconds to time.Time
+			// WhatsApp timestamps are in milliseconds, not seconds
+			timestamp := time.UnixMilli(int64(msg.GetMessageTimestamp()))
 
 			// Track latest timestamp
 			if timestamp.After(latestTimestamp) {
