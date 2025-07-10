@@ -296,7 +296,7 @@ func TestChatStorageTestSuite(t *testing.T) {
 func (suite *ChatStorageTestSuite) TestGetMessageByID() {
 	// Create test data
 	suite.createTestData()
-	
+
 	// Test finding existing message by ID only
 	msg, err := suite.repo.GetMessageByID("msg1")
 	suite.NoError(err)
@@ -304,12 +304,12 @@ func (suite *ChatStorageTestSuite) TestGetMessageByID() {
 	suite.Equal("msg1", msg.ID)
 	suite.Equal("1234567890@s.whatsapp.net", msg.ChatJID)
 	suite.Equal("Hello World", msg.Content)
-	
+
 	// Test finding non-existent message
 	msg, err = suite.repo.GetMessageByID("nonexistent")
 	suite.NoError(err)
 	suite.Nil(msg)
-	
+
 	// Test finding message from different chat
 	msg, err = suite.repo.GetMessageByID("msg3")
 	suite.NoError(err)
@@ -317,4 +317,110 @@ func (suite *ChatStorageTestSuite) TestGetMessageByID() {
 	suite.Equal("msg3", msg.ID)
 	suite.Equal("0987654321@s.whatsapp.net", msg.ChatJID)
 	suite.Equal("How are you?", msg.Content)
+}
+
+// TestSearchMessages tests the new database-level search functionality
+func (suite *ChatStorageTestSuite) TestSearchMessages() {
+	// Create test data with varied content for search testing
+	suite.createTestData()
+
+	// Add more messages with specific content for search testing
+	additionalMessages := []*Message{
+		{
+			ID:        "msg6",
+			ChatJID:   "1234567890@s.whatsapp.net",
+			Sender:    "1234567890",
+			Content:   "This is a test message with HELLO in caps",
+			Timestamp: time.Now(),
+			IsFromMe:  false,
+		},
+		{
+			ID:        "msg7",
+			ChatJID:   "1234567890@s.whatsapp.net",
+			Sender:    "me",
+			Content:   "Another message without the target word",
+			Timestamp: time.Now(),
+			IsFromMe:  true,
+		},
+		{
+			ID:        "msg8",
+			ChatJID:   "0987654321@s.whatsapp.net",
+			Sender:    "0987654321",
+			Content:   "Hello from another chat",
+			Timestamp: time.Now(),
+			IsFromMe:  false,
+		},
+	}
+
+	err := suite.repo.StoreMessagesBatch(additionalMessages)
+	suite.Require().NoError(err)
+
+	// Test case 1: Search for "hello" (case-insensitive) in first chat
+	results, err := suite.repo.SearchMessages("1234567890@s.whatsapp.net", "hello", 10)
+	suite.NoError(err)
+	suite.Len(results, 2) // Should find "Hello World" and "HELLO in caps"
+
+	// Verify results contain expected messages
+	foundContents := make(map[string]bool)
+	for _, msg := range results {
+		foundContents[msg.Content] = true
+		suite.Equal("1234567890@s.whatsapp.net", msg.ChatJID) // All results should be from the specified chat
+	}
+	suite.True(foundContents["Hello World"])
+	suite.True(foundContents["This is a test message with HELLO in caps"])
+
+	// Test case 2: Search for "hello" in second chat
+	results, err = suite.repo.SearchMessages("0987654321@s.whatsapp.net", "hello", 10)
+	suite.NoError(err)
+	suite.Len(results, 1) // Should find "Hello from another chat"
+	suite.Equal("Hello from another chat", results[0].Content)
+
+	// Test case 3: Search for non-existent text
+	results, err = suite.repo.SearchMessages("1234567890@s.whatsapp.net", "nonexistent", 10)
+	suite.NoError(err)
+	suite.Len(results, 0)
+
+	// Test case 4: Search in non-existent chat
+	results, err = suite.repo.SearchMessages("nonexistent@s.whatsapp.net", "hello", 10)
+	suite.NoError(err)
+	suite.Len(results, 0)
+
+	// Test case 5: Search with limit
+	results, err = suite.repo.SearchMessages("1234567890@s.whatsapp.net", "hello", 1)
+	suite.NoError(err)
+	suite.Len(results, 1) // Should respect the limit
+
+	// Test case 6: Search with partial word match
+	results, err = suite.repo.SearchMessages("1234567890@s.whatsapp.net", "test", 10)
+	suite.NoError(err)
+	suite.Len(results, 1) // Should find "This is a test message with HELLO in caps"
+	suite.Equal("This is a test message with HELLO in caps", results[0].Content)
+
+	// Test case 7: Search with very high limit (should be capped)
+	results, err = suite.repo.SearchMessages("1234567890@s.whatsapp.net", "hello", 2000)
+	suite.NoError(err)
+	suite.Len(results, 2) // Should find all matching messages regardless of high limit
+}
+
+// TestSearchMessagesStorage tests the storage layer search functionality
+func (suite *ChatStorageTestSuite) TestSearchMessagesStorage() {
+	// Create test data
+	suite.createTestData()
+
+	// Test the storage layer search method
+	results, err := suite.storage.SearchMessages("hello", "1234567890@s.whatsapp.net", 10)
+	suite.NoError(err)
+	suite.Len(results, 1) // Should find "Hello World"
+	suite.Equal("Hello World", results[0].Content)
+
+	// Test with empty search text
+	results, err = suite.storage.SearchMessages("", "1234567890@s.whatsapp.net", 10)
+	suite.NoError(err)
+	suite.Len(results, 0) // Should return no results for empty search
+
+	// Test with case variation
+	results, err = suite.storage.SearchMessages("HELLO", "1234567890@s.whatsapp.net", 10)
+	suite.NoError(err)
+	suite.Len(results, 1) // Should find "Hello World" (case-insensitive)
+	suite.Equal("Hello World", results[0].Content)
 }

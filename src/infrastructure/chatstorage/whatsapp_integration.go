@@ -3,7 +3,6 @@ package chatstorage
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -163,29 +162,10 @@ func (s *Storage) GetRecentChats(limit int) ([]*Chat, error) {
 	return s.repo.GetChats(filter)
 }
 
-// SearchMessages searches for messages containing specific text
+// SearchMessages searches for messages containing specific text using database-level filtering
 func (s *Storage) SearchMessages(searchText string, chatJID string, limit int) ([]*Message, error) {
-	// This is a simple implementation - can be enhanced with full-text search
-	messages, err := s.repo.GetMessages(&MessageFilter{
-		ChatJID: chatJID,
-		Limit:   limit,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter messages containing search text
-	var results []*Message
-	searchLower := strings.ToLower(searchText)
-
-	for _, msg := range messages {
-		if strings.Contains(strings.ToLower(msg.Content), searchLower) {
-			results = append(results, msg)
-		}
-	}
-
-	return results, nil
+	// Delegate to repository for efficient database-level search
+	return s.repo.SearchMessages(chatJID, searchText, limit)
 }
 
 // GetMediaMessages retrieves only media messages from a chat
@@ -230,6 +210,43 @@ func (s *Storage) UpdateGroupInfo(client *whatsmeow.Client, jid types.JID, logge
 
 	logger.Infof("Updated group info for %s: %s", jid.String(), groupInfo.Name)
 	return nil
+}
+
+// StoreSentMessage stores a message that was sent by the user
+func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
+	// Ensure JID is properly formatted
+	jid, err := types.ParseJID(recipientJID)
+	if err != nil {
+		return fmt.Errorf("invalid JID format: %w", err)
+	}
+
+	chatJID := jid.String()
+
+	// Get chat name (no pushname available for sent messages)
+	chatName := s.GetChatNameWithPushName(jid, chatJID, jid.User, "")
+
+	// Store or update chat
+	chat := &Chat{
+		JID:             chatJID,
+		Name:            chatName,
+		LastMessageTime: timestamp,
+	}
+
+	if err := s.repo.StoreChat(chat); err != nil {
+		return fmt.Errorf("failed to store chat: %w", err)
+	}
+
+	// Store the sent message
+	message := &Message{
+		ID:        messageID,
+		ChatJID:   chatJID,
+		Sender:    senderJID,
+		Content:   content,
+		Timestamp: timestamp,
+		IsFromMe:  true,
+	}
+
+	return s.repo.StoreMessage(message)
 }
 
 // StoreSentMessageWithContext stores a message that was sent by the user with context cancellation support

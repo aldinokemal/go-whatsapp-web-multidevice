@@ -22,6 +22,7 @@ type Repository interface {
 	GetMessage(id, chatJID string) (*Message, error)
 	GetMessageByID(id string) (*Message, error) // New method for efficient ID-only search
 	GetMessages(filter *MessageFilter) ([]*Message, error)
+	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
 	GetMediaInfo(id, chatJID string) (*MediaInfo, error)
 	UpdateMediaInfo(id, chatJID string, mediaInfo *MediaInfo) error
 	DeleteMessage(id, chatJID string) error
@@ -149,7 +150,7 @@ func (r *SQLiteRepository) GetChats(filter *ChatFilter) ([]*Chat, error) {
 		}
 		query += " LIMIT ?"
 		args = append(args, filter.Limit)
-		
+
 		if filter.Offset > 0 {
 			query += " OFFSET ?"
 			args = append(args, filter.Offset)
@@ -386,7 +387,7 @@ func (r *SQLiteRepository) GetMessages(filter *MessageFilter) ([]*Message, error
 		}
 		query += " LIMIT ?"
 		args = append(args, filter.Limit)
-		
+
 		if filter.Offset > 0 {
 			query += " OFFSET ?"
 			args = append(args, filter.Offset)
@@ -415,6 +416,71 @@ func (r *SQLiteRepository) GetMessages(filter *MessageFilter) ([]*Message, error
 	}
 
 	return messages, rows.Err()
+}
+
+// SearchMessages performs database-level search for messages containing specific text
+func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) {
+	// Return empty results for empty search text
+	if strings.TrimSpace(searchText) == "" {
+		return []*Message{}, nil
+	}
+
+	var conditions []string
+	var args []interface{}
+
+	// Always filter by chat JID
+	conditions = append(conditions, "chat_jid = ?")
+	args = append(args, chatJID)
+
+	// Add search condition using LIKE operator for case-insensitive search
+	conditions = append(conditions, "LOWER(content) LIKE ?")
+	args = append(args, "%"+strings.ToLower(searchText)+"%")
+
+	query := `
+		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
+			file_enc_sha256, file_length, created_at, updated_at
+		FROM messages
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		ORDER BY timestamp DESC
+	`
+
+	// Add limit with validation
+	if limit > 0 {
+		// Validate limit to prevent abuse
+		if limit > 1000 {
+			limit = 1000
+		}
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*Message
+	for rows.Next() {
+		message := &Message{}
+		err := rows.Scan(
+			&message.ID, &message.ChatJID, &message.Sender, &message.Content,
+			&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.Filename,
+			&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
+			&message.FileLength, &message.CreatedAt, &message.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating messages: %w", err)
+	}
+
+	return messages, nil
 }
 
 // GetMediaInfo retrieves media information for a message
