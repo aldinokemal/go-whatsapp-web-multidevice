@@ -222,6 +222,15 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string, chatStorageRe
 		logrus.Infof("[%s] Client disconnected", logPrefix)
 	}
 
+	// Truncate all chatstorage data before other cleanup
+	if chatStorageRepo != nil {
+		logrus.Infof("[%s] Truncating chatstorage data...", logPrefix)
+		if err := chatStorageRepo.TruncateAllDataWithLogging(logPrefix); err != nil {
+			logrus.Errorf("[%s] Failed to truncate chatstorage data: %v", logPrefix, err)
+			// Continue with cleanup even if chatstorage truncation fails
+		}
+	}
+
 	// Clean up database
 	if err := CleanupDatabase(); err != nil {
 		return nil, nil, fmt.Errorf("database cleanup failed: %v", err)
@@ -262,6 +271,7 @@ func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string, chatS
 // handleRemoteLogout performs cleanup when user logs out from their phone
 func handleRemoteLogout(ctx context.Context, chatStorageRepo *chatstorage.Storage) {
 	logrus.Info("[REMOTE_LOGOUT] User logged out from phone - starting cleanup...")
+	logrus.Info("[REMOTE_LOGOUT] This will clear all WhatsApp session data and chat storage")
 
 	// Log database state before cleanup
 	if db != nil {

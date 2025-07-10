@@ -7,11 +7,42 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
+
+// ChatStorage Logout Functionality
+//
+// This package provides comprehensive logout handling that truncates all chatstorage data
+// when a user logs out. The truncation occurs in two scenarios:
+//
+// 1. REMOTE LOGOUT: When the user logs out from their WhatsApp phone/device
+//    - Triggered by the LoggedOut event from WhatsApp
+//    - Handled automatically by the event system
+//
+// 2. MANUAL LOGOUT: When the user calls the /app/logout API endpoint
+//    - Triggered by explicit API call
+//    - Initiated by user action through UI or REST API
+//
+// The truncation process:
+// - Deletes all messages from the messages table
+// - Deletes all chats from the chats table
+// - Maintains referential integrity (messages deleted first due to foreign key constraints)
+// - Provides detailed logging of the process
+// - Continues with other cleanup operations even if chatstorage truncation fails
+//
+// Methods available:
+// - TruncateAllData(): Basic truncation without logging
+// - TruncateAllDataWithLogging(logPrefix): Truncation with detailed before/after statistics
+// - GetStorageStatistics(): Get current chat and message counts
+//
+// Usage in logout process:
+// The truncation is automatically integrated into the WhatsApp client logout handling
+// and will be called whenever a logout occurs, ensuring no chat history persists
+// after the user session ends.
 
 // CreateMessage processes and stores a WhatsApp message event
 func (s *Storage) CreateMessage(ctx context.Context, evt *events.Message) error {
@@ -270,4 +301,69 @@ func (s *Storage) StoreMessage(message *Message) error {
 // StoreMessagesBatch stores multiple messages in a single transaction
 func (s *Storage) StoreMessagesBatch(messages []*Message) error {
 	return s.repo.StoreMessagesBatch(messages)
+}
+
+// TruncateAllMessages deletes all messages from the chatstorage database
+func (s *Storage) TruncateAllMessages() error {
+	return s.repo.TruncateAllMessages()
+}
+
+// TruncateAllChats deletes all chats from the chatstorage database
+func (s *Storage) TruncateAllChats() error {
+	return s.repo.TruncateAllChats()
+}
+
+// TruncateAllData deletes all chats and messages from the chatstorage database
+// This method should be called during user logout to clear all stored data
+func (s *Storage) TruncateAllData() error {
+	return s.repo.TruncateAllData()
+}
+
+// GetStorageStatistics returns current storage statistics for logging purposes
+func (s *Storage) GetStorageStatistics() (chatCount int64, messageCount int64, err error) {
+	// Count all chats
+	chats, err := s.repo.GetChats(&ChatFilter{Limit: 10000}) // Large limit to get all
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get chat count: %w", err)
+	}
+	chatCount = int64(len(chats))
+
+	// Count all messages
+	messageCount, err = s.repo.GetTotalMessageCount()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get message count: %w", err)
+	}
+
+	return chatCount, messageCount, nil
+}
+
+// TruncateAllDataWithLogging performs truncation with detailed logging
+func (s *Storage) TruncateAllDataWithLogging(logPrefix string) error {
+	// Get statistics before truncation
+	chatCount, messageCount, err := s.GetStorageStatistics()
+	if err != nil {
+		logrus.Warnf("[%s] Failed to get storage statistics before truncation: %v", logPrefix, err)
+	} else {
+		logrus.Infof("[%s] Storage before truncation: %d chats, %d messages", logPrefix, chatCount, messageCount)
+	}
+
+	// Perform truncation
+	if err := s.TruncateAllData(); err != nil {
+		return fmt.Errorf("failed to truncate chatstorage data: %w", err)
+	}
+
+	// Verify truncation
+	chatCountAfter, messageCountAfter, err := s.GetStorageStatistics()
+	if err != nil {
+		logrus.Warnf("[%s] Failed to get storage statistics after truncation: %v", logPrefix, err)
+	} else {
+		logrus.Infof("[%s] Storage after truncation: %d chats, %d messages", logPrefix, chatCountAfter, messageCountAfter)
+		if chatCountAfter == 0 && messageCountAfter == 0 {
+			logrus.Infof("[%s] ✅ Chatstorage truncation completed successfully", logPrefix)
+		} else {
+			logrus.Warnf("[%s] ⚠️ Truncation may not have completed fully", logPrefix)
+		}
+	}
+
+	return nil
 }

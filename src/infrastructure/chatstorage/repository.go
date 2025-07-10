@@ -29,6 +29,11 @@ type Repository interface {
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
 	GetTotalMessageCount() (int64, error)
+
+	// Cleanup operations
+	TruncateAllMessages() error
+	TruncateAllChats() error
+	TruncateAllData() error
 }
 
 // SQLiteRepository implements Repository using SQLite
@@ -434,4 +439,39 @@ func (r *SQLiteRepository) GetTotalMessageCount() (int64, error) {
 	var count int64
 	err := r.db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&count)
 	return count, err
+}
+
+// TruncateAllMessages deletes all messages from the database
+func (r *SQLiteRepository) TruncateAllMessages() error {
+	_, err := r.db.Exec("DELETE FROM messages")
+	return err
+}
+
+// TruncateAllChats deletes all chats from the database
+func (r *SQLiteRepository) TruncateAllChats() error {
+	_, err := r.db.Exec("DELETE FROM chats")
+	return err
+}
+
+// TruncateAllData deletes all chats and messages in the correct order
+func (r *SQLiteRepository) TruncateAllData() error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM messages")
+	if err != nil {
+		return fmt.Errorf("failed to delete messages: %w", err)
+	}
+
+	// Delete chats
+	_, err = tx.Exec("DELETE FROM chats")
+	if err != nil {
+		return fmt.Errorf("failed to delete chats: %w", err)
+	}
+
+	return tx.Commit()
 }
