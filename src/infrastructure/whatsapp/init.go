@@ -393,7 +393,10 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo *ch
 		evt.Message,
 	)
 
-	chatStorageRepo.CreateMessage(ctx, evt)
+	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+		// Log storage errors to avoid silent failures that could lead to data loss
+		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+	}
 
 	// Handle image message if present
 	handleImageMessage(ctx, evt)
