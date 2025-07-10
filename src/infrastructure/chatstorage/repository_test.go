@@ -291,3 +291,30 @@ func (suite *ChatStorageTestSuite) TestTruncateEmptyDatabase() {
 func TestChatStorageTestSuite(t *testing.T) {
 	suite.Run(t, new(ChatStorageTestSuite))
 }
+
+// TestGetMessageByID tests the new optimized GetMessageByID method
+func (suite *ChatStorageTestSuite) TestGetMessageByID() {
+	// Create test data
+	suite.createTestData()
+	
+	// Test finding existing message by ID only
+	msg, err := suite.repo.GetMessageByID("msg1")
+	suite.NoError(err)
+	suite.NotNil(msg)
+	suite.Equal("msg1", msg.ID)
+	suite.Equal("1234567890@s.whatsapp.net", msg.ChatJID)
+	suite.Equal("Hello World", msg.Content)
+	
+	// Test finding non-existent message
+	msg, err = suite.repo.GetMessageByID("nonexistent")
+	suite.NoError(err)
+	suite.Nil(msg)
+	
+	// Test finding message from different chat
+	msg, err = suite.repo.GetMessageByID("msg3")
+	suite.NoError(err)
+	suite.NotNil(msg)
+	suite.Equal("msg3", msg.ID)
+	suite.Equal("0987654321@s.whatsapp.net", msg.ChatJID)
+	suite.Equal("How are you?", msg.Content)
+}

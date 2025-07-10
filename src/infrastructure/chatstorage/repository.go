@@ -20,6 +20,7 @@ type Repository interface {
 	StoreMessage(message *Message) error
 	StoreMessagesBatch(messages []*Message) error
 	GetMessage(id, chatJID string) (*Message, error)
+	GetMessageByID(id string) (*Message, error) // New method for efficient ID-only search
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	GetMediaInfo(id, chatJID string) (*MediaInfo, error)
 	UpdateMediaInfo(id, chatJID string, mediaInfo *MediaInfo) error
@@ -29,6 +30,7 @@ type Repository interface {
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
 	GetTotalMessageCount() (int64, error)
+	GetTotalChatCount() (int64, error)
 
 	// Cleanup operations
 	TruncateAllMessages() error
@@ -86,6 +88,33 @@ func (r *SQLiteRepository) GetChat(jid string) (*Chat, error) {
 	return chat, err
 }
 
+// GetMessageByID retrieves a message by its ID from any chat
+// This is more efficient than searching through all chats
+func (r *SQLiteRepository) GetMessageByID(id string) (*Message, error) {
+	message := &Message{}
+	query := `
+		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
+			file_enc_sha256, file_length, created_at, updated_at
+		FROM messages
+		WHERE id = ?
+		LIMIT 1
+	`
+
+	err := r.db.QueryRow(query, id).Scan(
+		&message.ID, &message.ChatJID, &message.Sender, &message.Content,
+		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.Filename,
+		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
+		&message.FileLength, &message.CreatedAt, &message.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	return message, err
+}
+
 // GetChats retrieves chats with filtering
 func (r *SQLiteRepository) GetChats(filter *ChatFilter) ([]*Chat, error) {
 	var conditions []string
@@ -112,10 +141,18 @@ func (r *SQLiteRepository) GetChats(filter *ChatFilter) ([]*Chat, error) {
 
 	query += " ORDER BY c.last_message_time DESC"
 
+	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+		// Validate limit to prevent abuse
+		if filter.Limit > 1000 {
+			filter.Limit = 1000
+		}
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+		
 		if filter.Offset > 0 {
-			query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+			query += " OFFSET ?"
+			args = append(args, filter.Offset)
 		}
 	}
 
@@ -183,6 +220,7 @@ func (r *SQLiteRepository) StoreMessage(message *Message) error {
 
 	// Skip empty messages
 	if message.Content == "" && message.MediaType == "" {
+		// This is not an error, just skip storing empty messages
 		return nil
 	}
 
@@ -340,10 +378,18 @@ func (r *SQLiteRepository) GetMessages(filter *MessageFilter) ([]*Message, error
 		ORDER BY timestamp DESC
 	`
 
+	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+		// Validate limit to prevent abuse
+		if filter.Limit > 1000 {
+			filter.Limit = 1000
+		}
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+		
 		if filter.Offset > 0 {
-			query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+			query += " OFFSET ?"
+			args = append(args, filter.Offset)
 		}
 	}
 
@@ -441,6 +487,13 @@ func (r *SQLiteRepository) GetTotalMessageCount() (int64, error) {
 	return count, err
 }
 
+// GetTotalChatCount returns the total number of chats
+func (r *SQLiteRepository) GetTotalChatCount() (int64, error) {
+	var count int64
+	err := r.db.QueryRow("SELECT COUNT(*) FROM chats").Scan(&count)
+	return count, err
+}
+
 // TruncateAllMessages deletes all messages from the database
 func (r *SQLiteRepository) TruncateAllMessages() error {
 	_, err := r.db.Exec("DELETE FROM messages")
@@ -448,9 +501,27 @@ func (r *SQLiteRepository) TruncateAllMessages() error {
 }
 
 // TruncateAllChats deletes all chats from the database
+// Note: Due to foreign key constraints, messages must be deleted first
 func (r *SQLiteRepository) TruncateAllChats() error {
-	_, err := r.db.Exec("DELETE FROM chats")
-	return err
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM messages")
+	if err != nil {
+		return fmt.Errorf("failed to delete messages: %w", err)
+	}
+
+	// Delete chats
+	_, err = tx.Exec("DELETE FROM chats")
+	if err != nil {
+		return fmt.Errorf("failed to delete chats: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // TruncateAllData deletes all chats and messages in the correct order

@@ -93,7 +93,16 @@ func (s *Storage) DB() *sql.DB {
 
 // Close closes the database connection
 func (s *Storage) Close() error {
-	return s.db.Close()
+	if s.db == nil {
+		return nil
+	}
+	
+	// Close the database connection
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("failed to close database connection: %w", err)
+	}
+	
+	return nil
 }
 
 // initializeSchema creates or migrates the database schema
@@ -202,6 +211,11 @@ func (s *Storage) getMigrations() []string {
 		CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
 		CREATE INDEX IF NOT EXISTS idx_chats_last_message ON chats(last_message_time);
 		CREATE INDEX IF NOT EXISTS idx_chats_name ON chats(name);
+		`,
+		
+		// Migration 2: Add index for message ID lookups (performance optimization)
+		`
+		CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
 		`,
 	}
 }

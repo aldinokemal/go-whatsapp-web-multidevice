@@ -79,6 +79,7 @@ func (s *Storage) CreateMessage(ctx context.Context, evt *events.Message) error 
 
 	// Skip if there's no content and no media
 	if content == "" && mediaType == "" {
+		logrus.Debugf("Skipping message %s - no content or media", evt.Info.ID)
 		return nil
 	}
 
@@ -210,6 +211,7 @@ func (s *Storage) UpdateGroupInfo(client *whatsmeow.Client, jid types.JID, logge
 
 	groupInfo, err := client.GetGroupInfo(jid)
 	if err != nil {
+		logger.Warnf("Failed to get group info for %s: %v", jid.String(), err)
 		return fmt.Errorf("failed to get group info: %w", err)
 	}
 
@@ -220,7 +222,13 @@ func (s *Storage) UpdateGroupInfo(client *whatsmeow.Client, jid types.JID, logge
 		LastMessageTime: time.Now(),
 	}
 
-	return s.repo.StoreChat(chat)
+	if err := s.repo.StoreChat(chat); err != nil {
+		logger.Errorf("Failed to store group chat %s: %v", jid.String(), err)
+		return fmt.Errorf("failed to store group chat: %w", err)
+	}
+
+	logger.Infof("Updated group info for %s: %s", jid.String(), groupInfo.Name)
+	return nil
 }
 
 // StoreSentMessage stores a message that was sent by the user
@@ -262,25 +270,17 @@ func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipient
 
 // FindMessageByID retrieves a message by its ID for reply functionality
 func (s *Storage) FindMessageByID(messageID string) (*Message, error) {
-	// We need to search across all chats since we don't know which chat the message belongs to
-	// First, get all chats
-	chats, err := s.repo.GetChats(&ChatFilter{Limit: 1000})
+	// Use the optimized GetMessageByID method
+	msg, err := s.repo.GetMessageByID(messageID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get chats: %w", err)
+		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
-
-	// Search for the message in each chat
-	for _, chat := range chats {
-		msg, err := s.repo.GetMessage(messageID, chat.JID)
-		if err != nil {
-			continue
-		}
-		if msg != nil {
-			return msg, nil
-		}
+	
+	if msg == nil {
+		return nil, fmt.Errorf("message with ID %s not found", messageID)
 	}
-
-	return nil, fmt.Errorf("message with ID %s not found", messageID)
+	
+	return msg, nil
 }
 
 // GetChat retrieves a chat by its JID
@@ -321,12 +321,11 @@ func (s *Storage) TruncateAllData() error {
 
 // GetStorageStatistics returns current storage statistics for logging purposes
 func (s *Storage) GetStorageStatistics() (chatCount int64, messageCount int64, err error) {
-	// Count all chats
-	chats, err := s.repo.GetChats(&ChatFilter{Limit: 10000}) // Large limit to get all
+	// Count all chats using efficient query
+	chatCount, err = s.repo.GetTotalChatCount()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get chat count: %w", err)
 	}
-	chatCount = int64(len(chats))
 
 	// Count all messages
 	messageCount, err = s.repo.GetTotalMessageCount()
