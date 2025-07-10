@@ -303,11 +303,9 @@ func GenerateMediaFilename(mediaType, extension, caption string) string {
 
 	// Use caption as part of filename if available
 	if caption != "" {
-		// Sanitize caption for filename
-		caption = strings.ReplaceAll(caption, " ", "_")
-		caption = strings.ReplaceAll(caption, "/", "-")
-		caption = strings.ReplaceAll(caption, "\\", "-")
-		caption = strings.ReplaceAll(caption, ":", "-")
+		// Sanitize caption for filename - keep only alphanumeric and basic punctuation
+		re := regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
+		caption = re.ReplaceAllString(caption, "_")
 
 		// Limit caption length
 		if len(caption) > 30 {
@@ -474,13 +472,13 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 const maxPhoneNumberLength = 15 // Maximum digits in a phone number
 
 func SanitizePhone(phone *string) {
-    if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
-        if len(*phone) <= maxPhoneNumberLength {
-            *phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
-        } else {
-            *phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
-        }
-    }
+	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
+		if len(*phone) <= maxPhoneNumberLength {
+			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
+		} else {
+			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
+		}
+	}
 }
 
 // IsOnWhatsapp checks if a number is registered on WhatsApp
