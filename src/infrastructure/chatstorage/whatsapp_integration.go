@@ -232,8 +232,15 @@ func (s *Storage) UpdateGroupInfo(client *whatsmeow.Client, jid types.JID, logge
 	return nil
 }
 
-// StoreSentMessage stores a message that was sent by the user
-func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
+// StoreSentMessageWithContext stores a message that was sent by the user with context cancellation support
+func (s *Storage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
+	// Check if context is already cancelled before starting
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Ensure JID is properly formatted
 	jid, err := types.ParseJID(recipientJID)
 	if err != nil {
@@ -245,6 +252,13 @@ func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipient
 	// Get chat name (no pushname available for sent messages)
 	chatName := s.GetChatNameWithPushName(jid, chatJID, jid.User, "")
 
+	// Check context again before database operations
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Store or update chat
 	chat := &Chat{
 		JID:             chatJID,
@@ -254,6 +268,13 @@ func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipient
 
 	if err := s.repo.StoreChat(chat); err != nil {
 		return fmt.Errorf("failed to store chat: %w", err)
+	}
+
+	// Check context one more time before storing message
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	// Store the sent message
@@ -276,11 +297,11 @@ func (s *Storage) FindMessageByID(messageID string) (*Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
-	
+
 	if msg == nil {
 		return nil, fmt.Errorf("message with ID %s not found", messageID)
 	}
-	
+
 	return msg, nil
 }
 

@@ -54,27 +54,20 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.
 		senderJID = whatsapp.GetClient().Store.ID.String()
 	}
 
-	// Store message synchronously to avoid race conditions
-	// Use a short timeout context to prevent blocking the send operation
-	storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	
-	// Create a channel to handle the storage operation with timeout
-	done := make(chan error, 1)
+	// Store message asynchronously with timeout
+	// Use a goroutine to avoid blocking the send operation
 	go func() {
-		done <- service.chatStorageRepo.StoreSentMessage(ts.ID, senderJID, recipient.String(), content, ts.Timestamp)
-	}()
-	
-	select {
-	case err := <-done:
-		if err != nil {
-			logrus.Warnf("Failed to store sent message: %v", err)
-			// Don't fail the send operation if storage fails
+		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp); err != nil {
+			if err == context.DeadlineExceeded {
+				logrus.Warn("Timeout storing sent message")
+			} else {
+				logrus.Warnf("Failed to store sent message: %v", err)
+			}
 		}
-	case <-storeCtx.Done():
-		logrus.Warn("Timeout storing sent message - continuing anyway")
-		// Don't fail the send operation if storage times out
-	}
+	}()
 
 	return ts, nil
 }
