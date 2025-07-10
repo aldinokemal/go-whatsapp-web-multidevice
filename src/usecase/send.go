@@ -117,10 +117,17 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
 		message, err := service.chatStorageRepo.FindMessageByID(*request.ReplyMessageID)
 		if err == nil && message != nil { // Only set reply context if we found the message
+			// Ensure we use a full JID (user@server) for the Participant field
+			participantJID := message.Sender
+			if !strings.Contains(participantJID, "@") {
+				// Default to WhatsApp user server when the server part is missing
+				participantJID = participantJID + "@s.whatsapp.net"
+			}
+
 			// Build base ContextInfo with reply details
 			ctxInfo := &waE2E.ContextInfo{
 				StanzaID:    request.ReplyMessageID,
-				Participant: proto.String(message.Sender),
+				Participant: proto.String(participantJID),
 				QuotedMessage: &waE2E.Message{
 					Conversation: proto.String(message.Content),
 				},

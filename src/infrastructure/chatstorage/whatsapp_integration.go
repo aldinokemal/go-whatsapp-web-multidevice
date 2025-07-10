@@ -52,7 +52,8 @@ func (s *Storage) CreateMessage(ctx context.Context, evt *events.Message) error 
 
 	// Extract chat and sender information
 	chatJID := evt.Info.Chat.String()
-	sender := evt.Info.Sender.User
+	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
+	sender := evt.Info.Sender.String()
 
 	// Get appropriate chat name using pushname if available
 	chatName := s.GetChatNameWithPushName(evt.Info.Chat, chatJID, evt.Info.Sender.User, evt.Info.PushName)
