@@ -112,11 +112,10 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		message, err := service.chatStorageRepo.FindMessageByID(*request.ReplyMessageID)
 		if err == nil && message != nil { // Only set reply context if we found the message
 			// Ensure we use a full JID (user@server) for the Participant field
+			// Use the sender JID from storage as-is. Modern storage should already provide
+			// fully-qualified JIDs (e.g., user@s.whatsapp.net or group@g.us). Avoid mutating
+			// the JID here to prevent corrupting valid group or special JIDs.
 			participantJID := message.Sender
-			if !strings.Contains(participantJID, "@") {
-				// Default to WhatsApp user server when the server part is missing
-				participantJID = participantJID + "@s.whatsapp.net"
-			}
 
 			// Build base ContextInfo with reply details
 			ctxInfo := &waE2E.ContextInfo{
