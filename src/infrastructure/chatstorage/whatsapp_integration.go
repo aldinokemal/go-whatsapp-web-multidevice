@@ -23,8 +23,8 @@ func (s *Storage) CreateMessage(ctx context.Context, evt *events.Message) error 
 	chatJID := evt.Info.Chat.String()
 	sender := evt.Info.Sender.User
 
-	// Get appropriate chat name
-	chatName := s.GetChatName(evt.Info.Chat, chatJID, evt.Info.Sender.User)
+	// Get appropriate chat name using pushname if available
+	chatName := s.GetChatNameWithPushName(evt.Info.Chat, chatJID, evt.Info.Sender.User, evt.Info.PushName)
 
 	// Extract ephemeral expiration
 	ephemeralExpiration := utils.ExtractEphemeralExpiration(evt.Message)
@@ -72,11 +72,15 @@ func (s *Storage) CreateMessage(ctx context.Context, evt *events.Message) error 
 	return s.repo.StoreMessage(message)
 }
 
-// GetChatName determines the appropriate name for a chat
-func (s *Storage) GetChatName(jid types.JID, chatJID string, senderUser string) string {
+// GetChatNameWithPushName determines the appropriate name for a chat with pushname support
+func (s *Storage) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	// First, check if chat already exists with a name
 	existingChat, err := s.repo.GetChat(chatJID)
 	if err == nil && existingChat != nil && existingChat.Name != "" {
+		// If we have a pushname and the existing name is just a phone number/JID user, update it
+		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {
+			return pushName
+		}
 		return existingChat.Name
 	}
 
@@ -93,8 +97,10 @@ func (s *Storage) GetChatName(jid types.JID, chatJID string, senderUser string) 
 		name = fmt.Sprintf("Newsletter %s", jid.User)
 	default:
 		// This is an individual contact
-		// Use sender as name or JID user
-		if senderUser != "" {
+		// Priority: pushName > senderUser > JID user
+		if pushName != "" && pushName != senderUser && pushName != jid.User {
+			name = pushName
+		} else if senderUser != "" {
 			name = senderUser
 		} else {
 			name = jid.User
@@ -196,8 +202,8 @@ func (s *Storage) StoreSentMessage(messageID string, senderJID string, recipient
 
 	chatJID := jid.String()
 
-	// Get chat name
-	chatName := s.GetChatName(jid, chatJID, jid.User)
+	// Get chat name (no pushname available for sent messages)
+	chatName := s.GetChatNameWithPushName(jid, chatJID, jid.User, "")
 
 	// Store or update chat
 	chat := &Chat{
