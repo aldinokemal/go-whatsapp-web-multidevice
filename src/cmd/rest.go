@@ -105,10 +105,6 @@ func restServer(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 	// Set auto reconnect checking
 	go helpers.SetAutoReconnectChecking(whatsappCli)
-	// Start auto flush chat csv
-	if config.WhatsappChatStorage {
-		go helpers.StartAutoFlushChatStorage()
-	}
 
 	if err := app.Listen(":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())

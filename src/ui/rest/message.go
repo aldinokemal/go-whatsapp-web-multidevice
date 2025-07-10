@@ -2,7 +2,6 @@ package rest
 
 import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -29,7 +28,7 @@ func (controller *Message) RevokeMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.RevokeMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -48,7 +47,7 @@ func (controller *Message) DeleteMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	err = controller.Service.DeleteMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -67,7 +66,7 @@ func (controller *Message) UpdateMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -86,7 +85,7 @@ func (controller *Message) ReactMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.ReactMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -105,7 +104,7 @@ func (controller *Message) MarkAsRead(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.MarkAsRead(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -124,7 +123,7 @@ func (controller *Message) StarMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 	request.IsStarred = true
 
 	err = controller.Service.StarMessage(c.UserContext(), request)
@@ -144,7 +143,7 @@ func (controller *Message) UnstarMessage(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.MessageID = c.Params("message_id")
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 	request.IsStarred = false
 	err = controller.Service.StarMessage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)

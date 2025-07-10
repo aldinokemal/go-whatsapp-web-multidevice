@@ -14,6 +14,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -37,9 +38,9 @@ func forwardToWebhook(ctx context.Context, evt *events.Message) error {
 }
 
 func createPayload(ctx context.Context, evt *events.Message) (map[string]interface{}, error) {
-	message := buildEventMessage(evt)
-	waReaction := buildEventReaction(evt)
-	forwarded := buildForwarded(evt)
+	message := utils.BuildEventMessage(evt)
+	waReaction := utils.BuildEventReaction(evt)
+	forwarded := utils.BuildForwarded(evt)
 
 	body := make(map[string]interface{})
 
@@ -137,7 +138,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 
 	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {
-		path, err := ExtractMedia(ctx, config.PathMedia, audioMedia)
+		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, audioMedia)
 		if err != nil {
 			logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
@@ -150,7 +151,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 
 	if documentMedia := evt.Message.GetDocumentMessage(); documentMedia != nil {
-		path, err := ExtractMedia(ctx, config.PathMedia, documentMedia)
+		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, documentMedia)
 		if err != nil {
 			logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
@@ -159,7 +160,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 
 	if imageMedia := evt.Message.GetImageMessage(); imageMedia != nil {
-		path, err := ExtractMedia(ctx, config.PathMedia, imageMedia)
+		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, imageMedia)
 		if err != nil {
 			logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
@@ -184,7 +185,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 
 	if stickerMedia := evt.Message.GetStickerMessage(); stickerMedia != nil {
-		path, err := ExtractMedia(ctx, config.PathMedia, stickerMedia)
+		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, stickerMedia)
 		if err != nil {
 			logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
@@ -193,7 +194,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	}
 
 	if videoMedia := evt.Message.GetVideoMessage(); videoMedia != nil {
-		path, err := ExtractMedia(ctx, config.PathMedia, videoMedia)
+		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, videoMedia)
 		if err != nil {
 			logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
@@ -218,7 +219,7 @@ func submitWebhook(payload map[string]interface{}, url string) error {
 	}
 
 	secretKey := []byte(config.WhatsappWebhookSecret)
-	signature, err := getMessageDigestOrSignature(postBody, secretKey)
+	signature, err := utils.GetMessageDigestOrSignature(postBody, secretKey)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create signature %v", err))
 	}

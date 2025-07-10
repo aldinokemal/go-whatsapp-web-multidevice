@@ -7,6 +7,7 @@ import (
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/appstate"
@@ -27,7 +28,7 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -53,7 +54,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -83,7 +84,7 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	if err = validations.ValidateRevokeMessage(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -102,7 +103,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 	if err = validations.ValidateDeleteMessage(ctx, request); err != nil {
 		return err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return err
 	}
@@ -137,7 +138,7 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -159,7 +160,7 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 		return err
 	}
 
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return err
 	}

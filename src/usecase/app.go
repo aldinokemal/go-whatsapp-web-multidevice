@@ -9,6 +9,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
@@ -22,12 +23,14 @@ import (
 )
 
 type serviceApp struct {
-	db *sqlstore.Container
+	db              *sqlstore.Container
+	chatStorageRepo *chatstorage.Storage
 }
 
-func NewAppService(db *sqlstore.Container) domainApp.IAppUsecase {
+func NewAppService(db *sqlstore.Container, chatStorageRepo *chatstorage.Storage) domainApp.IAppUsecase {
 	return &serviceApp{
-		db: db,
+		db:              db,
+		chatStorageRepo: chatStorageRepo,
 	}
 }
 
@@ -190,7 +193,7 @@ func (service *serviceApp) Logout(ctx context.Context) (err error) {
 	}
 
 	// Perform complete cleanup with global client synchronization
-	newDB, _, err := whatsapp.PerformCleanupAndUpdateGlobals(ctx, "MANUAL_LOGOUT")
+	newDB, _, err := whatsapp.PerformCleanupAndUpdateGlobals(ctx, "MANUAL_LOGOUT", service.chatStorageRepo)
 	if err != nil {
 		logrus.Errorf("[DEBUG] Cleanup failed: %v", err)
 		return err

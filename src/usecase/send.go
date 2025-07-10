@@ -3,15 +3,18 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -28,12 +31,14 @@ import (
 )
 
 type serviceSend struct {
-	appService app.IAppUsecase
+	appService      app.IAppUsecase
+	chatStorageRepo *chatstorage.Storage
 }
 
-func NewSendService(appService app.IAppUsecase) domainSend.ISendUsecase {
+func NewSendService(appService app.IAppUsecase, chatStorageRepo *chatstorage.Storage) domainSend.ISendUsecase {
 	return &serviceSend{
-		appService: appService,
+		appService:      appService,
+		chatStorageRepo: chatStorageRepo,
 	}
 }
 
@@ -44,7 +49,26 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.
 		return whatsmeow.SendResponse{}, err
 	}
 
-	utils.RecordMessage(ts.ID, whatsapp.GetClient().Store.ID.String(), content)
+	// Store the sent message using chatstorage
+	senderJID := ""
+	if whatsapp.GetClient().Store.ID != nil {
+		senderJID = whatsapp.GetClient().Store.ID.String()
+	}
+
+	// Store message asynchronously with timeout
+	// Use a goroutine to avoid blocking the send operation
+	go func() {
+		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				logrus.Warn("Timeout storing sent message")
+			} else {
+				logrus.Warnf("Failed to store sent message: %v", err)
+			}
+		}
+	}()
 
 	return ts, nil
 }
@@ -54,7 +78,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -85,14 +109,20 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		record, err := utils.FindRecordFromStorage(*request.ReplyMessageID)
-		if err == nil { // Only set reply context if we found the message ID
+		message, err := service.chatStorageRepo.FindMessageByID(*request.ReplyMessageID)
+		if err == nil && message != nil { // Only set reply context if we found the message
+			// Ensure we use a full JID (user@server) for the Participant field
+			// Use the sender JID from storage as-is. Modern storage should already provide
+			// fully-qualified JIDs (e.g., user@s.whatsapp.net or group@g.us). Avoid mutating
+			// the JID here to prevent corrupting valid group or special JIDs.
+			participantJID := message.Sender
+
 			// Build base ContextInfo with reply details
 			ctxInfo := &waE2E.ContextInfo{
 				StanzaID:    request.ReplyMessageID,
-				Participant: proto.String(record.JID),
+				Participant: proto.String(participantJID),
 				QuotedMessage: &waE2E.Message{
-					Conversation: proto.String(record.MessageContent),
+					Conversation: proto.String(message.Content),
 				},
 			}
 
@@ -136,7 +166,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -298,7 +328,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -359,7 +389,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -534,7 +564,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -577,7 +607,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -652,7 +682,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -699,7 +729,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -771,7 +801,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -819,7 +849,7 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 		return response, err
 	}
 
-	userJid, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	userJid, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -855,7 +885,7 @@ func (service serviceSend) getMentionFromText(_ context.Context, messages string
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
 		// Get JID from phone number
-		if dataWaRecipient, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), mention); err == nil {
+		if dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
 	}

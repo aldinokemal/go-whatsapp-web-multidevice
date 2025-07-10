@@ -2,7 +2,6 @@ package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -32,7 +31,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Info(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -50,7 +49,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Avatar(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -165,7 +164,7 @@ func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.BusinessProfile(c.UserContext(), request)
 	utils.PanicIfNeeded(err)

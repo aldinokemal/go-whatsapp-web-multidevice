@@ -5,13 +5,12 @@ import (
 )
 
 var (
-	AppVersion               = "v7.1.0"
-	AppPort                  = "3000"
-	AppDebug                 = false
-	AppOs                    = "AldinoKemal"
-	AppPlatform              = waCompanionReg.DeviceProps_PlatformType(1)
-	AppBasicAuthCredential   []string
-	AppChatFlushIntervalDays = 7 // Number of days before flushing chat.csv
+	AppVersion             = "v7.1.0"
+	AppPort                = "3000"
+	AppDebug               = false
+	AppOs                  = "AldinoKemal"
+	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
+	AppBasicAuthCredential []string
 
 	McpPort = "8080"
 	McpHost = "localhost"
@@ -36,5 +35,4 @@ var (
 	WhatsappTypeUser                     = "@s.whatsapp.net"
 	WhatsappTypeGroup                    = "@g.us"
 	WhatsappAccountValidation            = true
-	WhatsappChatStorage                  = true
 )

@@ -15,6 +15,7 @@ import (
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
@@ -35,6 +36,9 @@ var (
 	// Whatsapp
 	whatsappCli *whatsmeow.Client
 	whatsappDB  *sqlstore.Container
+
+	// Chat Storage
+	chatStorageRepo *chatstorage.Storage
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
@@ -84,9 +88,6 @@ func initEnvConfig() {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
 	}
-	if envChatFlushInterval := viper.GetInt("app_chat_flush_interval"); envChatFlushInterval > 0 {
-		config.AppChatFlushIntervalDays = envChatFlushInterval
-	}
 
 	// Database settings
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
@@ -109,9 +110,6 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
-	}
-	if viper.IsSet("whatsapp_chat_storage") {
-		config.WhatsappChatStorage = viper.GetBool("whatsapp_chat_storage")
 	}
 }
 
@@ -141,12 +139,6 @@ func initFlags() {
 		"basic-auth", "b",
 		config.AppBasicAuthCredential,
 		"basic auth credential | -b=yourUsername:yourPassword",
-	)
-	rootCmd.PersistentFlags().IntVarP(
-		&config.AppChatFlushIntervalDays,
-		"chat-flush-interval", "",
-		config.AppChatFlushIntervalDays,
-		`the interval to flush the chat storage --chat-flush-interval <number> | example: --chat-flush-interval=7`,
 	)
 
 	// Database flags
@@ -188,12 +180,6 @@ func initFlags() {
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
 	)
-	rootCmd.PersistentFlags().BoolVarP(
-		&config.WhatsappChatStorage,
-		"chat-storage", "",
-		config.WhatsappChatStorage,
-		`enable or disable chat storage --chat-storage <true/false>. If you disable this, reply feature maybe not working properly | example: --chat-storage=true`,
-	)
 }
 
 func initApp() {
@@ -207,12 +193,19 @@ func initApp() {
 	}
 
 	ctx := context.Background()
+
+	chatStorageRepo, err = chatstorage.NewStorage(chatstorage.DefaultConfig())
+	if err != nil {
+		// Terminate the application if chat storage fails to initialize to avoid nil pointer panics later.
+		logrus.Fatalf("failed to initialize chat storage: %v", err)
+	}
+
 	whatsappDB = whatsapp.InitWaDB(ctx)
-	whatsapp.InitWaCLI(ctx, whatsappDB)
+	whatsapp.InitWaCLI(ctx, whatsappDB, chatStorageRepo)
 
 	// Usecase
-	appUsecase = usecase.NewAppService(whatsappDB)
-	sendUsecase = usecase.NewSendService(appUsecase)
+	appUsecase = usecase.NewAppService(whatsappDB, chatStorageRepo)
+	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService()
 	messageUsecase = usecase.NewMessageService()
 	groupUsecase = usecase.NewGroupService()

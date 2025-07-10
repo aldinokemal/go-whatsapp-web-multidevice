@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
@@ -18,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -31,18 +33,6 @@ type ExtractedMedia struct {
 	MediaPath string `json:"media_path"`
 	MimeType  string `json:"mime_type"`
 	Caption   string `json:"caption"`
-}
-
-type evtReaction struct {
-	ID      string `json:"id,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type evtMessage struct {
-	ID            string `json:"id,omitempty"`
-	Text          string `json:"text,omitempty"`
-	RepliedId     string `json:"replied_id,omitempty"`
-	QuotedMessage string `json:"quoted_message,omitempty"`
 }
 
 // Global variables
@@ -83,7 +73,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger) (*sqlstore.Container,
 }
 
 // InitWaCLI initializes the WhatsApp client
-func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsmeow.Client {
+func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container, chatStorageRepo *chatstorage.Storage) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
@@ -105,7 +95,7 @@ func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container) *whatsme
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
 	cli.AddEventHandler(func(rawEvt interface{}) {
-		handler(ctx, rawEvt)
+		handler(ctx, rawEvt, chatStorageRepo)
 	})
 
 	return cli
@@ -207,11 +197,11 @@ func CleanupTemporaryFiles() error {
 }
 
 // ReinitializeWhatsAppComponents reinitializes database and client components
-func ReinitializeWhatsAppComponents(ctx context.Context) (*sqlstore.Container, *whatsmeow.Client, error) {
+func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
 	newDB := InitWaDB(ctx)
-	newCli := InitWaCLI(ctx, newDB)
+	newCli := InitWaCLI(ctx, newDB, chatStorageRepo)
 
 	// Update global references
 	db = newDB
@@ -223,7 +213,7 @@ func ReinitializeWhatsAppComponents(ctx context.Context) (*sqlstore.Container, *
 }
 
 // PerformCompleteCleanup performs all cleanup operations in the correct order
-func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
+func PerformCompleteCleanup(ctx context.Context, logPrefix string, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
 	logrus.Infof("[%s] Starting complete cleanup process...", logPrefix)
 
 	// Disconnect current client if it exists
@@ -232,13 +222,22 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Co
 		logrus.Infof("[%s] Client disconnected", logPrefix)
 	}
 
+	// Truncate all chatstorage data before other cleanup
+	if chatStorageRepo != nil {
+		logrus.Infof("[%s] Truncating chatstorage data...", logPrefix)
+		if err := chatStorageRepo.TruncateAllDataWithLogging(logPrefix); err != nil {
+			logrus.Errorf("[%s] Failed to truncate chatstorage data: %v", logPrefix, err)
+			// Continue with cleanup even if chatstorage truncation fails
+		}
+	}
+
 	// Clean up database
 	if err := CleanupDatabase(); err != nil {
 		return nil, nil, fmt.Errorf("database cleanup failed: %v", err)
 	}
 
 	// Reinitialize components
-	newDB, newCli, err := ReinitializeWhatsAppComponents(ctx)
+	newDB, newCli, err := ReinitializeWhatsAppComponents(ctx, chatStorageRepo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reinitialization failed: %v", err)
 	}
@@ -257,8 +256,8 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string) (*sqlstore.Co
 
 // PerformCleanupAndUpdateGlobals is a convenience function that performs cleanup
 // and ensures global client synchronization
-func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string) (*sqlstore.Container, *whatsmeow.Client, error) {
-	newDB, newCli, err := PerformCompleteCleanup(ctx, logPrefix)
+func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string, chatStorageRepo *chatstorage.Storage) (*sqlstore.Container, *whatsmeow.Client, error) {
+	newDB, newCli, err := PerformCompleteCleanup(ctx, logPrefix, chatStorageRepo)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -270,8 +269,9 @@ func PerformCleanupAndUpdateGlobals(ctx context.Context, logPrefix string) (*sql
 }
 
 // handleRemoteLogout performs cleanup when user logs out from their phone
-func handleRemoteLogout(ctx context.Context) {
+func handleRemoteLogout(ctx context.Context, chatStorageRepo *chatstorage.Storage) {
 	logrus.Info("[REMOTE_LOGOUT] User logged out from phone - starting cleanup...")
+	logrus.Info("[REMOTE_LOGOUT] This will clear all WhatsApp session data and chat storage")
 
 	// Log database state before cleanup
 	if db != nil {
@@ -284,7 +284,7 @@ func handleRemoteLogout(ctx context.Context) {
 	}
 
 	// Perform complete cleanup with global client synchronization
-	_, _, err := PerformCleanupAndUpdateGlobals(ctx, "REMOTE_LOGOUT")
+	_, _, err := PerformCleanupAndUpdateGlobals(ctx, "REMOTE_LOGOUT", chatStorageRepo)
 	if err != nil {
 		logrus.Errorf("[REMOTE_LOGOUT] Cleanup failed: %v", err)
 		return
@@ -294,7 +294,7 @@ func handleRemoteLogout(ctx context.Context) {
 }
 
 // handler is the main event handler for WhatsApp events
-func handler(ctx context.Context, rawEvt interface{}) {
+func handler(ctx context.Context, rawEvt interface{}, chatStorageRepo *chatstorage.Storage) {
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
 		handleDeleteForMe(ctx, evt)
@@ -303,19 +303,19 @@ func handler(ctx context.Context, rawEvt interface{}) {
 	case *events.PairSuccess:
 		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx)
+		handleLoggedOut(ctx, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx)
 	case *events.StreamReplaced:
 		handleStreamReplaced(ctx)
 	case *events.Message:
-		handleMessage(ctx, evt)
+		handleMessage(ctx, evt, chatStorageRepo)
 	case *events.Receipt:
 		handleReceipt(ctx, evt)
 	case *events.Presence:
 		handlePresence(ctx, evt)
 	case *events.HistorySync:
-		handleHistorySync(ctx, evt)
+		handleHistorySync(ctx, evt, chatStorageRepo)
 	case *events.AppState:
 		handleAppState(ctx, evt)
 	}
@@ -344,7 +344,7 @@ func handlePairSuccess(_ context.Context, evt *events.PairSuccess) {
 	}
 }
 
-func handleLoggedOut(ctx context.Context) {
+func handleLoggedOut(ctx context.Context, chatStorageRepo *chatstorage.Storage) {
 	logrus.Warn("[REMOTE_LOGOUT] Received LoggedOut event - user logged out from phone")
 
 	// Broadcast immediate notification about remote logout
@@ -355,7 +355,7 @@ func handleLoggedOut(ctx context.Context) {
 	}
 
 	// Perform comprehensive cleanup
-	handleRemoteLogout(ctx)
+	handleRemoteLogout(ctx, chatStorageRepo)
 
 	// Broadcast final notification that cleanup is complete and ready for new login
 	websocket.Broadcast <- websocket.BroadcastMessage{
@@ -383,7 +383,7 @@ func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleMessage(ctx context.Context, evt *events.Message) {
+func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo *chatstorage.Storage) {
 	// Log message metadata
 	metaParts := buildMessageMetaParts(evt)
 	log.Infof("Received message %s from %s (%s): %+v",
@@ -393,9 +393,10 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		evt.Message,
 	)
 
-	// Record the message
-	message := ExtractMessageText(evt)
-	utils.RecordMessage(evt.Info.ID, evt.Info.Sender.String(), message)
+	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+		// Log storage errors to avoid silent failures that could lead to data loss
+		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+	}
 
 	// Handle image message if present
 	handleImageMessage(ctx, evt)
@@ -429,7 +430,7 @@ func buildMessageMetaParts(evt *events.Message) []string {
 
 func handleImageMessage(ctx context.Context, evt *events.Message) {
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := ExtractMedia(ctx, config.PathStorages, img); err != nil {
+		if path, err := utils.ExtractMedia(ctx, cli, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", path)
@@ -458,12 +459,12 @@ func handleAutoMarkRead(_ context.Context, evt *events.Message) {
 
 func handleAutoReply(evt *events.Message) {
 	if config.WhatsappAutoReplyMessage != "" &&
-		!isGroupJid(evt.Info.Chat.String()) &&
+		!utils.IsGroupJID(evt.Info.Chat.String()) &&
 		!evt.Info.IsIncomingBroadcast() &&
 		evt.Message.GetExtendedTextMessage().GetText() != "" {
 		_, _ = cli.SendMessage(
 			context.Background(),
-			FormatJID(evt.Info.Sender.String()),
+			utils.FormatJID(evt.Info.Sender.String()),
 			&waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)},
 		)
 	}
@@ -511,7 +512,7 @@ func handlePresence(_ context.Context, evt *events.Presence) {
 	}
 }
 
-func handleHistorySync(_ context.Context, evt *events.HistorySync) {
+func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorageRepo *chatstorage.Storage) {
 	id := atomic.AddInt32(&historySyncID, 1)
 	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
 		config.PathStorages,
@@ -536,8 +537,218 @@ func handleHistorySync(_ context.Context, evt *events.HistorySync) {
 	}
 
 	log.Infof("Wrote history sync to %s", fileName)
+
+	// Process history sync data to database
+	if chatStorageRepo != nil {
+		if err := processHistorySync(ctx, evt.Data, chatStorageRepo); err != nil {
+			log.Errorf("Failed to process history sync to database: %v", err)
+		}
+	}
 }
 
 func handleAppState(_ context.Context, evt *events.AppState) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
+}
+
+// processHistorySync processes history sync data and stores messages in the database
+func processHistorySync(ctx context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	if data == nil {
+		return nil
+	}
+
+	syncType := data.GetSyncType()
+	log.Infof("Processing history sync type: %s", syncType.String())
+
+	switch syncType {
+	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT:
+		// Process conversation messages
+		return processConversationMessages(ctx, data, chatStorageRepo)
+	case waHistorySync.HistorySync_PUSH_NAME:
+		// Process push names to update chat names
+		return processPushNames(ctx, data, chatStorageRepo)
+	default:
+		// Other sync types are not needed for message storage
+		log.Debugf("Skipping history sync type: %s", syncType.String())
+		return nil
+	}
+}
+
+// processConversationMessages processes and stores conversation messages from history sync
+func processConversationMessages(_ context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	conversations := data.GetConversations()
+	log.Infof("Processing %d conversations from history sync", len(conversations))
+
+	for _, conv := range conversations {
+		chatJID := conv.GetID()
+		if chatJID == "" {
+			continue
+		}
+
+		// Parse JID to get proper format
+		jid, err := types.ParseJID(chatJID)
+		if err != nil {
+			log.Warnf("Failed to parse JID %s: %v", chatJID, err)
+			continue
+		}
+
+		displayName := conv.GetDisplayName()
+
+		// Get or create chat
+		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
+
+		// Process messages in the conversation
+		messages := conv.GetMessages()
+		log.Debugf("Processing %d messages for chat %s", len(messages), chatJID)
+
+		// Collect messages for batch processing
+		var messageBatch []*chatstorage.Message
+		var latestTimestamp time.Time
+
+		for _, histMsg := range messages {
+			if histMsg == nil || histMsg.Message == nil {
+				continue
+			}
+
+			msg := histMsg.Message
+			msgKey := msg.GetKey()
+			if msgKey == nil {
+				continue
+			}
+
+			// Skip messages without ID
+			messageID := msgKey.GetID()
+			if messageID == "" {
+				continue
+			}
+
+			// Extract message content and media info
+			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
+			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
+
+			// Skip if there's no content and no media
+			if content == "" && mediaType == "" {
+				continue
+			}
+
+			// Determine sender
+			sender := ""
+			isFromMe := msgKey.GetFromMe()
+			if isFromMe {
+				// For self-messages, use the full JID format to match regular message processing
+				if cli.Store.ID != nil {
+					sender = cli.Store.ID.String() // Use full JID instead of just User part
+				} else {
+					// Skip messages where we can't determine the sender to avoid NOT NULL violations
+					log.Warnf("Skipping self-message %s: client ID unavailable", messageID)
+					continue
+				}
+			} else {
+				participant := msgKey.GetParticipant()
+				if participant != "" {
+					// For group messages, participant contains the actual sender
+					if senderJID, err := types.ParseJID(participant); err == nil {
+						sender = senderJID.String() // Use full JID format for consistency
+					} else {
+						// Fallback to participant string, but ensure it's not empty
+						if participant != "" {
+							sender = participant
+						} else {
+							log.Warnf("Skipping message %s: empty participant", messageID)
+							continue
+						}
+					}
+				} else {
+					// For individual chats, use the chat JID as sender with full format
+					sender = jid.String() // Use full JID format for consistency
+				}
+			}
+
+			// Convert timestamp from Unix milliseconds to time.Time
+			// WhatsApp timestamps are in milliseconds, not seconds
+			timestamp := time.UnixMilli(int64(msg.GetMessageTimestamp()))
+
+			// Track latest timestamp
+			if timestamp.After(latestTimestamp) {
+				latestTimestamp = timestamp
+			}
+
+			// Create message object and add to batch
+			message := &chatstorage.Message{
+				ID:            messageID,
+				ChatJID:       chatJID,
+				Sender:        sender,
+				Content:       content,
+				Timestamp:     timestamp,
+				IsFromMe:      isFromMe,
+				MediaType:     mediaType,
+				Filename:      filename,
+				URL:           url,
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    fileLength,
+			}
+
+			messageBatch = append(messageBatch, message)
+		}
+
+		// Store or update the chat with latest message time
+		if len(messageBatch) > 0 {
+			chat := &chatstorage.Chat{
+				JID:                 chatJID,
+				Name:                chatName,
+				LastMessageTime:     latestTimestamp,
+				EphemeralExpiration: 0, // Will be updated from individual messages
+			}
+
+			// Store or update the chat
+			if err := chatStorageRepo.StoreChat(chat); err != nil {
+				log.Warnf("Failed to store chat %s: %v", chatJID, err)
+				continue
+			}
+
+			// Store messages in batch
+			if err := chatStorageRepo.StoreMessagesBatch(messageBatch); err != nil {
+				log.Warnf("Failed to store messages batch for chat %s: %v", chatJID, err)
+			} else {
+				log.Debugf("Stored %d messages for chat %s", len(messageBatch), chatJID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// processPushNames processes push names from history sync to update chat names
+func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+	pushnames := data.GetPushnames()
+	log.Infof("Processing %d push names from history sync", len(pushnames))
+
+	for _, pushname := range pushnames {
+		jidStr := pushname.GetId()
+		name := pushname.GetPushname()
+
+		if jidStr == "" || name == "" {
+			continue
+		}
+
+		// Check if chat exists
+		existingChat, err := chatStorageRepo.GetChat(jidStr)
+		if err != nil || existingChat == nil {
+			// Chat doesn't exist yet, skip
+			continue
+		}
+
+		// Update chat name if it's different
+		if existingChat.Name != name {
+			existingChat.Name = name
+			if err := chatStorageRepo.StoreChat(existingChat); err != nil {
+				log.Warnf("Failed to update chat name for %s: %v", jidStr, err)
+			} else {
+				log.Debugf("Updated chat name for %s to %s", jidStr, name)
+			}
+		}
+	}
+
+	return nil
 }
