@@ -300,29 +300,22 @@ func ExtractEphemeralExpiration(msg *waE2E.Message) uint32 {
 // GenerateMediaFilename creates a filename for media files
 func GenerateMediaFilename(mediaType, extension, caption string) string {
 	timestamp := time.Now().Format("20060102_150405")
+	name := mediaType + "_" + timestamp
 
-	// Use caption as part of filename if available
 	if caption != "" {
-		// Sanitize caption for filename - keep only alphanumeric and basic punctuation
+		// Only keep alphanumeric, _, -
 		re := regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
-		caption = re.ReplaceAllString(caption, "_")
-
-		// Limit caption length
-		if len(caption) > 30 {
-			caption = caption[:30]
+		cleanCaption := re.ReplaceAllString(caption, "_")
+		if len(cleanCaption) > 30 {
+			cleanCaption = cleanCaption[:30]
 		}
-
-		if extension != "" {
-			return fmt.Sprintf("%s_%s_%s.%s", mediaType, timestamp, caption, extension)
-		}
-		return fmt.Sprintf("%s_%s_%s", mediaType, timestamp, caption)
+		name += "_" + cleanCaption
 	}
 
-	// Default filename without caption
 	if extension != "" {
-		return fmt.Sprintf("%s_%s.%s", mediaType, timestamp, extension)
+		name += "." + extension
 	}
-	return fmt.Sprintf("%s_%s", mediaType, timestamp)
+	return name
 }
 
 // ExtractPhoneNumber is a helper function to extract the phone number from a JID
