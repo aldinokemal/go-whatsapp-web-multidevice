@@ -2,7 +2,6 @@ package rest
 
 import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -32,7 +31,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendText(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -57,7 +56,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 		request.Image = file
 	}
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendImage(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -79,7 +78,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	utils.PanicIfNeeded(err)
 
 	request.File = file
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -102,7 +101,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 		request.Video = videoFile
 	}
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -120,7 +119,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendContact(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -138,7 +137,7 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLink(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -156,7 +155,7 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendLocation(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -179,7 +178,7 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 		request.Audio = audioFile
 	}
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendAudio(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -197,7 +196,7 @@ func (controller *Send) SendPoll(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendPoll(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -231,7 +230,7 @@ func (controller *Send) SendChatPresence(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendChatPresence(c.UserContext(), request)
 	utils.PanicIfNeeded(err)

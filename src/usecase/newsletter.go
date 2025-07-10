@@ -5,6 +5,7 @@ import (
 
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 )
 
@@ -19,7 +20,7 @@ func (service serviceNewsletter) Unfollow(ctx context.Context, request domainNew
 		return err
 	}
 
-	JID, err := whatsapp.ValidateJidWithLogin(whatsapp.GetClient(), request.NewsletterID)
+	JID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.NewsletterID)
 	if err != nil {
 		return err
 	}

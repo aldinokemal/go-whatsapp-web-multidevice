@@ -6,7 +6,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 	"go.mau.fi/whatsmeow"
@@ -59,7 +58,7 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.LeaveGroup(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -117,7 +116,7 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 		})
 	}
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	result, err := controller.Service.GetGroupRequestParticipants(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -143,7 +142,7 @@ func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.Parti
 	var request domainGroup.ParticipantRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
 	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -160,7 +159,7 @@ func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsm
 	var request domainGroup.GroupRequestParticipantsRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
 	result, err := controller.Service.ManageGroupRequestParticipants(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -177,7 +176,7 @@ func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	file, err := c.FormFile("photo")
 	if err == nil {
@@ -226,7 +225,7 @@ func (controller *Group) SetGroupName(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.SetGroupName(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -243,7 +242,7 @@ func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.SetGroupLocked(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -265,7 +264,7 @@ func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.SetGroupAnnounce(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -287,7 +286,7 @@ func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.SetGroupTopic(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
