@@ -471,14 +471,16 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix
+const maxPhoneNumberLength = 15 // Maximum digits in a phone number
+
 func SanitizePhone(phone *string) {
-	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
-		if len(*phone) <= 15 {
-			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
-		} else {
-			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
-		}
-	}
+    if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
+        if len(*phone) <= maxPhoneNumberLength {
+            *phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
+        } else {
+            *phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
+        }
+    }
 }
 
 // IsOnWhatsapp checks if a number is registered on WhatsApp
