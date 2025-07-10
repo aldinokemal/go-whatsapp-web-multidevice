@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
@@ -18,10 +19,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type serviceMessage struct{}
+type serviceMessage struct {
+	chatStorageRepo *chatstorage.Storage
+}
 
-func NewMessageService() domainMessage.IMessageUsecase {
-	return &serviceMessage{}
+func NewMessageService(chatStorageRepo *chatstorage.Storage) domainMessage.IMessageUsecase {
+	return &serviceMessage{
+		chatStorageRepo: chatStorageRepo,
+	}
 }
 
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
@@ -177,3 +182,4 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 	}
 	return nil
 }
+

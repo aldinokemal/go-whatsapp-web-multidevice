@@ -12,6 +12,8 @@ type Message struct {
 
 func InitRestMessage(app *fiber.App, service domainMessage.IMessageUsecase) Message {
 	rest := Message{Service: service}
+
+	// Message action endpoints
 	app.Post("/message/:message_id/reaction", rest.ReactMessage)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
 	app.Post("/message/:message_id/delete", rest.DeleteMessage)

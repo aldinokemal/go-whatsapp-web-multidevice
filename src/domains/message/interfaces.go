@@ -18,7 +18,7 @@ type IMessageManagement interface {
 	StarMessage(ctx context.Context, request StarRequest) (err error)
 }
 
-// IMessageUsecase combines all message interfaces for backward compatibility
+// IMessageUsecase combines all message interfaces
 type IMessageUsecase interface {
 	IMessageActions
 	IMessageManagement

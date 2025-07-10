@@ -720,12 +720,12 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 }
 
 // processPushNames processes push names from history sync to update chat names
-func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
+func processPushNames(_ context.Context, data *waHistorySync.HistorySync, chatStorageRepo *chatstorage.Storage) error {
 	pushnames := data.GetPushnames()
 	log.Infof("Processing %d push names from history sync", len(pushnames))
 
 	for _, pushname := range pushnames {
-		jidStr := pushname.GetId()
+		jidStr := pushname.GetID()
 		name := pushname.GetPushname()
 
 		if jidStr == "" || name == "" {

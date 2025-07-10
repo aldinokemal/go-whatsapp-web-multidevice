@@ -1,9 +1,5 @@
 package message
 
-// NOTE: imports moved to interfaces.go
-
-// NOTE: IMessageUsecase is now defined in interfaces.go with proper segregation
-
 type GenericResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`

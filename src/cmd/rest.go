@@ -82,6 +82,7 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Rest
 	rest.InitRestApp(app, appUsecase)
+	rest.InitRestChat(app, chatUsecase)
 	rest.InitRestSend(app, sendUsecase)
 	rest.InitRestUser(app, userUsecase)
 	rest.InitRestMessage(app, messageUsecase)
