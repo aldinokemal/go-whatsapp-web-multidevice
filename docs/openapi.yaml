@@ -2864,9 +2864,6 @@ components:
                 total:
                   type: integer
                   example: 1250
-                has_more:
-                  type: boolean
-                  example: true
             chat_info:
               $ref: '#/components/schemas/Chat'
 
