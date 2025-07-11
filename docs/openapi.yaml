@@ -1359,6 +1359,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
   /chat/{chat_jid}/messages:
     get:
       operationId: getChatMessages
