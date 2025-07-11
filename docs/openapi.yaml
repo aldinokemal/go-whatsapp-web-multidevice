@@ -1409,7 +1409,7 @@ paths:
           in: query
           schema:
             type: boolean
-          description: Filter messages by sender (true for messages sent by you, false for received messages)
+          description: Filter messages by sender (true for messages sent by you, false for received messages). When both media_only=true and isFromMe=false are provided, media_only takes precedence and will return all media messages regardless of sender.
         - name: search
           in: query
           schema:
@@ -1428,6 +1428,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '404':
+          description: Chat Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
           content:
@@ -2361,6 +2373,36 @@ components:
         message:
           type: string
           example: field cannot be blank
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'
+    ErrorUnauthorized:
+      type: object
+      properties:
+        code:
+          type: string
+          example: 401
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: Unauthorized access
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'
+    ErrorNotFound:
+      type: object
+      properties:
+        code:
+          type: string
+          example: 404
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: Chat not found
           description: 'Detail error message'
         results:
           type: object
