@@ -14,7 +14,7 @@ func InitRestChat(app *fiber.App, service domainChat.IChatUsecase) Chat {
 	rest := Chat{Service: service}
 
 	// Chat endpoints
-	app.Get("/chat/list", rest.ListChats)
+	app.Get("/chats", rest.ListChats)
 	app.Get("/chat/:chat_jid/messages", rest.GetChatMessages)
 
 	return rest

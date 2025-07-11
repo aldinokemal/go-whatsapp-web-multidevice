@@ -65,10 +65,9 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 
 	// Create pagination response
 	pagination := domainChat.PaginationResponse{
-		Limit:   request.Limit,
-		Offset:  request.Offset,
-		Total:   int(totalCount),
-		HasMore: request.Offset+len(chatInfos) < int(totalCount),
+		Limit:  request.Limit,
+		Offset: request.Offset,
+		Total:  int(totalCount),
 	}
 
 	response.Data = chatInfos
@@ -156,7 +155,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		messageInfo := domainChat.MessageInfo{
 			ID:         message.ID,
 			ChatJID:    message.ChatJID,
-			Sender:     message.Sender,
+			SenderJID:  message.Sender,
 			Content:    message.Content,
 			Timestamp:  message.Timestamp.Format(time.RFC3339),
 			IsFromMe:   message.IsFromMe,
@@ -182,10 +181,9 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 
 	// Create pagination response
 	pagination := domainChat.PaginationResponse{
-		Limit:   request.Limit,
-		Offset:  request.Offset,
-		Total:   int(totalCount),
-		HasMore: request.Offset+len(messageInfos) < int(totalCount),
+		Limit:  request.Limit,
+		Offset: request.Offset,
+		Total:  int(totalCount),
 	}
 
 	response.Data = messageInfos

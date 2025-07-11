@@ -43,7 +43,7 @@ type ChatInfo struct {
 type MessageInfo struct {
 	ID         string `json:"id"`
 	ChatJID    string `json:"chat_jid"`
-	Sender     string `json:"sender"`
+	SenderJID  string `json:"sender_jid"`
 	Content    string `json:"content"`
 	Timestamp  string `json:"timestamp"`
 	IsFromMe   bool   `json:"is_from_me"`
@@ -56,8 +56,7 @@ type MessageInfo struct {
 }
 
 type PaginationResponse struct {
-	Limit   int  `json:"limit"`
-	Offset  int  `json:"offset"`
-	Total   int  `json:"total"`
-	HasMore bool `json:"has_more"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
 }

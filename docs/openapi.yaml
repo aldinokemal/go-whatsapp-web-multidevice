@@ -1308,7 +1308,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
   
-  /chat/list:
+  /chats:
     get:
       operationId: listChats
       tags:
@@ -2762,9 +2762,6 @@ components:
                 total:
                   type: integer
                   example: 150
-                has_more:
-                  type: boolean
-                  example: true
 
     Chat:
       type: object
@@ -2842,7 +2839,7 @@ components:
           type: string
           example: '6289685028129@s.whatsapp.net'
           description: Chat JID this message belongs to
-        sender:
+        sender_jid:
           type: string
           example: '6289685028129@s.whatsapp.net'
           description: Sender JID
@@ -2862,18 +2859,22 @@ components:
         media_type:
           type: string
           example: 'image'
+          nullable: true
           description: Type of media (image, video, audio, document, etc.)
         filename:
           type: string
           example: 'photo.jpg'
+          nullable: true
           description: Original filename for media messages
         url:
           type: string
           example: 'https://media.example.com/file.jpg'
+          nullable: true
           description: Media file URL
         file_length:
           type: integer
           example: 1024768
+          nullable: true
           description: File size in bytes for media messages
         created_at:
           type: string
