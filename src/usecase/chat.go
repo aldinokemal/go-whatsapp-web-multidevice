@@ -50,7 +50,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 	}
 
 	// Convert entities to domain objects
-	var chatInfos []domainChat.ChatInfo
+	chatInfos := make([]domainChat.ChatInfo, 0, len(chats))
 	for _, chat := range chats {
 		chatInfo := domainChat.ChatInfo{
 			JID:                 chat.JID,
@@ -151,7 +151,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Convert entities to domain objects
-	var messageInfos []domainChat.MessageInfo
+	messageInfos := make([]domainChat.MessageInfo, 0, len(messages))
 	for _, message := range messages {
 		messageInfo := domainChat.MessageInfo{
 			ID:         message.ID,

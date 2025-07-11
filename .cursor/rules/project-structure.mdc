@@ -34,7 +34,7 @@ The main source code is organized in the `src` directory with the following stru
 The application is organized using domain-driven design principles:
 
 - [src/domains/app/](mdc:src/domains/app) - Core application domain models
-- [src/domains/device/](mdc:src/domains/device) - Device-related domain models
+- [src/domains/chat/](mdc:src/domains/chat) - Chat-related domain models and interfaces
 - [src/domains/group/](mdc:src/domains/group) - Group-related domain models
 - [src/domains/message/](mdc:src/domains/message) - Message-related domain models
 - [src/domains/newsletter/](mdc:src/domains/newsletter) - Newsletter-related domain models
@@ -43,6 +43,7 @@ The application is organized using domain-driven design principles:
 
 #### Infrastructure
 
+- [src/infrastructure/chatstorage/](mdc:src/infrastructure/chatstorage) - Chat storage repository and WhatsApp integration
 - [src/infrastructure/whatsapp/](mdc:src/infrastructure/whatsapp) - WhatsApp client implementation and related infrastructure
 
 #### User Interface
@@ -105,6 +106,7 @@ The application is organized using domain-driven design principles:
 ## Application Flow
 
 ### REST Server Mode
+
 1. The application starts from [src/cmd/root.go](mdc:src/cmd/root.go)
 2. REST server command is executed via [src/cmd/rest.go](mdc:src/cmd/rest.go)
 3. Configuration is loaded from environment variables or command line flags
@@ -116,6 +118,7 @@ The application is organized using domain-driven design principles:
 9. The server listens for requests on the configured port
 
 ### MCP Server Mode
+
 1. The application starts from [src/cmd/root.go](mdc:src/cmd/root.go)
 2. MCP server command is executed via [src/cmd/mcp.go](mdc:src/cmd/mcp.go)
 3. Model Context Protocol server is initialized for AI agent communication
