@@ -44,6 +44,9 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 
 	body := make(map[string]interface{})
 
+	body["sender_id"] = evt.Info.Sender.User
+	body["chat_id"] = evt.Info.Chat.User
+
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
 
