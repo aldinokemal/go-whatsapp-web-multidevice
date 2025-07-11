@@ -187,7 +187,9 @@ func initFlags() {
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
+		logrus.SetLevel(logrus.DebugLevel)
 	}
+
 	//preparing folder if not exist
 	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
 	if err != nil {

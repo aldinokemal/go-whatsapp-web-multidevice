@@ -242,58 +242,118 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 
 // ExtractEphemeralExpiration extracts ephemeral expiration from a WhatsApp message
 func ExtractEphemeralExpiration(msg *waE2E.Message) uint32 {
+	logrus.Info("ExtractEphemeralExpiration: Starting extraction process")
+
 	if msg == nil {
+		logrus.Debug("ExtractEphemeralExpiration: Message is nil, returning 0")
 		return 0
 	}
 
+	logrus.Debug("ExtractEphemeralExpiration: Message is valid, checking message types")
+
 	// Check extended text message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for extended text message")
 	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Extended text message found, checking context info")
 		if contextInfo := extendedText.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in extended text message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Extended text message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No extended text message found")
 	}
 
 	// Check regular conversation message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for regular conversation message")
 	if msg.GetConversation() != "" {
+		logrus.Debug("ExtractEphemeralExpiration: Regular conversation message found, but no context info available for this type")
 		// Regular text messages might have context info too
 		// This would need to be checked based on the actual protobuf structure
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No regular conversation message found")
 	}
 
 	// Check image message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for image message")
 	if img := msg.GetImageMessage(); img != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Image message found, checking context info")
 		if contextInfo := img.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in image message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Image message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No image message found")
 	}
 
 	// Check video message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for video message")
 	if vid := msg.GetVideoMessage(); vid != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Video message found, checking context info")
 		if contextInfo := vid.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in video message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Video message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No video message found")
 	}
 
 	// Check audio message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for audio message")
 	if aud := msg.GetAudioMessage(); aud != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Audio message found, checking context info")
 		if contextInfo := aud.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in audio message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Audio message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No audio message found")
 	}
 
 	// Check document message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for document message")
 	if doc := msg.GetDocumentMessage(); doc != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Document message found, checking context info")
 		if contextInfo := doc.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in document message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Document message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No document message found")
 	}
 
 	// Check sticker message
+	logrus.Debug("ExtractEphemeralExpiration: Checking for sticker message")
 	if sticker := msg.GetStickerMessage(); sticker != nil {
+		logrus.Debug("ExtractEphemeralExpiration: Sticker message found, checking context info")
 		if contextInfo := sticker.GetContextInfo(); contextInfo != nil {
-			return contextInfo.GetExpiration()
+			expiration := contextInfo.GetExpiration()
+			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in sticker message")
+			return expiration
 		}
+		logrus.Debug("ExtractEphemeralExpiration: Sticker message has no context info")
+	} else {
+		logrus.Debug("ExtractEphemeralExpiration: No sticker message found")
 	}
 
+	if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
+		if ephemeralExpiration := protocolMessage.GetEphemeralExpiration(); ephemeralExpiration != 0 {
+			logrus.WithField("expiration", ephemeralExpiration).Debug("ExtractEphemeralExpiration: Found expiration in protocol message")
+			return ephemeralExpiration
+		}
+		logrus.Debug("ExtractEphemeralExpiration: Protocol message has no expiration")
+	}
+
+	logrus.Debug("ExtractEphemeralExpiration: No expiration found in any message type, returning 0")
 	return 0
 }
 
