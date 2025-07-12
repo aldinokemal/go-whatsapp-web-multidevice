@@ -74,6 +74,32 @@ func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup
 	return groupInfo.JID.String(), nil
 }
 
+func (service serviceGroup) GetGroupInfoFromLink(ctx context.Context, request domainGroup.GetGroupInfoFromLinkRequest) (response domainGroup.GetGroupInfoFromLinkResponse, err error) {
+	if err = validations.ValidateGetGroupInfoFromLink(ctx, request); err != nil {
+		return response, err
+	}
+	utils.MustLogin(whatsapp.GetClient())
+
+	groupInfo, err := whatsapp.GetClient().GetGroupInfoFromLink(request.Link)
+	if err != nil {
+		return response, err
+	}
+
+	response = domainGroup.GetGroupInfoFromLinkResponse{
+		GroupID:         groupInfo.JID.String(),
+		Name:            groupInfo.Name,
+		Topic:           groupInfo.Topic.Topic,
+		CreatedAt:       groupInfo.GroupCreated,
+		ParticipantCount: len(groupInfo.Participants),
+		IsLocked:        groupInfo.GroupLocked.IsLocked,
+		IsAnnounce:      groupInfo.GroupAnnounce.IsAnnounce,
+		IsEphemeral:     groupInfo.GroupEphemeral.IsEphemeral,
+		Description:     groupInfo.Topic.Topic, // Topic serves as description
+	}
+
+	return response, nil
+}
+
 func (service serviceGroup) ManageParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
 	if err = validations.ValidateParticipant(ctx, request); err != nil {
 		return result, err

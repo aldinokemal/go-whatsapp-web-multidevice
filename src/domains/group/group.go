@@ -78,3 +78,19 @@ type SetGroupTopicRequest struct {
 	GroupID string `json:"group_id" form:"group_id"`
 	Topic   string `json:"topic" form:"topic"`
 }
+
+type GetGroupInfoFromLinkRequest struct {
+	Link string `json:"link" form:"link"`
+}
+
+type GetGroupInfoFromLinkResponse struct {
+	GroupID         string    `json:"group_id"`
+	Name            string    `json:"name"`
+	Topic           string    `json:"topic"`
+	CreatedAt       time.Time `json:"created_at"`
+	ParticipantCount int       `json:"participant_count"`
+	IsLocked        bool      `json:"is_locked"`
+	IsAnnounce      bool      `json:"is_announce"`
+	IsEphemeral     bool      `json:"is_ephemeral"`
+	Description     string    `json:"description"`
+}

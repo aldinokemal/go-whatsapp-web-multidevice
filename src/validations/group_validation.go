@@ -21,6 +21,18 @@ func ValidateJoinGroupWithLink(ctx context.Context, request domainGroup.JoinGrou
 	return nil
 }
 
+func ValidateGetGroupInfoFromLink(ctx context.Context, request domainGroup.GetGroupInfoFromLinkRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Link, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
 func ValidateLeaveGroup(ctx context.Context, request domainGroup.LeaveGroupRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.GroupID, validation.Required),
