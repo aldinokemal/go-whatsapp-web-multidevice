@@ -16,6 +16,7 @@ func InitRestChat(app *fiber.App, service domainChat.IChatUsecase) Chat {
 	// Chat endpoints
 	app.Get("/chats", rest.ListChats)
 	app.Get("/chat/:chat_jid/messages", rest.GetChatMessages)
+	app.Post("/chat/:chat_jid/pin", rest.PinChat)
 
 	return rest
 }
@@ -73,6 +74,33 @@ func (controller *Chat) GetChatMessages(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get chat messages",
+		Results: response,
+	})
+}
+
+func (controller *Chat) PinChat(c *fiber.Ctx) error {
+	var request domainChat.PinChatRequest
+
+	// Parse path parameter
+	request.ChatJID = c.Params("chat_jid")
+
+	// Parse JSON body
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	response, err := controller.Service.PinChat(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
 		Results: response,
 	})
 }

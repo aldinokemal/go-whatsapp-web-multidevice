@@ -44,3 +44,15 @@ func ValidateGetChatMessages(ctx context.Context, request *domainChat.GetChatMes
 
 	return nil
 }
+
+func ValidatePinChat(ctx context.Context, request *domainChat.PinChatRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

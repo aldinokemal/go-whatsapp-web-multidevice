@@ -7,8 +7,11 @@ import (
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/appstate"
 )
 
 type serviceChat struct {
@@ -196,6 +199,48 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		"limit":          request.Limit,
 		"offset":         request.Offset,
 	}).Info("Retrieved chat messages successfully")
+
+	return response, nil
+}
+
+func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinChatRequest) (response domainChat.PinChatResponse, err error) {
+	if err = validations.ValidatePinChat(ctx, &request); err != nil {
+		return response, err
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Build pin patch using whatsmeow's BuildPin
+	patchInfo := appstate.BuildPin(targetJID, request.Pinned)
+
+	// Send app state update
+	if err = whatsapp.GetClient().SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"pinned":   request.Pinned,
+		}).Error("Failed to send pin chat app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Pinned = request.Pinned
+
+	if request.Pinned {
+		response.Message = "Chat pinned successfully"
+	} else {
+		response.Message = "Chat unpinned successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"pinned":   request.Pinned,
+	}).Info("Chat pin operation completed successfully")
 
 	return response, nil
 }

@@ -182,4 +182,3 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 	}
 	return nil
 }
-
