@@ -1811,6 +1811,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /group/info-from-link:
+    get:
+      operationId: getGroupInfoFromLink
+      tags:
+        - group
+      summary: Get group information from invitation link
+      description: Retrieve group information without joining the group using its invitation link
+      parameters:
+        - name: link
+          in: query
+          required: true
+          schema:
+            type: string
+          example: 'https://chat.whatsapp.com/whatsappKeyJoinGroup'
+          description: WhatsApp group invitation link
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupInfoFromLinkResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /group/participant-requests:
     get:
       operationId: getGroupParticipantRequests
@@ -2234,6 +2268,55 @@ components:
             group_id:
               type: string
               example: 1203632782168851111@g.us
+    GroupInfoFromLinkResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get group info from link
+        results:
+          type: object
+          properties:
+            group_id:
+              type: string
+              example: '120363024512399999@g.us'
+              description: The group ID
+            name:
+              type: string
+              example: 'Example Group Name'
+              description: The group name
+            topic:
+              type: string
+              example: 'Welcome to our group! Please follow the rules.'
+              description: The group topic/description
+            created_at:
+              type: string
+              format: date-time
+              example: '2024-01-15T10:30:00Z'
+              description: When the group was created
+            participant_count:
+              type: integer
+              example: 25
+              description: Number of participants in the group
+            is_locked:
+              type: boolean
+              example: false
+              description: Whether the group is locked (only admins can modify group info)
+            is_announce:
+              type: boolean
+              example: false
+              description: Whether the group is in announce mode (only admins can send messages)
+            is_ephemeral:
+              type: boolean
+              example: false
+              description: Whether the group has disappearing messages enabled
+            description:
+              type: string
+              example: 'This group is for discussing project updates'
+              description: Additional description of the group
     ManageParticipantRequest:
       type: object
       properties:

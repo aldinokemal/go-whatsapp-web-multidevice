@@ -88,13 +88,13 @@ func (service serviceGroup) GetGroupInfoFromLink(ctx context.Context, request do
 	response = domainGroup.GetGroupInfoFromLinkResponse{
 		GroupID:         groupInfo.JID.String(),
 		Name:            groupInfo.Name,
-		Topic:           groupInfo.Topic.Topic,
+		Topic:           groupInfo.Topic,
 		CreatedAt:       groupInfo.GroupCreated,
 		ParticipantCount: len(groupInfo.Participants),
-		IsLocked:        groupInfo.GroupLocked.IsLocked,
-		IsAnnounce:      groupInfo.GroupAnnounce.IsAnnounce,
-		IsEphemeral:     groupInfo.GroupEphemeral.IsEphemeral,
-		Description:     groupInfo.Topic.Topic, // Topic serves as description
+		IsLocked:        groupInfo.IsLocked,
+		IsAnnounce:      groupInfo.IsAnnounce,
+		IsEphemeral:     groupInfo.IsEphemeral,
+		Description:     groupInfo.Topic, // Topic serves as description
 	}
 
 	return response, nil
