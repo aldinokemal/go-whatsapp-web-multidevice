@@ -1,5 +1,5 @@
 export default {
-    name: 'AccountGroupInfo',
+    name: 'GroupInfo',
     components: {},
     data() {
         return {
@@ -44,7 +44,7 @@ export default {
     methods: {
         openModal() {
             this.reset();
-            $('#modalAccountGroupInfo').modal('show');
+            $('#modalGroupInfo').modal('show');
         },
         isValidForm() {
             return this.group_id.trim() !== '';
@@ -61,7 +61,7 @@ export default {
         async fetchInfo() {
             this.loading = true;
             try {
-                const response = await window.http.get('/user/info-group', {
+                const response = await window.http.get('/group/info', {
                     params: { group_id: this.fullGroupID }
                 });
                 this.groupInfo = response.data.results;
@@ -95,18 +95,18 @@ export default {
         }
     },
     template: `
-    <div class="olive card" @click="openModal" style="cursor: pointer;">
+    <div class="green card" @click="openModal" style="cursor: pointer;">
         <div class="content">
-            <a class="ui olive right ribbon label">Account</a>
+            <a class="ui green right ribbon label">Group</a>
             <div class="header">Group Info</div>
             <div class="description">
-                Search information about a group by ID
+                Search detailed information about a group by ID
             </div>
         </div>
     </div>
 
     <!-- Modal -->
-    <div class="ui large modal" id="modalAccountGroupInfo">
+    <div class="ui large modal" id="modalGroupInfo">
         <i class="close icon"></i>
         <div class="header">
             <i class="users icon"></i>
