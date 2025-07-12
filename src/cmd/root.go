@@ -10,6 +10,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
@@ -42,6 +43,7 @@ var (
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
+	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
 	userUsecase       domainUser.IUserUsecase
 	messageUsecase    domainMessage.IMessageUsecase
@@ -185,7 +187,9 @@ func initFlags() {
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
+		logrus.SetLevel(logrus.DebugLevel)
 	}
+
 	//preparing folder if not exist
 	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
 	if err != nil {
@@ -205,9 +209,10 @@ func initApp() {
 
 	// Usecase
 	appUsecase = usecase.NewAppService(whatsappDB, chatStorageRepo)
+	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService()
-	messageUsecase = usecase.NewMessageService()
+	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
 }

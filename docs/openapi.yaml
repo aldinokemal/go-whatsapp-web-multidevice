@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.6.0
+  version: 6.7.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -14,6 +14,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: chat
+    description: Chat conversations and messaging
   - name: group
     description: Group setting
   - name: newsletter
@@ -1305,6 +1307,152 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  
+  /chats:
+    get:
+      operationId: listChats
+      tags:
+        - chat
+      summary: Get list of chats
+      description: Retrieve a list of chat conversations with their basic information
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+          description: Maximum number of chats to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of chats to skip (for pagination)
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search chats by name
+        - name: has_media
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Filter chats that contain media messages
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+  /chat/{chat_jid}/messages:
+    get:
+      operationId: getChatMessages
+      tags:
+        - chat
+      summary: Get messages from a specific chat
+      description: Retrieve messages from a specific chat conversation with filtering options
+      parameters:
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          example: '6289685028129@s.whatsapp.net'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum number of messages to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of messages to skip (for pagination)
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter messages from this timestamp (ISO 8601 format)
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter messages until this timestamp (ISO 8601 format)
+        - name: media_only
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Only return messages with media content
+        - name: is_from_me
+          in: query
+          schema:
+            type: boolean
+          description: Filter messages by sender (true for messages sent by you, false for received messages). When both media_only=true and isFromMe=false are provided, media_only takes precedence and will return all media messages regardless of sender.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search messages by content text
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '404':
+          description: Chat Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  
   /group:
     post:
       operationId: createGroup
@@ -2236,6 +2384,36 @@ components:
           type: object
           example: null
           description: 'additional data'
+    ErrorUnauthorized:
+      type: object
+      properties:
+        code:
+          type: string
+          example: 401
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: Unauthorized access
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'
+    ErrorNotFound:
+      type: object
+      properties:
+        code:
+          type: string
+          example: 404
+          description: 'HTTP Status Code'
+        message:
+          type: string
+          example: Chat not found
+          description: 'Detail error message'
+        results:
+          type: object
+          example: null
+          description: 'additional data'
     NewsletterResponse:
       type: object
       properties:
@@ -2603,3 +2781,153 @@ components:
                   close_time:
                     type: string
                     example: '18:00'
+    
+    ChatListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get chat list
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Chat'
+            pagination:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  example: 25
+                offset:
+                  type: integer
+                  example: 0
+                total:
+                  type: integer
+                  example: 150
+
+    Chat:
+      type: object
+      properties:
+        jid:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: Chat JID identifier
+        name:
+          type: string
+          example: 'John Doe'
+          description: Chat display name
+        last_message_time:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Timestamp of the last message
+        ephemeral_expiration:
+          type: integer
+          example: 0
+          description: Ephemeral message expiration time in seconds (0 = disabled)
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-10T08:00:00Z'
+          description: Chat creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Chat last update timestamp
+
+    ChatMessagesResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get chat messages
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChatMessage'
+            pagination:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  example: 50
+                offset:
+                  type: integer
+                  example: 0
+                total:
+                  type: integer
+                  example: 1250
+            chat_info:
+              $ref: '#/components/schemas/Chat'
+
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+          description: Message ID
+        chat_jid:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: Chat JID this message belongs to
+        sender_jid:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: Sender JID
+        content:
+          type: string
+          example: 'Hello, how are you?'
+          description: Message text content
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Message timestamp
+        is_from_me:
+          type: boolean
+          example: false
+          description: Whether this message was sent by the current user
+        media_type:
+          type: string
+          example: 'image'
+          nullable: true
+          description: Type of media (image, video, audio, document, etc.)
+        filename:
+          type: string
+          example: 'photo.jpg'
+          nullable: true
+          description: Original filename for media messages
+        url:
+          type: string
+          example: 'https://media.example.com/file.jpg'
+          nullable: true
+          description: Media file URL
+        file_length:
+          type: integer
+          example: 1024768
+          nullable: true
+          description: File size in bytes for media messages
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Record creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Record last update timestamp
