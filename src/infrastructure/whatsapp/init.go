@@ -596,6 +596,9 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 		// Get or create chat
 		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
 
+		// Extract ephemeral expiration from conversation
+		ephemeralExpiration := conv.GetEphemeralExpiration()
+
 		// Process messages in the conversation
 		messages := conv.GetMessages()
 		log.Debugf("Processing %d messages for chat %s", len(messages), chatJID)
@@ -663,9 +666,9 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 				}
 			}
 
-			// Convert timestamp from Unix milliseconds to time.Time
-			// WhatsApp timestamps are in milliseconds, not seconds
-			timestamp := time.UnixMilli(int64(msg.GetMessageTimestamp()))
+			// Convert timestamp from Unix seconds to time.Time
+			// WhatsApp history sync timestamps are in seconds, not milliseconds
+			timestamp := time.Unix(int64(msg.GetMessageTimestamp()), 0)
 
 			// Track latest timestamp
 			if timestamp.After(latestTimestamp) {
@@ -698,7 +701,7 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 				JID:                 chatJID,
 				Name:                chatName,
 				LastMessageTime:     latestTimestamp,
-				EphemeralExpiration: 0, // Will be updated from individual messages
+				EphemeralExpiration: ephemeralExpiration,
 			}
 
 			// Store or update the chat
