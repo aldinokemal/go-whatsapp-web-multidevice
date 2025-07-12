@@ -40,6 +40,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	app := fiber.New(fiber.Config{
 		Views:     engine,
 		BodyLimit: int(config.WhatsappSettingMaxVideoSize),
+		Network:   "tcp",
 	})
 
 	app.Static("/statics", "./statics")
