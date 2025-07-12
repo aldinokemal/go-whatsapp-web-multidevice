@@ -158,6 +158,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/info-group:
+    get:
+      operationId: userGroupInfo
+      tags:
+        - user
+      summary: Group Info
+      parameters:
+        - name: group_id
+          in: query
+          schema:
+            type: string
+          example: '120363025982934543@g.us'
+          description: WhatsApp Group ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupInfoResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/avatar:
     get:
       operationId: userAvatar
@@ -3110,3 +3142,19 @@ components:
             pinned:
               type: boolean
               example: true
+    UserGroupInfoResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get group info
+        results:
+          type: object
+          description: Group information object (structure may vary)
+          additionalProperties: true

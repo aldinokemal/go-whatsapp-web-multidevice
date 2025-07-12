@@ -107,3 +107,11 @@ type BusinessProfileResponse struct {
 	BusinessHoursTimeZone string                       `json:"business_hours_timezone"`
 	BusinessHours         []BusinessProfileHoursConfig `json:"business_hours"`
 }
+
+type GroupInfoRequest struct {
+    GroupID string `json:"group_id" query:"group_id"`
+}
+
+type GroupInfoResponse struct {
+    Data types.GroupInfo `json:"data"`
+}
