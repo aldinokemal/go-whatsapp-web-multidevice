@@ -20,9 +20,12 @@ export default {
                 return false;
             }
 
-            // should valid URL
+            // should be a valid WhatsApp invitation URL
             try {
-                new URL(this.link);
+                const url = new URL(this.link);
+                if (!url.hostname.includes('chat.whatsapp.com') || !url.pathname.includes('/')) {
+                    return false;
+                }
             } catch (error) {
                 return false;
             }
