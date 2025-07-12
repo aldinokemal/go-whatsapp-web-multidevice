@@ -303,33 +303,3 @@ func (service serviceUser) BusinessProfile(ctx context.Context, request domainUs
 
 	return response, nil
 }
-
-// GroupInfo retrieves detailed information about a WhatsApp group
-func (service serviceUser) GroupInfo(ctx context.Context, request domainUser.GroupInfoRequest) (response domainUser.GroupInfoResponse, err error) {
-    // Validate the incoming request
-    if err = validations.ValidateGroupInfo(ctx, request); err != nil {
-        return response, err
-    }
-
-    // Ensure we are logged in
-    utils.MustLogin(whatsapp.GetClient())
-
-    // Validate and parse the provided group JID / ID
-    groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
-    if err != nil {
-        return response, err
-    }
-
-    // Fetch group information from WhatsApp
-    groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
-    if err != nil {
-        return response, err
-    }
-
-    // Map the response
-    if groupInfo != nil {
-        response.Data = *groupInfo
-    }
-
-    return response, nil
-}

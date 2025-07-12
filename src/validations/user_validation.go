@@ -33,18 +33,6 @@ func ValidateUserAvatar(ctx context.Context, request domainUser.AvatarRequest) e
 	return nil
 }
 
-func ValidateGroupInfo(ctx context.Context, request domainUser.GroupInfoRequest) error {
-	err := validation.ValidateStructWithContext(ctx, &request,
-		validation.Field(&request.GroupID, validation.Required),
-	)
-
-	if err != nil {
-		return pkgError.ValidationError(err.Error())
-	}
-
-	return nil
-}
-
 func ValidateBusinessProfile(ctx context.Context, request domainUser.BusinessProfileRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),

@@ -84,13 +84,21 @@ type GetGroupInfoFromLinkRequest struct {
 }
 
 type GetGroupInfoFromLinkResponse struct {
-	GroupID         string    `json:"group_id"`
-	Name            string    `json:"name"`
-	Topic           string    `json:"topic"`
-	CreatedAt       time.Time `json:"created_at"`
+	GroupID          string    `json:"group_id"`
+	Name             string    `json:"name"`
+	Topic            string    `json:"topic"`
+	CreatedAt        time.Time `json:"created_at"`
 	ParticipantCount int       `json:"participant_count"`
-	IsLocked        bool      `json:"is_locked"`
-	IsAnnounce      bool      `json:"is_announce"`
-	IsEphemeral     bool      `json:"is_ephemeral"`
-	Description     string    `json:"description"`
+	IsLocked         bool      `json:"is_locked"`
+	IsAnnounce       bool      `json:"is_announce"`
+	IsEphemeral      bool      `json:"is_ephemeral"`
+	Description      string    `json:"description"`
+}
+
+type GroupInfoRequest struct {
+	GroupID string `json:"group_id" query:"group_id"`
+}
+
+type GroupInfoResponse struct {
+	Data interface{} `json:"data"`
 }

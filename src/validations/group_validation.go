@@ -192,3 +192,15 @@ func ValidateSetGroupTopic(ctx context.Context, request domainGroup.SetGroupTopi
 
 	return nil
 }
+
+func ValidateGroupInfo(ctx context.Context, request domainGroup.GroupInfoRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

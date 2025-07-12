@@ -73,9 +73,9 @@ export default {
         },
     },
     template: `
-    <div class="blue card" @click="openModal" style="cursor: pointer">
+    <div class="green card" @click="openModal" style="cursor: pointer">
         <div class="content">
-            <a class="ui blue right ribbon label">Group</a>
+            <a class="ui green right ribbon label">Group</a>
             <div class="header">Group Preview</div>
             <div class="description">
                 Get group information from invitation link

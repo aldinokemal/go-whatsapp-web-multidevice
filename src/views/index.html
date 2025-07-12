@@ -111,6 +111,7 @@
         <group-set-locked></group-set-locked>
         <group-set-announce></group-set-announce>
         <group-set-topic></group-set-topic>
+        <group-info></group-info>
     </div>
 
     <div class="ui horizontal divider">
@@ -134,7 +135,6 @@
         <account-privacy></account-privacy>
         <account-contact></account-contact>
         <account-user-check></account-user-check>
-        <account-group-info></account-group-info>
     </div>
 
     <div class="ui horizontal divider">
@@ -209,7 +209,7 @@
     import GroupSetLocked from "./components/GroupSetLocked.js";
     import GroupSetAnnounce from "./components/GroupSetAnnounce.js";
     import GroupSetTopic from "./components/GroupSetTopic.js";
-    import AccountGroupInfo from "./components/AccountGroupInfo.js";
+    import GroupInfo from "./components/GroupInfo.js";
     import NewsletterList from "./components/NewsletterList.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
@@ -256,9 +256,9 @@
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
-            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
+            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupInfo,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile, AccountGroupInfo,
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager
         },
         delimiters: ['[[', ']]'],
