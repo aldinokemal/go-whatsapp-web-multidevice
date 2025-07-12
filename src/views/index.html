@@ -104,7 +104,6 @@
         <group-list :connected="connected_devices"></group-list>
         <group-create></group-create>
         <group-join-with-link></group-join-with-link>
-        <group-info></group-info>
         <group-add-participants></group-add-participants>
         <group-set-photo></group-set-photo>
         <group-set-name></group-set-name>
@@ -134,6 +133,7 @@
         <account-privacy></account-privacy>
         <account-contact></account-contact>
         <account-user-check></account-user-check>
+        <account-group-info></account-group-info>
     </div>
 
     <div class="ui horizontal divider">
@@ -207,7 +207,7 @@
     import GroupSetLocked from "./components/GroupSetLocked.js";
     import GroupSetAnnounce from "./components/GroupSetAnnounce.js";
     import GroupSetTopic from "./components/GroupSetTopic.js";
-    import GroupInfo from "./components/GroupInfo.js";
+    import AccountGroupInfo from "./components/AccountGroupInfo.js";
     import NewsletterList from "./components/NewsletterList.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
@@ -255,9 +255,8 @@
             SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
-            GroupInfo,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile, AccountGroupInfo,
             ChatPinManager
         },
         delimiters: ['[[', ']]'],
