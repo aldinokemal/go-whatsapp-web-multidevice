@@ -61,7 +61,9 @@ export default {
         async fetchInfo() {
             this.loading = true;
             try {
-                const response = await window.http.get(`/user/info-group?group_id=${this.fullGroupID}`);
+                const response = await window.http.get('/user/info-group', {
+                    params: { group_id: this.fullGroupID }
+                });
                 this.groupInfo = response.data.results;
             } catch (error) {
                 if (error.response) {
