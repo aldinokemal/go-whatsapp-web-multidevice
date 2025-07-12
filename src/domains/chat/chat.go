@@ -31,6 +31,19 @@ type GetChatMessagesResponse struct {
 	ChatInfo   ChatInfo           `json:"chat_info"`
 }
 
+// Pin Chat operations
+type PinChatRequest struct {
+	ChatJID string `json:"chat_jid" uri:"chat_jid"`
+	Pinned  bool   `json:"pinned"`
+}
+
+type PinChatResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	ChatJID string `json:"chat_jid"`
+	Pinned  bool   `json:"pinned"`
+}
+
 type ChatInfo struct {
 	JID                 string `json:"jid"`
 	Name                string `json:"name"`

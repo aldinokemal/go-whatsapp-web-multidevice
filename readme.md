@@ -343,6 +343,10 @@ You can fork or edit this source code !
 | ✅       | Set Group Announce                     | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
+| ✅       | Get Chat List                          | GET    | /chats                              |
+| ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
+| ✅       | Label Chat                             | POST   | /chat/:chat_jid/label               |
+| ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 
 ```txt
 ✅ = Available

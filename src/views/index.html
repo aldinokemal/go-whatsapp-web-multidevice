@@ -135,6 +135,14 @@
         <account-user-check></account-user-check>
     </div>
 
+    <div class="ui horizontal divider">
+        Chat Management
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <chat-pin-manager></chat-pin-manager>
+    </div>
+
 </div>
 <script>
     window.TYPEGROUP = "@g.us";
@@ -165,7 +173,7 @@
         baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
-    window.http.defaults.headers.common['Authorization'] = {{ .BasicAuthToken }};
+    window.http.defaults.headers.common['Authorization'] = "{{ .BasicAuthToken }}";
     {{ end }}
 </script>
 <script type="module">
@@ -207,6 +215,7 @@
     import AccountContact from "./components/AccountContact.js";
     import AccountUserCheck from "./components/AccountUserCheck.js";
     import AccountBusinessProfile from "./components/AccountBusinessProfile.js";
+    import ChatPinManager from "./components/ChatPinManager.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -245,7 +254,8 @@
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
             GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
+            ChatPinManager
         },
         delimiters: ['[[', ']]'],
         data() {

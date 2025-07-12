@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.7.0
+  version: 6.8.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -1428,6 +1428,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '404':
+          description: Chat Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /chat/{chat_jid}/label:
+    post:
+      operationId: labelChat
+      tags:
+        - chat
+      summary: Label or unlabel a chat
+      description: Apply or remove a label from a chat conversation
+      parameters:
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label_id:
+                  type: string
+                  example: 'label_123'
+                  description: Unique identifier for the label
+                label_name:
+                  type: string
+                  example: 'Important'
+                  description: Display name for the label
+                labeled:
+                  type: boolean
+                  example: true
+                  description: Whether to apply (true) or remove (false) the label
+              required:
+                - label_id
+                - label_name
+                - labeled
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelChatResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '404':
+          description: Chat Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /chat/{chat_jid}/pin:
+    post:
+      operationId: pinChat
+      tags:
+        - chat
+      summary: Pin or unpin a chat
+      description: Pin or unpin a chat conversation to the top of the chat list
+      parameters:
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned:
+                  type: boolean
+                  example: true
+                  description: Whether to pin (true) or unpin (false) the chat
+              required:
+                - pinned
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinChatResponse'
         '400':
           description: Bad Request
           content:
@@ -2931,3 +3057,56 @@ components:
           format: date-time
           example: '2024-01-15T10:30:00Z'
           description: Record last update timestamp
+
+    LabelChatResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat labeled successfully with label 'Important'
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat labeled successfully with label 'Important'
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            label_id:
+              type: string
+              example: 'label_123'
+            labeled:
+              type: boolean
+              example: true
+
+    PinChatResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat pinned successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat pinned successfully
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            pinned:
+              type: boolean
+              example: true
