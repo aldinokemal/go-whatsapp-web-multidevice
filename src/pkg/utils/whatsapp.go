@@ -242,7 +242,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 
 // ExtractEphemeralExpiration extracts ephemeral expiration from a WhatsApp message
 func ExtractEphemeralExpiration(msg *waE2E.Message) uint32 {
-	logrus.Info("ExtractEphemeralExpiration: Starting extraction process")
+	logrus.Debug("ExtractEphemeralExpiration: Starting extraction process")
 
 	if msg == nil {
 		logrus.Debug("ExtractEphemeralExpiration: Message is nil, returning 0")
