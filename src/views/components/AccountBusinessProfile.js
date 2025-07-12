@@ -97,9 +97,9 @@ export default {
         }
     },
     template: `
-    <div class="blue card" @click="openModal" style="cursor: pointer;">
+    <div class="olive card" @click="openModal" style="cursor: pointer;">
         <div class="content">
-        <a class="ui blue right ribbon label">Business</a>
+        <a class="ui olive right ribbon label">Account</a>
             <div class="header">Business Profile</div>
             <div class="description">
                 Get detailed business profile information

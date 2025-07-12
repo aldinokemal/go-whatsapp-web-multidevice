@@ -22,6 +22,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
 	app.Get("/user/business-profile", rest.UserBusinessProfile)
+	app.Get("/user/info-group", rest.UserGroupInfo)
 
 	return rest
 }
@@ -175,4 +176,21 @@ func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
 		Message: "Success get business profile",
 		Results: response,
 	})
+}
+
+// UserGroupInfo handles the /user/info-group endpoint to fetch group information
+func (controller *User) UserGroupInfo(c *fiber.Ctx) error {
+    var request domainUser.GroupInfoRequest
+    err := c.QueryParser(&request)
+    utils.PanicIfNeeded(err)
+
+    response, err := controller.Service.GroupInfo(c.UserContext(), request)
+    utils.PanicIfNeeded(err)
+
+    return c.JSON(utils.ResponseData{
+        Status:  200,
+        Code:    "SUCCESS",
+        Message: "Success get group info",
+        Results: response.Data,
+    })
 }
