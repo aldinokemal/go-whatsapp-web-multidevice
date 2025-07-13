@@ -297,7 +297,7 @@ func handleRemoteLogout(ctx context.Context, chatStorageRepo *chatstorage.Storag
 func handler(ctx context.Context, rawEvt interface{}, chatStorageRepo *chatstorage.Storage) {
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
-		handleDeleteForMe(ctx, evt)
+		handleDeleteForMe(ctx, evt, chatStorageRepo)
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, evt)
 	case *events.PairSuccess:
@@ -323,8 +323,36 @@ func handler(ctx context.Context, rawEvt interface{}, chatStorageRepo *chatstora
 
 // Event handler functions
 
-func handleDeleteForMe(_ context.Context, evt *events.DeleteForMe) {
+func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo *chatstorage.Storage) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
+
+	// Find the message to get its chat JID
+	message, err := chatStorageRepo.Repository().GetMessageByID(evt.MessageID)
+	if err != nil {
+		log.Errorf("Failed to find message %s for deletion: %v", evt.MessageID, err)
+		return
+	}
+
+	if message == nil {
+		log.Warnf("Message %s not found in database, skipping deletion", evt.MessageID)
+		return
+	}
+
+	// Delete the message from database
+	if err := chatStorageRepo.Repository().DeleteMessage(evt.MessageID, message.ChatJID); err != nil {
+		log.Errorf("Failed to delete message %s from database: %v", evt.MessageID, err)
+	} else {
+		log.Infof("Successfully deleted message %s from database", evt.MessageID)
+	}
+
+	// Send webhook notification for delete event
+	if len(config.WhatsappWebhook) > 0 {
+		go func() {
+			if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
+				log.Errorf("Failed to forward delete event to webhook: %v", err)
+			}
+		}()
+	}
 }
 
 func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {

@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -245,4 +246,54 @@ func submitWebhook(payload map[string]interface{}, url string) error {
 	}
 
 	return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt, err))
+}
+
+// forwardDeleteToWebhook sends a delete event to webhook
+func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *chatstorage.Message) error {
+	logrus.Info("Forwarding delete event to webhook:", config.WhatsappWebhook)
+	payload, err := createDeletePayload(ctx, evt, message)
+	if err != nil {
+		return err
+	}
+
+	for _, url := range config.WhatsappWebhook {
+		if err = submitWebhook(payload, url); err != nil {
+			return err
+		}
+	}
+
+	logrus.Info("Delete event forwarded to webhook")
+	return nil
+}
+
+// createDeletePayload creates a webhook payload for delete events
+func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *chatstorage.Message) (map[string]interface{}, error) {
+	body := make(map[string]interface{})
+
+	// Basic delete event information
+	body["action"] = "message_deleted_for_me"
+	body["deleted_message_id"] = evt.MessageID
+	body["sender_id"] = evt.SenderJID.User
+	body["chat_id"] = message.ChatJID
+	body["timestamp"] = time.Now().Format(time.RFC3339)
+
+	// Include original message information if available
+	if message != nil {
+		body["original_content"] = message.Content
+		body["original_sender"] = message.Sender
+		body["original_timestamp"] = message.Timestamp.Format(time.RFC3339)
+		body["was_from_me"] = message.IsFromMe
+
+		if message.MediaType != "" {
+			body["original_media_type"] = message.MediaType
+			body["original_filename"] = message.Filename
+		}
+	}
+
+	// Parse sender JID for proper formatting
+	if evt.SenderJID.Server != "" {
+		body["from"] = evt.SenderJID.String()
+	}
+
+	return body, nil
 }
