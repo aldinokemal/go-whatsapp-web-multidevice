@@ -21,7 +21,6 @@ var (
 	PathStorages  = "storages"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=on"
-	DBKeysURI = ""
 
 	WhatsappAutoReplyMessage       string
 	WhatsappAutoMarkRead           = false // Auto-mark incoming messages as read
