@@ -1,8 +1,20 @@
-name: Claude Code Review - Internal PRs
+name: Claude Code Review - Internal and External PRs
 
 on:
-  # Handle PRs from the same repository
+  # Handle PRs from the same repository (internal PRs)
   pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "src/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "src/views/**/*.html"
+      - "src/views/**/*.css"
+      - "src/views/**/*.js"
+      - "src/views/**/*.svg"
+  
+  # Handle PRs from external forks
+  pull_request_target:
     types: [opened, synchronize]
     paths:
       - "src/**/*.go"
@@ -15,9 +27,6 @@ on:
 
 jobs:
   claude-review:
-    # Only run for internal PRs (same repository)
-    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-    
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,6 +38,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # For pull_request_target, we need to checkout the PR head
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
 
       - name: Run Claude Code Review
