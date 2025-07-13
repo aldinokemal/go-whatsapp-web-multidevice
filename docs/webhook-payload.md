@@ -57,13 +57,13 @@ def verify_webhook_signature(payload, signature, secret):
 
 All webhook payloads share these common fields:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `sender_id` | string | User part of sender JID (phone number without @s.whatsapp.net) |
-| `chat_id` | string | User part of chat JID |
-| `from` | string | JID of the sender |
-| `timestamp` | string | RFC3339 formatted timestamp |
-| `pushname` | string | Display name of the sender |
+| **Field**      | **Type** | **Description**                                                        |
+|----------------|----------|------------------------------------------------------------------------|
+| `sender_id`    | string   | User part of sender JID (phone number, without `@s.whatsapp.net`)      |
+| `chat_id`      | string   | User part of chat JID                                                  |
+| `from`         | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)           |
+| `timestamp`    | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)             |
+| `pushname`     | string   | Display name of the sender                                             |
 
 ## Message Events
 
