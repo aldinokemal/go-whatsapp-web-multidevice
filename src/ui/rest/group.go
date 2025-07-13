@@ -3,8 +3,9 @@ package rest
 import (
 	"fmt"
 
+	"github.com/sirupsen/logrus"
+
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 	"go.mau.fi/whatsmeow"
@@ -26,6 +27,11 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupUsecase) Group {
 	app.Get("/group/participant-requests", rest.ListParticipantRequests)
 	app.Post("/group/participant-requests/approve", rest.ApproveParticipantRequests)
 	app.Post("/group/participant-requests/reject", rest.RejectParticipantRequests)
+	app.Post("/group/photo", rest.SetGroupPhoto)
+	app.Post("/group/name", rest.SetGroupName)
+	app.Post("/group/locked", rest.SetGroupLocked)
+	app.Post("/group/announce", rest.SetGroupAnnounce)
+	app.Post("/group/topic", rest.SetGroupTopic)
 	return rest
 }
 
@@ -52,7 +58,7 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	err = controller.Service.LeaveGroup(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -110,7 +116,7 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 		})
 	}
 
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 
 	result, err := controller.Service.GetGroupRequestParticipants(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -136,7 +142,7 @@ func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.Parti
 	var request domainGroup.ParticipantRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
 	result, err := controller.Service.ManageParticipant(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -153,7 +159,7 @@ func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsm
 	var request domainGroup.GroupRequestParticipantsRequest
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
-	whatsapp.SanitizePhone(&request.GroupID)
+	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
 	result, err := controller.Service.ManageGroupRequestParticipants(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -162,5 +168,137 @@ func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsm
 		Code:    "SUCCESS",
 		Message: successMsg,
 		Results: result,
+	})
+}
+
+func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
+	var request domainGroup.SetGroupPhotoRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	file, err := c.FormFile("photo")
+	if err == nil {
+		logrus.Printf("INFO: Received group photo - Filename: %s, Size: %d bytes, ContentType: %s",
+			file.Filename, file.Size, file.Header.Get("Content-Type"))
+
+		// Basic validation only - processing will be done in usecase
+		if err := utils.ValidateGroupPhotoFormat(file); err != nil {
+			logrus.Printf("ERROR: Group photo validation failed - %v", err)
+			return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+				Status:  400,
+				Code:    "INVALID_IMAGE_FORMAT",
+				Message: fmt.Sprintf("Image validation failed: %v", err),
+			})
+		}
+
+		request.Photo = file
+	} else {
+		logrus.Printf("DEBUG: No photo file provided - Error: %v", err)
+	}
+
+	pictureID, err := controller.Service.SetGroupPhoto(c.UserContext(), request)
+	if err != nil {
+		logrus.Printf("ERROR: WhatsApp service failed to set group photo - %v", err)
+	}
+	utils.PanicIfNeeded(err)
+
+	message := "Success update group photo"
+	if request.Photo == nil {
+		message = "Success remove group photo"
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: message,
+		Results: domainGroup.SetGroupPhotoResponse{
+			PictureID: pictureID,
+			Message:   message,
+		},
+	})
+}
+
+func (controller *Group) SetGroupName(c *fiber.Ctx) error {
+	var request domainGroup.SetGroupNameRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	err = controller.Service.SetGroupName(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: fmt.Sprintf("Success update group name to '%s'", request.Name),
+	})
+}
+
+func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
+	var request domainGroup.SetGroupLockedRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	err = controller.Service.SetGroupLocked(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	message := "Success set group as unlocked"
+	if request.Locked {
+		message = "Success set group as locked"
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: message,
+	})
+}
+
+func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
+	var request domainGroup.SetGroupAnnounceRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	err = controller.Service.SetGroupAnnounce(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	message := "Success disable announce mode"
+	if request.Announce {
+		message = "Success enable announce mode"
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: message,
+	})
+}
+
+func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
+	var request domainGroup.SetGroupTopicRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	err = controller.Service.SetGroupTopic(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	message := "Success update group topic"
+	if request.Topic == "" {
+		message = "Success remove group topic"
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: message,
 	})
 }

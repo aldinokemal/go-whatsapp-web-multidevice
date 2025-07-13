@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/libsignal/logger"
@@ -22,34 +23,57 @@ import (
 )
 
 type serviceApp struct {
-	WaCli *whatsmeow.Client
-	db    *sqlstore.Container
+	db              *sqlstore.Container
+	chatStorageRepo *chatstorage.Storage
 }
 
-func NewAppService(waCli *whatsmeow.Client, db *sqlstore.Container) domainApp.IAppUsecase {
+func NewAppService(db *sqlstore.Container, chatStorageRepo *chatstorage.Storage) domainApp.IAppUsecase {
 	return &serviceApp{
-		WaCli: waCli,
-		db:    db,
+		db:              db,
+		chatStorageRepo: chatStorageRepo,
 	}
 }
 
-func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResponse, err error) {
-	if service.WaCli == nil {
+func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginResponse, err error) {
+	client := whatsapp.GetClient()
+	if client == nil {
 		return response, pkgError.ErrWaCLI
 	}
 
+	// [DEBUG] Log database state before login
+	logrus.Info("[DEBUG] Starting login process...")
+	devices, dbErr := service.db.GetAllDevices(context.Background())
+	if dbErr != nil {
+		logrus.Errorf("[DEBUG] Error getting devices before login: %v", dbErr)
+	} else {
+		logrus.Infof("[DEBUG] Devices before login: %d found", len(devices))
+		for _, device := range devices {
+			logrus.Infof("[DEBUG] Device ID: %s, PushName: %s", device.ID.String(), device.PushName)
+		}
+	}
+
+	// [DEBUG] Log client state
+	if client.Store.ID != nil {
+		logrus.Infof("[DEBUG] Client has existing store ID: %s", client.Store.ID.String())
+	} else {
+		logrus.Info("[DEBUG] Client has no store ID")
+	}
+
 	// Disconnect for reconnecting
-	service.WaCli.Disconnect()
+	client.Disconnect()
 
 	chImage := make(chan string)
 
-	ch, err := service.WaCli.GetQRChannel(context.Background())
+	logrus.Info("[DEBUG] Attempting to get QR channel...")
+	ch, err := client.GetQRChannel(context.Background())
 	if err != nil {
+		logrus.Errorf("[DEBUG] GetQRChannel failed: %v", err)
 		logrus.Error(err.Error())
 		// This error means that we're already logged in, so ignore it.
 		if errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
-			_ = service.WaCli.Connect() // just connect to websocket
-			if service.WaCli.IsLoggedIn() {
+			logrus.Info("[DEBUG] Error is ErrQRStoreContainsID - attempting to connect")
+			_ = client.Connect() // just connect to websocket
+			if client.IsLoggedIn() {
 				return response, pkgError.ErrAlreadyLoggedIn
 			}
 			return response, pkgError.ErrSessionSaved
@@ -57,6 +81,7 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 			return response, pkgError.ErrQrChannel
 		}
 	} else {
+		logrus.Info("[DEBUG] QR channel obtained successfully")
 		go func() {
 			for evt := range ch {
 				response.Code = evt.Code
@@ -71,35 +96,46 @@ func (service serviceApp) Login(_ context.Context) (response domainApp.LoginResp
 						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)
 						if err != nil {
-							logrus.Error("error when remove qrImage file", err.Error())
+							// Only log if it's not a "file not found" error
+							if !os.IsNotExist(err) {
+								logrus.Error("error when remove qrImage file", err.Error())
+							}
 						}
 					}()
 					chImage <- qrPath
 				} else {
-					logrus.Error("error when get qrCode", evt.Event)
+					logrus.Error("error when get qrCode", evt.Event, evt.Error)
 				}
 			}
 		}()
 	}
 
-	err = service.WaCli.Connect()
+	err = client.Connect()
 	if err != nil {
 		logger.Error("Error when connect to whatsapp", err)
 		return response, pkgError.ErrReconnect
 	}
 	response.ImagePath = <-chImage
 
+	// [DEBUG] Verify connection state and sync global client
+	logrus.Infof("[DEBUG] Login connection established - IsConnected: %v, IsLoggedIn: %v",
+		client.IsConnected(), client.IsLoggedIn())
+
+	// Ensure global client is synchronized with service client
+	whatsapp.UpdateGlobalClient(client)
+
 	return response, nil
 }
 
-func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error) {
+func (service *serviceApp) LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error) {
 	if err = validations.ValidateLoginWithCode(ctx, phoneNumber); err != nil {
 		logrus.Errorf("Error when validate login with code: %s", err.Error())
 		return loginCode, err
 	}
 
+	client := whatsapp.GetClient()
 	// detect is already logged in
-	if service.WaCli.Store.ID != nil {
+	if client.Store.ID != nil {
 		logrus.Warn("User is already logged in")
 		return loginCode, pkgError.ErrAlreadyLoggedIn
 	}
@@ -107,68 +143,94 @@ func (service serviceApp) LoginWithCode(ctx context.Context, phoneNumber string)
 	// reconnect first
 	_ = service.Reconnect(ctx)
 
-	loginCode, err = service.WaCli.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	logrus.Infof("[DEBUG] Starting phone pairing for number: %s", phoneNumber)
+	loginCode, err = client.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		logrus.Errorf("Error when pairing phone: %s", err.Error())
 		return loginCode, err
 	}
 
+	// [DEBUG] Verify pairing state and sync global client
+	logrus.Infof("[DEBUG] Phone pairing completed - IsConnected: %v, IsLoggedIn: %v",
+		client.IsConnected(), client.IsLoggedIn())
+
+	// Ensure global client is synchronized with service client
+	whatsapp.UpdateGlobalClient(client)
+
 	logrus.Infof("Successfully paired phone with code: %s", loginCode)
 	return loginCode, nil
 }
 
-func (service serviceApp) Logout(ctx context.Context) (err error) {
-	// delete history
-	files, err := filepath.Glob(fmt.Sprintf("./%s/history-*", config.PathStorages))
-	if err != nil {
-		return err
-	}
-
-	for _, f := range files {
-		err = os.Remove(f)
-		if err != nil {
-			return err
-		}
-	}
-	// delete qr images
-	qrImages, err := filepath.Glob(fmt.Sprintf("./%s/scan-*", config.PathQrCode))
-	if err != nil {
-		return err
-	}
-
-	for _, f := range qrImages {
-		err = os.Remove(f)
-		if err != nil {
-			return err
+func (service *serviceApp) Logout(ctx context.Context) (err error) {
+	// [DEBUG] Log database state before logout
+	logrus.Info("[DEBUG] Starting logout process...")
+	devices, dbErr := service.db.GetAllDevices(ctx)
+	if dbErr != nil {
+		logrus.Errorf("[DEBUG] Error getting devices before logout: %v", dbErr)
+	} else {
+		logrus.Infof("[DEBUG] Devices before logout: %d found", len(devices))
+		for _, device := range devices {
+			logrus.Infof("[DEBUG] Device ID: %s, PushName: %s", device.ID.String(), device.PushName)
 		}
 	}
 
-	// delete senditems
-	qrItems, err := filepath.Glob(fmt.Sprintf("./%s/*", config.PathSendItems))
+	// [DEBUG] Call WhatsApp client logout first to disconnect from server
+	logrus.Info("[DEBUG] Calling WhatsApp client logout...")
+	err = whatsapp.GetClient().Logout(ctx)
 	if err != nil {
+		logrus.Errorf("[DEBUG] WhatsApp logout failed: %v", err)
+		// Continue with cleanup even if logout fails
+	} else {
+		logrus.Info("[DEBUG] WhatsApp logout completed successfully")
+	}
+
+	// [DEBUG] Verify devices after logout
+	devices, dbErr = service.db.GetAllDevices(ctx)
+	if dbErr != nil {
+		logrus.Errorf("[DEBUG] Error getting devices after logout: %v", dbErr)
+	} else {
+		logrus.Infof("[DEBUG] Devices after logout: %d found", len(devices))
+	}
+
+	// Perform complete cleanup with global client synchronization
+	newDB, _, err := whatsapp.PerformCleanupAndUpdateGlobals(ctx, "MANUAL_LOGOUT", service.chatStorageRepo)
+	if err != nil {
+		logrus.Errorf("[DEBUG] Cleanup failed: %v", err)
 		return err
 	}
 
-	for _, f := range qrItems {
-		if !strings.Contains(f, ".gitignore") {
-			err = os.Remove(f)
-			if err != nil {
-				return err
-			}
-		}
-	}
+	// Update service references
+	service.db = newDB
 
-	err = service.WaCli.Logout(ctx)
-	return
+	logrus.Info("[DEBUG] Logout process completed successfully")
+	return nil
 }
 
-func (service serviceApp) Reconnect(_ context.Context) (err error) {
-	service.WaCli.Disconnect()
-	return service.WaCli.Connect()
+func (service *serviceApp) Reconnect(_ context.Context) (err error) {
+	logrus.Info("[DEBUG] Starting reconnect process...")
+
+	client := whatsapp.GetClient()
+	client.Disconnect()
+	err = client.Connect()
+
+	if err != nil {
+		logrus.Errorf("[DEBUG] Reconnect failed: %v", err)
+		return err
+	}
+
+	// [DEBUG] Verify reconnection state and sync global client
+	logrus.Infof("[DEBUG] Reconnection completed - IsConnected: %v, IsLoggedIn: %v",
+		client.IsConnected(), client.IsLoggedIn())
+
+	// Ensure global client is synchronized with service client
+	whatsapp.UpdateGlobalClient(client)
+
+	logrus.Info("[DEBUG] Reconnect process completed successfully")
+	return err
 }
 
-func (service serviceApp) FirstDevice(ctx context.Context) (response domainApp.DevicesResponse, err error) {
-	if service.WaCli == nil {
+func (service *serviceApp) FirstDevice(ctx context.Context) (response domainApp.DevicesResponse, err error) {
+	if whatsapp.GetClient() == nil {
 		return response, pkgError.ErrWaCLI
 	}
 
@@ -187,8 +249,8 @@ func (service serviceApp) FirstDevice(ctx context.Context) (response domainApp.D
 	return response, nil
 }
 
-func (service serviceApp) FetchDevices(ctx context.Context) (response []domainApp.DevicesResponse, err error) {
-	if service.WaCli == nil {
+func (service *serviceApp) FetchDevices(ctx context.Context) (response []domainApp.DevicesResponse, err error) {
+	if whatsapp.GetClient() == nil {
 		return response, pkgError.ErrWaCLI
 	}
 

@@ -7,6 +7,7 @@ export default {
         return {
             login_link: '',
             login_duration_sec: 0,
+            countdown_timer: null,
         }
     },
     methods: {
@@ -18,6 +19,9 @@ export default {
                 $('#modalLogin').modal({
                     onApprove: function () {
                         return false;
+                    },
+                    onHidden: () => {
+                        this.stopCountdown();
                     }
                 }).modal('show');
             } catch (err) {
@@ -26,17 +30,56 @@ export default {
         },
         async submitApi() {
             try {
+                // Stop existing countdown before making new request
+                this.stopCountdown();
+                
                 let response = await window.http.get(`app/login`)
                 let results = response.data.results;
                 this.login_link = results.qr_link;
                 this.login_duration_sec = results.qr_duration;
+                
+                // Start countdown after successful API call
+                this.startCountdown();
             } catch (error) {
                 if (error.response) {
                     throw Error(error.response.data.message)
                 }
                 throw Error(error.message)
             }
+        },
+        startCountdown() {
+            // Clear any existing timer
+            this.stopCountdown();
+            
+            this.countdown_timer = setInterval(() => {
+                if (this.login_duration_sec > 0) {
+                    this.login_duration_sec--;
+                } else {
+                    // Auto refresh when countdown reaches 0
+                    this.autoRefresh();
+                }
+            }, 1000);
+        },
+        stopCountdown() {
+            if (this.countdown_timer) {
+                clearInterval(this.countdown_timer);
+                this.countdown_timer = null;
+            }
+        },
+        async autoRefresh() {
+            try {
+                console.log('QR Code expired, auto refreshing...');
+                await this.submitApi();
+            } catch (error) {
+                console.error('Auto refresh failed:', error);
+                this.stopCountdown();
+                showErrorInfo(error);
+            }
         }
+    },
+    beforeUnmount() {
+        // Clean up timer when component is destroyed
+        this.stopCountdown();
     },
     template: `
     <div class="green card" @click="openModal" style="cursor: pointer">
@@ -63,7 +106,8 @@ export default {
                 <div class="ui header">Please scan to connect</div>
                 <p>Open Setting > Linked Devices > Link Device</p>
                 <div style="padding-top: 50px;">
-                    <i>Refresh QR Code in {{ login_duration_sec }} seconds to avoid link expiration</i>
+                    <i v-if="login_duration_sec > 0">QR Code expires in {{ login_duration_sec }} seconds (auto-refreshing)</i>
+                    <i v-else class="ui active inline">Refreshing QR Code...</i>
                 </div>
             </div>
         </div>

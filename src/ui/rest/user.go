@@ -2,7 +2,6 @@ package rest
 
 import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -22,6 +21,7 @@ func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
+	app.Get("/user/business-profile", rest.UserBusinessProfile)
 
 	return rest
 }
@@ -31,7 +31,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Info(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -49,7 +49,7 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	whatsapp.SanitizePhone(&request.Phone)
+	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.Avatar(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
@@ -155,6 +155,24 @@ func (controller *User) UserCheck(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success check user",
+		Results: response,
+	})
+}
+
+func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
+	var request domainUser.BusinessProfileRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.BusinessProfile(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get business profile",
 		Results: response,
 	})
 }

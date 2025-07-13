@@ -11,7 +11,9 @@ export default {
             type: window.TYPEUSER,
             loading: false,
             selectedFileName: null,
-            is_forwarded: false
+            is_forwarded: false,
+            audio_url: null,
+            duration: 0,
         }
     },
     computed: {
@@ -32,7 +34,7 @@ export default {
                 return false;
             }
 
-            if (!this.selectedFileName) {
+            if (!this.selectedFileName && !this.audio_url) {
                 return false;
             }
 
@@ -57,7 +59,19 @@ export default {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
-                payload.append("audio", $("#file_audio")[0].files[0])
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
+
+                const fileInput = $("#file_audio");
+                if (fileInput.length > 0 && fileInput[0].files.length > 0) {
+                    const file = fileInput[0].files[0];
+                    payload.append('audio', file);
+                }
+                if (this.audio_url) {
+                    payload.append('audio_url', this.audio_url)
+                }
+
                 const response = await window.http.post(`/send/audio`, payload)
                 this.handleReset();
                 return response.data.message;
@@ -74,8 +88,10 @@ export default {
             this.phone = '';
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_audio").val('');
             this.selectedFileName = null;
+            this.audio_url = null;
         },
         handleFileChange(event) {
             const file = event.target.files[0];
@@ -111,12 +127,25 @@ export default {
                         <label>Mark audio as forwarded</label>
                     </div>
                 </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
+                </div>
+                <div class="field">
+                    <label>Audio URL</label>
+                    <input type="text" v-model="audio_url" placeholder="https://example.com/audio.mp3"
+                           aria-label="audio_url"/>
+                </div>
+                <div style="text-align: left; font-weight: bold; margin: 10px 0;">or you can upload audio from your
+                    device
+                </div>
                 <div class="field" style="padding-bottom: 30px">
                     <label>Audio</label>
-                    <input type="file" style="display: none" accept="audio/*" id="file_audio" @change="handleFileChange"/>
+                    <input type="file" style="display: none" accept="audio/*" id="file_audio"
+                           @change="handleFileChange"/>
                     <label for="file_audio" class="ui positive medium green left floated button" style="color: white">
                         <i class="ui upload icon"></i>
-                        Upload 
+                        Upload
                     </label>
                     <div v-if="selectedFileName" style="margin-top: 60px">
                         <div class="ui message">

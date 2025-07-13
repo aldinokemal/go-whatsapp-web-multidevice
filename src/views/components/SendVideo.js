@@ -19,8 +19,10 @@ export default {
             type: window.TYPEUSER,
             phone: '',
             loading: false,
+            video_url: null,
             selectedFileName: null,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -33,6 +35,7 @@ export default {
             // If view_once is set to true, set is_forwarded to false
             if (newValue === true) {
                 this.is_forwarded = false;
+                this.duration = 0;
             }
         }
     },
@@ -55,15 +58,16 @@ export default {
             }
 
             const fileInput = $("#file_video")[0];
-            if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-                console.log('fileInput', fileInput);
+            const hasFile = fileInput && fileInput.files && fileInput.files[0];
+
+            if (!hasFile && !this.video_url) {
                 isValid = false;
-            } else {
+            }
+
+            if (hasFile) {
                 const videoFile = fileInput.files[0];
-                // Validate file type
                 if (!videoFile.type.startsWith('video/')) {
                     isValid = false;
-                    console.log('videoFile', videoFile);
                 }
             }
 
@@ -91,7 +95,18 @@ export default {
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
                 payload.append("is_forwarded", this.is_forwarded)
-                payload.append('video', $("#file_video")[0].files[0])
+                if (this.duration && this.duration > 0) {
+                    payload.append("duration", this.duration)
+                }
+
+                const fileInput = $("#file_video")[0];
+                if (fileInput && fileInput.files && fileInput.files[0]) {
+                    payload.append('video', fileInput.files[0])
+                }
+                if (this.video_url) {
+                    payload.append('video_url', this.video_url)
+                }
+
                 let response = await window.http.post(`/send/video`, payload)
                 this.handleReset();
                 return response.data.message;
@@ -110,7 +125,9 @@ export default {
             this.compress = false;
             this.phone = '';
             this.selectedFileName = null;
+            this.video_url = null;
             this.is_forwarded = false;
+            this.duration = 0;
             $("#file_video").val('');
         },
         handleFileChange(event) {
@@ -170,7 +187,17 @@ export default {
                         <label>Mark video as forwarded</label>
                     </div>
                 </div>
-                <div class="field" style="padding-bottom: 30px">
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
+                </div>
+                <div class="field">
+                    <label>Video URL</label>
+                    <input type="text" v-model="video_url" placeholder="https://example.com/sample.mp4"
+                           aria-label="video_url" />
+                </div>
+                <div style="text-align: left; font-weight: bold; margin: 10px 0;" v-if="!video_url">or you can upload video from your device</div>
+                <div class="field" style="padding-bottom: 30px" v-if="!video_url">
                     <label>Video</label>
                     <input type="file" style="display: none" accept="video/*" id="file_video" @change="handleFileChange">
                     <label for="file_video" class="ui positive medium green left floated button" style="color: white">

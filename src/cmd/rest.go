@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/template/html/v2"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +70,7 @@ func restServer(_ *cobra.Command, _ []string) {
 		for _, basicAuth := range config.AppBasicAuthCredential {
 			ba := strings.Split(basicAuth, ":")
 			if len(ba) != 2 {
-				log.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
+				logrus.Fatalln("Basic auth is not valid, please this following format <user>:<secret>")
 			}
 			account[ba[0]] = ba[1]
 		}
@@ -82,6 +82,7 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Rest
 	rest.InitRestApp(app, appUsecase)
+	rest.InitRestChat(app, chatUsecase)
 	rest.InitRestSend(app, sendUsecase)
 	rest.InitRestUser(app, userUsecase)
 	rest.InitRestMessage(app, messageUsecase)
@@ -105,12 +106,8 @@ func restServer(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 	// Set auto reconnect checking
 	go helpers.SetAutoReconnectChecking(whatsappCli)
-	// Start auto flush chat csv
-	if config.WhatsappChatStorage {
-		go helpers.StartAutoFlushChatStorage()
-	}
 
 	if err := app.Listen(":" + config.AppPort); err != nil {
-		log.Fatalln("Failed to start: ", err.Error())
+		logrus.Fatalln("Failed to start: ", err.Error())
 	}
 }

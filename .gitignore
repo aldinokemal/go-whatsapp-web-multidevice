@@ -9,3 +9,5 @@ main.exe
 src/pkged.go
 storages
 .env
+bin
+dist

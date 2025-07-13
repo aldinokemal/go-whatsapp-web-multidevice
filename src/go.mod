@@ -2,6 +2,8 @@ module github.com/aldinokemal/go-whatsapp-web-multidevice
 
 go 1.24.0
 
+replace go.mau.fi/whatsmeow => github.com/aldinokemal/whatsmeow v0.0.0-20250708124515-f4ddac1a8e75
+
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/disintegration/imaging v1.6.2
@@ -12,23 +14,23 @@ require (
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.32.0
+	github.com/mark3labs/mcp-go v0.33.0
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
-	github.com/valyala/fasthttp v1.62.0
+	github.com/valyala/fasthttp v1.63.0
 	go.mau.fi/libsignal v0.2.0
-	go.mau.fi/whatsmeow v0.0.0-20250617170509-947866bb9f75
+	go.mau.fi/whatsmeow v0.0.0-20250708101704-8534cb4f629f
 	golang.org/x/image v0.28.0
 	google.golang.org/protobuf v1.36.6
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

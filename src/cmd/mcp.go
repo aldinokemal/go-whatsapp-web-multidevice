@@ -2,7 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"log"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
@@ -52,11 +53,11 @@ func mcpServer(_ *cobra.Command, _ []string) {
 
 	// Start the SSE server
 	addr := fmt.Sprintf("%s:%s", config.McpHost, config.McpPort)
-	log.Printf("Starting WhatsApp MCP SSE server on %s", addr)
-	log.Printf("SSE endpoint: http://%s:%s/sse", config.McpHost, config.McpPort)
-	log.Printf("Message endpoint: http://%s:%s/message", config.McpHost, config.McpPort)
+	logrus.Printf("Starting WhatsApp MCP SSE server on %s", addr)
+	logrus.Printf("SSE endpoint: http://%s:%s/sse", config.McpHost, config.McpPort)
+	logrus.Printf("Message endpoint: http://%s:%s/message", config.McpHost, config.McpPort)
 
 	if err := sseServer.Start(addr); err != nil {
-		log.Fatalf("Failed to start SSE server: %v", err)
+		logrus.Fatalf("Failed to start SSE server: %v", err)
 	}
 }

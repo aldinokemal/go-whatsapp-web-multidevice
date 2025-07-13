@@ -9,46 +9,6 @@
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
     <link rel="stylesheet" href="assets/app.css">
-    <style>
-        #splash-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #00A884 0%, #008069 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            transition: opacity 0.5s ease-in-out;
-            color: white;
-        }
-        #splash-screen.fade-out {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .splash-icon {
-            font-size: 5em;
-            color: white;
-            margin-bottom: 20px;
-            animation: bounce 2s infinite;
-        }
-        .splash-spinner {
-            margin-top: 20px;
-        }
-        .splash-title {
-            font-size: 2em;
-            font-weight: bold;
-            margin: 10px 0;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-        }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
-        }
-    </style>
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
@@ -60,7 +20,9 @@
 </head>
 <body>
 <div id="splash-screen">
-    <i class="whatsapp icon splash-icon"></i>
+    <!-- Clean squircle logo without background wrapper -->
+    <img src="assets/gowa.svg" alt="GoWA Logo" class="splash-icon" id="main-logo">
+    
     <h2 class="splash-title">WhatsApp API</h2>
     <div class="ui active large inline loader splash-spinner"></div>
 </div>
@@ -69,9 +31,10 @@
     <div class="main-header">
         <h1 class="ui header center aligned">
             <div class="title-container">
-                <i class="whatsapp icon"></i>
-                WhatsApp API
-
+                <img src="assets/gowa.svg" alt="GoWA Logo">
+                
+                <span>WhatsApp API</span>
+                
                 <div class="version-label">
                     {{ .AppVersion }}
                 </div>
@@ -117,6 +80,7 @@
         <send-poll></send-poll>
         <send-presence></send-presence>
         
+        <send-chat-presence></send-chat-presence>
         <send-link></send-link>
     </div>
 
@@ -129,6 +93,7 @@
         <message-revoke></message-revoke>
         <message-react></message-react>
         <message-update></message-update>
+        <message-read></message-read>
     </div>
 
     <div class="ui horizontal divider">
@@ -140,6 +105,11 @@
         <group-create></group-create>
         <group-join-with-link></group-join-with-link>
         <group-add-participants></group-add-participants>
+        <group-set-photo></group-set-photo>
+        <group-set-name></group-set-name>
+        <group-set-locked></group-set-locked>
+        <group-set-announce></group-set-announce>
+        <group-set-topic></group-set-topic>
     </div>
 
     <div class="ui horizontal divider">
@@ -159,6 +129,7 @@
         <account-change-avatar></account-change-avatar>
         <account-change-push-name></account-change-push-name>
         <account-user-info></account-user-info>
+        <account-business-profile></account-business-profile>
         <account-privacy></account-privacy>
         <account-contact></account-contact>
         <account-user-check></account-user-check>
@@ -189,6 +160,7 @@
         });
     }
 
+
     window.http = axios.create({
         baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
     });
@@ -211,14 +183,21 @@
     import SendAudio from "./components/SendAudio.js";
     import SendPoll from "./components/SendPoll.js";
     import SendPresence from "./components/SendPresence.js";
+    import SendChatPresence from "./components/SendChatPresence.js";
     import MessageDelete from "./components/MessageDelete.js";
     import MessageUpdate from "./components/MessageUpdate.js";
     import MessageReact from "./components/MessageReact.js";
     import MessageRevoke from "./components/MessageRevoke.js";
+    import MessageRead from "./components/MessageRead.js";
     import GroupList from "./components/GroupList.js";
     import GroupCreate from "./components/GroupCreate.js";
     import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
     import GroupAddParticipants from "./components/GroupManageParticipants.js";
+    import GroupSetPhoto from "./components/GroupSetPhoto.js";
+    import GroupSetName from "./components/GroupSetName.js";
+    import GroupSetLocked from "./components/GroupSetLocked.js";
+    import GroupSetAnnounce from "./components/GroupSetAnnounce.js";
+    import GroupSetTopic from "./components/GroupSetTopic.js";
     import NewsletterList from "./components/NewsletterList.js";
     import AccountAvatar from "./components/AccountAvatar.js";
     import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
@@ -227,6 +206,7 @@
     import AccountPrivacy from "./components/AccountPrivacy.js";
     import AccountContact from "./components/AccountContact.js";
     import AccountUserCheck from "./components/AccountUserCheck.js";
+    import AccountBusinessProfile from "./components/AccountBusinessProfile.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -261,11 +241,11 @@
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
-            SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence,
-            MessageDelete, MessageUpdate, MessageReact, MessageRevoke,
-            GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants,
+            SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
+            MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
+            GroupList, GroupCreate, GroupJoinWithLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic,
             NewsletterList,
-            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck
+            AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile
         },
         delimiters: ['[[', ']]'],
         data() {
@@ -321,6 +301,19 @@
                             break;
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
+                            break;
+                        case 'REMOTE_LOGOUT':
+                            // Handle remote logout from phone
+                            showErrorInfo('⚠️ ' + message.message)
+                            this.connected_devices = null
+                            console.log('[REMOTE_LOGOUT] User logged out from phone:', message)
+                            break;
+                        case 'LOGOUT_COMPLETE':
+                            // Handle successful cleanup after remote logout
+                            showSuccessInfo('✅ ' + message.message)
+                            console.log('[LOGOUT_COMPLETE] Remote logout cleanup completed:', message)
+                            // Optionally refresh the device list
+                            this.handleReloadDevice()
                             break;
                         default:
                             console.log(message)

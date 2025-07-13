@@ -81,3 +81,29 @@ type CheckRequest struct {
 type CheckResponse struct {
 	IsOnWhatsApp bool `json:"is_on_whatsapp"`
 }
+
+type BusinessProfileRequest struct {
+	Phone string `json:"phone" query:"phone"`
+}
+
+type BusinessProfileCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type BusinessProfileHoursConfig struct {
+	DayOfWeek string `json:"day_of_week"`
+	Mode      string `json:"mode"`
+	OpenTime  string `json:"open_time"`
+	CloseTime string `json:"close_time"`
+}
+
+type BusinessProfileResponse struct {
+	JID                   string                       `json:"jid"`
+	Email                 string                       `json:"email"`
+	Address               string                       `json:"address"`
+	Categories            []BusinessProfileCategory    `json:"categories"`
+	ProfileOptions        map[string]string            `json:"profile_options"`
+	BusinessHoursTimeZone string                       `json:"business_hours_timezone"`
+	BusinessHours         []BusinessProfileHoursConfig `json:"business_hours"`
+}

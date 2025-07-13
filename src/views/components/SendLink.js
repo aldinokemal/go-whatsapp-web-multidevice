@@ -13,7 +13,8 @@ export default {
             caption: '',
             reply_message_id: '',
             loading: false,
-            is_forwarded: false
+            is_forwarded: false,
+            duration: 0
         }
     },
     computed: {
@@ -64,7 +65,8 @@ export default {
                     phone: this.phone_id,
                     link: this.link.trim(),
                     caption: this.caption.trim(),
-                    is_forwarded: this.is_forwarded
+                    is_forwarded: this.is_forwarded,
+                    ...(this.duration && this.duration > 0 ? {duration: this.duration} : {})
                 };
                 if (this.reply_message_id !== '') {
                     payload.reply_message_id = this.reply_message_id;
@@ -88,6 +90,7 @@ export default {
             this.caption = '';
             this.reply_message_id = '';
             this.is_forwarded = false;
+            this.duration = 0;
         },
     },
     template: `
@@ -132,6 +135,10 @@ export default {
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark link as forwarded</label>
                     </div>
+                </div>
+                <div class="field">
+                    <label>Disappearing Duration (seconds)</label>
+                    <input v-model.number="duration" type="number" min="0" placeholder="0 (no expiry)" aria-label="duration"/>
                 </div>
             </form>
         </div>

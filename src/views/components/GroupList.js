@@ -80,9 +80,17 @@ export default {
             if (!value) return ''
             return moment(value).format('LLL');
         },
-        isAdmin(ownerJID) {
-            const owner = ownerJID.split('@')[0];
-            return owner === this.currentUserId;
+        isAdmin(group) {
+            // Check if current user is the owner
+            const owner = group.OwnerJID.split('@')[0];
+            if (owner === this.currentUserId) {
+                return true;
+            }
+            
+            // Check if current user is an admin in participants
+            const currentUserJID = `${this.currentUserId}@s.whatsapp.net`;
+            const participant = group.Participants.find(p => p.PhoneNumber === currentUserJID);
+            return participant && participant.IsAdmin;
         },
         async handleSeeRequestedMember(group_id) {
             this.selectedGroupId = group_id;
@@ -180,7 +188,7 @@ export default {
                     <td>{{ formatDate(g.GroupCreated) }}</td>
                     <td>
                         <div style="display: flex; gap: 8px; align-items: center;">
-                            <button v-if="isAdmin(g.OwnerJID)" class="ui green tiny button" @click="handleSeeRequestedMember(g.JID)">Requested Members</button>
+                            <button v-if="isAdmin(g)" class="ui green tiny button" @click="handleSeeRequestedMember(g.JID)">Requested Members</button>
                             <button class="ui red tiny button" @click="handleLeaveGroup(g.JID)">Leave</button>
                         </div>
                     </td>

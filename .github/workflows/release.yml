@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build-linux-windows:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install cross-compilation toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            gcc-mingw-w64 \
+            libc6-dev-i386-cross \
+            gcc-i686-linux-gnu
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          install-only: true
+
+      - name: Create Linux/Windows GoReleaser config
+        run: |
+          cat > /tmp/.goreleaser-linux-windows.yml << 'EOF'
+          project_name: whatsapp
+          
+          builds:
+            - id: linux-amd64
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=gcc
+              goos:
+                - linux
+              goarch:
+                - amd64
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+              
+            - id: linux-arm64
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=aarch64-linux-gnu-gcc
+              goos:
+                - linux
+              goarch:
+                - arm64
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+              
+            - id: linux-386
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=i686-linux-gnu-gcc
+              goos:
+                - linux
+              goarch:
+                - "386"
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+              
+            - id: windows-amd64
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=x86_64-w64-mingw32-gcc
+              goos:
+                - windows
+              goarch:
+                - amd64
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+              
+            - id: windows-386
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=i686-w64-mingw32-gcc
+              goos:
+                - windows
+              goarch:
+                - "386"
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+          
+          archives:
+            - id: binaries
+              builds:
+                - linux-amd64
+                - linux-arm64
+                - linux-386
+                - windows-amd64
+                - windows-386
+              format: zip
+              name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+          
+          checksum:
+            name_template: "checksums.txt"
+          
+          release:
+            draft: false
+            github:
+              owner: "aldinokemal"
+              name: "go-whatsapp-web-multidevice"
+          EOF
+
+      - name: Run GoReleaser for Linux/Windows
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: goreleaser release --config /tmp/.goreleaser-linux-windows.yml --clean --timeout 60m --skip-validate
+
+  build-macos:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          install-only: true
+
+      - name: Create macOS GoReleaser config
+        run: |
+          cat > /tmp/.goreleaser-macos.yml << 'EOF'
+          project_name: whatsapp
+          
+          builds:
+            - id: darwin-amd64
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+              goos:
+                - darwin
+              goarch:
+                - amd64
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+              
+            - id: darwin-arm64
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+              goos:
+                - darwin
+              goarch:
+                - arm64
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}"
+          
+          archives:
+            - id: binaries
+              builds:
+                - darwin-amd64
+                - darwin-arm64
+              format: zip
+              name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+          
+          checksum:
+            name_template: "checksums-macos.txt"
+          
+          release:
+            draft: false
+            github:
+              owner: "aldinokemal"
+              name: "go-whatsapp-web-multidevice"
+          EOF
+
+      - name: Run GoReleaser for macOS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: goreleaser release --config /tmp/.goreleaser-macos.yml --timeout 60m --skip-validate

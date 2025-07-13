@@ -1,16 +1,5 @@
 package message
 
-import "context"
-
-type IMessageUsecase interface {
-	MarkAsRead(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
-	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
-	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)
-	UpdateMessage(ctx context.Context, request UpdateMessageRequest) (response GenericResponse, err error)
-	DeleteMessage(ctx context.Context, request DeleteRequest) (err error)
-	StarMessage(ctx context.Context, request StarRequest) (err error)
-}
-
 type GenericResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
