@@ -214,7 +214,10 @@ func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo domainC
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
 	newDB := InitWaDB(ctx, config.DBURI)
-	keysDB := InitWaDB(ctx, config.DBKeysURI)
+	var keysDB *sqlstore.Container
+	if config.DBKeysURI != "" {
+		keysDB = InitWaDB(ctx, config.DBKeysURI)
+	}
 	newCli := InitWaCLI(ctx, newDB, keysDB, chatStorageRepo)
 
 	// Update global references
