@@ -39,6 +39,7 @@ type ExtractedMedia struct {
 var (
 	cli           *whatsmeow.Client
 	db            *sqlstore.Container // Add global database reference for cleanup
+	keysDB        *sqlstore.Container
 	log           waLog.Logger
 	historySyncID int32
 	startupTime   = time.Now().Unix()
@@ -69,6 +70,35 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", DBURI)
 }
 
+func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container) {
+	if keysDB == nil {
+		return
+	}
+
+	dev, err := db.GetFirstDevice(ctx)
+	if err != nil {
+		log.Errorf("Failed to get all devices: %v", err)
+	} else {
+		found := false
+		if devs, err := keysDB.GetAllDevices(ctx); err != nil {
+			log.Errorf("Failed to get all devices: %v", err)
+		} else {
+			for _, d := range devs {
+				if d.ID == dev.ID {
+					found = true
+					break
+				} else {
+					keysDB.DeleteDevice(ctx, d)
+				}
+			}
+
+			if !found {
+				keysDB.PutDevice(ctx, dev)
+			}
+		}
+	}
+}
+
 // InitWaCLI initializes the WhatsApp client
 func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice(ctx)
@@ -87,9 +117,15 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 
+	// Set global database reference for remote logout cleanup
+	db = storeContainer
+	keysDB = keysStoreContainer
+
 	// Configure a separated database for accelerating encryption caching
-	if keysStoreContainer != nil && device.ID != nil {
+	if keysDB != nil && device.ID != nil {
 		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+
+		syncKeysDevice(ctx, db, keysDB)
 		device.Identities = innerStore
 		device.Sessions = innerStore
 		device.PreKeys = innerStore
@@ -102,9 +138,6 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
-
-	// Set global database reference for remote logout cleanup
-	db = storeContainer
 
 	cli.AddEventHandler(func(rawEvt interface{}) {
 		handler(ctx, rawEvt, chatStorageRepo)
@@ -214,7 +247,6 @@ func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo domainC
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
 	newDB := InitWaDB(ctx, config.DBURI)
-	var keysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
 		keysDB = InitWaDB(ctx, config.DBKeysURI)
 	}
@@ -382,11 +414,12 @@ func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncCompl
 	}
 }
 
-func handlePairSuccess(_ context.Context, evt *events.PairSuccess) {
+func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "LOGIN_SUCCESS",
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
+	syncKeysDevice(ctx, db, keysDB)
 }
 
 func handleLoggedOut(ctx context.Context, chatStorageRepo domainChatStorage.IChatStorageRepository) {

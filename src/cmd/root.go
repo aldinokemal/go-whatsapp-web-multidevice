@@ -37,8 +37,6 @@ var (
 
 	// Whatsapp
 	whatsappCli *whatsmeow.Client
-	whatsappDB  *sqlstore.Container
-	keysDB      *sqlstore.Container
 
 	// Chat Storage
 	chatStorageDB   *sql.DB
@@ -243,7 +241,8 @@ func initApp() {
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
 	chatStorageRepo.InitializeSchema()
 
-	whatsappDB = whatsapp.InitWaDB(ctx, config.DBURI)
+	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
+	var keysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
