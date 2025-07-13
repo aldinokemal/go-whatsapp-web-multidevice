@@ -1,0 +1,77 @@
+name: Claude Code Review - Manual Fork PR Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+      review_focus:
+        description: 'Specific areas to focus on (optional)'
+        required: false
+        type: string
+
+jobs:
+  claude-review-manual:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: ${{ inputs.pr_number }}
+            });
+            
+            // Checkout the PR branch
+            await exec.exec('git', ['fetch', 'origin', `pull/${{ inputs.pr_number }}/head:pr-${{ inputs.pr_number }}`]);
+            await exec.exec('git', ['checkout', `pr-${{ inputs.pr_number }}`]);
+            
+            return pr.html_url;
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          direct_prompt: |
+            Please review PR #${{ inputs.pr_number }} with focus on:
+            ${{ inputs.review_focus || 'General code review covering Go best practices, security, and maintainability' }}
+            
+            **For Go code (.go files):**
+            - Go idioms and best practices
+            - Error handling patterns
+            - Interface design and implementation
+            - Memory management and potential leaks
+            - Concurrency safety (goroutines, channels, mutexes)
+            - Code organization and package structure
+            - Performance considerations
+            - Security vulnerabilities
+            - Test coverage and quality
+            
+            **For Frontend code (HTML/CSS/JS files):**
+            - JavaScript/Vue.js best practices and patterns
+            - HTML semantics and accessibility
+            - CSS performance and maintainability
+            - Cross-browser compatibility
+            - Frontend security (XSS, CSRF prevention)
+            - UI/UX considerations
+            
+            Please provide constructive feedback and post it as a comment on PR #${{ inputs.pr_number }}. 
