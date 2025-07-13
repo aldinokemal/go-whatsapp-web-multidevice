@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"strings"
 	"time"
@@ -23,12 +22,14 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -38,7 +39,6 @@ var (
 	// Whatsapp
 	whatsappCli *whatsmeow.Client
 	whatsappDB  *sqlstore.Container
-	keysDB      *sqlstore.Container
 
 	// Chat Storage
 	chatStorageDB   *sql.DB
@@ -98,9 +98,6 @@ func initEnvConfig() {
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
 		config.DBURI = envDBURI
 	}
-	if envDBKEYSURI := viper.GetString("db_keys_uri"); envDBKEYSURI != "" {
-		config.DBKeysURI = envDBKEYSURI
-	}
 
 	// WhatsApp settings
 	if envAutoReply := viper.GetString("whatsapp_auto_reply"); envAutoReply != "" {
@@ -155,12 +152,6 @@ func initFlags() {
 		"db-uri", "",
 		config.DBURI,
 		`the database uri to store the connection data database uri (by default, we'll use sqlite3 under storages/whatsapp.db). database uri --db-uri <string> | example: --db-uri="file:storages/whatsapp.db?_foreign_keys=on or postgres://user:password@localhost:5432/whatsapp"`,
-	)
-	rootCmd.PersistentFlags().StringVarP(
-		&config.DBKeysURI,
-		"db-keys-uri", "",
-		config.DBKeysURI,
-		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared"`,
 	)
 
 	// WhatsApp flags
@@ -236,19 +227,14 @@ func initApp() {
 
 	chatStorageDB, err = initChatStorage()
 	if err != nil {
-		// Terminate the application if chat storage fails to initialize to avoid nil pointer panics later.
 		logrus.Fatalf("failed to initialize chat storage: %v", err)
 	}
 
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
 	chatStorageRepo.InitializeSchema()
 
-	whatsappDB = whatsapp.InitWaDB(ctx, config.DBURI)
-	if config.DBKeysURI != "" {
-		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
-	}
-
-	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	whatsappDB = whatsapp.InitWaDB(ctx)
+	whatsapp.InitWaCLI(ctx, whatsappDB, chatStorageRepo)
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo)

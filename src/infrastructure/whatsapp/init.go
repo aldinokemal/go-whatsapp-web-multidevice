@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -45,32 +45,35 @@ var (
 )
 
 // InitWaDB initializes the WhatsApp database connection
-func InitWaDB(ctx context.Context, DBURI string) *sqlstore.Container {
+func InitWaDB(ctx context.Context) *sqlstore.Container {
 	log = waLog.Stdout("Main", config.WhatsappLogLevel, true)
 	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
 
-	storeContainer, err := initDatabase(ctx, dbLog, DBURI)
+	storeContainer, err := initDatabase(ctx, dbLog)
 	if err != nil {
 		log.Errorf("Database initialization error: %v", err)
 		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
 	}
 
+	// Set global database reference for remote logout cleanup
+	db = storeContainer
+
 	return storeContainer
 }
 
 // initDatabase creates and returns a database store container based on the configured URI
-func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlstore.Container, error) {
-	if strings.HasPrefix(DBURI, "file:") {
-		return sqlstore.New(ctx, "sqlite3", DBURI, dbLog)
-	} else if strings.HasPrefix(DBURI, "postgres:") {
-		return sqlstore.New(ctx, "postgres", DBURI, dbLog)
+func initDatabase(ctx context.Context, dbLog waLog.Logger) (*sqlstore.Container, error) {
+	if strings.HasPrefix(config.DBURI, "file:") {
+		return sqlstore.New(ctx, "sqlite3", config.DBURI, dbLog)
+	} else if strings.HasPrefix(config.DBURI, "postgres:") {
+		return sqlstore.New(ctx, "postgres", config.DBURI, dbLog)
 	}
 
-	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", DBURI)
+	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", config.DBURI)
 }
 
 // InitWaCLI initializes the WhatsApp client
-func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *whatsmeow.Client {
+func InitWaCLI(ctx context.Context, storeContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *whatsmeow.Client {
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
@@ -87,26 +90,11 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 
-	// Configure a separated database for accelerating encryption caching
-	if keysStoreContainer != nil && device.ID != nil {
-		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
-		device.Identities = innerStore
-		device.Sessions = innerStore
-		device.PreKeys = innerStore
-		device.SenderKeys = innerStore
-		device.MsgSecrets = innerStore
-		device.PrivacyTokens = innerStore
-	}
-
 	// Create and configure the client
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
 	cli.EnableAutoReconnect = true
 	cli.AutoTrustIdentity = true
-
-	// Set global database reference for remote logout cleanup
-	db = storeContainer
-
-	cli.AddEventHandler(func(rawEvt interface{}) {
+	cli.AddEventHandler(func(rawEvt any) {
 		handler(ctx, rawEvt, chatStorageRepo)
 	})
 
@@ -213,12 +201,8 @@ func CleanupTemporaryFiles() error {
 func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo domainChatStorage.IChatStorageRepository) (*sqlstore.Container, *whatsmeow.Client, error) {
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
-	newDB := InitWaDB(ctx, config.DBURI)
-	var keysDB *sqlstore.Container
-	if config.DBKeysURI != "" {
-		keysDB = InitWaDB(ctx, config.DBKeysURI)
-	}
-	newCli := InitWaCLI(ctx, newDB, keysDB, chatStorageRepo)
+	newDB := InitWaDB(ctx)
+	newCli := InitWaCLI(ctx, newDB, chatStorageRepo)
 
 	// Update global references
 	db = newDB
