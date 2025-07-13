@@ -64,11 +64,14 @@ Download:
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
+  - for more detail, see [Webhook Payload Documentation](./docs/webhook-payload.md)
 - Webhook Secret
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
 
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
+- **Webhook Payload Documentation**
+  For detailed webhook payload schemas, security implementation, and integration examples, see [Webhook Payload Documentation](./docs/webhook-payload.md)
 
 ## Configuration
 

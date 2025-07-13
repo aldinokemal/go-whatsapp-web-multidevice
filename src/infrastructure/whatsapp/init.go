@@ -443,7 +443,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	handleAutoMarkRead(ctx, evt)
 
 	// Handle auto-reply if configured
-	handleAutoReply(evt)
+	handleAutoReply(ctx, evt, chatStorageRepo)
 
 	// Forward to webhook if configured
 	handleWebhookForward(ctx, evt)
@@ -495,16 +495,56 @@ func handleAutoMarkRead(_ context.Context, evt *events.Message) {
 	}
 }
 
-func handleAutoReply(evt *events.Message) {
+func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	if config.WhatsappAutoReplyMessage != "" &&
 		!utils.IsGroupJID(evt.Info.Chat.String()) &&
 		!evt.Info.IsIncomingBroadcast() &&
-		evt.Message.GetExtendedTextMessage().GetText() != "" {
-		_, _ = cli.SendMessage(
-			context.Background(),
-			utils.FormatJID(evt.Info.Sender.String()),
+		!evt.Info.IsFromMe {
+
+		// Check if the incoming message has text content using the utility function
+		messageText := utils.ExtractMessageTextFromEvent(evt)
+		if messageText == "" {
+			return // Don't auto-reply to non-text messages
+		}
+
+		// Format recipient JID
+		recipientJID := utils.FormatJID(evt.Info.Sender.String())
+
+		// Send the auto-reply message
+		response, err := cli.SendMessage(
+			ctx,
+			recipientJID,
 			&waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)},
 		)
+
+		if err != nil {
+			log.Errorf("Failed to send auto-reply message: %v", err)
+			return
+		}
+
+		// Store the auto-reply message in chat storage if send was successful
+		if chatStorageRepo != nil {
+			// Get our own JID as sender
+			senderJID := ""
+			if cli.Store.ID != nil {
+				senderJID = cli.Store.ID.String()
+			}
+
+			// Store the sent auto-reply message
+			if err := chatStorageRepo.StoreSentMessageWithContext(
+				ctx,
+				response.ID,                     // Message ID from WhatsApp response
+				senderJID,                       // Our JID as sender
+				recipientJID.String(),           // Recipient JID
+				config.WhatsappAutoReplyMessage, // Auto-reply content
+				response.Timestamp,              // Timestamp from response
+			); err != nil {
+				// Log storage error but don't fail the auto-reply
+				log.Errorf("Failed to store auto-reply message in chat storage: %v", err)
+			} else {
+				log.Debugf("Auto-reply message %s stored successfully in chat storage", response.ID)
+			}
+		}
 	}
 }
 
