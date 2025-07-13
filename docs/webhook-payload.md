@@ -61,7 +61,7 @@ All webhook payloads share these common fields:
 |-------|------|-------------|
 | `sender_id` | string | User part of sender JID (phone number without @s.whatsapp.net) |
 | `chat_id` | string | User part of chat JID |
-| `from` | string | Human-readable source string (e.g., "John Doe" or "John Doe in My Group") |
+| `from` | string | JID of the sender |
 | `timestamp` | string | RFC3339 formatted timestamp |
 | `pushname` | string | Display name of the sender |
 
@@ -419,7 +419,6 @@ All webhook payloads share these common fields:
     "forwarded": true
 }
 ```
-
 
 ## Integration Guide
 
