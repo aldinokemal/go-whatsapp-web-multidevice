@@ -28,7 +28,7 @@ func Env[T any](key string, defValue ...T) T {
 func MustHaveEnv(key string) string {
 	env := viper.GetString(key)
 	if env == "" {
-		logrus.Warn(context.Background(), map[string]interface{}{
+		logrus.Warn(context.Background(), map[string]any{
 			"field": key,
 		}, "variable is not well set, reading from .env file")
 		viper.SetConfigFile(".env")

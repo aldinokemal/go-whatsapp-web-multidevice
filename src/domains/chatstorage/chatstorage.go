@@ -1,8 +1,6 @@
 package chatstorage
 
-import (
-	"time"
-)
+import "time"
 
 // Chat represents a WhatsApp chat/conversation
 type Chat struct {

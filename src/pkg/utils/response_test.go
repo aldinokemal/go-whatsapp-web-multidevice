@@ -19,7 +19,7 @@ func (suite *ResponseTestSuite) TestResponseDataStruct() {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Operation completed successfully",
-		Results: map[string]interface{}{
+		Results: map[string]any{
 			"data":  "test data",
 			"count": 10,
 		},
@@ -44,7 +44,7 @@ func (suite *ResponseTestSuite) TestResponseDataJSON() {
 	assert.NoError(suite.T(), err)
 
 	// Status field should be omitted from JSON (json:"-" tag)
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(jsonData, &result)
 	assert.NoError(suite.T(), err)
 
@@ -70,7 +70,7 @@ func (suite *ResponseTestSuite) TestResponseDataWithNilResults() {
 	jsonData, err := json.Marshal(responseData)
 	assert.NoError(suite.T(), err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(jsonData, &result)
 	assert.NoError(suite.T(), err)
 
@@ -94,7 +94,7 @@ func (suite *ResponseTestSuite) TestResponseDataWithEmptyResults() {
 	jsonData, err := json.Marshal(responseData)
 	assert.NoError(suite.T(), err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(jsonData, &result)
 	assert.NoError(suite.T(), err)
 
@@ -124,7 +124,7 @@ func (suite *ResponseTestSuite) TestResponseDataJSONUnmarshaling() {
 	assert.NotNil(suite.T(), responseData.Results)
 
 	// Check the Results content
-	results, ok := responseData.Results.(map[string]interface{})
+	results, ok := responseData.Results.(map[string]any)
 	assert.True(suite.T(), ok)
 	assert.Equal(suite.T(), "detailed error message", results["error_details"])
 }

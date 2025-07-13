@@ -13,7 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -38,12 +38,12 @@ func forwardToWebhook(ctx context.Context, evt *events.Message) error {
 	return nil
 }
 
-func createPayload(ctx context.Context, evt *events.Message) (map[string]interface{}, error) {
+func createPayload(ctx context.Context, evt *events.Message) (map[string]any, error) {
 	message := utils.BuildEventMessage(evt)
 	waReaction := utils.BuildEventReaction(evt)
 	forwarded := utils.BuildForwarded(evt)
 
-	body := make(map[string]interface{})
+	body := make(map[string]any)
 
 	body["sender_id"] = evt.Info.Sender.User
 	body["chat_id"] = evt.Info.Chat.User
@@ -209,7 +209,7 @@ func createPayload(ctx context.Context, evt *events.Message) (map[string]interfa
 	return body, nil
 }
 
-func submitWebhook(payload map[string]interface{}, url string) error {
+func submitWebhook(payload map[string]any, url string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	postBody, err := json.Marshal(payload)
@@ -249,7 +249,7 @@ func submitWebhook(payload map[string]interface{}, url string) error {
 }
 
 // forwardDeleteToWebhook sends a delete event to webhook
-func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *chatstorage.Message) error {
+func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) error {
 	logrus.Info("Forwarding delete event to webhook:", config.WhatsappWebhook)
 	payload, err := createDeletePayload(ctx, evt, message)
 	if err != nil {
@@ -267,18 +267,18 @@ func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, messag
 }
 
 // createDeletePayload creates a webhook payload for delete events
-func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *chatstorage.Message) (map[string]interface{}, error) {
-	body := make(map[string]interface{})
+func createDeletePayload(_ context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) (map[string]any, error) {
+	body := make(map[string]any)
 
 	// Basic delete event information
 	body["action"] = "message_deleted_for_me"
 	body["deleted_message_id"] = evt.MessageID
 	body["sender_id"] = evt.SenderJID.User
-	body["chat_id"] = message.ChatJID
 	body["timestamp"] = time.Now().Format(time.RFC3339)
 
 	// Include original message information if available
 	if message != nil {
+		body["chat_id"] = message.ChatJID
 		body["original_content"] = message.Content
 		body["original_sender"] = message.Sender
 		body["original_timestamp"] = message.Timestamp.Format(time.RFC3339)

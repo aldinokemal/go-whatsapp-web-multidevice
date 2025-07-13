@@ -100,5 +100,5 @@ type GroupInfoRequest struct {
 }
 
 type GroupInfoResponse struct {
-	Data interface{} `json:"data"`
+	Data any `json:"data"`
 }

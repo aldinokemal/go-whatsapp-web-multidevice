@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
@@ -20,10 +20,10 @@ import (
 )
 
 type serviceMessage struct {
-	chatStorageRepo *chatstorage.Storage
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewMessageService(chatStorageRepo *chatstorage.Storage) domainMessage.IMessageUsecase {
+func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
 	return &serviceMessage{
 		chatStorageRepo: chatStorageRepo,
 	}
@@ -43,7 +43,7 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 		return response, err
 	}
 
-	logrus.Info(map[string]interface{}{
+	logrus.Info(map[string]any{
 		"phone":      request.Phone,
 		"message_id": request.MessageID,
 		"chat":       dataWaRecipient.String(),

@@ -15,11 +15,10 @@ var (
 	McpPort = "8080"
 	McpHost = "localhost"
 
-	PathQrCode      = "statics/qrcode"
-	PathSendItems   = "statics/senditems"
-	PathMedia       = "statics/media"
-	PathStorages    = "storages"
-	PathChatStorage = "storages/chat.csv"
+	PathQrCode    = "statics/qrcode"
+	PathSendItems = "statics/senditems"
+	PathMedia     = "statics/media"
+	PathStorages  = "storages"
 
 	DBURI = "file:storages/whatsapp.db?_foreign_keys=on"
 
@@ -35,4 +34,8 @@ var (
 	WhatsappTypeUser                     = "@s.whatsapp.net"
 	WhatsappTypeGroup                    = "@g.us"
 	WhatsappAccountValidation            = true
+
+	ChatStorageURI               = "file:storages/chatstorage.db"
+	ChatStorageEnableForeignKeys = true
+	ChatStorageEnableWAL         = true
 )
