@@ -9,6 +9,8 @@ type IGroupManagement interface {
 	JoinGroupWithLink(ctx context.Context, request JoinGroupWithLinkRequest) (groupID string, err error)
 	LeaveGroup(ctx context.Context, request LeaveGroupRequest) (err error)
 	CreateGroup(ctx context.Context, request CreateGroupRequest) (groupID string, err error)
+	GetGroupInfoFromLink(ctx context.Context, request GetGroupInfoFromLinkRequest) (response GetGroupInfoFromLinkResponse, err error)
+	GroupInfo(ctx context.Context, request GroupInfoRequest) (response GroupInfoResponse, err error)
 }
 
 // IGroupParticipants handles group participant operations

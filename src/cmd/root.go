@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"fmt"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -12,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
@@ -39,7 +41,8 @@ var (
 	keysDB      *sqlstore.Container
 
 	// Chat Storage
-	chatStorageRepo *chatstorage.Storage
+	chatStorageDB   *sql.DB
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
@@ -193,6 +196,30 @@ func initFlags() {
 	)
 }
 
+func initChatStorage() (*sql.DB, error) {
+	connStr := fmt.Sprintf("%s?_journal_mode=WAL", config.ChatStorageURI)
+	if config.ChatStorageEnableForeignKeys {
+		connStr += "&_foreign_keys=on"
+	}
+
+	db, err := sql.Open("sqlite3", connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	return db, nil
+}
+
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
@@ -207,14 +234,16 @@ func initApp() {
 
 	ctx := context.Background()
 
-	chatStorageRepo, err = chatstorage.NewStorage(chatstorage.DefaultConfig())
+	chatStorageDB, err = initChatStorage()
 	if err != nil {
 		// Terminate the application if chat storage fails to initialize to avoid nil pointer panics later.
 		logrus.Fatalf("failed to initialize chat storage: %v", err)
 	}
 
+	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
+	chatStorageRepo.InitializeSchema()
+
 	whatsappDB = whatsapp.InitWaDB(ctx, config.DBURI)
-	var keysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
@@ -222,7 +251,7 @@ func initApp() {
 	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
 
 	// Usecase
-	appUsecase = usecase.NewAppService(whatsappDB, chatStorageRepo)
+	appUsecase = usecase.NewAppService(chatStorageRepo)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService()

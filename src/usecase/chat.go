@@ -6,16 +6,19 @@ import (
 	"time"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/appstate"
 )
 
 type serviceChat struct {
-	chatStorageRepo *chatstorage.Storage
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewChatService(chatStorageRepo *chatstorage.Storage) domainChat.IChatUsecase {
+func NewChatService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainChat.IChatUsecase {
 	return &serviceChat{
 		chatStorageRepo: chatStorageRepo,
 	}
@@ -27,7 +30,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 	}
 
 	// Create filter from request
-	filter := &chatstorage.ChatFilter{
+	filter := &domainChatStorage.ChatFilter{
 		Limit:      request.Limit,
 		Offset:     request.Offset,
 		SearchName: request.Search,
@@ -35,14 +38,14 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 	}
 
 	// Get chats from storage
-	chats, err := service.chatStorageRepo.Repository().GetChats(filter)
+	chats, err := service.chatStorageRepo.GetChats(filter)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get chats from storage")
 		return response, err
 	}
 
 	// Get total count for pagination
-	totalCount, err := service.chatStorageRepo.Repository().GetTotalChatCount()
+	totalCount, err := service.chatStorageRepo.GetTotalChatCount()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get total chat count")
 		// Continue with partial data
@@ -88,7 +91,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Get chat info first
-	chat, err := service.chatStorageRepo.Repository().GetChat(request.ChatJID)
+	chat, err := service.chatStorageRepo.GetChat(request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get chat info")
 		return response, err
@@ -98,7 +101,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Create message filter from request
-	filter := &chatstorage.MessageFilter{
+	filter := &domainChatStorage.MessageFilter{
 		ChatJID:   request.ChatJID,
 		Limit:     request.Limit,
 		Offset:    request.Offset,
@@ -124,17 +127,17 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Get messages from storage
-	var messages []*chatstorage.Message
+	var messages []*domainChatStorage.Message
 	if request.Search != "" {
 		// Use search functionality if search query is provided
-		messages, err = service.chatStorageRepo.Repository().SearchMessages(request.ChatJID, request.Search, request.Limit)
+		messages, err = service.chatStorageRepo.SearchMessages(request.ChatJID, request.Search, request.Limit)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to search messages")
 			return response, err
 		}
 	} else {
 		// Use regular filter
-		messages, err = service.chatStorageRepo.Repository().GetMessages(filter)
+		messages, err = service.chatStorageRepo.GetMessages(filter)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get messages")
 			return response, err
@@ -142,7 +145,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Get total message count for pagination
-	totalCount, err := service.chatStorageRepo.Repository().GetChatMessageCount(request.ChatJID)
+	totalCount, err := service.chatStorageRepo.GetChatMessageCount(request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get message count")
 		// Continue with partial data
@@ -196,6 +199,48 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		"limit":          request.Limit,
 		"offset":         request.Offset,
 	}).Info("Retrieved chat messages successfully")
+
+	return response, nil
+}
+
+func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinChatRequest) (response domainChat.PinChatResponse, err error) {
+	if err = validations.ValidatePinChat(ctx, &request); err != nil {
+		return response, err
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Build pin patch using whatsmeow's BuildPin
+	patchInfo := appstate.BuildPin(targetJID, request.Pinned)
+
+	// Send app state update
+	if err = whatsapp.GetClient().SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"pinned":   request.Pinned,
+		}).Error("Failed to send pin chat app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Pinned = request.Pinned
+
+	if request.Pinned {
+		response.Message = "Chat pinned successfully"
+	} else {
+		response.Message = "Chat unpinned successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"pinned":   request.Pinned,
+	}).Info("Chat pin operation completed successfully")
 
 	return response, nil
 }

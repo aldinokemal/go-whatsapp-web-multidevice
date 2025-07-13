@@ -13,8 +13,8 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -32,10 +32,10 @@ import (
 
 type serviceSend struct {
 	appService      app.IAppUsecase
-	chatStorageRepo *chatstorage.Storage
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewSendService(appService app.IAppUsecase, chatStorageRepo *chatstorage.Storage) domainSend.ISendUsecase {
+func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorage.IChatStorageRepository) domainSend.ISendUsecase {
 	return &serviceSend{
 		appService:      appService,
 		chatStorageRepo: chatStorageRepo,
@@ -109,8 +109,10 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		message, err := service.chatStorageRepo.FindMessageByID(*request.ReplyMessageID)
-		if err == nil && message != nil { // Only set reply context if we found the message
+		message, err := service.chatStorageRepo.GetMessageByID(*request.ReplyMessageID)
+		if err != nil {
+			logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *request.ReplyMessageID, err)
+		} else if message != nil { // Only set reply context if we found the message
 			// Ensure we use a full JID (user@server) for the Participant field
 			// Use the sender JID from storage as-is. Modern storage should already provide
 			// fully-qualified JIDs (e.g., user@s.whatsapp.net or group@g.us). Avoid mutating

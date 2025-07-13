@@ -74,6 +74,32 @@ func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup
 	return groupInfo.JID.String(), nil
 }
 
+func (service serviceGroup) GetGroupInfoFromLink(ctx context.Context, request domainGroup.GetGroupInfoFromLinkRequest) (response domainGroup.GetGroupInfoFromLinkResponse, err error) {
+	if err = validations.ValidateGetGroupInfoFromLink(ctx, request); err != nil {
+		return response, err
+	}
+	utils.MustLogin(whatsapp.GetClient())
+
+	groupInfo, err := whatsapp.GetClient().GetGroupInfoFromLink(request.Link)
+	if err != nil {
+		return response, err
+	}
+
+	response = domainGroup.GetGroupInfoFromLinkResponse{
+		GroupID:          groupInfo.JID.String(),
+		Name:             groupInfo.Name,
+		Topic:            groupInfo.Topic,
+		CreatedAt:        groupInfo.GroupCreated,
+		ParticipantCount: len(groupInfo.Participants),
+		IsLocked:         groupInfo.IsLocked,
+		IsAnnounce:       groupInfo.IsAnnounce,
+		IsEphemeral:      groupInfo.IsEphemeral,
+		Description:      groupInfo.Topic, // Topic serves as description
+	}
+
+	return response, nil
+}
+
 func (service serviceGroup) ManageParticipant(ctx context.Context, request domainGroup.ParticipantRequest) (result []domainGroup.ParticipantStatus, err error) {
 	if err = validations.ValidateParticipant(ctx, request); err != nil {
 		return result, err
@@ -282,4 +308,34 @@ func (service serviceGroup) SetGroupTopic(ctx context.Context, request domainGro
 
 	// SetGroupTopic with auto-generated IDs (previousID and newID will be handled automatically)
 	return whatsapp.GetClient().SetGroupTopic(groupJID, "", "", request.Topic)
+}
+
+// GroupInfo retrieves detailed information about a WhatsApp group
+func (service serviceGroup) GroupInfo(ctx context.Context, request domainGroup.GroupInfoRequest) (response domainGroup.GroupInfoResponse, err error) {
+	// Validate the incoming request
+	if err = validations.ValidateGroupInfo(ctx, request); err != nil {
+		return response, err
+	}
+
+	// Ensure we are logged in
+	utils.MustLogin(whatsapp.GetClient())
+
+	// Validate and parse the provided group JID / ID
+	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	if err != nil {
+		return response, err
+	}
+
+	// Fetch group information from WhatsApp
+	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Map the response
+	if groupInfo != nil {
+		response.Data = *groupInfo
+	}
+
+	return response, nil
 }

@@ -328,6 +328,8 @@ You can fork or edit this source code !
 | ✅       | Star Message                           | POST   | /message/:message_id/star           |
 | ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
 | ✅       | Join Group With Link                   | POST   | /group/join-with-link               |
+| ✅       | Group Info From Link                   | GET    | /group/info-from-link               |
+| ✅       | Group Info                             | GET    | /group/info                         |
 | ✅       | Leave Group                            | POST   | /group/leave                        |
 | ✅       | Create Group                           | POST   | /group                              |
 | ✅       | Add Participants in Group              | POST   | /group/participants                 |
@@ -343,6 +345,10 @@ You can fork or edit this source code !
 | ✅       | Set Group Announce                     | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
+| ✅       | Get Chat List                          | GET    | /chats                              |
+| ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
+| ✅       | Label Chat                             | POST   | /chat/:chat_jid/label               |
+| ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 
 ```txt
 ✅ = Available
@@ -378,6 +384,7 @@ You can fork or edit this source code !
 | Send Presence        | ![Send Presence](./gallery/send-presence.png)                 |
 | Send Link            | ![Send Link](./gallery/send-link.png)                         |
 | My Group             | ![My Group](./gallery/group-list.png)                         |
+| Group Info From Link | ![Group Info From Link](./gallery/group-info-from-link.png)   |
 | Create Group         | ![Create Group](./gallery/group-create.png)                   |
 | Join Group with LInk | ![Join Group with Link](./gallery/group-join-link.png)        |
 | Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |

@@ -242,7 +242,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 
 // ExtractEphemeralExpiration extracts ephemeral expiration from a WhatsApp message
 func ExtractEphemeralExpiration(msg *waE2E.Message) uint32 {
-	logrus.Info("ExtractEphemeralExpiration: Starting extraction process")
+	logrus.Debug("ExtractEphemeralExpiration: Starting extraction process")
 
 	if msg == nil {
 		logrus.Debug("ExtractEphemeralExpiration: Message is nil, returning 0")
@@ -467,9 +467,9 @@ func FormatJID(jid string) types.JID {
 
 // ExtractedMedia represents extracted media information
 type ExtractedMedia struct {
-	MediaPath string
-	MimeType  string
-	Caption   string
+	MediaPath string `json:"media_path"`
+	MimeType  string `json:"mime_type"`
+	Caption   string `json:"caption"`
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
@@ -579,15 +579,15 @@ func MustLogin(client *whatsmeow.Client) {
 
 // Internal message types for event handling
 type EvtMessage struct {
-	Text          string
-	ID            string
-	RepliedId     string
-	QuotedMessage string
+	Text          string `json:"text"`
+	ID            string `json:"id"`
+	RepliedId     string `json:"replied_id"`
+	QuotedMessage string `json:"quoted_message"`
 }
 
 type EvtReaction struct {
-	Message string
-	ID      string
+	Message string `json:"message"`
+	ID      string `json:"id"`
 }
 
 // GetMessageDigestOrSignature generates HMAC signature for message

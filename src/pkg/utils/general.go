@@ -440,7 +440,7 @@ func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
 }
 
 // FormatBusinessHourTime converts numeric time format (e.g., 600, 1200) to HH:MM format (e.g., "06:00", "12:00")
-func FormatBusinessHourTime(timeValue interface{}) string {
+func FormatBusinessHourTime(timeValue any) string {
 	var timeInt int
 
 	switch v := timeValue.(type) {

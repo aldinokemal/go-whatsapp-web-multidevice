@@ -19,6 +19,8 @@ func InitRestGroup(app *fiber.App, service domainGroup.IGroupUsecase) Group {
 	rest := Group{Service: service}
 	app.Post("/group", rest.CreateGroup)
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
+	app.Get("/group/info-from-link", rest.GetGroupInfoFromLink)
+	app.Get("/group/info", rest.GroupInfo)
 	app.Post("/group/leave", rest.LeaveGroup)
 	app.Post("/group/participants", rest.AddParticipants)
 	app.Post("/group/participants/remove", rest.DeleteParticipants)
@@ -50,6 +52,22 @@ func (controller *Group) JoinGroupWithLink(c *fiber.Ctx) error {
 		Results: map[string]string{
 			"group_id": response,
 		},
+	})
+}
+
+func (controller *Group) GetGroupInfoFromLink(c *fiber.Ctx) error {
+	var request domainGroup.GetGroupInfoFromLinkRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	response, err := controller.Service.GetGroupInfoFromLink(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get group info from link",
+		Results: response,
 	})
 }
 
@@ -300,5 +318,24 @@ func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: message,
+	})
+}
+
+// GroupInfo handles the /group/info endpoint to fetch group information
+func (controller *Group) GroupInfo(c *fiber.Ctx) error {
+	var request domainGroup.GroupInfoRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	response, err := controller.Service.GroupInfo(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get group info",
+		Results: response.Data,
 	})
 }
