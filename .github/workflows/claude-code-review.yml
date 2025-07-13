@@ -1,28 +1,28 @@
-name: Claude Code Review
+name: Claude Code Review - Internal PRs
 
 on:
+  # Handle PRs from the same repository
   pull_request:
     types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    paths:
+      - "src/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "src/views/**/*.html"
+      - "src/views/**/*.css"
+      - "src/views/**/*.js"
+      - "src/views/**/*.svg"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Only run for internal PRs (same repository)
+    if: github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
     
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
     
     steps:
@@ -42,37 +42,48 @@ jobs:
           
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            Please review this Go application pull request and provide feedback on:
             
-            Be constructive and helpful in your feedback.
+            **For Go code (.go files):**
+            - Go idioms and best practices
+            - Error handling patterns
+            - Interface design and implementation
+            - Memory management and potential leaks
+            - Concurrency safety (goroutines, channels, mutexes)
+            - Code organization and package structure
+            - Performance considerations
+            - Security vulnerabilities
+            - Test coverage and quality
+            - Proper use of Go standard library
+            - Documentation and code comments
+            
+            **For Frontend code (HTML/CSS/JS files):**
+            - JavaScript/Vue.js best practices and patterns
+            - HTML semantics and accessibility
+            - CSS performance and maintainability
+            - Cross-browser compatibility
+            - Frontend security (XSS, CSRF prevention)
+            - UI/UX considerations
+            - Code organization and modularity
+            - Performance optimizations (DOM manipulation, asset loading)
+            - Responsive design implementation
+            - Vue.js component architecture and lifecycle management
+            
+            **General concerns:**
+            - API integration between frontend and backend
+            - Data validation on both client and server sides
+            - Error handling consistency across the stack
+            - Security best practices for the full application
+            
+            Be constructive and helpful in your feedback, focusing on language-specific concerns for each file type.
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
           # use_sticky_comment: true
           
-          # Optional: Customize review based on file types
-          # direct_prompt: |
-          #   Review this PR focusing on:
-          #   - For TypeScript files: Type safety and proper interface usage
-          #   - For API endpoints: Security, input validation, and error handling
-          #   - For React components: Performance, accessibility, and best practices
-          #   - For tests: Coverage, edge cases, and test quality
-          
-          # Optional: Different prompts for different authors
-          # direct_prompt: |
-          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' && 
-          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
-          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
-          
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+          # Optional: Add specific tools for running Go tests and linting, plus frontend tools
+          allowed_tools: "Bash(cd src && go test ./...),Bash(cd src && go vet ./...),Bash(cd src && go fmt ./...),Bash(cd src && go mod tidy),Bash(find src/views -name '*.html' -exec htmlhint {} \\;),Bash(find src/views -name '*.css' -exec csslint {} \\;),Bash(find src/views -name '*.js' -exec jshint {} \\;)"
           
           # Optional: Skip review for certain conditions
           # if: |
           #   !contains(github.event.pull_request.title, '[skip-review]') &&
           #   !contains(github.event.pull_request.title, '[WIP]')
-
