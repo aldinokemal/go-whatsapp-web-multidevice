@@ -233,7 +233,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	/* Generate thumbnail with smalled image size */
 	srcImage, err := imaging.Open(oriImagePath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
+		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
 
 	// Resize Thumbnail
@@ -248,7 +248,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		// Resize image
 		openImageBuffer, err := imaging.Open(oriImagePath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
+			return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for compression: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 		}
 		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
 		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, imageName)
@@ -455,7 +455,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	// Resize Thumbnail
 	srcImage, err := imaging.Open(thumbnailVideoPath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image %v", err))
+		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open generated video thumbnail image '%s': %v. Possible causes: file not found, unsupported format, or permission denied.", thumbnailVideoPath, err))
 	}
 	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
 	thumbnailResizeVideoPath := fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, generateUUID+".png")
