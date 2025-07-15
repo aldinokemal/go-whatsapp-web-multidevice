@@ -22,11 +22,19 @@ export default {
             }).modal('show');
         },
         isValidForm() {
-            if (this.participants.length < 1 || this.participants.every(participant => !participant.trim())) {
+            if (
+                this.participants.length < 1 ||
+                this.participants.every(p => this.isEmpty(p))
+            ) {
                 return false;
             }
 
             return true;
+        },
+        // Helper to determine if participant value is empty
+        isEmpty(value) {
+            const str = String(value?.jid ?? value).trim();
+            return !str;
         },
         handleAddParticipant() {
             this.participants.push('');
@@ -53,7 +61,9 @@ export default {
                 const payload = {
                     group_id: this.group_id,
                     // convert participant become list of string
-                    participants: this.participants.filter(participant => participant !== '').map(participant => `${participant}`),
+                    participants: this.participants
+                        .filter(p => !this.isEmpty(p))
+                        .map(p => `${p?.jid ?? p}`),
                 };
 
                 let response;

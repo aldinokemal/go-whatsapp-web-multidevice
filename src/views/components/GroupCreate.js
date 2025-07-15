@@ -16,15 +16,26 @@ export default {
             }).modal('show');
         },
         isValidForm() {
-            if (!this.title.trim()) {
+            // title must contain at least one non-whitespace char
+            if (!String(this.title ?? '').trim()) {
                 return false;
             }
 
-            if (this.participants.length < 1 || this.participants.every(participant => !participant.trim())) {
+            // must have at least one valid participant
+            if (
+                this.participants.length < 1 ||
+                this.participants.every(p => this.isEmpty(p))
+            ) {
                 return false;
             }
 
             return true;
+        },
+        // Helper: returns true when param is empty/blank
+        isEmpty(value) {
+            // If the element is an object coming from the picker, use its jid field
+            const str = String(value?.jid ?? value).trim();
+            return !str;
         },
         handleAddParticipant() {
             this.participants.push('')
@@ -49,8 +60,10 @@ export default {
             try {
                 let response = await window.http.post(`/group`, {
                     title: this.title,
-                    // convert participant become list of string
-                    participants: this.participants.filter(participant => participant !== '').map(participant => `${participant}`)
+                    // sanitize participants list
+                    participants: this.participants
+                        .filter(p => !this.isEmpty(p))
+                        .map(p => `${p?.jid ?? p}`)
                 })
                 this.handleReset();
                 return response.data.message;
