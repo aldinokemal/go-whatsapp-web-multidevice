@@ -325,7 +325,13 @@ func createReceiptPayload(evt *events.Receipt) map[string]any {
 }
 
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs
-func forwardReceiptToWebhook(_ context.Context, evt *events.Receipt) error {
+func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt) error {
+	// Context currently not utilised inside submitWebhook (no ctx parameter),
+	// but kept here for future-proofing and to follow the same function
+	// signature style as other webhook helpers.
+
+	_ = ctx // placeholder until submitWebhook supports context cancellation
+
 	logrus.Info("Forwarding message ack event to webhook:", config.WhatsappWebhook)
 	payload := createReceiptPayload(evt)
 
