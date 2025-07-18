@@ -297,3 +297,44 @@ func createDeletePayload(_ context.Context, evt *events.DeleteForMe, message *do
 
 	return body, nil
 }
+
+// createReceiptPayload creates a webhook payload for message acknowledgement (receipt) events
+func createReceiptPayload(evt *events.Receipt) map[string]any {
+	body := make(map[string]any)
+
+	// Tag to identify the webhook type (keeps parity with delete/message payloads)
+	body["action"] = "message_ack"
+
+	// SourceString() usually returns sender info such as "12345@c.us" or "12345@s.whatsapp.net"
+	if from := evt.SourceString(); from != "" {
+		body["from"] = from
+	}
+
+	// Chat identifier can be derived from SourceString if needed by consumer
+
+	// Delivered / Read / ReadSelf etc.
+	body["ack_type"] = evt.Type.String()
+
+	// Include all message IDs that the receipt refers to
+	body["message_ids"] = evt.MessageIDs
+
+	// Timestamp of the receipt
+	body["timestamp"] = evt.Timestamp.Format(time.RFC3339)
+
+	return body
+}
+
+// forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs
+func forwardReceiptToWebhook(_ context.Context, evt *events.Receipt) error {
+	logrus.Info("Forwarding message ack event to webhook:", config.WhatsappWebhook)
+	payload := createReceiptPayload(evt)
+
+	for _, url := range config.WhatsappWebhook {
+		if err := submitWebhook(payload, url); err != nil {
+			return err
+		}
+	}
+
+	logrus.Info("Message ack event forwarded to webhook")
+	return nil
+}

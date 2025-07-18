@@ -602,12 +602,21 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 	}
 }
 
-func handleReceipt(_ context.Context, evt *events.Receipt) {
+func handleReceipt(ctx context.Context, evt *events.Receipt) {
 	switch evt.Type {
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
 	case types.ReceiptTypeDelivered:
 		log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
+	}
+
+	// Forward receipt (ack) event to webhook if configured
+	if len(config.WhatsappWebhook) > 0 {
+		go func(e *events.Receipt) {
+			if err := forwardReceiptToWebhook(ctx, e); err != nil {
+				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
+			}
+		}(evt)
 	}
 }
 
