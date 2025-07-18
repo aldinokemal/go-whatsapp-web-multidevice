@@ -37,8 +37,9 @@ Download:
   - For MCP mode, you need to run `<binary> mcp`
     - for example: `./whatsapp mcp`
 - `v7`
-  - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
-  
+  - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
+      from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yml](./docs/openapi.yaml) for more details
@@ -71,7 +72,8 @@ Download:
   You may modify this by using the option below:
   - `--webhook-secret="secret"`
 - **Webhook Payload Documentation**
-  For detailed webhook payload schemas, security implementation, and integration examples, see [Webhook Payload Documentation](./docs/webhook-payload.md)
+  For detailed webhook payload schemas, security implementation, and integration examples,
+  see [Webhook Payload Documentation](./docs/webhook-payload.md)
 
 ## Configuration
 

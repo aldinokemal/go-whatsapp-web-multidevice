@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -595,7 +596,7 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 	if len(config.WhatsappWebhook) > 0 &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(evt *events.Message) {
-			if err := forwardToWebhook(ctx, evt); err != nil {
+			if err := forwardMessageToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
 			}
 		}(evt)
@@ -603,15 +604,18 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 }
 
 func handleReceipt(ctx context.Context, evt *events.Receipt) {
+	sendReceipt := false
 	switch evt.Type {
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
-		log.Infof("%v was read by %s at %s", evt.MessageIDs, evt.SourceString(), evt.Timestamp)
+		sendReceipt = true
+		log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
 	case types.ReceiptTypeDelivered:
-		log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
+		sendReceipt = true
+		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
 	}
 
 	// Forward receipt (ack) event to webhook if configured
-	if len(config.WhatsappWebhook) > 0 {
+	if len(config.WhatsappWebhook) > 0 && sendReceipt {
 		go func(e *events.Receipt) {
 			if err := forwardReceiptToWebhook(ctx, e); err != nil {
 				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
