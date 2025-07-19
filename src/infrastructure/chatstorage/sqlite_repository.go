@@ -519,15 +519,28 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Get appropriate chat name using pushname if available
 	chatName := r.GetChatNameWithPushName(evt.Info.Chat, chatJID, evt.Info.Sender.User, evt.Info.PushName)
 
-	// Extract ephemeral expiration
+	// Get existing chat to preserve ephemeral_expiration if needed
+	existingChat, err := r.GetChat(chatJID)
+	if err != nil {
+		return fmt.Errorf("failed to get existing chat: %w", err)
+	}
+
+	// Extract ephemeral expiration from incoming message
 	ephemeralExpiration := utils.ExtractEphemeralExpiration(evt.Message)
 
 	// Create or update chat
 	chat := &domainChatStorage.Chat{
-		JID:                 chatJID,
-		Name:                chatName,
-		LastMessageTime:     evt.Info.Timestamp,
-		EphemeralExpiration: ephemeralExpiration,
+		JID:             chatJID,
+		Name:            chatName,
+		LastMessageTime: evt.Info.Timestamp,
+	}
+
+	// Set ephemeral expiration: use incoming message value if > 0, otherwise preserve existing
+	if ephemeralExpiration > 0 {
+		chat.EphemeralExpiration = ephemeralExpiration
+	} else if existingChat != nil {
+		// Preserve existing ephemeral_expiration if incoming message doesn't have one
+		chat.EphemeralExpiration = existingChat.EphemeralExpiration
 	}
 
 	// Store or update the chat
@@ -641,11 +654,22 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
-	// Store or update chat
+	// Get existing chat to preserve ephemeral_expiration
+	existingChat, err := r.GetChat(chatJID)
+	if err != nil {
+		return fmt.Errorf("failed to get existing chat: %w", err)
+	}
+
+	// Store or update chat, preserving existing ephemeral_expiration
 	chat := &domainChatStorage.Chat{
 		JID:             chatJID,
 		Name:            chatName,
 		LastMessageTime: timestamp,
+	}
+
+	// Preserve existing ephemeral_expiration if chat exists
+	if existingChat != nil {
+		chat.EphemeralExpiration = existingChat.EphemeralExpiration
 	}
 
 	if err := r.StoreChat(chat); err != nil {

@@ -100,6 +100,8 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	// Set disappearing message duration if provided
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	} else {
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
 	}
 
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
@@ -137,6 +139,8 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 			// Preserve disappearing message duration if provided
 			if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 				ctxInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+			} else {
+				ctxInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(participantJID))
 			}
 
 			// Preserve mentions
@@ -901,4 +905,22 @@ func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.
 		uploaded, err = whatsapp.GetClient().Upload(ctx, media, mediaType)
 	}
 	return uploaded, err
+}
+
+func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
+	expiration = 0
+	if jid == "" {
+		return expiration
+	}
+
+	chat, err := service.chatStorageRepo.GetChat(jid)
+	if err != nil {
+		return expiration
+	}
+
+	if chat.EphemeralExpiration != 0 {
+		expiration = chat.EphemeralExpiration
+	}
+
+	return expiration
 }
