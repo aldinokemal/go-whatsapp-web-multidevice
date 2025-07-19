@@ -77,3 +77,36 @@ func TestValidateUserInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateBusinessProfile(t *testing.T) {
+	type args struct {
+		request domainUser.BusinessProfileRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with valid phone",
+			args: args{request: domainUser.BusinessProfileRequest{
+				Phone: "1728937129312@s.whatsapp.net",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainUser.BusinessProfileRequest{
+				Phone: "",
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateBusinessProfile(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion             = "v7.2.1"
+	AppVersion             = "v7.3.0"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = "AldinoKemal"
@@ -20,7 +20,7 @@ var (
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
-	DBURI = "file:storages/whatsapp.db?_foreign_keys=on"
+	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on"
 	DBKeysURI = ""
 
 	WhatsappAutoReplyMessage       string
