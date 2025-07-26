@@ -918,7 +918,7 @@ func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration
 		return expiration
 	}
 
-	if chat.EphemeralExpiration != 0 {
+	if chat != nil && chat.EphemeralExpiration != 0 {
 		expiration = chat.EphemeralExpiration
 	}
 
