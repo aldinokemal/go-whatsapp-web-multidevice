@@ -54,10 +54,9 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
 
-		from_user, from_group := from, ""
+		from_user, _ := from, ""
 		if strings.Contains(from, " in ") {
 			from_user = strings.Split(from, " in ")[0]
-			from_group = strings.Split(from, " in ")[1]
 		}
 
 		if strings.HasSuffix(from_user, "@lid") {
