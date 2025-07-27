@@ -117,6 +117,9 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
+	if envBaseURL := viper.GetString("base_url"); envBaseURL != "" {
+		config.BaseURL = envBaseURL
+	}
 }
 
 func initFlags() {
@@ -191,6 +194,12 @@ func initFlags() {
 		"account-validation", "",
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.BaseURL,
+		"base-url", "",
+		config.BaseURL,
+		`base url for media --base-url <string> | example: --base-url="https://example.com"`,
 	)
 }
 

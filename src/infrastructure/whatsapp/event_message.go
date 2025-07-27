@@ -148,6 +148,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["audio"] = path
 	}
 
@@ -161,6 +162,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["document"] = path
 	}
 
@@ -170,6 +172,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["image"] = path
 	}
 
@@ -195,6 +198,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["sticker"] = path
 	}
 
@@ -204,6 +208,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["video"] = path
 	}
 

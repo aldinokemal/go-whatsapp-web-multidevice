@@ -470,6 +470,7 @@ type ExtractedMedia struct {
 	MediaPath string `json:"media_path"`
 	MimeType  string `json:"mime_type"`
 	Caption   string `json:"caption"`
+	Url       string `json:"url"`
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
