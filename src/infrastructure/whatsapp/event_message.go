@@ -71,13 +71,11 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
 				}
 				if !pn.IsEmpty() {
-					if from_group != "" {
-						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
-					} else {
-						body["from"] = pn.String()
-					}
+					body["from"] = pn.String()
 				}
 			}
+		} else if strings.Contains(from, " in ") {
+			body["from"] = strings.Split(from, " in ")[0]
 		}
 	}
 	if message.ID != "" {
