@@ -43,6 +43,13 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 
 	body["sender_id"] = evt.Info.Sender.User
 	body["chat_id"] = evt.Info.Chat.User
+	body["is_group"] = evt.Info.Chat.Server == "g.us"
+	body["is_from_me"] = evt.Info.IsFromMe
+	body["has_media"] = evt.Message.GetAudioMessage() != nil ||
+		evt.Message.GetImageMessage() != nil ||
+		evt.Message.GetVideoMessage() != nil ||
+		evt.Message.GetStickerMessage() != nil ||
+		evt.Message.GetDocumentMessage() != nil
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
