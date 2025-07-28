@@ -91,6 +91,9 @@ func initEnvConfig() {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
 	}
+	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
+		config.AppBasePath = envBasePath
+	}
 
 	// Database settings
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
@@ -145,6 +148,12 @@ func initFlags() {
 		"basic-auth", "b",
 		config.AppBasicAuthCredential,
 		"basic auth credential | -b=yourUsername:yourPassword",
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppBasePath,
+		"base-path", "",
+		config.AppBasePath,
+		`base path for subpath deployment --base-path <string> | example: --base-path="/gowa"`,
 	)
 
 	// Database flags

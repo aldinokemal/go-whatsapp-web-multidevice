@@ -10,7 +10,7 @@ type Message struct {
 	Service domainMessage.IMessageUsecase
 }
 
-func InitRestMessage(app *fiber.App, service domainMessage.IMessageUsecase) Message {
+func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Message {
 	rest := Message{Service: service}
 
 	// Message action endpoints

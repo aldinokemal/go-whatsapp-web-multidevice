@@ -10,7 +10,7 @@ type Send struct {
 	Service domainSend.ISendUsecase
 }
 
-func InitRestSend(app *fiber.App, service domainSend.ISendUsecase) Send {
+func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	rest := Send{Service: service}
 	app.Post("/send/message", rest.SendText)
 	app.Post("/send/image", rest.SendImage)

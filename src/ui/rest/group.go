@@ -15,7 +15,7 @@ type Group struct {
 	Service domainGroup.IGroupUsecase
 }
 
-func InitRestGroup(app *fiber.App, service domainGroup.IGroupUsecase) Group {
+func InitRestGroup(app fiber.Router, service domainGroup.IGroupUsecase) Group {
 	rest := Group{Service: service}
 	app.Post("/group", rest.CreateGroup)
 	app.Post("/group/join-with-link", rest.JoinGroupWithLink)
