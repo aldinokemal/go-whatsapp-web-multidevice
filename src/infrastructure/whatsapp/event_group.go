@@ -51,7 +51,7 @@ func jidsToStrings(jids []types.JID) []string {
 
 // forwardGroupInfoToWebhook forwards group information events to the configured webhook URLs
 func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo) error {
-	logrus.Info("Forwarding group info event to webhook:", config.WhatsappWebhook)
+	logrus.Infof("Forwarding group info event to %d configured webhook(s)", len(config.WhatsappWebhook))
 
 	// Send separate webhook events for each action type
 	actions := []struct {
