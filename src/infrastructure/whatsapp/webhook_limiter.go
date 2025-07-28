@@ -38,16 +38,23 @@ func (w *WebhookRateLimiter) Acquire() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	
-	// Check if we can acquire from rate limiter
-	if !w.limiter.Allow() {
-		return false
-	}
-	
-	// Try to acquire semaphore slot (non-blocking)
+	// Try to acquire semaphore slot first (non-blocking)
 	select {
 	case w.semaphore <- struct{}{}:
+		// Semaphore acquired, now check rate limiter
+		if !w.limiter.Allow() {
+			// Rate limiter denied, release semaphore and return false
+			select {
+			case <-w.semaphore:
+			default:
+				// Semaphore already released, should not happen
+			}
+			return false
+		}
+		// Both semaphore and rate limit token acquired successfully
 		return true
 	default:
+		// Semaphore full, no rate limit token consumed
 		return false
 	}
 }
@@ -66,19 +73,27 @@ func (w *WebhookRateLimiter) Wait(timeout time.Duration) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	
-	// Try to wait for rate limiter with timeout
+	// Create context for timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
-	if err := w.limiter.Wait(ctx); err != nil {
-		return false
-	}
-	
-	// Try to acquire semaphore slot with timeout
+	// Try to acquire semaphore slot first (non-blocking check)
 	select {
 	case w.semaphore <- struct{}{}:
+		// Semaphore acquired, now wait for rate limiter token
+		if err := w.limiter.Wait(ctx); err != nil {
+			// Rate limiter failed, release semaphore and return false
+			select {
+			case <-w.semaphore:
+			default:
+				// Semaphore already released, should not happen
+			}
+			return false
+		}
+		// Both semaphore and rate limit token acquired successfully
 		return true
-	case <-ctx.Done():
+	default:
+		// Semaphore full, no rate limit token consumed
 		return false
 	}
 }
