@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
@@ -35,14 +36,15 @@ func getWebhookLimiter() *WebhookRateLimiter {
 
 // Acquire attempts to acquire a slot for webhook processing
 func (w *WebhookRateLimiter) Acquire() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	
 	// Try to acquire semaphore slot first (non-blocking)
 	select {
 	case w.semaphore <- struct{}{}:
-		// Semaphore acquired, now check rate limiter
-		if !w.limiter.Allow() {
+		// Semaphore acquired, now check rate limiter with minimal lock time
+		w.mu.Lock()
+		allowed := w.limiter.Allow()
+		w.mu.Unlock()
+		
+		if !allowed {
 			// Rate limiter denied, release semaphore and return false
 			select {
 			case <-w.semaphore:
@@ -63,16 +65,15 @@ func (w *WebhookRateLimiter) Acquire() bool {
 func (w *WebhookRateLimiter) Release() {
 	select {
 	case <-w.semaphore:
+		// Successfully released semaphore slot
 	default:
-		// Semaphore already empty, nothing to release
+		// Log potential double-release or programming error for debugging
+		logrus.Warn("Attempted to release webhook semaphore slot, but semaphore is already empty - possible double release")
 	}
 }
 
 // Wait waits for rate limiting with timeout
 func (w *WebhookRateLimiter) Wait(timeout time.Duration) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	
 	// Create context for timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -80,8 +81,12 @@ func (w *WebhookRateLimiter) Wait(timeout time.Duration) bool {
 	// Try to acquire semaphore slot first (non-blocking check)
 	select {
 	case w.semaphore <- struct{}{}:
-		// Semaphore acquired, now wait for rate limiter token
-		if err := w.limiter.Wait(ctx); err != nil {
+		// Semaphore acquired, now wait for rate limiter token with minimal lock time
+		w.mu.Lock()
+		err := w.limiter.Wait(ctx)
+		w.mu.Unlock()
+		
+		if err != nil {
 			// Rate limiter failed, release semaphore and return false
 			select {
 			case <-w.semaphore:

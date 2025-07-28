@@ -399,11 +399,19 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 
 	// Send webhook notification for delete event
 	if len(config.WhatsappWebhook) > 0 {
-		go func() {
-			if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
-				log.Errorf("Failed to forward delete event to webhook: %v", err)
-			}
-		}()
+		limiter := getWebhookLimiter()
+		
+		// Try to acquire rate limiting slot
+		if limiter.Acquire() {
+			go func() {
+				defer limiter.Release()
+				if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
+					log.Errorf("Failed to forward delete event to webhook: %v", err)
+				}
+			}()
+		} else {
+			log.Warnf("Webhook rate limit reached, dropping delete event for message %s", evt.MessageID)
+		}
 	}
 }
 
@@ -597,11 +605,19 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 
 	if len(config.WhatsappWebhook) > 0 &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
-		go func(evt *events.Message) {
-			if err := forwardMessageToWebhook(ctx, evt); err != nil {
-				logrus.Error("Failed forward to webhook: ", err)
-			}
-		}(evt)
+		limiter := getWebhookLimiter()
+		
+		// Try to acquire rate limiting slot
+		if limiter.Acquire() {
+			go func(evt *events.Message) {
+				defer limiter.Release()
+				if err := forwardMessageToWebhook(ctx, evt); err != nil {
+					logrus.Error("Failed forward to webhook: ", err)
+				}
+			}(evt)
+		} else {
+			logrus.Warnf("Webhook rate limit reached, dropping message event from %s", evt.Info.SourceString())
+		}
 	}
 }
 
@@ -618,11 +634,19 @@ func handleReceipt(ctx context.Context, evt *events.Receipt) {
 
 	// Forward receipt (ack) event to webhook if configured
 	if len(config.WhatsappWebhook) > 0 && sendReceipt {
-		go func(e *events.Receipt) {
-			if err := forwardReceiptToWebhook(ctx, e); err != nil {
-				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
-			}
-		}(evt)
+		limiter := getWebhookLimiter()
+		
+		// Try to acquire rate limiting slot
+		if limiter.Acquire() {
+			go func(e *events.Receipt) {
+				defer limiter.Release()
+				if err := forwardReceiptToWebhook(ctx, e); err != nil {
+					logrus.Errorf("Failed to forward ack event to webhook: %v", err)
+				}
+			}(evt)
+		} else {
+			logrus.Warnf("Webhook rate limit reached, dropping receipt event from %s", evt.SourceString())
+		}
 	}
 }
 
