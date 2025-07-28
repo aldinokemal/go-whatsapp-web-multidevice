@@ -23,6 +23,7 @@ require (
 	go.mau.fi/libsignal v0.2.0
 	go.mau.fi/whatsmeow v0.0.0-20250723174453-937d77661333
 	golang.org/x/image v0.29.0
+	golang.org/x/time v0.9.0
 	google.golang.org/protobuf v1.36.6
 )
 

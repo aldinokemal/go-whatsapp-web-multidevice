@@ -368,6 +368,8 @@ func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.
 		handleHistorySync(ctx, evt, chatStorageRepo)
 	case *events.AppState:
 		handleAppState(ctx, evt)
+	case *events.GroupInfo:
+		handleGroupInfo(ctx, evt)
 	}
 }
 
@@ -878,4 +880,45 @@ func processPushNames(_ context.Context, data *waHistorySync.HistorySync, chatSt
 	}
 
 	return nil
+}
+
+func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
+	// Only process events that have actual changes
+	hasChanges := len(evt.Join) > 0 || len(evt.Leave) > 0 || len(evt.Promote) > 0 || len(evt.Demote) > 0 ||
+		evt.Name != nil || evt.Topic != nil || evt.Locked != nil || evt.Announce != nil
+
+	if !hasChanges {
+		return
+	}
+
+	// Log group events for debugging
+	if len(evt.Join) > 0 {
+		log.Infof("Group %s: %d users joined at %s", evt.JID, len(evt.Join), evt.Timestamp)
+	}
+	if len(evt.Leave) > 0 {
+		log.Infof("Group %s: %d users left at %s", evt.JID, len(evt.Leave), evt.Timestamp)
+	}
+	if len(evt.Promote) > 0 {
+		log.Infof("Group %s: %d users promoted at %s", evt.JID, len(evt.Promote), evt.Timestamp)
+	}
+	if len(evt.Demote) > 0 {
+		log.Infof("Group %s: %d users demoted at %s", evt.JID, len(evt.Demote), evt.Timestamp)
+	}
+
+	// Forward group info event to webhook if configured
+	if len(config.WhatsappWebhook) > 0 {
+		limiter := getWebhookLimiter()
+		
+		// Try to acquire rate limiting slot
+		if limiter.Acquire() {
+			go func(e *events.GroupInfo) {
+				defer limiter.Release()
+				if err := forwardGroupInfoToWebhook(ctx, e); err != nil {
+					logrus.Errorf("Failed to forward group info event to webhook: %v", err)
+				}
+			}(evt)
+		} else {
+			logrus.Warnf("Webhook rate limit reached, dropping group event for %s", evt.JID)
+		}
+	}
 }

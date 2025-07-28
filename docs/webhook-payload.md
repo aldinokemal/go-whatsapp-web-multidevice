@@ -187,6 +187,93 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 | `payload.sender_id`                | string   | JID of the message sender                                 |
 | `timestamp`                        | string   | RFC3339 formatted timestamp when the receipt was received |
 
+## Group Events
+
+Group events are triggered when group metadata changes, including member join/leave events, admin promotions/demotions, and group settings updates. These events use the `group.participants` event type and provide comprehensive information about group changes.
+
+### Group Member Join
+
+Triggered when users join or are added to a group.
+
+```json
+{
+  "event": "group.participants",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "type": "join",
+    "jids": [
+      "6289685XXXXXX@s.whatsapp.net",
+      "6289686YYYYYY@s.whatsapp.net"
+    ]
+  },
+  "timestamp": "2025-07-28T10:30:00Z"
+}
+```
+
+### Group Member Leave
+
+Triggered when users leave or are removed from a group.
+
+```json
+{
+  "event": "group.participants",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "type": "leave",
+    "jids": [
+      "6289687ZZZZZZ@s.whatsapp.net"
+    ]
+  },
+  "timestamp": "2025-07-28T10:32:00Z"
+}
+```
+
+### Group Member Promotion
+
+Triggered when users are promoted to admin.
+
+```json
+{
+  "event": "group.participants",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "type": "promote",
+    "jids": [
+      "6289688AAAAAA@s.whatsapp.net"
+    ]
+  },
+  "timestamp": "2025-07-28T10:33:00Z"
+}
+```
+
+### Group Member Demotion
+
+Triggered when users are demoted from admin.
+
+```json
+{
+  "event": "group.participants",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "type": "demote",
+    "jids": [
+      "6289689BBBBBB@s.whatsapp.net"
+    ]
+  },
+  "timestamp": "2025-07-28T10:34:00Z"
+}
+```
+
+### Group Event Fields
+
+| **Field**         | **Type** | **Description**                                              |
+|-------------------|----------|--------------------------------------------------------------|
+| `event`           | string   | Always `"group.participants"` for group events              |
+| `payload.chat_id` | string   | Group identifier (e.g., `"120363402106XXXXX@g.us"`)         |
+| `payload.type`    | string   | Action type: `"join"`, `"leave"`, `"promote"`, or `"demote"` |
+| `payload.jids`    | array    | Array of user JIDs affected by this action                  |
+| `timestamp`       | string   | RFC3339 formatted timestamp when the group event occurred   |
+
 ## Media Messages
 
 ### Image Message
@@ -534,6 +621,35 @@ app.post('/webhook', (req, res) => {
             message_ids: data.payload.ids,
             description: data.payload.receipt_type_description
         });
+    } else if (data.event === 'group.participants') {
+        console.log(`Group ${data.payload.type} event:`, {
+            chat_id: data.payload.chat_id,
+            type: data.payload.type,
+            affected_users: data.payload.jids
+        });
+        
+        // Handle specific group actions
+        switch (data.payload.type) {
+            case 'join':
+                console.log(`${data.payload.jids.length} users joined group ${data.payload.chat_id}`);
+                // Auto-greet new members
+                data.payload.jids.forEach(jid => {
+                    console.log(`Welcome ${jid} to the group!`);
+                });
+                break;
+            case 'leave':
+                console.log(`${data.payload.jids.length} users left group ${data.payload.chat_id}`);
+                // Update member database
+                break;
+            case 'promote':
+                console.log(`${data.payload.jids.length} users promoted in group ${data.payload.chat_id}`);
+                // Notify about new admins
+                break;
+            case 'demote':
+                console.log(`${data.payload.jids.length} users demoted in group ${data.payload.chat_id}`);
+                // Handle admin removal
+                break;
+        }
     } else if (data.action === 'message_deleted_for_me') {
         console.log('Message deleted:', data.deleted_message_id);
     } else if (data.action === 'message_revoked') {

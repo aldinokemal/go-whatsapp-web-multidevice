@@ -1,0 +1,1 @@
+Use the subagent golang-code-reviewer to examine all of the changes by comparing them to the main branch. You must verify that every commit and stage on this branch is present, compare them to the main branch, and report back to me the review's outcome.
