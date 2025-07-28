@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -99,13 +101,32 @@ func restServer(_ *cobra.Command, _ []string) {
 		})
 	})
 
+	// Add health check endpoint
+	app.Get("/health", func(c *fiber.Ctx) error {
+		isConnected, isLoggedIn, deviceID := whatsapp.GetConnectionStatus()
+		return c.JSON(fiber.Map{
+			"status": "ok",
+			"whatsapp": fiber.Map{
+				"connected": isConnected,
+				"logged_in": isLoggedIn,
+				"device_id": deviceID,
+				"client_available": whatsappCli != nil,
+			},
+			"timestamp": time.Now().Unix(),
+		})
+	})
+
 	websocket.RegisterRoutes(app, appUsecase)
 	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 	// Set auto reconnect checking
-	go helpers.SetAutoReconnectChecking(whatsappCli)
+	if whatsappCli != nil {
+		go helpers.SetAutoReconnectChecking(whatsappCli)
+	} else {
+		logrus.Warn("WhatsApp client not available - auto reconnect checking disabled")
+	}
 
 	if err := app.Listen(":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())

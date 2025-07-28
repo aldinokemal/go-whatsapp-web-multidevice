@@ -242,12 +242,23 @@ func initApp() {
 	chatStorageRepo.InitializeSchema()
 
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
+	if whatsappDB == nil {
+		logrus.Fatalf("failed to initialize WhatsApp database")
+	}
+	
 	var keysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
+		if keysDB == nil {
+			logrus.Warnf("failed to initialize WhatsApp keys database, continuing without keys database")
+		}
 	}
 
-	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	if whatsappCli == nil {
+		logrus.Warnf("failed to initialize WhatsApp client - you may need to scan QR code first")
+		// Don't terminate the app, just log a warning
+	}
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo)

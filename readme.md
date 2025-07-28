@@ -99,6 +99,45 @@ To use environment variables:
 2. Modify the values in `.env` according to your needs
 3. Or set the same variables as system environment variables
 
+## Troubleshooting
+
+If you're experiencing issues with the application, we've provided several tools to help you diagnose and resolve problems:
+
+### Quick Diagnosis
+
+Run the automated troubleshooting script:
+
+```bash
+cd src
+./scripts/troubleshoot.sh
+```
+
+### Health Check
+
+Check the status of your WhatsApp connection:
+
+```bash
+curl http://localhost:3000/health
+```
+
+### Common Issues
+
+- **Application won't start**: Check if port 3000 is available and required directories exist
+- **QR code issues**: Remove old QR codes and database files, then restart
+- **Connection problems**: Ensure your WhatsApp account supports multi-device
+- **API errors**: Check if WhatsApp is connected using the health endpoint
+
+### Debug Mode
+
+Enable debug mode for detailed logging:
+
+```bash
+export APP_DEBUG=true
+go run . rest
+```
+
+For more detailed troubleshooting information, see [TROUBLESHOOTING.md](src/TROUBLESHOOTING.md).
+
 #### Available Environment Variables
 
 | Variable                      | Description                                 | Default                                      | Example                                     |

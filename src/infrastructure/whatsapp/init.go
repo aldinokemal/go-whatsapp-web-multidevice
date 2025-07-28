@@ -14,7 +14,6 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
-	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
@@ -54,7 +53,8 @@ func InitWaDB(ctx context.Context, DBURI string) *sqlstore.Container {
 	storeContainer, err := initDatabase(ctx, dbLog, DBURI)
 	if err != nil {
 		log.Errorf("Database initialization error: %v", err)
-		panic(pkgError.InternalServerError(fmt.Sprintf("Database initialization error: %v", err)))
+		// Instead of panicking, return nil and let the caller handle the error
+		return nil
 	}
 
 	return storeContainer
@@ -105,12 +105,14 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
-		panic(err)
+		// Instead of panicking, return nil and let the caller handle the error
+		return nil
 	}
 
 	if device == nil {
-		log.Errorf("No device found")
-		panic("No device found")
+		log.Errorf("No device found - please scan QR code first")
+		// Instead of panicking, return nil and let the caller handle the error
+		return nil
 	}
 
 	// Configure device properties
