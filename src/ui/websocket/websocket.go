@@ -77,7 +77,7 @@ func RunHub() {
 	}
 }
 
-func RegisterRoutes(app *fiber.App, service domainApp.IAppUsecase) {
+func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 			return c.Next()

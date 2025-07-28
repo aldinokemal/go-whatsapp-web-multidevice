@@ -11,6 +11,7 @@ var (
 	AppOs                  = "AldinoKemal"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
+	AppBasePath            = ""
 
 	McpPort = "8080"
 	McpHost = "localhost"

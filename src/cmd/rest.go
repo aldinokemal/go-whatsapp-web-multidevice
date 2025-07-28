@@ -43,13 +43,13 @@ func restServer(_ *cobra.Command, _ []string) {
 		Network:   "tcp",
 	})
 
-	app.Static("/statics", "./statics")
-	app.Use("/components", filesystem.New(filesystem.Config{
+	app.Static(config.AppBasePath+"/statics", "./statics")
+	app.Use(config.AppBasePath+"/components", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
 		PathPrefix: "views/components",
 		Browse:     true,
 	}))
-	app.Use("/assets", filesystem.New(filesystem.Config{
+	app.Use(config.AppBasePath+"/assets", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
 		PathPrefix: "views/assets",
 		Browse:     true,
@@ -80,26 +80,33 @@ func restServer(_ *cobra.Command, _ []string) {
 		}))
 	}
 
-	// Rest
-	rest.InitRestApp(app, appUsecase)
-	rest.InitRestChat(app, chatUsecase)
-	rest.InitRestSend(app, sendUsecase)
-	rest.InitRestUser(app, userUsecase)
-	rest.InitRestMessage(app, messageUsecase)
-	rest.InitRestGroup(app, groupUsecase)
-	rest.InitRestNewsletter(app, newsletterUsecase)
+	// Create base path group or use app directly
+	var apiGroup fiber.Router = app
+	if config.AppBasePath != "" {
+		apiGroup = app.Group(config.AppBasePath)
+	}
 
-	app.Get("/", func(c *fiber.Ctx) error {
+	// Rest
+	rest.InitRestApp(apiGroup, appUsecase)
+	rest.InitRestChat(apiGroup, chatUsecase)
+	rest.InitRestSend(apiGroup, sendUsecase)
+	rest.InitRestUser(apiGroup, userUsecase)
+	rest.InitRestMessage(apiGroup, messageUsecase)
+	rest.InitRestGroup(apiGroup, groupUsecase)
+	rest.InitRestNewsletter(apiGroup, newsletterUsecase)
+
+	apiGroup.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{
 			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
+			"AppBasePath":    config.AppBasePath,
 			"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
 	})
 
-	websocket.RegisterRoutes(app, appUsecase)
+	websocket.RegisterRoutes(apiGroup, appUsecase)
 	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting

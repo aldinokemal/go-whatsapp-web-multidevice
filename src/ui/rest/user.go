@@ -10,7 +10,7 @@ type User struct {
 	Service domainUser.IUserUsecase
 }
 
-func InitRestUser(app *fiber.App, service domainUser.IUserUsecase) User {
+func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	rest := User{Service: service}
 	app.Get("/user/info", rest.UserInfo)
 	app.Get("/user/avatar", rest.UserAvatar)

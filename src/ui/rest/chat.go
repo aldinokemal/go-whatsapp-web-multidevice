@@ -10,7 +10,7 @@ type Chat struct {
 	Service domainChat.IChatUsecase
 }
 
-func InitRestChat(app *fiber.App, service domainChat.IChatUsecase) Chat {
+func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	rest := Chat{Service: service}
 
 	// Chat endpoints

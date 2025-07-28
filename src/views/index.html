@@ -8,7 +8,7 @@
     <link rel="stylesheet" type="text/css"
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.11.4/css/dataTables.semanticui.min.css">
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="{{ .AppBasePath }}/assets/app.css">
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.4/js/dataTables.semanticui.min.js"></script>
@@ -21,7 +21,7 @@
 <body>
 <div id="splash-screen">
     <!-- Clean squircle logo without background wrapper -->
-    <img src="assets/gowa.svg" alt="GoWA Logo" class="splash-icon" id="main-logo">
+    <img src="{{ .AppBasePath }}/assets/gowa.svg" alt="GoWA Logo" class="splash-icon" id="main-logo">
     
     <h2 class="splash-title">WhatsApp API</h2>
     <div class="ui active large inline loader splash-spinner"></div>
@@ -31,7 +31,7 @@
     <div class="main-header">
         <h1 class="ui header center aligned">
             <div class="title-container">
-                <img src="assets/gowa.svg" alt="GoWA Logo">
+                <img src="{{ .AppBasePath }}/assets/gowa.svg" alt="GoWA Logo">
                 
                 <span>WhatsApp API</span>
                 
@@ -174,56 +174,56 @@
 
 
     window.http = axios.create({
-        baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
+        baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}{{ .AppBasePath }}`
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
     window.http.defaults.headers.common['Authorization'] = "{{ .BasicAuthToken }}";
     {{ end }}
 </script>
 <script type="module">
-    import AppLogin from "./components/AppLogin.js";
-    import AppLoginWithCode from "./components/AppLoginWithCode.js";
-    import AppLogout from "./components/AppLogout.js";
-    import AppReconnect from "./components/AppReconnect.js";
-    import SendMessage from "./components/SendMessage.js";
-    import SendImage from "./components/SendImage.js";
-    import SendFile from "./components/SendFile.js";
-    import SendVideo from "./components/SendVideo.js";
-    import SendLink from "./components/SendLink.js";
-    import SendContact from "./components/SendContact.js";
-    import SendLocation from "./components/SendLocation.js";
-    import SendAudio from "./components/SendAudio.js";
-    import SendPoll from "./components/SendPoll.js";
-    import SendPresence from "./components/SendPresence.js";
-    import SendChatPresence from "./components/SendChatPresence.js";
-    import MessageDelete from "./components/MessageDelete.js";
-    import MessageUpdate from "./components/MessageUpdate.js";
-    import MessageReact from "./components/MessageReact.js";
-    import MessageRevoke from "./components/MessageRevoke.js";
-    import MessageRead from "./components/MessageRead.js";
-    import GroupList from "./components/GroupList.js";
-    import GroupCreate from "./components/GroupCreate.js";
-    import GroupJoinWithLink from "./components/GroupJoinWithLink.js";
-    import GroupInfoFromLink from "./components/GroupInfoFromLink.js";
-    import GroupAddParticipants from "./components/GroupManageParticipants.js";
-    import GroupSetPhoto from "./components/GroupSetPhoto.js";
-    import GroupSetName from "./components/GroupSetName.js";
-    import GroupSetLocked from "./components/GroupSetLocked.js";
-    import GroupSetAnnounce from "./components/GroupSetAnnounce.js";
-    import GroupSetTopic from "./components/GroupSetTopic.js";
-    import GroupInfo from "./components/GroupInfo.js";
-    import NewsletterList from "./components/NewsletterList.js";
-    import AccountAvatar from "./components/AccountAvatar.js";
-    import AccountChangeAvatar from "./components/AccountChangeAvatar.js";
-    import AccountChangePushName from "./components/AccountChangePushName.js";
-    import AccountUserInfo from "./components/AccountUserInfo.js";
-    import AccountPrivacy from "./components/AccountPrivacy.js";
-    import AccountContact from "./components/AccountContact.js";
-    import AccountUserCheck from "./components/AccountUserCheck.js";
-    import AccountBusinessProfile from "./components/AccountBusinessProfile.js";
-    import ChatPinManager from "./components/ChatPinManager.js";
-    import ChatList from "./components/ChatList.js";
-    import ChatMessages from "./components/ChatMessages.js";
+    import AppLogin from "{{ .AppBasePath }}/components/AppLogin.js";
+    import AppLoginWithCode from "{{ .AppBasePath }}/components/AppLoginWithCode.js";
+    import AppLogout from "{{ .AppBasePath }}/components/AppLogout.js";
+    import AppReconnect from "{{ .AppBasePath }}/components/AppReconnect.js";
+    import SendMessage from "{{ .AppBasePath }}/components/SendMessage.js";
+    import SendImage from "{{ .AppBasePath }}/components/SendImage.js";
+    import SendFile from "{{ .AppBasePath }}/components/SendFile.js";
+    import SendVideo from "{{ .AppBasePath }}/components/SendVideo.js";
+    import SendLink from "{{ .AppBasePath }}/components/SendLink.js";
+    import SendContact from "{{ .AppBasePath }}/components/SendContact.js";
+    import SendLocation from "{{ .AppBasePath }}/components/SendLocation.js";
+    import SendAudio from "{{ .AppBasePath }}/components/SendAudio.js";
+    import SendPoll from "{{ .AppBasePath }}/components/SendPoll.js";
+    import SendPresence from "{{ .AppBasePath }}/components/SendPresence.js";
+    import SendChatPresence from "{{ .AppBasePath }}/components/SendChatPresence.js";
+    import MessageDelete from "{{ .AppBasePath }}/components/MessageDelete.js";
+    import MessageUpdate from "{{ .AppBasePath }}/components/MessageUpdate.js";
+    import MessageReact from "{{ .AppBasePath }}/components/MessageReact.js";
+    import MessageRevoke from "{{ .AppBasePath }}/components/MessageRevoke.js";
+    import MessageRead from "{{ .AppBasePath }}/components/MessageRead.js";
+    import GroupList from "{{ .AppBasePath }}/components/GroupList.js";
+    import GroupCreate from "{{ .AppBasePath }}/components/GroupCreate.js";
+    import GroupJoinWithLink from "{{ .AppBasePath }}/components/GroupJoinWithLink.js";
+    import GroupInfoFromLink from "{{ .AppBasePath }}/components/GroupInfoFromLink.js";
+    import GroupAddParticipants from "{{ .AppBasePath }}/components/GroupManageParticipants.js";
+    import GroupSetPhoto from "{{ .AppBasePath }}/components/GroupSetPhoto.js";
+    import GroupSetName from "{{ .AppBasePath }}/components/GroupSetName.js";
+    import GroupSetLocked from "{{ .AppBasePath }}/components/GroupSetLocked.js";
+    import GroupSetAnnounce from "{{ .AppBasePath }}/components/GroupSetAnnounce.js";
+    import GroupSetTopic from "{{ .AppBasePath }}/components/GroupSetTopic.js";
+    import GroupInfo from "{{ .AppBasePath }}/components/GroupInfo.js";
+    import NewsletterList from "{{ .AppBasePath }}/components/NewsletterList.js";
+    import AccountAvatar from "{{ .AppBasePath }}/components/AccountAvatar.js";
+    import AccountChangeAvatar from "{{ .AppBasePath }}/components/AccountChangeAvatar.js";
+    import AccountChangePushName from "{{ .AppBasePath }}/components/AccountChangePushName.js";
+    import AccountUserInfo from "{{ .AppBasePath }}/components/AccountUserInfo.js";
+    import AccountPrivacy from "{{ .AppBasePath }}/components/AccountPrivacy.js";
+    import AccountContact from "{{ .AppBasePath }}/components/AccountContact.js";
+    import AccountUserCheck from "{{ .AppBasePath }}/components/AccountUserCheck.js";
+    import AccountBusinessProfile from "{{ .AppBasePath }}/components/AccountBusinessProfile.js";
+    import ChatPinManager from "{{ .AppBasePath }}/components/ChatPinManager.js";
+    import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
+    import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -246,13 +246,9 @@
 
     const constructWebSocketURL = () => {
         const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-        const path = location.pathname
-            // Remove trailing slash
-            .replace(/\/+$/, '')
-            // Remove double slashes
-            .replace(/\/+/g, '/');
+        const basePath = '{{ .AppBasePath }}';
         
-        return `${protocol}${location.host}${path}/ws`;
+        return `${protocol}${location.host}${basePath}/ws`;
     };
 
     Vue.createApp({
