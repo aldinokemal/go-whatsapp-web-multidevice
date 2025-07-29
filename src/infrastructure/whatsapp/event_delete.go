@@ -12,7 +12,7 @@ import (
 
 // forwardDeleteToWebhook sends a delete event to webhook
 func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) error {
-	logrus.Info("Forwarding delete event to webhook:", config.WhatsappWebhook)
+	logrus.Infof("Forwarding delete event to %d configured webhook(s)", len(config.WhatsappWebhook))
 	payload, err := createDeletePayload(ctx, evt, message)
 	if err != nil {
 		return err

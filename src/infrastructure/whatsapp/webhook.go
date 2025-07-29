@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func submitWebhook(_ context.Context, payload map[string]any, url string) error {
+func submitWebhook(ctx context.Context, payload map[string]any, url string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	postBody, err := json.Marshal(payload)
@@ -22,7 +23,7 @@ func submitWebhook(_ context.Context, payload map[string]any, url string) error 
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(postBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
@@ -41,13 +42,22 @@ func submitWebhook(_ context.Context, payload map[string]any, url string) error 
 	var sleepDuration = 1 * time.Second
 
 	for attempt = 0; attempt < maxAttempts; attempt++ {
-		if _, err = client.Do(req); err == nil {
-			logrus.Infof("Successfully submitted webhook on attempt %d", attempt+1)
-			return nil
+		// Create new request body for each attempt
+		req.Body = io.NopCloser(bytes.NewBuffer(postBody))
+		resp, err := client.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				logrus.Infof("Successfully submitted webhook on attempt %d", attempt+1)
+				return nil
+			}
+			err = fmt.Errorf("webhook returned status %d", resp.StatusCode)
 		}
 		logrus.Warnf("Attempt %d to submit webhook failed: %v", attempt+1, err)
-		time.Sleep(sleepDuration)
-		sleepDuration *= 2
+		if attempt < maxAttempts-1 {
+			time.Sleep(sleepDuration)
+			sleepDuration *= 2
+		}
 	}
 
 	return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt, err))
