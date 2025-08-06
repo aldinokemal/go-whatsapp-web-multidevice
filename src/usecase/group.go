@@ -339,3 +339,27 @@ func (service serviceGroup) GroupInfo(ctx context.Context, request domainGroup.G
 
 	return response, nil
 }
+
+func (service serviceGroup) GetGroupInviteLink(ctx context.Context, request domainGroup.GetGroupInviteLinkRequest) (response domainGroup.GetGroupInviteLinkResponse, err error) {
+	if err = validations.ValidateGetGroupInviteLink(ctx, request); err != nil {
+		return response, err
+	}
+	utils.MustLogin(whatsapp.GetClient())
+
+	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	if err != nil {
+		return response, err
+	}
+
+	inviteLink, err := whatsapp.GetClient().GetGroupInviteLink(groupJID, request.Reset)
+	if err != nil {
+		return response, err
+	}
+
+	response = domainGroup.GetGroupInviteLinkResponse{
+		InviteLink: inviteLink,
+		GroupID:    request.GroupID,
+	}
+
+	return response, nil
+}

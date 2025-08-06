@@ -2212,6 +2212,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /group/{group_id}/invite-link:
+    get:
+      operationId: getGroupInviteLink
+      tags:
+        - group
+      summary: Get group invite link
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: '120363025982934543@g.us'
+          description: WhatsApp Group ID
+        - name: reset
+          in: query
+          schema:
+            type: boolean
+          example: false
+          description: Reset existing invite link
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetGroupInviteLinkResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /newsletter/unfollow:
     post:
       operationId: unfollowNewsletter
@@ -3257,3 +3296,14 @@ components:
           type: object
           description: Group information object (structure may vary)
           additionalProperties: true
+    GetGroupInviteLinkResponse:
+      type: object
+      properties:
+        invite_link:
+          type: string
+          example: 'https://chat.whatsapp.com/ABC123...'
+          description: The group invite link
+        group_id:
+          type: string
+          example: '120363025982934543@g.us'
+          description: The group ID
