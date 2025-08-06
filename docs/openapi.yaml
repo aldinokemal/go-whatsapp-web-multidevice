@@ -3299,11 +3299,20 @@ components:
     GetGroupInviteLinkResponse:
       type: object
       properties:
-        invite_link:
+        code:
           type: string
-          example: 'https://chat.whatsapp.com/ABC123...'
-          description: The group invite link
-        group_id:
+          example: SUCCESS
+        message:
           type: string
-          example: '120363025982934543@g.us'
-          description: The group ID
+          example: Success get group invite link
+        results:
+          type: object
+          properties:
+            invite_link:
+              type: string
+              example: 'https://chat.whatsapp.com/ABC123...'
+              description: The group invite link
+            group_id:
+              type: string
+              example: '120363025982934543@g.us'
+              description: The group ID
