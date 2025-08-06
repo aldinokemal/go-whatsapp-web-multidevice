@@ -2230,6 +2230,7 @@ paths:
           in: query
           schema:
             type: boolean
+            default: false
           example: false
           description: Reset existing invite link
       responses:
