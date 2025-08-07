@@ -1,9 +1,6 @@
 package rest
 
 import (
-	"context"
-	"time"
-
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -21,7 +18,6 @@ func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	app.Post("/user/pushname", rest.UserChangePushName)
 	app.Get("/user/my/privacy", rest.UserMyPrivacySetting)
 	app.Get("/user/my/groups", rest.UserMyListGroups)
-	app.Get("/user/my/groups/metadata", rest.UserMyGroupsMetadata)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
@@ -177,21 +173,6 @@ func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get business profile",
-		Results: response,
-	})
-}
-
-func (controller *User) UserMyGroupsMetadata(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(c.UserContext(), 40*time.Second)
-	defer cancel()
-
-	response, err := controller.Service.MyGroupsMetadata(ctx)
-	utils.PanicIfNeeded(err)
-
-	return c.JSON(utils.ResponseData{
-		Status:  200,
-		Code:    "SUCCESS",
-		Message: "Success get group metadata",
 		Results: response,
 	})
 }

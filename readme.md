@@ -312,7 +312,6 @@ You can fork or edit this source code !
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
 | ✅       | User Change PushName                   | POST   | /user/pushname                      |
 | ✅       | User My Groups                         | GET    | /user/my/groups                     |
-| ✅       | User My Groups Metadata                | GET    | /user/my/groups/metadata            |
 | ✅       | User My Newsletter                     | GET    | /user/my/newsletters                |
 | ✅       | User My Privacy Setting                | GET    | /user/my/privacy                    |
 | ✅       | User My Contacts                       | GET    | /user/my/contacts                   |
