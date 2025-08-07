@@ -303,3 +303,100 @@ func (service serviceUser) BusinessProfile(ctx context.Context, request domainUs
 
 	return response, nil
 }
+
+func (service serviceUser) MyGroupsMetadata(ctx context.Context) (response domainUser.MyGroupsMetadataResponse, err error) {
+	utils.MustLogin(whatsapp.GetClient())
+
+	groups, err := whatsapp.GetClient().GetJoinedGroups()
+	if err != nil {
+		return
+	}
+
+	const maxParallel = 8
+	sem := make(chan struct{}, maxParallel)
+	results := make([]domainUser.GroupMeta, len(groups))
+
+	type groupWork struct {
+		index int
+		group *types.GroupInfo
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+
+	work := make(chan groupWork, len(groups))
+	done := make(chan error, maxParallel)
+
+	for i := 0; i < maxParallel; i++ {
+		go func() {
+			for w := range work {
+				select {
+				case <-ctx.Done():
+					done <- ctx.Err()
+					return
+				default:
+				}
+
+				sem <- struct{}{}
+				
+				ctxGroup, cancelGroup := context.WithTimeout(ctx, 3*time.Second)
+				info, err := whatsapp.GetClient().GetGroupInfo(w.group.JID)
+				cancelGroup()
+				
+				if err != nil {
+					<-sem
+					done <- err
+					return
+				}
+
+				var admins, members []string
+				isAdmin := false
+				currentUserJID := whatsapp.GetClient().Store.ID.User
+
+				for _, p := range info.Participants {
+					members = append(members, p.JID.String())
+					if p.IsAdmin {
+						admins = append(admins, p.JID.String())
+						if p.JID.User == currentUserJID {
+							isAdmin = true
+						}
+					}
+				}
+
+				var link string
+				if isAdmin {
+					link, _ = whatsapp.GetClient().GetGroupInviteLink(info.JID, false)
+				}
+
+				results[w.index] = domainUser.GroupMeta{
+					GroupID:     info.JID.String(),
+					Name:        info.Name,
+					IsAdmin:     isAdmin,
+					AdminCount:  len(admins),
+					MemberCount: len(members),
+					InviteLink:  link,
+					Locked:      info.IsLocked,
+					Announce:    info.IsAnnounce,
+					Ephemeral:   info.IsEphemeral,
+				}
+
+				<-sem
+				done <- nil
+			}
+		}()
+	}
+
+	for i, group := range groups {
+		work <- groupWork{index: i, group: group}
+	}
+	close(work)
+
+	for i := 0; i < len(groups); i++ {
+		if err := <-done; err != nil {
+			return response, err
+		}
+	}
+
+	response.Data = results
+	return response, nil
+}

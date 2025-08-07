@@ -107,3 +107,19 @@ type BusinessProfileResponse struct {
 	BusinessHoursTimeZone string                       `json:"business_hours_timezone"`
 	BusinessHours         []BusinessProfileHoursConfig `json:"business_hours"`
 }
+
+type GroupMeta struct {
+	GroupID     string `json:"group_id"`
+	Name        string `json:"name"`
+	IsAdmin     bool   `json:"is_admin"`
+	AdminCount  int    `json:"admin_count"`
+	MemberCount int    `json:"member_count"`
+	InviteLink  string `json:"invite_link,omitempty"`
+	Locked      bool   `json:"locked"`
+	Announce    bool   `json:"announce"`
+	Ephemeral   bool   `json:"ephemeral"`
+}
+
+type MyGroupsMetadataResponse struct {
+	Data []GroupMeta `json:"data"`
+}

@@ -312,6 +312,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/groups/metadata:
+    get:
+      operationId: userMyGroupsMetadata
+      tags:
+        - user
+      summary: User My Groups Metadata
+      description: Get detailed metadata for all groups including admin status, member counts, and invite links (admin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupMetadataResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/my/newsletters:
     get:
       operationId: userMyNewsletter
@@ -2459,6 +2479,48 @@ components:
                           type: boolean
                         Error:
                           type: number
+
+    UserGroupMetadataResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get groups metadata
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  group_id:
+                    type: string
+                    example: "120363025982934543@g.us"
+                    description: WhatsApp Group ID
+                  name:
+                    type: string
+                    example: "My Group Chat"
+                    description: Group name/topic
+                  is_admin:
+                    type: boolean
+                    example: true
+                    description: Whether current user is admin of this group
+                  admin_count:
+                    type: integer
+                    example: 3
+                    description: Total number of group administrators
+                  member_count:
+                    type: integer
+                    example: 25
+                    description: Total number of group members
+                  invite_link:
+                    type: string
+                    example: "https://chat.whatsapp.com/ABCdefgh123456789"
+                    description: Group invite link (only present when is_admin is true)
     UserInfoResponse:
       type: object
       required:

@@ -102,6 +102,7 @@
 
     <div class="ui three column doubling grid cards">
         <group-list :connected="connected_devices"></group-list>
+        <group-meta-list></group-meta-list>
         <group-create></group-create>
         <group-join-with-link></group-join-with-link>
         <group-info-from-link></group-info-from-link>
@@ -214,6 +215,7 @@
     import GroupSetTopic from "{{ .AppBasePath }}/components/GroupSetTopic.js";
     import GroupGetInviteLink from "{{ .AppBasePath }}/components/GroupGetInviteLink.js";
     import GroupInfo from "{{ .AppBasePath }}/components/GroupInfo.js";
+    import GroupMetaList from "{{ .AppBasePath }}/components/GroupMetaList.js";
     import NewsletterList from "{{ .AppBasePath }}/components/NewsletterList.js";
     import AccountAvatar from "{{ .AppBasePath }}/components/AccountAvatar.js";
     import AccountChangeAvatar from "{{ .AppBasePath }}/components/AccountChangeAvatar.js";
@@ -258,7 +260,7 @@
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
-            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
+            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo, GroupMetaList,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager, ChatList, ChatMessages
