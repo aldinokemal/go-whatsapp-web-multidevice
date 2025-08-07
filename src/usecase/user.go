@@ -338,11 +338,11 @@ func (service serviceUser) MyGroupsMetadata(ctx context.Context) (response domai
 				}
 
 				sem <- struct{}{}
-				
-				ctxGroup, cancelGroup := context.WithTimeout(ctx, 3*time.Second)
+
+				_, cancelGroup := context.WithTimeout(ctx, 3*time.Second)
 				info, err := whatsapp.GetClient().GetGroupInfo(w.group.JID)
 				cancelGroup()
-				
+
 				if err != nil {
 					<-sem
 					done <- err
