@@ -77,6 +77,16 @@ func (suite *EnvironmentTestSuite) TestEnv() {
 	viper.Set("TEST_BOOL", true)
 	boolResult := utils.Env[bool]("TEST_BOOL")
 	assert.Equal(suite.T(), true, boolResult)
+
+	// Test missing key without default returns zero value
+	var zeroInt int
+	zeroVal := utils.Env[int]("MISSING_INT")
+	assert.Equal(suite.T(), zeroInt, zeroVal)
+
+	// Test type mismatch returns provided default value
+	viper.Set("STRING_VALUE", "abc")
+	defaultInt := utils.Env[int]("STRING_VALUE", 10)
+	assert.Equal(suite.T(), 10, defaultInt)
 }
 
 func (suite *EnvironmentTestSuite) TestMustHaveEnv() {
