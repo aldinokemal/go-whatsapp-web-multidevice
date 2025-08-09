@@ -55,6 +55,8 @@ Download:
 - Basic Auth (able to add multi credentials)
   - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
   - `-b=kemal:secret,toni:password,userName:secretPassword`
+- Subpath deployment support
+  - `--base-path="/gowa"` (allows deployment under a specific path like `/gowa/sub/path`)
 - Customizable port and debug mode
   - `--port 8000`
   - `--debug true`
@@ -107,6 +109,7 @@ To use environment variables:
 | `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
 | `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
 | `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
+| `APP_BASE_PATH`               | Base path for subpath deployment            | -                                            | `APP_BASE_PATH=/gowa`                       |
 | `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
 | `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
 | `WHATSAPP_AUTO_MARK_READ`     | Auto-mark incoming messages as read         | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`              |
@@ -391,7 +394,7 @@ You can fork or edit this source code !
 | My Group             | ![My Group](./gallery/group-list.png)                         |
 | Group Info From Link | ![Group Info From Link](./gallery/group-info-from-link.png)   |
 | Create Group         | ![Create Group](./gallery/group-create.png)                   |
-| Join Group with LInk | ![Join Group with Link](./gallery/group-join-link.png)        |
+| Join Group with Link | ![Join Group with Link](./gallery/group-join-link.png)        |
 | Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
 | My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
 | My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |

@@ -3,6 +3,7 @@ package rest
 import (
 	"fmt"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -13,7 +14,7 @@ type App struct {
 	Service domainApp.IAppUsecase
 }
 
-func InitRestApp(app *fiber.App, service domainApp.IAppUsecase) App {
+func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 	rest := App{Service: service}
 	app.Get("/app/login", rest.Login)
 	app.Get("/app/login-with-code", rest.LoginWithCode)
@@ -34,7 +35,7 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Login success",
 		Results: map[string]any{
-			"qr_link":     fmt.Sprintf("%s://%s/%s", c.Protocol(), c.Hostname(), response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Protocol(), c.Hostname(), config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})

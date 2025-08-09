@@ -368,6 +368,8 @@ func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.
 		handleHistorySync(ctx, evt, chatStorageRepo)
 	case *events.AppState:
 		handleAppState(ctx, evt)
+	case *events.GroupInfo:
+		handleGroupInfo(ctx, evt)
 	}
 }
 
@@ -530,54 +532,107 @@ func handleAutoMarkRead(_ context.Context, evt *events.Message) {
 }
 
 func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
-	if config.WhatsappAutoReplyMessage != "" &&
-		!utils.IsGroupJID(evt.Info.Chat.String()) &&
-		!evt.Info.IsIncomingBroadcast() &&
-		!evt.Info.IsFromMe {
+	if config.WhatsappAutoReplyMessage == "" {
+		return
+	}
 
-		// Check if the incoming message has text content using the utility function
-		messageText := utils.ExtractMessageTextFromEvent(evt)
-		if messageText == "" {
-			return // Don't auto-reply to non-text messages
+	// Skip groups, broadcasts, and self messages
+	if utils.IsGroupJID(evt.Info.Chat.String()) || evt.Info.IsIncomingBroadcast() || evt.Info.IsFromMe {
+		return
+	}
+
+	// Only reply to direct 1:1 chats (e.g., *@s.whatsapp.net)
+	if evt.Info.Chat.Server != types.DefaultUserServer {
+		return
+	}
+
+	// Extra safety: skip any broadcast/status contexts
+	source := evt.Info.SourceString()
+	if strings.Contains(source, "broadcast") ||
+		strings.HasSuffix(evt.Info.Chat.String(), "@broadcast") ||
+		strings.HasPrefix(evt.Info.Chat.String(), "status@") {
+		return
+	}
+
+	// Require actual typed text (not captions or synthetic labels)
+	hasText := false
+
+	// Unwrap FutureProof wrappers to access the inner message content first
+	innerMsg := evt.Message
+	for i := 0; i < 3; i++ { // safeguard against excessively nested wrappers
+		if vm := innerMsg.GetViewOnceMessage(); vm != nil && vm.GetMessage() != nil {
+			innerMsg = vm.GetMessage()
+			continue
+		}
+		if em := innerMsg.GetEphemeralMessage(); em != nil && em.GetMessage() != nil {
+			innerMsg = em.GetMessage()
+			continue
+		}
+		if vm2 := innerMsg.GetViewOnceMessageV2(); vm2 != nil && vm2.GetMessage() != nil {
+			innerMsg = vm2.GetMessage()
+			continue
+		}
+		if vm2e := innerMsg.GetViewOnceMessageV2Extension(); vm2e != nil && vm2e.GetMessage() != nil {
+			innerMsg = vm2e.GetMessage()
+			continue
+		}
+		break
+	}
+
+	// Check for genuine typed text on the unwrapped content
+	if conv := innerMsg.GetConversation(); conv != "" {
+		hasText = true
+	} else if ext := innerMsg.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
+		hasText = true
+	} else if protoMsg := innerMsg.GetProtocolMessage(); protoMsg != nil {
+		if edited := protoMsg.GetEditedMessage(); edited != nil {
+			if ext := edited.GetExtendedTextMessage(); ext != nil && ext.GetText() != "" {
+				hasText = true
+			} else if conv := edited.GetConversation(); conv != "" {
+				hasText = true
+			}
+		}
+	}
+	if !hasText {
+		return
+	}
+
+	// Format recipient JID
+	recipientJID := utils.FormatJID(evt.Info.Sender.String())
+
+	// Send the auto-reply message
+	response, err := cli.SendMessage(
+		ctx,
+		recipientJID,
+		&waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)},
+	)
+
+	if err != nil {
+		log.Errorf("Failed to send auto-reply message: %v", err)
+		return
+	}
+
+	// Store the auto-reply message in chat storage if send was successful
+	if chatStorageRepo != nil {
+		// Get our own JID as sender
+		senderJID := ""
+		if cli.Store.ID != nil {
+			senderJID = cli.Store.ID.String()
 		}
 
-		// Format recipient JID
-		recipientJID := utils.FormatJID(evt.Info.Sender.String())
-
-		// Send the auto-reply message
-		response, err := cli.SendMessage(
+		// Store the sent auto-reply message
+		if err := chatStorageRepo.StoreSentMessageWithContext(
 			ctx,
-			recipientJID,
-			&waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)},
-		)
-
-		if err != nil {
-			log.Errorf("Failed to send auto-reply message: %v", err)
-			return
-		}
-
-		// Store the auto-reply message in chat storage if send was successful
-		if chatStorageRepo != nil {
-			// Get our own JID as sender
-			senderJID := ""
-			if cli.Store.ID != nil {
-				senderJID = cli.Store.ID.String()
-			}
-
-			// Store the sent auto-reply message
-			if err := chatStorageRepo.StoreSentMessageWithContext(
-				ctx,
-				response.ID,                     // Message ID from WhatsApp response
-				senderJID,                       // Our JID as sender
-				recipientJID.String(),           // Recipient JID
-				config.WhatsappAutoReplyMessage, // Auto-reply content
-				response.Timestamp,              // Timestamp from response
-			); err != nil {
-				// Log storage error but don't fail the auto-reply
-				log.Errorf("Failed to store auto-reply message in chat storage: %v", err)
-			} else {
-				log.Debugf("Auto-reply message %s stored successfully in chat storage", response.ID)
-			}
+			response.ID,                     // Message ID from WhatsApp response
+			senderJID,                       // Our JID as sender
+			recipientJID.String(),           // Recipient JID
+			config.WhatsappAutoReplyMessage, // Auto-reply content
+			response.Timestamp,              // Timestamp from response
+		); err != nil {
+			// Log storage error but don't fail the auto-reply
+			log.Errorf("Failed to store auto-reply message in chat storage: %v", err)
+		} else {
+			log.Debugf("Auto-reply message %s stored successfully in chat storage", response.ID)
 		}
 	}
 }
@@ -615,6 +670,7 @@ func handleReceipt(ctx context.Context, evt *events.Receipt) {
 	}
 
 	// Forward receipt (ack) event to webhook if configured
+	// Note: Receipt events are not rate limited as they are critical for message delivery status
 	if len(config.WhatsappWebhook) > 0 && sendReceipt {
 		go func(e *events.Receipt) {
 			if err := forwardReceiptToWebhook(ctx, e); err != nil {
@@ -878,4 +934,37 @@ func processPushNames(_ context.Context, data *waHistorySync.HistorySync, chatSt
 	}
 
 	return nil
+}
+
+func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
+	// Only process events that have actual changes
+	hasChanges := len(evt.Join) > 0 || len(evt.Leave) > 0 || len(evt.Promote) > 0 || len(evt.Demote) > 0 ||
+		evt.Name != nil || evt.Topic != nil || evt.Locked != nil || evt.Announce != nil
+
+	if !hasChanges {
+		return
+	}
+
+	// Log group events for debugging
+	if len(evt.Join) > 0 {
+		log.Infof("Group %s: %d users joined at %s", evt.JID, len(evt.Join), evt.Timestamp)
+	}
+	if len(evt.Leave) > 0 {
+		log.Infof("Group %s: %d users left at %s", evt.JID, len(evt.Leave), evt.Timestamp)
+	}
+	if len(evt.Promote) > 0 {
+		log.Infof("Group %s: %d users promoted at %s", evt.JID, len(evt.Promote), evt.Timestamp)
+	}
+	if len(evt.Demote) > 0 {
+		log.Infof("Group %s: %d users demoted at %s", evt.JID, len(evt.Demote), evt.Timestamp)
+	}
+
+	// Forward group info event to webhook if configured
+	if len(config.WhatsappWebhook) > 0 {
+		go func(e *events.GroupInfo) {
+			if err := forwardGroupInfoToWebhook(ctx, e); err != nil {
+				logrus.Errorf("Failed to forward group info event to webhook: %v", err)
+			}
+		}(evt)
+	}
 }

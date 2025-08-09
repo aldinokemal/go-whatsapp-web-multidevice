@@ -10,7 +10,7 @@ type Newsletter struct {
 	Service domainNewsletter.INewsletterUsecase
 }
 
-func InitRestNewsletter(app *fiber.App, service domainNewsletter.INewsletterUsecase) Newsletter {
+func InitRestNewsletter(app fiber.Router, service domainNewsletter.INewsletterUsecase) Newsletter {
 	rest := Newsletter{Service: service}
 	app.Post("/newsletter/unfollow", rest.Unfollow)
 	return rest

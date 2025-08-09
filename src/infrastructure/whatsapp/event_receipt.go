@@ -70,7 +70,7 @@ func createReceiptPayload(evt *events.Receipt) map[string]any {
 
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs
 func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt) error {
-	logrus.Info("Forwarding message ack event to webhook:", config.WhatsappWebhook)
+	logrus.Infof("Forwarding message ack event to %d configured webhook(s)", len(config.WhatsappWebhook))
 	payload := createReceiptPayload(evt)
 
 	for _, url := range config.WhatsappWebhook {
