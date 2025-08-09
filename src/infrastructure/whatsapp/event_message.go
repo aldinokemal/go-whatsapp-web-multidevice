@@ -43,14 +43,20 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 
 	body["sender_id"] = evt.Info.Sender.User
 	body["chat_id"] = evt.Info.Chat.User
+	body["is_group"] = evt.Info.Chat.Server == "g.us"
+	body["is_from_me"] = evt.Info.IsFromMe
+	body["has_media"] = evt.Message.GetAudioMessage() != nil ||
+		evt.Message.GetImageMessage() != nil ||
+		evt.Message.GetVideoMessage() != nil ||
+		evt.Message.GetStickerMessage() != nil ||
+		evt.Message.GetDocumentMessage() != nil
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
 
-		from_user, from_group := from, ""
+		from_user, _ := from, ""
 		if strings.Contains(from, " in ") {
 			from_user = strings.Split(from, " in ")[0]
-			from_group = strings.Split(from, " in ")[1]
 		}
 
 		if strings.HasSuffix(from_user, "@lid") {
@@ -64,13 +70,11 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
 				}
 				if !pn.IsEmpty() {
-					if from_group != "" {
-						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
-					} else {
-						body["from"] = pn.String()
-					}
+					body["from"] = pn.String()
 				}
 			}
+		} else if strings.Contains(from, " in ") {
+			body["from"] = strings.Split(from, " in ")[0]
 		}
 	}
 	if message.ID != "" {
@@ -143,6 +147,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["audio"] = path
 	}
 
@@ -156,6 +161,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["document"] = path
 	}
 
@@ -165,6 +171,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["image"] = path
 	}
 
@@ -190,6 +197,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["sticker"] = path
 	}
 
@@ -199,6 +207,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
+		path.Url = config.BaseURL + "/" + path.MediaPath
 		body["video"] = path
 	}
 
