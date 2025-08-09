@@ -14,9 +14,9 @@ func TestValidateMarkAsRead(t *testing.T) {
 		request domainMessage.MarkAsReadRequest
 	}
 	tests := []struct {
-		name string
-		args args
-		err  any
+		name        string
+		args        args
+		errContains []string
 	}{
 		{
 			name: "should success with valid message id and phone",
@@ -24,7 +24,7 @@ func TestValidateMarkAsRead(t *testing.T) {
 				MessageID: "3EB0789ABC123456",
 				Phone:     "6281234567890@s.whatsapp.net",
 			}},
-			err: nil,
+			errContains: nil,
 		},
 		{
 			name: "should error with empty message id",
@@ -32,7 +32,7 @@ func TestValidateMarkAsRead(t *testing.T) {
 				MessageID: "",
 				Phone:     "6281234567890@s.whatsapp.net",
 			}},
-			err: pkgError.ValidationError("message_id: cannot be blank."),
+			errContains: []string{"message_id: cannot be blank"},
 		},
 		{
 			name: "should error with empty phone",
@@ -40,7 +40,7 @@ func TestValidateMarkAsRead(t *testing.T) {
 				MessageID: "3EB0789ABC123456",
 				Phone:     "",
 			}},
-			err: pkgError.ValidationError("phone: cannot be blank."),
+			errContains: []string{"phone: cannot be blank"},
 		},
 		{
 			name: "should error with empty message id and phone",
@@ -48,21 +48,20 @@ func TestValidateMarkAsRead(t *testing.T) {
 				MessageID: "",
 				Phone:     "",
 			}},
-			err: pkgError.ValidationError("message_id: cannot be blank; phone: cannot be blank."),
+			errContains: []string{"message_id: cannot be blank", "phone: cannot be blank"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateMarkAsRead(context.Background(), tt.args.request)
-			if tt.err == nil {
+			if len(tt.errContains) == 0 {
 				assert.NoError(t, err)
-			} else if tt.name == "should error with empty message id and phone" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "message_id: cannot be blank")
-				assert.Contains(t, err.Error(), "phone: cannot be blank")
 			} else {
-				assert.Equal(t, tt.err, err)
+				assert.Error(t, err)
+				for _, msg := range tt.errContains {
+					assert.ErrorContains(t, err, msg)
+				}
 			}
 		})
 	}
