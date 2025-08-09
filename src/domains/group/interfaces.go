@@ -10,6 +10,7 @@ type IGroupManagement interface {
 	LeaveGroup(ctx context.Context, request LeaveGroupRequest) (err error)
 	CreateGroup(ctx context.Context, request CreateGroupRequest) (groupID string, err error)
 	GetGroupInfoFromLink(ctx context.Context, request GetGroupInfoFromLinkRequest) (response GetGroupInfoFromLinkResponse, err error)
+	GetGroupInviteLink(ctx context.Context, request GetGroupInviteLinkRequest) (response GetGroupInviteLinkResponse, err error)
 	GroupInfo(ctx context.Context, request GroupInfoRequest) (response GroupInfoResponse, err error)
 }
 

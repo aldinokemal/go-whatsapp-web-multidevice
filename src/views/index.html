@@ -111,6 +111,7 @@
         <group-set-locked></group-set-locked>
         <group-set-announce></group-set-announce>
         <group-set-topic></group-set-topic>
+        <group-get-invite-link></group-get-invite-link>
         <group-info></group-info>
     </div>
 
@@ -211,6 +212,7 @@
     import GroupSetLocked from "{{ .AppBasePath }}/components/GroupSetLocked.js";
     import GroupSetAnnounce from "{{ .AppBasePath }}/components/GroupSetAnnounce.js";
     import GroupSetTopic from "{{ .AppBasePath }}/components/GroupSetTopic.js";
+    import GroupGetInviteLink from "{{ .AppBasePath }}/components/GroupGetInviteLink.js";
     import GroupInfo from "{{ .AppBasePath }}/components/GroupInfo.js";
     import NewsletterList from "{{ .AppBasePath }}/components/NewsletterList.js";
     import AccountAvatar from "{{ .AppBasePath }}/components/AccountAvatar.js";
@@ -256,7 +258,7 @@
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
-            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupInfo,
+            GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager, ChatList, ChatMessages
