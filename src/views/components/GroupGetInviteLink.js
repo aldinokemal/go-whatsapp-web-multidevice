@@ -203,7 +203,7 @@ export default {
                                style="font-family: monospace; background-color: #f8f9fa; cursor: text;"
                                @click="$event.target.select()"
                                @focus="$event.target.select()">
-                        <button type="button" class="ui button" @click="copyToClipboard" :class="{'loading': copying}">
+                        <button type="button" class="ui blue button" @click="copyToClipboard" :class="{'loading': copying}">
                             <i class="copy icon"></i>
                             <span v-if="copying">Copying...</span>
                             <span v-else>Copy</span>

@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.9.0
+  version: 6.10.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -2215,17 +2215,16 @@ paths:
                 $ref: '#/components/schemas/ErrorInternalServer'
   /group/{group_id}/invite-link:
     get:
-      operationId: getGroupInviteLink
+      operationId: groupInviteLink
       tags:
         - group
-      summary: Get group invite link
+      summary: Group Invite Link
       parameters:
-        - name: group_id
-          in: path
-          required: true
+        - in: path
+          name: group_id
           schema:
             type: string
-          example: '120363025982934543@g.us'
+          required: true
           description: WhatsApp Group ID
         - name: reset
           in: query
