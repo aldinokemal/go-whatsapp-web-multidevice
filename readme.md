@@ -395,7 +395,7 @@ You can fork or edit this source code !
 | My Group             | ![My Group](./gallery/group-list.png)                         |
 | Group Info From Link | ![Group Info From Link](./gallery/group-info-from-link.png)   |
 | Create Group         | ![Create Group](./gallery/group-create.png)                   |
-| Join Group with LInk | ![Join Group with Link](./gallery/group-join-link.png)        |
+| Join Group with Link | ![Join Group with Link](./gallery/group-join-link.png)        |
 | Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
 | My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
 | My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |
