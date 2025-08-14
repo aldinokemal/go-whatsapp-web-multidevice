@@ -100,8 +100,8 @@ type GroupInfoRequest struct {
 }
 
 type GetGroupInviteLinkRequest struct {
-	GroupID string `json:"group_id" form:"group_id"`
-	Reset   bool   `json:"reset" form:"reset"`
+	GroupID string `json:"group_id" query:"group_id"`
+	Reset   bool   `json:"reset" query:"reset"`
 }
 
 type GetGroupInviteLinkResponse struct {

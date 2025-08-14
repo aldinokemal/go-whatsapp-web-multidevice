@@ -53,8 +53,11 @@ export default {
         async getInviteLink() {
             this.loading = true;
             try {
-                const response = await window.http.get(`/group/${this.fullGroupID}/invite-link`, {
-                    params: { reset: this.resetLink }
+                const response = await window.http.get(`/group/invite-link`, {
+                    params: { 
+                        group_id: this.fullGroupID,
+                        reset: this.resetLink 
+                    }
                 });
                 console.log('API Response:', response.data); // Debug log
                 // Handle different possible response structures

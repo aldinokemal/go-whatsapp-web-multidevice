@@ -34,7 +34,7 @@ func InitRestGroup(app fiber.Router, service domainGroup.IGroupUsecase) Group {
 	app.Post("/group/locked", rest.SetGroupLocked)
 	app.Post("/group/announce", rest.SetGroupAnnounce)
 	app.Post("/group/topic", rest.SetGroupTopic)
-	app.Get("/group/:group_id/invite-link", rest.GetGroupInviteLink)
+	app.Get("/group/invite-link", rest.GetGroupInviteLink)
 	return rest
 }
 
@@ -346,7 +346,6 @@ func (controller *Group) GetGroupInviteLink(c *fiber.Ctx) error {
 	err := c.QueryParser(&request)
 	utils.PanicIfNeeded(err)
 
-	request.GroupID = c.Params("group_id")
 	utils.SanitizePhone(&request.GroupID)
 
 	response, err := controller.Service.GetGroupInviteLink(c.UserContext(), request)

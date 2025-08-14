@@ -2213,15 +2213,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  /group/{group_id}/invite-link:
+  /group/invite-link:
     get:
       operationId: groupInviteLink
       tags:
         - group
       summary: Group Invite Link
       parameters:
-        - in: path
-          name: group_id
+        - name: group_id
+          in: query
           schema:
             type: string
           required: true
