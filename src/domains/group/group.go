@@ -99,6 +99,16 @@ type GroupInfoRequest struct {
 	GroupID string `json:"group_id" query:"group_id"`
 }
 
+type GetGroupInviteLinkRequest struct {
+	GroupID string `json:"group_id" query:"group_id"`
+	Reset   bool   `json:"reset" query:"reset"`
+}
+
+type GetGroupInviteLinkResponse struct {
+	InviteLink string `json:"invite_link"`
+	GroupID    string `json:"group_id"`
+}
+
 type GroupInfoResponse struct {
 	Data any `json:"data"`
 }
