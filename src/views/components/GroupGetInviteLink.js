@@ -59,20 +59,18 @@ export default {
                         reset: this.resetLink 
                     }
                 });
-                console.log('API Response:', response.data); // Debug log
-                // Handle different possible response structures
-                if (response.data.results && response.data.results.invite_link) {
+                if (response.data.results && typeof response.data.results.invite_link === 'string') {
                     this.inviteLink = response.data.results.invite_link;
-                } else if (response.data.invite_link) {
+                } else if (response.data && typeof response.data.invite_link === 'string') {
                     this.inviteLink = response.data.invite_link;
-                } else if (response.data.results) {
+                } else if (typeof response.data.results === 'string') {
                     this.inviteLink = response.data.results;
-                } else {
+                } else if (typeof response.data === 'string') {
                     this.inviteLink = response.data;
+                } else {
+                    this.inviteLink = '';
                 }
-                console.log('Extracted invite link:', this.inviteLink); // Debug log
             } catch (error) {
-                console.error('Error fetching invite link:', error); // Debug log
                 if (error.response) {
                     throw new Error(error.response.data.message || error.response.data);
                 }
