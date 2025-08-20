@@ -21,6 +21,7 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Me
 	app.Post("/message/:message_id/read", rest.MarkAsRead)
 	app.Post("/message/:message_id/star", rest.StarMessage)
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
+	app.Get("/message/:message_id/download", rest.DownloadMedia)
 	return rest
 }
 
@@ -155,5 +156,23 @@ func (controller *Message) UnstarMessage(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Unstarred message successfully",
 		Results: nil,
+	})
+}
+
+func (controller *Message) DownloadMedia(c *fiber.Ctx) error {
+	var request domainMessage.DownloadMediaRequest
+
+	request.MessageID = c.Params("message_id")
+	request.Phone = c.Query("phone")
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.DownloadMedia(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
 	})
 }

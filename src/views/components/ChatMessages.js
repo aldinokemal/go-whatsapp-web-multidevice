@@ -13,6 +13,12 @@ export default {
       currentPage: 1,
       pageSize: 20,
       totalMessages: 0,
+      // Media download tracking
+      downloadedMedia: {}, // messageId -> { file_path, media_type, file_size, status }
+      downloadingMedia: new Set(), // Set of messageIds currently downloading
+      mediaDownloadErrors: {}, // messageId -> error message
+      maxConcurrentDownloads: 3,
+      currentDownloads: 0,
     };
   },
   computed: {
@@ -91,6 +97,9 @@ export default {
 
         if (this.messages.length === 0) {
           showErrorInfo("No messages found for the specified criteria");
+        } else {
+          // Auto-download media for loaded messages
+          this.downloadAllMediaInMessages();
         }
       } catch (error) {
         showErrorInfo(
@@ -126,6 +135,11 @@ export default {
       this.onlyMedia = false;
       this.currentPage = 1;
       this.totalMessages = 0;
+      // Clear media download state
+      this.downloadedMedia = {};
+      this.downloadingMedia.clear();
+      this.mediaDownloadErrors = {};
+      this.currentDownloads = 0;
     },
     formatTimestamp(timestamp) {
       if (!timestamp) return "N/A";
@@ -147,6 +161,139 @@ export default {
       if (message.media_type) return `[${message.media_type.toUpperCase()}]`;
       return "[No content]";
     },
+    getMediaDisplay(message) {
+      if (!message.media_type || !message.url || !message.id) {
+        return null;
+      }
+
+      const messageId = message.id;
+      const downloadedInfo = this.downloadedMedia[messageId];
+      const isDownloaded = this.isMediaDownloaded(messageId);
+      const isDownloading = this.isMediaDownloading(messageId);
+      const hasError = this.hasMediaDownloadError(messageId);
+
+      // Show loading state
+      if (isDownloading) {
+        return {
+          type: 'loading',
+          content: `<div class="ui active mini inline loader"></div> Downloading ${message.media_type}...`
+        };
+      }
+
+      // Show error state with retry option
+      if (hasError) {
+        return {
+          type: 'error',
+          content: `<div class="ui red message">
+            <i class="exclamation triangle icon"></i>
+            Failed to download ${message.media_type}
+            <span class="ui mini button" style="cursor: pointer; margin-left: 10px;" 
+                  onclick="document.dispatchEvent(new CustomEvent('retryMediaDownload', {detail: '${messageId}'}))">
+              <i class="redo icon"></i> Retry
+            </span>
+          </div>`
+        };
+      }
+
+      // Show downloaded media
+      if (isDownloaded && downloadedInfo) {
+        const filePath = downloadedInfo.file_path;
+        const mediaType = downloadedInfo.media_type;
+        const filename = downloadedInfo.filename;
+        const fileSize = downloadedInfo.file_size;
+
+        switch (mediaType.toLowerCase()) {
+          case 'image':
+            return {
+              type: 'image',
+              content: `<div class="ui fluid image">
+                <img src="${filePath}" alt="${filename}" style="max-width: 300px; max-height: 300px; border-radius: 4px;" 
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <div style="display: none;" class="ui placeholder segment">
+                  <div class="ui icon header">
+                    <i class="image outline icon"></i>
+                    Image not available
+                  </div>
+                </div>
+              </div>`
+            };
+
+          case 'video':
+            return {
+              type: 'video',
+              content: `<div class="ui fluid">
+                <video controls style="max-width: 300px; max-height: 300px; border-radius: 4px;" preload="metadata">
+                  <source src="${filePath}" type="video/mp4">
+                  <source src="${filePath}" type="video/webm">
+                  <source src="${filePath}" type="video/ogg">
+                  Your browser does not support the video tag.
+                </video>
+              </div>`
+            };
+
+          case 'audio':
+            return {
+              type: 'audio',
+              content: `<div class="ui fluid">
+                <audio controls style="width: 100%; max-width: 300px;">
+                  <source src="${filePath}" type="audio/mpeg">
+                  <source src="${filePath}" type="audio/ogg">
+                  <source src="${filePath}" type="audio/wav">
+                  Your browser does not support the audio tag.
+                </audio>
+              </div>`
+            };
+
+          case 'document':
+            const sizeText = fileSize ? `(${Math.round(fileSize / 1024)} KB)` : '';
+            return {
+              type: 'document',
+              content: `<div class="ui labeled button">
+                <a href="${filePath}" download="${filename}" class="ui button">
+                  <i class="download icon"></i>
+                  ${filename} ${sizeText}
+                </a>
+                <div class="ui basic left pointing label">
+                  Document
+                </div>
+              </div>`
+            };
+
+          case 'sticker':
+            return {
+              type: 'sticker',
+              content: `<div class="ui">
+                <img src="${filePath}" alt="Sticker" style="max-width: 150px; max-height: 150px; border-radius: 4px;" 
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <div style="display: none;" class="ui placeholder segment">
+                  <div class="ui icon header">
+                    <i class="smile outline icon"></i>
+                    Sticker not available
+                  </div>
+                </div>
+              </div>`
+            };
+
+          default:
+            return {
+              type: 'unknown',
+              content: `<div class="ui message">
+                <i class="file icon"></i>
+                Unknown media type: ${mediaType}
+              </div>`
+            };
+        }
+      }
+
+      // Default: show media available label
+      return {
+        type: 'available',
+        content: `<div class="ui tiny blue label">
+          <i class="linkify icon"></i>
+          ${message.media_type.toUpperCase()} Available
+        </div>`
+      };
+    },
     getMessageStyle(message) {
       const baseStyle = {
         padding: "1em",
@@ -166,6 +313,103 @@ export default {
         };
       }
     },
+    // Media download methods
+    isMediaDownloaded(messageId) {
+      return this.downloadedMedia[messageId] && this.downloadedMedia[messageId].status === 'completed';
+    },
+    isMediaDownloading(messageId) {
+      return this.downloadingMedia.has(messageId);
+    },
+    hasMediaDownloadError(messageId) {
+      return !!this.mediaDownloadErrors[messageId];
+    },
+    async downloadMediaForMessage(message) {
+      if (!message.media_type || !message.url || !message.id) {
+        return;
+      }
+
+      const messageId = message.id;
+      
+      // Skip if already downloaded or downloading
+      if (this.isMediaDownloaded(messageId) || this.isMediaDownloading(messageId)) {
+        return;
+      }
+
+      // Check concurrent download limit
+      if (this.currentDownloads >= this.maxConcurrentDownloads) {
+        return;
+      }
+
+      try {
+        this.downloadingMedia.add(messageId);
+        this.currentDownloads++;
+        
+        // Clear any previous error
+        if (this.mediaDownloadErrors[messageId]) {
+          delete this.mediaDownloadErrors[messageId];
+        }
+
+        const response = await window.http.get(
+          `/message/${messageId}/download?phone=${this.formattedJid}`
+        );
+
+        if (response.data && response.data.results) {
+          this.downloadedMedia[messageId] = {
+            file_path: response.data.results.file_path,
+            media_type: response.data.results.media_type,
+            file_size: response.data.results.file_size,
+            filename: response.data.results.filename,
+            status: 'completed'
+          };
+        }
+      } catch (error) {
+        console.error(`Failed to download media for message ${messageId}:`, error);
+        this.mediaDownloadErrors[messageId] = error.response?.data?.message || 'Download failed';
+      } finally {
+        this.downloadingMedia.delete(messageId);
+        this.currentDownloads--;
+      }
+    },
+    async retryMediaDownload(messageId) {
+      const message = this.messages.find(m => m.id === messageId);
+      if (message) {
+        // Clear the error first
+        delete this.mediaDownloadErrors[messageId];
+        await this.downloadMediaForMessage(message);
+      }
+    },
+    async downloadAllMediaInMessages() {
+      const mediaMessages = this.messages.filter(message => 
+        message.media_type && message.url && message.id &&
+        !this.isMediaDownloaded(message.id) && !this.isMediaDownloading(message.id)
+      );
+
+      if (mediaMessages.length === 0) {
+        return;
+      }
+
+      // Download in batches to respect concurrency limit
+      const downloadQueue = [...mediaMessages];
+      
+      const processQueue = async () => {
+        while (downloadQueue.length > 0 && this.currentDownloads < this.maxConcurrentDownloads) {
+          const message = downloadQueue.shift();
+          if (message) {
+            await this.downloadMediaForMessage(message);
+            // Small delay to prevent overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        // If there are still items in queue and we can download more, continue
+        if (downloadQueue.length > 0 && this.currentDownloads < this.maxConcurrentDownloads) {
+          setTimeout(processQueue, 500); // Wait a bit before checking again
+        }
+      };
+
+      // Start processing
+      processQueue();
+    },
   },
   mounted() {
     // Store the event handler so we can remove it later
@@ -173,13 +417,25 @@ export default {
       this.openModal();
     };
     
+    // Handle retry media download events
+    this.handleRetryMediaDownload = (event) => {
+      const messageId = event.detail;
+      this.retryMediaDownload(messageId);
+    };
+    
     // Listen for custom event from ChatList to open modal properly
     window.addEventListener('openChatMessages', this.handleOpenChatMessages);
+    
+    // Listen for retry media download events
+    document.addEventListener('retryMediaDownload', this.handleRetryMediaDownload);
   },
   beforeUnmount() {
-    // Clean up event listener
+    // Clean up event listeners
     if (this.handleOpenChatMessages) {
       window.removeEventListener('openChatMessages', this.handleOpenChatMessages);
+    }
+    if (this.handleRetryMediaDownload) {
+      document.removeEventListener('retryMediaDownload', this.handleRetryMediaDownload);
     }
   },
   template: `
@@ -310,9 +566,8 @@ export default {
                             </div>
                             <div class="description">
                                 <p>{{ getMessageContent(message) }}</p>
-                                <div v-if="message.url" class="ui tiny blue label">
-                                    <i class="linkify icon"></i>
-                                    Media Available
+                                <div v-if="message.media_type && message.url" class="media-container" style="margin-top: 0.5em;">
+                                    <div v-if="getMediaDisplay(message)" v-html="getMediaDisplay(message).content"></div>
                                 </div>
                             </div>
                         </div>
