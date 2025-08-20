@@ -204,3 +204,15 @@ func ValidateGroupInfo(ctx context.Context, request domainGroup.GroupInfoRequest
 
 	return nil
 }
+
+func ValidateGetGroupInviteLink(ctx context.Context, request domainGroup.GetGroupInviteLinkRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

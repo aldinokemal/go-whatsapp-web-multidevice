@@ -352,6 +352,7 @@ You can fork or edit this source code !
 | ✅       | Set Group Locked                       | POST   | /group/locked                       |
 | ✅       | Set Group Announce                     | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
+| ✅       | Get Group Invite Link                  | GET    | /group/:group_id/invite-link        |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
