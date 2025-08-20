@@ -22,7 +22,8 @@ ___
 Download:
 
 - [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
-- [Docker Image](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
+- [Docker Hub](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
+- [GitHub Container Registry](https://github.com/aldinokemal/go-whatsapp-web-multidevice/pkgs/container/go-whatsapp-web-multidevice)
 
 ## Support n8n package (n8n.io)
 
@@ -225,13 +226,21 @@ For AI tools that support MCP with SSE (like Cursor), add this configuration:
 
 ### Production Mode REST (docker)
 
+Using Docker Hub:
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
+```
+
+Using GitHub Container Registry:
+```bash
+docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages ghcr.io/aldinokemal/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
 ### Production Mode REST (docker compose)
 
 create `docker-compose.yml` file with the following configuration:
+
+Using Docker Hub:
 
 ```yml
 services:
@@ -255,12 +264,59 @@ volumes:
   whatsapp:
 ```
 
-or with env file
+Using GitHub Container Registry:
+
+```yml
+services:
+  whatsapp:
+    image: ghcr.io/aldinokemal/go-whatsapp-web-multidevice
+    container_name: whatsapp
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - whatsapp:/app/storages
+    command:
+      - rest
+      - --basic-auth=admin:admin
+      - --port=3000
+      - --debug=true
+      - --os=Chrome
+      - --account-validation=false
+
+volumes:
+  whatsapp:
+```
+
+or with env file (Docker Hub):
 
 ```yml
 services:
   whatsapp:
     image: aldinokemal2104/go-whatsapp-web-multidevice
+    container_name: whatsapp
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - whatsapp:/app/storages
+    environment:
+      - APP_BASIC_AUTH=admin:admin
+      - APP_PORT=3000
+      - APP_DEBUG=true
+      - APP_OS=Chrome
+      - APP_ACCOUNT_VALIDATION=false
+
+volumes:
+  whatsapp:
+```
+
+or with env file (GitHub Container Registry):
+
+```yml
+services:
+  whatsapp:
+    image: ghcr.io/aldinokemal/go-whatsapp-web-multidevice
     container_name: whatsapp
     restart: always
     ports:
@@ -352,7 +408,7 @@ You can fork or edit this source code !
 | ✅       | Set Group Locked                       | POST   | /group/locked                       |
 | ✅       | Set Group Announce                     | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
-| ✅       | Get Group Invite Link                  | GET    | /group/:group_id/invite-link        |
+| ✅       | Get Group Invite Link                  | GET    | /group/invite-link                  |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
