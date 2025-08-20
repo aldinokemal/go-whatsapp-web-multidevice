@@ -13,6 +13,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     environment: production
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Login Registry
@@ -20,6 +23,12 @@ jobs:
         with:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Login GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build and push
@@ -28,12 +37,21 @@ jobs:
           push: true
           context: .
           file: ./docker/golang.Dockerfile
-          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest,${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
+          tags: |
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
+            ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:latest
+            ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:latest-amd
+            ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
 
   build-and-push-arm:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     environment: production
     runs-on: [ARM64]
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Login Registry
@@ -41,6 +59,12 @@ jobs:
         with:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Login GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build and push
@@ -49,18 +73,31 @@ jobs:
           push: true
           context: .
           file: ./docker/golang.Dockerfile
-          tags: ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm, ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
+          tags: |
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm
+            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
+            ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:latest-arm
+            ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
 
   merge-manifest:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: [build-and-push-amd, build-and-push-arm]
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Login Registry
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Login GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Create Versioned Manifest (${{ github.ref_name }})
@@ -73,3 +110,13 @@ jobs:
           docker buildx imagetools create -t ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest \
             ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-amd \
             ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest-arm
+      - name: Create Versioned Manifest (GHCR) (${{ github.ref_name }})
+        run: |
+          docker buildx imagetools create -t ghcr.io/aldinokemal/go-whatsapp-web-multidevice:${{ github.ref_name }} \
+            ghcr.io/aldinokemal/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd \
+            ghcr.io/aldinokemal/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm
+      - name: Create Latest Manifest (GHCR)
+        run: |
+          docker buildx imagetools create -t ghcr.io/aldinokemal/go-whatsapp-web-multidevice:latest \
+            ghcr.io/aldinokemal/go-whatsapp-web-multidevice:latest-amd \
+            ghcr.io/aldinokemal/go-whatsapp-web-multidevice:latest-arm
