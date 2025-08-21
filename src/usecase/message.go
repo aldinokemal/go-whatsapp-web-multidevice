@@ -3,14 +3,18 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -181,4 +185,127 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 		return err
 	}
 	return nil
+}
+
+// DownloadMedia implements message.IMessageService.
+func (service serviceMessage) DownloadMedia(ctx context.Context, request domainMessage.DownloadMediaRequest) (response domainMessage.DownloadMediaResponse, err error) {
+	if err = validations.ValidateDownloadMedia(ctx, request); err != nil {
+		return response, err
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Query the message from chat storage
+	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if err != nil {
+		return response, fmt.Errorf("message not found: %v", err)
+	}
+
+	if message == nil {
+		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+	}
+
+	// Check if message has media
+	if message.MediaType == "" || message.URL == "" {
+		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
+	}
+
+	// Verify the message is from the specified chat
+	if message.ChatJID != dataWaRecipient.String() {
+		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
+	}
+
+	// Create directory structure for organized storage
+	chatDir := filepath.Join(config.PathMedia, utils.ExtractPhoneNumber(message.ChatJID))
+	dateDir := filepath.Join(chatDir, message.Timestamp.Format("2006-01-02"))
+
+	err = os.MkdirAll(dateDir, 0755)
+	if err != nil {
+		return response, fmt.Errorf("failed to create directory: %v", err)
+	}
+
+	// Create a downloadable message interface based on media type
+	var downloadableMsg interface{}
+
+	switch message.MediaType {
+	case "image":
+		downloadableMsg = &waE2E.ImageMessage{
+			URL:           proto.String(message.URL),
+			MediaKey:      message.MediaKey,
+			FileSHA256:    message.FileSHA256,
+			FileEncSHA256: message.FileEncSHA256,
+			FileLength:    proto.Uint64(message.FileLength),
+		}
+	case "video":
+		downloadableMsg = &waE2E.VideoMessage{
+			URL:           proto.String(message.URL),
+			MediaKey:      message.MediaKey,
+			FileSHA256:    message.FileSHA256,
+			FileEncSHA256: message.FileEncSHA256,
+			FileLength:    proto.Uint64(message.FileLength),
+		}
+	case "audio":
+		downloadableMsg = &waE2E.AudioMessage{
+			URL:           proto.String(message.URL),
+			MediaKey:      message.MediaKey,
+			FileSHA256:    message.FileSHA256,
+			FileEncSHA256: message.FileEncSHA256,
+			FileLength:    proto.Uint64(message.FileLength),
+		}
+	case "document":
+		downloadableMsg = &waE2E.DocumentMessage{
+			URL:           proto.String(message.URL),
+			MediaKey:      message.MediaKey,
+			FileSHA256:    message.FileSHA256,
+			FileEncSHA256: message.FileEncSHA256,
+			FileLength:    proto.Uint64(message.FileLength),
+			FileName:      proto.String(message.Filename),
+		}
+	case "sticker":
+		downloadableMsg = &waE2E.StickerMessage{
+			URL:           proto.String(message.URL),
+			MediaKey:      message.MediaKey,
+			FileSHA256:    message.FileSHA256,
+			FileEncSHA256: message.FileEncSHA256,
+			FileLength:    proto.Uint64(message.FileLength),
+		}
+	default:
+		return response, fmt.Errorf("unsupported media type: %s", message.MediaType)
+	}
+
+	// Download the media using existing utils.ExtractMedia function
+	extractedMedia, err := utils.ExtractMedia(ctx, whatsapp.GetClient(), dateDir, downloadableMsg.(whatsmeow.DownloadableMessage))
+	if err != nil {
+		return response, fmt.Errorf("failed to download media: %v", err)
+	}
+
+	// Get file size
+	fileInfo, err := os.Stat(extractedMedia.MediaPath)
+	if err != nil {
+		logrus.Warnf("Could not get file size for %s: %v", extractedMedia.MediaPath, err)
+	}
+
+	// Build response
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("Media downloaded successfully to %s", extractedMedia.MediaPath)
+	response.MediaType = message.MediaType
+	response.Filename = filepath.Base(extractedMedia.MediaPath)
+	response.FilePath = extractedMedia.MediaPath
+	if fileInfo != nil {
+		response.FileSize = fileInfo.Size()
+	}
+
+	logrus.Info(map[string]any{
+		"message_id": request.MessageID,
+		"phone":      request.Phone,
+		"chat":       dataWaRecipient.String(),
+		"media_type": response.MediaType,
+		"file_path":  response.FilePath,
+		"file_size":  response.FileSize,
+	})
+
+	return response, nil
 }

@@ -89,3 +89,16 @@ func ValidateStarMessage(ctx context.Context, request domainMessage.StarRequest)
 
 	return nil
 }
+
+func ValidateDownloadMedia(ctx context.Context, request domainMessage.DownloadMediaRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.MessageID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

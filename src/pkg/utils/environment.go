@@ -17,19 +17,19 @@ func IsLocal() bool {
 }
 
 func Env[T any](key string, defValue ...T) T {
-        if env := viper.Get(key); env != nil {
-                // Ensure type safety for retrieved environment variables
-                if value, ok := env.(T); ok {
-                        return value
-                }
-        }
+	if env := viper.Get(key); env != nil {
+		// Ensure type safety for retrieved environment variables
+		if value, ok := env.(T); ok {
+			return value
+		}
+	}
 
-        if len(defValue) > 0 {
-                return defValue[0]
-        }
+	if len(defValue) > 0 {
+		return defValue[0]
+	}
 
-        var zero T
-        return zero
+	var zero T
+	return zero
 }
 
 // MustHaveEnv ensure the ENV is exists, otherwise will crashing the app
