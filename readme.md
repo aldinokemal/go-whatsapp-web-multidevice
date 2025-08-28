@@ -119,6 +119,8 @@ To use environment variables:
 | `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation                   | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`         |
 | `WHATSAPP_CHAT_STORAGE`       | Enable chat storage                         | `true`                                       | `WHATSAPP_CHAT_STORAGE=false`               |
 
+> For the Admin API implementation details and complete environment variable mappings for per-instance configuration, see `docs/features/ADR-001/IMPLEMENTATION_SUMMARY.md`.
+
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
 - For more command `./whatsapp --help`
