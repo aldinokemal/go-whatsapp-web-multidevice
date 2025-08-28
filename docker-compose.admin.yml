@@ -31,74 +31,14 @@ services:
       - supervisor_conf:/etc/supervisor/conf.d
       - supervisor_logs:/var/log/supervisor
       - supervisor_run:/run
-    command: ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+    entrypoint: ["/app/start-admin.sh"]
+    command: []
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8088/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  # Admin server as a separate service (alternative approach)
-  gowa-admin-server:
-    build:
-      context: .
-      dockerfile: docker/golang.Dockerfile
-    ports:
-      - "8088:8088"
-    environment:
-      ADMIN_TOKEN: "change-this-to-a-secure-token"
-      SUPERVISOR_URL: "http://gowa-supervisor:9001/RPC2"
-      SUPERVISOR_USER: "admin"
-      SUPERVISOR_PASS: "change-me-now"
-      SUPERVISOR_CONF_DIR: "/etc/supervisor/conf.d"
-      INSTANCES_DIR: "/app/instances"
-      SUPERVISOR_LOG_DIR: "/var/log/supervisor"
-      GOWA_BIN: "/usr/local/bin/whatsapp"
-      GOWA_BASIC_AUTH: "admin:admin"
-      GOWA_DEBUG: "false"
-      GOWA_OS: "Chrome"
-      GOWA_ACCOUNT_VALIDATION: "false"
-      LOCK_DIR: "/run"
-      ADMIN_DEBUG: "true"
-    volumes:
-      - instances_data:/app/instances
-      - supervisor_conf:/etc/supervisor/conf.d
-      - supervisor_logs:/var/log/supervisor
-      - supervisor_run:/run
-    command: ["/usr/local/bin/whatsapp", "admin", "--port", "8088"]
-    depends_on:
-      gowa-supervisor:
-        condition: service_healthy
-    profiles:
-      - separate-services
-
-  # Supervisor daemon as a separate service
-  gowa-supervisor:
-    build:
-      context: .
-      dockerfile: docker/golang.Dockerfile
-    ports:
-      - "3001-3010:3001-3010"  # Range for GOWA instances
-      # Note: Do NOT expose port 9001 publicly in production
-    environment:
-      SUPERVISOR_USER: "admin"
-      SUPERVISOR_PASS: "change-me-now"
-    volumes:
-      - instances_data:/app/instances
-      - supervisor_conf:/etc/supervisor/conf.d
-      - supervisor_logs:/var/log/supervisor
-      - supervisor_run:/run
-      - ./docs/features/supervisord.conf:/etc/supervisor/supervisord.conf:ro
-    command: ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
-    healthcheck:
-      test: ["CMD", "supervisorctl", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    profiles:
-      - separate-services
 
 volumes:
   instances_data:
