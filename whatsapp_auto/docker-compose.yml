@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # AI WhatsApp Bot Service
+  ai-whatsapp-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-whatsapp-bot
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.1:8b  # Updated to a more recent model
+      - AI_TEMPERATURE=0.7
+      - AI_MAX_TOKENS=500
+      - AI_PERSONALITY=helpful
+      - AI_ENABLE_QUESTIONS=true
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - CONVERSATION_TIMEOUT_HOURS=24
+      - CLEANUP_INTERVAL_HOURS=1
+      - API_KEY=${API_KEY:-}  # Optional API key for security
+    depends_on:
+      ollama:
+        condition: service_healthy  # Wait for Ollama to be healthy
+    networks:
+      - whatsapp-network
+    restart: unless-stopped
+    volumes:
+      - conversations:/app/conversations  # Persist conversation data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s  # Reduced for faster startup
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # Ollama Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"  # Exposed for debugging; consider restricting in production
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*  # Allow connections from the bot service
+    volumes:
+      - ollama_data:/root/.ollama  # Persist model data
+    networks:
+      - whatsapp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s  # Reduced for faster startup
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # Model puller service (runs once)
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy  # Wait for Ollama to be healthy
+    networks:
+      - whatsapp-network
+    restart: "no"  # Run once and exit
+    command: >
+      sh -c "
+        ollama pull llama3.1:8b &&
+        echo 'Model llama3.1:8b pulled successfully'
+      "
+    volumes:
+      - ollama_data:/root/.ollama
+    profiles:
+      - init  # Only run when explicitly enabled (e.g., `docker-compose --profile init up`)
+
+networks:
+  whatsapp-network:
+    driver: bridge
+    name: whatsapp-network  # Changed to internal bridge network
+
+volumes:
+  ollama_data:
+    driver: local
+    name: ollama_data
+  conversations:
+    driver: local
+    name: conversations

@@ -1,0 +1,36 @@
+# Core AI and ML
+ollama
+langchain
+langchain-community
+langchain-core
+
+# Web Framework
+fastapi[standard]
+uvicorn[standard]
+pydantic
+
+# Database and Storage
+sqlalchemy
+alembic
+
+# HTTP Client
+httpx
+aiohttp
+
+# Utilities
+python-dotenv
+python-multipart
+pydantic-settings
+
+# Logging and Monitoring
+loguru
+structlog
+
+# Testing
+pytest
+pytest-asyncio
+
+# Development
+black
+isort
+flake8
