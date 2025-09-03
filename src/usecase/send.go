@@ -751,17 +751,25 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
 		}
-		audioMimeType = http.DetectContentType(audioBytes)
 	} else if request.Audio != nil {
 		audioBytes = helpers.MultipartFormFileHeaderToBytes(request.Audio)
-		audioMimeType = http.DetectContentType(audioBytes)
 	}
+	audioMimeType = http.DetectContentType(audioBytes)
 
 	// upload to WhatsApp servers
 	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
 		return response, err
+	}
+
+	ptt := true
+	mime := "audio/ogg; codecs=opus"
+	audioMimeType = mime
+
+	var audioDuration uint32
+	if request.AudioDuration != nil {
+		audioDuration = uint32(*request.AudioDuration)
 	}
 
 	msg := &waE2E.Message{
@@ -773,6 +781,8 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 			FileSHA256:    audioUploaded.FileSHA256,
 			FileEncSHA256: audioUploaded.FileEncSHA256,
 			MediaKey:      audioUploaded.MediaKey,
+			Seconds:       &audioDuration,
+			PTT:           &ptt,
 		},
 	}
 

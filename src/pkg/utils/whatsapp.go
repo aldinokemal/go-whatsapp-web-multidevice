@@ -470,6 +470,7 @@ type ExtractedMedia struct {
 	MediaPath string `json:"media_path"`
 	MimeType  string `json:"mime_type"`
 	Caption   string `json:"caption"`
+	Title     string `json:"title"`
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
@@ -504,6 +505,7 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		extractedMedia.Title = media.GetTitle()
 	}
 
 	var extension string

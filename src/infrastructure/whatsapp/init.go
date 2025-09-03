@@ -353,9 +353,9 @@ func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.
 	case *events.PairSuccess:
 		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx, chatStorageRepo)
+		handleLoggedOut(ctx, evt, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
-		handleConnectionEvents(ctx)
+		handleConnectionEvents(ctx, evt)
 	case *events.StreamReplaced:
 		handleStreamReplaced(ctx)
 	case *events.Message:
@@ -370,6 +370,8 @@ func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.
 		handleAppState(ctx, evt)
 	case *events.GroupInfo:
 		handleGroupInfo(ctx, evt)
+	case *events.JoinedGroup:
+		handleGroupInfo(ctx, toEventsGroupInfoFromJoined(evt))
 	}
 }
 
@@ -423,9 +425,17 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
 	syncKeysDevice(ctx, db, keysDB)
+
+	if len(config.WhatsappWebhook) > 0 {
+		go func() {
+			if err := forwardSessionUpdateToWebhook(ctx, "pair_success", evt); err != nil {
+				log.Errorf("Failed to forward pair_success event to webhook: %v", err)
+			}
+		}()
+	}
 }
 
-func handleLoggedOut(ctx context.Context, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+func handleLoggedOut(ctx context.Context, evt *events.LoggedOut, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	logrus.Warn("[REMOTE_LOGOUT] Received LoggedOut event - user logged out from phone")
 
 	// Perform comprehensive cleanup
@@ -437,9 +447,17 @@ func handleLoggedOut(ctx context.Context, chatStorageRepo domainChatStorage.ICha
 		Message: "Remote logout cleanup completed - ready for new login",
 		Result:  nil,
 	}
+
+	if len(config.WhatsappWebhook) > 0 {
+		go func() {
+			if err := forwardSessionUpdateToWebhook(ctx, "logged_out", evt); err != nil {
+				log.Errorf("Failed to forward logged_out event to webhook: %v", err)
+			}
+		}()
+	}
 }
 
-func handleConnectionEvents(_ context.Context) {
+func handleConnectionEvents(_ context.Context, evt any) {
 	if len(cli.Store.PushName) == 0 {
 		return
 	}
@@ -450,6 +468,23 @@ func handleConnectionEvents(_ context.Context) {
 		log.Warnf("Failed to send available presence: %v", err)
 	} else {
 		log.Infof("Marked self as available")
+	}
+
+	if len(config.WhatsappWebhook) > 0 {
+		go func() {
+			switch v := evt.(type) {
+			default:
+				fmt.Printf("unexpected type %T", v)
+			case *events.Connected:
+				if err := forwardSessionUpdateToWebhook(context.Background(), "connected", evt); err != nil {
+					log.Errorf("Failed to forward connected event to webhook: %v", err)
+				}
+			case *events.PushNameSetting:
+				if err := forwardSessionUpdateToWebhook(context.Background(), "pushname", evt); err != nil {
+					log.Errorf("Failed to forward pushname event to webhook: %v", err)
+				}
+			}
+		}()
 	}
 }
 
@@ -652,7 +687,7 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(evt *events.Message) {
 			if err := forwardMessageToWebhook(ctx, evt); err != nil {
-				logrus.Error("Failed forward to webhook: ", err)
+				logrus.Error("Failed forward to webhook: ", err, " event: ", evt)
 			}
 		}(evt)
 	}
@@ -966,5 +1001,16 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
 				logrus.Errorf("Failed to forward group info event to webhook: %v", err)
 			}
 		}(evt)
+	}
+}
+
+func toEventsGroupInfoFromJoined(j *events.JoinedGroup) *events.GroupInfo {
+	return &events.GroupInfo{
+		JID:       j.GroupInfo.JID,
+		Notify:    j.Notify,
+		Sender:    j.Sender,
+		SenderPN:  j.SenderPN,
+		Timestamp: time.Now(),
+		Join:      []types.JID{*j.Sender},
 	}
 }

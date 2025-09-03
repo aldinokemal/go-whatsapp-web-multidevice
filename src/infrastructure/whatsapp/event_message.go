@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -32,6 +33,35 @@ func forwardMessageToWebhook(ctx context.Context, evt *events.Message) error {
 
 	logrus.Info("Message event forwarded to webhook")
 	return nil
+}
+
+func extractCaption(msg *waE2E.Message) string {
+	if imageMessage := msg.GetImageMessage(); imageMessage != nil {
+		return imageMessage.GetCaption()
+	}
+	if videoMessage := msg.GetVideoMessage(); videoMessage != nil {
+		return videoMessage.GetCaption()
+	}
+	if documentMessage := msg.GetDocumentWithCaptionMessage(); documentMessage != nil {
+		return documentMessage.Message.DocumentMessage.GetCaption()
+	}
+	if liveLocationMessage := msg.GetLiveLocationMessage(); liveLocationMessage != nil {
+		return liveLocationMessage.GetCaption()
+	}
+	return ""
+}
+
+func extractText(msg *waE2E.Message) string {
+	if extendedTextMessage := msg.GetExtendedTextMessage(); extendedTextMessage != nil {
+		if quotedMessage := extendedTextMessage.ContextInfo.GetQuotedMessage(); quotedMessage != nil {
+			return quotedMessage.GetConversation()
+		}
+		return extendedTextMessage.GetText()
+	}
+	if conversation := msg.GetConversation(); conversation != "" {
+		return conversation
+	}
+	return ""
 }
 
 func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]any, error) {
@@ -128,10 +158,12 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 		case "MESSAGE_EDIT":
 			body["action"] = "message_edited"
 			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
-				if editedText := editedMessage.GetExtendedTextMessage(); editedText != nil {
-					body["edited_text"] = editedText.GetText()
-				} else if editedConv := editedMessage.GetConversation(); editedConv != "" {
-					body["edited_text"] = editedConv
+				body["edited_id"] = protocolMessage.Key.ID
+
+				if caption := extractCaption(editedMessage); caption != "" {
+					body["edited_caption"] = caption
+				} else if text := extractText(editedMessage); text != "" {
+					body["edited_text"] = text
 				}
 			}
 		}
@@ -148,6 +180,10 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 
 	if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
 		body["contact"] = contactMessage
+	}
+
+	if contactsMessage := evt.Message.GetContactsArrayMessage(); contactsMessage != nil {
+		body["contact_list"] = contactsMessage
 	}
 
 	if documentMedia := evt.Message.GetDocumentMessage(); documentMedia != nil {
@@ -200,6 +236,26 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
 		body["video"] = path
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessage(); pollMessage != nil {
+		body["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV2(); pollMessage != nil {
+		body["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV3(); pollMessage != nil {
+		body["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV4(); pollMessage != nil {
+		body["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV5(); pollMessage != nil {
+		body["poll"] = pollMessage
 	}
 
 	return body, nil

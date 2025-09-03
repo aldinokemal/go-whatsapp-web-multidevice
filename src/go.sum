@@ -157,6 +157,8 @@ go.mau.fi/whatsmeow v0.0.0-20250807072145-72ce90b82194 h1:/ow/oKzvxxwJEyCJ4bq8U7
 go.mau.fi/whatsmeow v0.0.0-20250807072145-72ce90b82194/go.mod h1:ltDTXUgOAT7LcFKp11H+5S7UY7+xHBMGzNJcv3dLHGk=
 go.mau.fi/whatsmeow v0.0.0-20250816112049-1b82e4b52df1 h1:CP2hnvzEr15aBAWimDZCJ/k8UExGjHHVVRPoXKF9a0k=
 go.mau.fi/whatsmeow v0.0.0-20250816112049-1b82e4b52df1/go.mod h1:xD0DR3s4T6PDd3BzgQG05AzLWxdKCmnvdCP3UuQvn9w=
+go.mau.fi/whatsmeow v0.0.0-20250829123043-72d2ed58e998 h1:d6Utj53kD7W3O1actrw40Od7xC2/UUr/LHwbIkamE78=
+go.mau.fi/whatsmeow v0.0.0-20250829123043-72d2ed58e998/go.mod h1:xD0DR3s4T6PDd3BzgQG05AzLWxdKCmnvdCP3UuQvn9w=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
 golang.org/x/crypto v0.13.0/go.mod h1:y6Z2r+Rw4iayiXXAIxJIDAJ1zMW4yaTpebo8fPOliYc=
@@ -254,6 +256,8 @@ google.golang.org/protobuf v1.36.6 h1:z1NpPI8ku2WgiWnf+t9wTPsn6eP1L7ksHUlkfLvd9x
 google.golang.org/protobuf v1.36.6/go.mod h1:jduwjTPXsFjZGTmRluh+L6NjiWu7pchiJ2/5YcXBHnY=
 google.golang.org/protobuf v1.36.7 h1:IgrO7UwFQGJdRNXH/sQux4R1Dj1WAKcLElzeeRaXV2A=
 google.golang.org/protobuf v1.36.7/go.mod h1:jduwjTPXsFjZGTmRluh+L6NjiWu7pchiJ2/5YcXBHnY=
+google.golang.org/protobuf v1.36.8 h1:xHScyCOEuuwZEc6UtSOvPbAT4zRh0xcNRYekJwfqyMc=
+google.golang.org/protobuf v1.36.8/go.mod h1:fuxRtAxBytpl4zzqUh6/eyUujkJdNiuEkXntxiD/uRU=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
