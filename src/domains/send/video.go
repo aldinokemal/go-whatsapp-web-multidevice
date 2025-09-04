@@ -9,4 +9,5 @@ type VideoRequest struct {
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
 	Compress bool                  `json:"compress"`
 	VideoURL *string               `json:"video_url" form:"video_url"`
+	Mimetype *string               `json:"mimetype" form:"mimetype"`
 }

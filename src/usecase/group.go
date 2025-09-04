@@ -209,7 +209,8 @@ func (service serviceGroup) participantToJID(participants []string) ([]types.JID
 	for _, participant := range participants {
 		formattedParticipant := participant + config.WhatsappTypeUser
 
-		if !utils.IsOnWhatsapp(whatsapp.GetClient(), formattedParticipant) {
+		exists, formattedParticipant := utils.IsOnWhatsapp(whatsapp.GetClient(), formattedParticipant)
+		if !exists {
 			return nil, pkgError.ErrUserNotRegistered
 		}
 

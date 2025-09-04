@@ -247,7 +247,7 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 
 	utils.SanitizePhone(&request.Phone)
 
-	response.IsOnWhatsApp = utils.IsOnWhatsapp(whatsapp.GetClient(), request.Phone)
+	response.IsOnWhatsApp, response.Phone = utils.IsOnWhatsapp(whatsapp.GetClient(), request.Phone)
 
 	return response, nil
 }
