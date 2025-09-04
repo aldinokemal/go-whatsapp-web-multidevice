@@ -776,6 +776,11 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	ptt := true
 
+	var audioDuration uint32
+	if request.AudioDuration != nil {
+		audioDuration = uint32(*request.AudioDuration)
+	}
+
 	msg := &waE2E.Message{
 		AudioMessage: &waE2E.AudioMessage{
 			URL:           proto.String(audioUploaded.URL),
@@ -785,6 +790,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 			FileSHA256:    audioUploaded.FileSHA256,
 			FileEncSHA256: audioUploaded.FileEncSHA256,
 			MediaKey:      audioUploaded.MediaKey,
+			Seconds:       proto.Uint32(audioDuration),
 			PTT:           &ptt,
 		},
 	}
