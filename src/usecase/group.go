@@ -66,7 +66,7 @@ func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup
 		GroupLinkedParent: types.GroupLinkedParent{},
 	}
 
-	groupInfo, err := whatsapp.GetClient().CreateGroup(groupConfig)
+	groupInfo, err := whatsapp.GetClient().CreateGroup(ctx, groupConfig)
 	if err != nil {
 		return
 	}
