@@ -22,7 +22,6 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string) erro
 	if postBody == nil || err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
-	logrus.Debug("Webhook: ", url, " Body: ", string(postBody))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {

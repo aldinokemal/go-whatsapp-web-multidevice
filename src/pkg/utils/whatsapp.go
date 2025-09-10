@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -638,6 +639,51 @@ func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
 
 // BuildForwarded checks if message is forwarded
 func BuildForwarded(evt *events.Message) bool {
+	if extendedText := evt.Message.GetExtendedTextMessage(); extendedText != nil {
+		return extendedText.ContextInfo.GetIsForwarded()
+	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
+				return extendedText.ContextInfo.GetIsForwarded()
+			}
+		}
+	}
+	return false
+}
+
+// BuildEventHistoryMessage builds event history message structure
+func BuildEventHistoryMessage(evt *waWeb.WebMessageInfo) (message EvtMessage) {
+	message.Text = evt.Message.GetConversation()
+	message.ID = evt.GetKey().GetID()
+
+	if extendedMessage := evt.Message.GetExtendedTextMessage(); extendedMessage != nil {
+		message.Text = extendedMessage.GetText()
+		message.RepliedId = extendedMessage.ContextInfo.GetStanzaID()
+		message.QuotedMessage = extendedMessage.ContextInfo.GetQuotedMessage().GetConversation()
+	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
+				message.Text = extendedText.GetText()
+				message.RepliedId = extendedText.ContextInfo.GetStanzaID()
+				message.QuotedMessage = extendedText.ContextInfo.GetQuotedMessage().GetConversation()
+			}
+		}
+	}
+
+	return message
+}
+
+// BuildEventHistoryReaction builds event history reaction structure
+func BuildEventHistoryReaction(evt *waWeb.WebMessageInfo) (waReaction EvtReaction) {
+	if reactionMessage := evt.Message.GetReactionMessage(); reactionMessage != nil {
+		waReaction.Message = reactionMessage.GetText()
+		waReaction.ID = reactionMessage.GetKey().GetID()
+	}
+	return waReaction
+}
+
+// BuildEventHistoryForwarded checks if history message is forwarded
+func BuildEventHistoryForwarded(evt *waWeb.WebMessageInfo) bool {
 	if extendedText := evt.Message.GetExtendedTextMessage(); extendedText != nil {
 		return extendedText.ContextInfo.GetIsForwarded()
 	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {

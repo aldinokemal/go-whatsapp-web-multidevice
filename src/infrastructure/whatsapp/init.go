@@ -759,6 +759,9 @@ func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorage
 			log.Errorf("Failed to process history sync to database: %v", err)
 		}
 	}
+
+	// Forward to webhook if configured
+	forwardHistoryToWebhook(ctx, evt)
 }
 
 func handleAppState(_ context.Context, evt *events.AppState) {
