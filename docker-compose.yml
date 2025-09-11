@@ -13,3 +13,12 @@ services:
       - "3000:3000"
     env_file:
       - src/.env
+    volumes:
+      - whatsapp_data:/app/storages
+      - whatsapp_media:/app/statics/media
+
+volumes:
+  whatsapp_data:
+    driver: local
+  whatsapp_media:
+    driver: local
