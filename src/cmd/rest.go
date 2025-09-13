@@ -94,6 +94,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	rest.InitRestMessage(apiGroup, messageUsecase)
 	rest.InitRestGroup(apiGroup, groupUsecase)
 	rest.InitRestNewsletter(apiGroup, newsletterUsecase)
+	rest.InitRestWebhook(apiGroup, webhookUsecase)
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{

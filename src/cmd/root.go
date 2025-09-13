@@ -19,8 +19,10 @@ import (
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	domainWebhook "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	webhookInfra "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
@@ -50,6 +52,7 @@ var (
 	messageUsecase    domainMessage.IMessageUsecase
 	groupUsecase      domainGroup.IGroupUsecase
 	newsletterUsecase domainNewsletter.INewsletterUsecase
+	webhookUsecase    domainWebhook.IWebhookUsecase
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -109,13 +112,6 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("whatsapp_auto_mark_read") {
 		config.WhatsappAutoMarkRead = viper.GetBool("whatsapp_auto_mark_read")
-	}
-	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
-		webhook := strings.Split(envWebhook, ",")
-		config.WhatsappWebhook = webhook
-	}
-	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
-		config.WhatsappWebhookSecret = envWebhookSecret
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
@@ -182,18 +178,6 @@ func initFlags() {
 		"auto-mark-read", "",
 		config.WhatsappAutoMarkRead,
 		`auto mark incoming messages as read --auto-mark-read <true/false> | example: --auto-mark-read=true`,
-	)
-	rootCmd.PersistentFlags().StringSliceVarP(
-		&config.WhatsappWebhook,
-		"webhook", "w",
-		config.WhatsappWebhook,
-		`forward event to webhook --webhook <string> | example: --webhook="https://yourcallback.com/callback"`,
-	)
-	rootCmd.PersistentFlags().StringVarP(
-		&config.WhatsappWebhookSecret,
-		"webhook-secret", "",
-		config.WhatsappWebhookSecret,
-		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
@@ -266,6 +250,14 @@ func initApp() {
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
+	
+	// Webhook repository and usecase
+	webhookRepo := webhookInfra.NewSQLiteRepository(chatStorageDB)
+	webhookUsecase = usecase.NewWebhookService(webhookRepo)
+	webhookRepo.InitializeSchema()
+	
+	// Initialize webhook service
+	whatsapp.InitWebhookService(webhookRepo)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

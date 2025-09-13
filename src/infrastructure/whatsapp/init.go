@@ -398,13 +398,11 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 
 	// Send webhook notification for delete event
-	if len(config.WhatsappWebhook) > 0 {
-		go func() {
-			if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
-				log.Errorf("Failed to forward delete event to webhook: %v", err)
-			}
-		}()
-	}
+	go func() {
+		if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
+			log.Errorf("Failed to forward delete event to webhook: %v", err)
+		}
+	}()
 }
 
 func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {
@@ -648,8 +646,7 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 		}
 	}
 
-	if len(config.WhatsappWebhook) > 0 &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") {
+	if !strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(evt *events.Message) {
 			if err := forwardMessageToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
@@ -671,7 +668,7 @@ func handleReceipt(ctx context.Context, evt *events.Receipt) {
 
 	// Forward receipt (ack) event to webhook if configured
 	// Note: Receipt events are not rate limited as they are critical for message delivery status
-	if len(config.WhatsappWebhook) > 0 && sendReceipt {
+	if sendReceipt {
 		go func(e *events.Receipt) {
 			if err := forwardReceiptToWebhook(ctx, e); err != nil {
 				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
@@ -960,11 +957,9 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
 	}
 
 	// Forward group info event to webhook if configured
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.GroupInfo) {
-			if err := forwardGroupInfoToWebhook(ctx, e); err != nil {
-				logrus.Errorf("Failed to forward group info event to webhook: %v", err)
-			}
-		}(evt)
-	}
+	go func(e *events.GroupInfo) {
+		if err := forwardGroupInfoToWebhook(ctx, e); err != nil {
+			logrus.Errorf("Failed to forward group info event to webhook: %v", err)
+		}
+	}(evt)
 }

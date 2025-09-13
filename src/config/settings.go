@@ -26,8 +26,6 @@ var (
 
 	WhatsappAutoReplyMessage       string
 	WhatsappAutoMarkRead           = false // Auto-mark incoming messages as read
-	WhatsappWebhook                []string
-	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"
 	WhatsappSettingMaxImageSize    int64 = 20000000  // 20MB
 	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB

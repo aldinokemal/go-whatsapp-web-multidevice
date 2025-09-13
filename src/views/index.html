@@ -139,6 +139,14 @@
     </div>
 
     <div class="ui horizontal divider">
+        Webhooks
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <webhook-manager></webhook-manager>
+    </div>
+
+    <div class="ui horizontal divider">
         Chat Management
     </div>
 
@@ -226,6 +234,7 @@
     import ChatPinManager from "{{ .AppBasePath }}/components/ChatPinManager.js";
     import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
     import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
+    import WebhookManager from "{{ .AppBasePath }}/components/WebhookManager.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -261,7 +270,8 @@
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
-            ChatPinManager, ChatList, ChatMessages
+            ChatPinManager, ChatList, ChatMessages,
+            WebhookManager
         },
         delimiters: ['[[', ']]'],
         data() {
