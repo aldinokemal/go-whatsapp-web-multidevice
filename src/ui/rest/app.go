@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -22,6 +23,7 @@ func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 	app.Get("/app/reconnect", rest.Reconnect)
 	app.Get("/app/devices", rest.Devices)
 	app.Get("/app/status", rest.ConnectionStatus)
+	app.Get("/app/health", rest.HealthCheck)
 
 	return App{Service: service}
 }
@@ -104,4 +106,54 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 			"device_id":    deviceID,
 		},
 	})
+}
+
+func (handler *App) HealthCheck(c *fiber.Ctx) error {
+	isConnected, isLoggedIn, deviceID := whatsapp.GetConnectionStatus()
+
+	// Determine health status
+	isHealthy := isConnected && isLoggedIn
+
+	// Build detailed status information
+	status := "healthy"
+	if !isHealthy {
+		status = "unhealthy"
+	}
+
+	// Detailed status message for debugging
+	var statusMessage string
+	if !isConnected && !isLoggedIn {
+		statusMessage = "WhatsApp client is disconnected and not logged in - requires login"
+	} else if !isConnected {
+		statusMessage = "WhatsApp client is disconnected - attempting reconnection"
+	} else if !isLoggedIn {
+		statusMessage = "WhatsApp client is connected but not logged in - requires login"
+	} else {
+		statusMessage = "WhatsApp client is connected and logged in"
+	}
+
+	// Build response
+	response := utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: statusMessage,
+		Results: map[string]any{
+			"status":       status,
+			"is_connected": isConnected,
+			"is_logged_in": isLoggedIn,
+			"device_id":    deviceID,
+			"timestamp":    time.Now().Unix(),
+		},
+	}
+
+	// Set appropriate HTTP status code for monitoring tools
+	if !isHealthy {
+		// Return 503 Service Unavailable for unhealthy status
+		// This helps monitoring tools like Uptime Kuma detect issues
+		c.Status(503)
+		response.Status = 503
+		response.Code = "SERVICE_UNAVAILABLE"
+	}
+
+	return c.JSON(response)
 }

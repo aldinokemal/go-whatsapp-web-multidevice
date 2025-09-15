@@ -18,6 +18,12 @@ func InitSwagger(app fiber.Router) {
 		specURL = "/swagger/openapi.yaml"
 	}
 	
+	// Register the OpenAPI spec endpoint first (before the wildcard route)
+	app.Get("/swagger/openapi.yaml", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "application/x-yaml")
+		return c.Send(openapiSpec)
+	})
+
 	cfg := swagger.Config{
 		Title:        "WhatsApp API MultiDevice",
 		URL:          specURL,
@@ -25,10 +31,6 @@ func InitSwagger(app fiber.Router) {
 		DocExpansion: "none",
 	}
 
+	// Register the swagger UI handler with wildcard
 	app.Get("/swagger/*", swagger.New(cfg))
-	
-	app.Get("/swagger/openapi.yaml", func(c *fiber.Ctx) error {
-		c.Set("Content-Type", "application/x-yaml")
-		return c.Send(openapiSpec)
-	})
 }

@@ -126,6 +126,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/status:
+    get:
+      operationId: appStatus
+      tags:
+        - app
+      summary: Get connection status
+      description: Returns current WhatsApp connection and login status (always returns 200 OK)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/health:
+    get:
+      operationId: appHealth
+      tags:
+        - app
+      summary: Health check endpoint for monitoring
+      description: Returns 200 when healthy (connected AND logged in), 503 when unhealthy. Designed for monitoring tools like Uptime Kuma.
+      responses:
+        '200':
+          description: Service is healthy - WhatsApp is connected and logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service Unavailable - WhatsApp is disconnected or not logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
   /user/info:
     get:
       operationId: userInfo
@@ -2592,6 +2632,72 @@ components:
               device:
                 type: string
                 example: '628960561XXX.0:64@s.whatsapp.net'
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Connection status retrieved
+        results:
+          type: object
+          properties:
+            is_connected:
+              type: boolean
+              example: true
+              description: Whether the WhatsApp client is connected to WhatsApp servers
+            is_logged_in:
+              type: boolean
+              example: true
+              description: Whether a valid WhatsApp account session exists
+            device_id:
+              type: string
+              example: '3EB0B430B6F8F1D0E053AC120E0A9E5C:64@s.whatsapp.net'
+              description: The WhatsApp device ID (empty if not logged in)
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+          description: HTTP status code (200 for healthy, 503 for unhealthy)
+        code:
+          type: string
+          example: SUCCESS
+          description: Response code (SUCCESS or SERVICE_UNAVAILABLE)
+        message:
+          type: string
+          example: WhatsApp client is connected and logged in
+          description: Detailed status message explaining the current state
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy, unhealthy]
+              example: healthy
+              description: Overall health status
+            is_connected:
+              type: boolean
+              example: true
+              description: Whether the WhatsApp client is connected to WhatsApp servers
+            is_logged_in:
+              type: boolean
+              example: true
+              description: Whether a valid WhatsApp account session exists
+            device_id:
+              type: string
+              example: '3EB0B430B6F8F1D0E053AC120E0A9E5C:64@s.whatsapp.net'
+              description: The WhatsApp device ID (empty if not logged in)
+            timestamp:
+              type: integer
+              example: 1734567890
+              description: Unix timestamp of the health check
     LoginWithCodeResponse:
       type: object
       properties:
