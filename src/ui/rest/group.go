@@ -35,6 +35,7 @@ func InitRestGroup(app fiber.Router, service domainGroup.IGroupUsecase) Group {
 	app.Post("/group/announce", rest.SetGroupAnnounce)
 	app.Post("/group/topic", rest.SetGroupTopic)
 	app.Get("/group/invite-link", rest.GetGroupInviteLink)
+	app.Get("/group/export-participants", rest.ExportGroupParticipants)
 	return rest
 }
 
@@ -357,4 +358,19 @@ func (controller *Group) GetGroupInviteLink(c *fiber.Ctx) error {
 		Message: "Success get group invite link",
 		Results: response,
 	})
+}
+
+func (controller *Group) ExportGroupParticipants(c *fiber.Ctx) error {
+	var request domainGroup.ExportGroupParticipantsRequest
+	err := c.QueryParser(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.GroupID)
+
+	csvData, err := controller.Service.ExportGroupParticipants(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	c.Set("Content-Type", "text/csv")
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=group-participants-%s.csv", request.GroupID))
+	return c.Send(csvData)
 }

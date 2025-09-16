@@ -19,6 +19,7 @@ type IGroupParticipants interface {
 	ManageParticipant(ctx context.Context, request ParticipantRequest) (result []ParticipantStatus, err error)
 	GetGroupRequestParticipants(ctx context.Context, request GetGroupRequestParticipantsRequest) (result []GetGroupRequestParticipantsResponse, err error)
 	ManageGroupRequestParticipants(ctx context.Context, request GroupRequestParticipantsRequest) (result []ParticipantStatus, err error)
+	ExportGroupParticipants(ctx context.Context, request ExportGroupParticipantsRequest) (csvData []byte, err error)
 }
 
 // IGroupSettings handles group settings operations
@@ -35,4 +36,9 @@ type IGroupUsecase interface {
 	IGroupManagement
 	IGroupParticipants
 	IGroupSettings
+}
+
+// IGroupRepository defines the repository interface for group operations
+type IGroupRepository interface {
+	ListParticipantsByGroupID(ctx context.Context, groupID string) ([]Participant, error)
 }

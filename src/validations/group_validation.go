@@ -216,3 +216,15 @@ func ValidateGetGroupInviteLink(ctx context.Context, request domainGroup.GetGrou
 
 	return nil
 }
+
+func ValidateExportGroupParticipants(ctx context.Context, request domainGroup.ExportGroupParticipantsRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.GroupID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

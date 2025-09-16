@@ -100,6 +100,20 @@ func (err sessionSavedError) StatusCode() int {
 	return http.StatusInternalServerError
 }
 
+type NotFoundError string
+
+func (e NotFoundError) Error() string {
+	return string(e)
+}
+
+func (e NotFoundError) ErrCode() string {
+	return "NOT_FOUND"
+}
+
+func (e NotFoundError) StatusCode() int {
+	return http.StatusNotFound
+}
+
 var (
 	ErrAlreadyLoggedIn = LoginError("you are already logged in.")
 	ErrNotConnected    = throwAuthError("you are not connect to services server, please reconnect")
@@ -107,4 +121,5 @@ var (
 	ErrReconnect       = throwReconnectError("reconnect error")
 	ErrQrChannel       = throwQrChannelError("QR channel error")
 	ErrSessionSaved    = throwSessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
+	ErrNotFound        = NotFoundError("data not found")
 )

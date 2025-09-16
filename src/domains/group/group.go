@@ -112,3 +112,15 @@ type GetGroupInviteLinkResponse struct {
 type GroupInfoResponse struct {
 	Data any `json:"data"`
 }
+
+type ExportGroupParticipantsRequest struct {
+	GroupID string `json:"group_id" query:"group_id"`
+}
+
+type Participant struct {
+	ID       string    `json:"id"`
+	FullName string    `json:"full_name"`
+	Email    string    `json:"email"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}

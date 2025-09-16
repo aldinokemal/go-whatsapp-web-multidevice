@@ -1,8 +1,11 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 
@@ -16,7 +19,9 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-type serviceGroup struct{}
+type serviceGroup struct {
+	// GroupRepo domainGroup.IGroupRepository // Not needed for current implementation
+}
 
 func NewGroupService() domainGroup.IGroupUsecase {
 	return &serviceGroup{}
@@ -362,4 +367,91 @@ func (service serviceGroup) GetGroupInviteLink(ctx context.Context, request doma
 	}
 
 	return response, nil
+}
+
+func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request domainGroup.ExportGroupParticipantsRequest) (csvData []byte, err error) {
+	if err = validations.ValidateExportGroupParticipants(ctx, request); err != nil {
+		return nil, err
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	if err != nil {
+		return nil, err
+	}
+
+	if groupInfo == nil {
+		return nil, pkgError.ErrNotFound
+	}
+
+	// Prepare CSV data with name and phone number in E.164 format
+	type ParticipantExport struct {
+		Name        string
+		PhoneNumber string
+	}
+
+	var participants []ParticipantExport
+	for _, p := range groupInfo.Participants {
+		// Extract phone number from JID and format to E.164
+		phoneNumber := p.JID.User
+		if phoneNumber != "" {
+			// Ensure phone number starts with + for E.164 format
+			if phoneNumber[0] != '+' {
+				phoneNumber = "+" + phoneNumber
+			}
+		}
+
+		// Try to get contact name, fallback to phone number if not available
+		contactName := phoneNumber
+		
+		// Check if we have contact information in the store
+		if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, p.JID); err == nil {
+			if contact.FullName != "" {
+				contactName = contact.FullName
+			} else if contact.PushName != "" {
+				contactName = contact.PushName
+			}
+		}
+
+		participants = append(participants, ParticipantExport{
+			Name:        contactName,
+			PhoneNumber: phoneNumber,
+		})
+	}
+
+	// Sort participants by name for consistent output
+	sort.Slice(participants, func(i, j int) bool {
+		return participants[i].Name < participants[j].Name
+	})
+
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	// Write header as specified: name, phone number
+	header := []string{"name", "phone_number"}
+	if err := writer.Write(header); err != nil {
+		return nil, err
+	}
+
+	// Write participant data
+	for _, p := range participants {
+		row := []string{
+			p.Name,
+			p.PhoneNumber,
+		}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
