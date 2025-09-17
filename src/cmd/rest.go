@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -19,6 +20,7 @@ import (
 	"github.com/gofiber/template/html/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"go.mau.fi/whatsmeow"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -33,6 +35,9 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	// Start health check monitor for QR timeout management
+	startHealthCheckMonitor()
+
 	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
 		return token != nil
@@ -120,4 +125,29 @@ func restServer(_ *cobra.Command, _ []string) {
 	if err := app.Listen(":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())
 	}
+}
+
+// startHealthCheckMonitor starts the unified health check monitor
+// that handles QR timeout for all scenarios (cold start, logout, disconnect)
+func startHealthCheckMonitor() {
+	logrus.Info("Initializing WhatsApp connection monitor...")
+
+	// Check initial connection status for logging
+	client := whatsapp.GetClient()
+	isConnected, isLoggedIn, deviceID := helpers.CheckInitialConnectionStatus(client)
+
+	if isConnected && isLoggedIn {
+		logrus.Infof("Device is already connected and logged in (Device ID: %s)", deviceID)
+		logrus.Info("Application ready to serve requests")
+	} else {
+		logrus.Warn("Device is not connected or not logged in")
+		logrus.Info("QR timeout will be enforced after 2 minutes if not logged in")
+	}
+
+	// Start the unified health check monitor
+	// Pass a function that always gets the current client instance
+	// This ensures the monitor works even after client reinitializations (logout/reconnect)
+	helpers.StartHealthCheckMonitor(func() *whatsmeow.Client {
+		return whatsapp.GetClient()
+	})
 }
