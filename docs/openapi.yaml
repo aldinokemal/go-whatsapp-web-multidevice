@@ -1717,9 +1717,9 @@ paths:
         '500':
           description: Internal Server Error
           content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ErrorInternalServer'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /group/participants/export:
     get:
       operationId: exportGroupParticipants
