@@ -227,11 +227,13 @@ For AI tools that support MCP with SSE (like Cursor), add this configuration:
 ### Production Mode REST (docker)
 
 Using Docker Hub:
+
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
 Using GitHub Container Registry:
+
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages ghcr.io/aldinokemal/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
@@ -396,10 +398,12 @@ You can fork or edit this source code !
 | ✅       | Group Info                             | GET    | /group/info                         |
 | ✅       | Leave Group                            | POST   | /group/leave                        |
 | ✅       | Create Group                           | POST   | /group                              |
+| ✅       | List Participants in Group             | GET    | /group/participants                 |
 | ✅       | Add Participants in Group              | POST   | /group/participants                 |
 | ✅       | Remove Participant in Group            | POST   | /group/participants/remove          |
 | ✅       | Promote Participant in Group           | POST   | /group/participants/promote         |
 | ✅       | Demote Participant in Group            | POST   | /group/participants/demote          |
+| ✅       | Export Group Participants (CSV)        | GET    | /group/participants/export          |
 | ✅       | List Requested Participants in Group   | GET    | /group/participant-requests         |
 | ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve |
 | ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject  |

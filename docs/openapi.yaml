@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.10.0
+  version: 6.11.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -1659,6 +1659,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
   /group/participants:
+    get:
+      operationId: getGroupParticipants
+      tags:
+        - group
+      summary: Get list of participants in a group
+      parameters:
+        - name: group_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@g.us'
+          description: The group ID to fetch participants for
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupParticipantsResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
     post:
       operationId: addParticipantToGroup
       tags:
@@ -1676,6 +1708,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ManageParticipantResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorInternalServer'
+  /group/participants/export:
+    get:
+      operationId: exportGroupParticipants
+      tags:
+        - group
+      summary: Export group participants as CSV
+      parameters:
+        - name: group_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@g.us'
+          description: The group ID to export participants for
+      responses:
+        '200':
+          description: CSV stream containing the participants list
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
         '400':
           description: Bad Request
           content:
@@ -2396,6 +2462,56 @@ components:
               message:
                 type: string
                 example: Participant added
+    GroupParticipantsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success getting group participants
+        results:
+          $ref: '#/components/schemas/GroupParticipantsResult'
+    GroupParticipantsResult:
+      type: object
+      additionalProperties: false
+      properties:
+        group_id:
+          type: string
+          example: '120363024512399999@g.us'
+        name:
+          type: string
+          example: My Awesome Group
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupParticipantItem'
+    GroupParticipantItem:
+      type: object
+      additionalProperties: false
+      properties:
+        jid:
+          type: string
+          example: '6289987391723@s.whatsapp.net'
+        phone_number:
+          type: string
+          example: '6289987391723@s.whatsapp.net'
+        lid:
+          type: string
+          nullable: true
+          example: '12345@lid'
+        display_name:
+          type: string
+          nullable: true
+          example: Anonymous Member
+        is_admin:
+          type: boolean
+          example: true
+        is_super_admin:
+          type: boolean
+          example: false
     SetGroupPhotoResponse:
       type: object
       properties:
