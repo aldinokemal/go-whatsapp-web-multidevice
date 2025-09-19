@@ -158,6 +158,7 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 	response.GroupID = groupJID.String()
 	if groupInfo != nil {
 		response.Name = groupInfo.GroupName.Name
+		response.Participants = make([]domainGroup.GroupParticipant, 0, len(groupInfo.Participants))
 		for _, participant := range groupInfo.Participants {
 			participantData := domainGroup.GroupParticipant{
 				JID:          participant.JID.String(),
