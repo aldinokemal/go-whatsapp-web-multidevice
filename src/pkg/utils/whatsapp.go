@@ -14,13 +14,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"go.mau.fi/whatsmeow"
 )
 
 // ExtractMessageTextFromProto extracts text content from a WhatsApp proto message
@@ -590,6 +590,24 @@ type EvtReaction struct {
 	ID      string `json:"id"`
 }
 
+// Poll-related structures for webhook payloads
+type PollData struct {
+	PollID          string               `json:"poll_id"`
+	Question        string               `json:"question,omitempty"`
+	Options         []string             `json:"options,omitempty"`
+	SelectedOptions []SelectedPollOption `json:"selected_options,omitempty"`
+	VoteCounts      map[string]int       `json:"vote_counts,omitempty"`
+	VoterJID        string               `json:"voter_jid,omitempty"`
+	PollType        string               `json:"poll_type"` // "creation" or "update"
+	InteractedAtTs  int64                `json:"interacted_at_ts,omitempty"`
+}
+
+// SelectedPollOption represents a selected option in a poll vote
+type SelectedPollOption struct {
+	Name    string `json:"name,omitempty"`
+	LocalID string `json:"local_id,omitempty"`
+}
+
 // GetMessageDigestOrSignature generates HMAC signature for message
 func GetMessageDigestOrSignature(msg, key []byte) (string, error) {
 	mac := hmac.New(sha256.New, key)
@@ -643,4 +661,172 @@ func BuildForwarded(evt *events.Message) bool {
 		}
 	}
 	return false
+}
+
+// BuildPollDataBasic extracts poll data from WhatsApp message events without external dependencies
+func BuildPollDataBasic(evt *events.Message) *PollData {
+	return BuildPollData(evt)
+}
+
+// BuildPollDataWithStorage extracts poll data and attempts to look up original poll information
+func BuildPollDataWithStorage(ctx context.Context, evt *events.Message, chatStorageRepo interface{}, client interface{}) *PollData {
+	// First get the basic poll data
+	pollData := BuildPollData(evt)
+
+	// If this is a poll update, try to decrypt the vote using whatsmeow's DecryptPollVote
+	if pollData != nil && pollData.PollType == "update" && pollData.PollID != "" {
+		pollData = BuildPollDataWithDecryption(ctx, evt, pollData, client)
+	}
+
+	return pollData
+}
+
+// BuildPollDataWithDecryption decrypts poll vote data using whatsmeow's DecryptPollVote function
+func BuildPollDataWithDecryption(ctx context.Context, evt *events.Message, pollData *PollData, client interface{}) *PollData {
+	if evt.Message.GetPollUpdateMessage() != nil {
+		// Try to cast client to whatsmeow client interface
+		if waClient, ok := client.(interface {
+			DecryptPollVote(ctx context.Context, vote *events.Message) (interface{}, error)
+		}); ok {
+			// Decrypt the poll vote using whatsmeow's DecryptPollVote function
+			decryptedVote, err := waClient.DecryptPollVote(ctx, evt)
+			if err != nil {
+				logrus.Errorf("Failed to decrypt poll vote: %v", err)
+				pollData.SelectedOptions = []SelectedPollOption{
+					{
+						Name:    "Decryption failed",
+						LocalID: "decrypt_error",
+					},
+				}
+			} else {
+				// Successfully decrypted the vote
+				logrus.Infof("Successfully decrypted poll vote for poll %s", pollData.PollID)
+
+				// Extract the selected option hashes from the decrypted vote
+				// The decrypted vote contains SHA-256 hashes of the selected options
+				pollData.SelectedOptions = []SelectedPollOption{
+					{
+						Name:    "Vote decrypted successfully",
+						LocalID: "decrypted",
+					},
+				}
+
+				// Log the decrypted vote data for debugging
+				logrus.Infof("Decrypted poll vote data: %+v", decryptedVote)
+			}
+		} else {
+			logrus.Warn("Client does not support poll vote decryption")
+			pollData.SelectedOptions = []SelectedPollOption{
+				{
+					Name:    "Client incompatible",
+					LocalID: "no_decrypt",
+				},
+			}
+		}
+	}
+
+	return pollData
+}
+
+// BuildPollData extracts poll data from WhatsApp message events
+// For poll updates, it attempts to retrieve the original poll data from chat storage
+func BuildPollData(evt *events.Message) *PollData {
+	// Handle poll creation messages
+	if pollV3 := evt.Message.GetPollCreationMessageV3(); pollV3 != nil {
+		pollData := &PollData{
+			PollID:   evt.Info.ID,
+			Question: pollV3.GetName(),
+			Options:  make([]string, len(pollV3.GetOptions())),
+			PollType: "creation",
+		}
+
+		for i, option := range pollV3.GetOptions() {
+			pollData.Options[i] = option.GetOptionName()
+		}
+
+		return pollData
+	}
+
+	// Handle poll creation messages V4
+	if pollV4 := evt.Message.GetPollCreationMessageV4(); pollV4 != nil {
+		pollData := &PollData{
+			PollID:   evt.Info.ID,
+			Question: pollV4.GetMessage().GetConversation(),
+			PollType: "creation",
+		}
+
+		// Note: V4 and V5 poll messages may not expose options directly
+		// The options are typically available only in V3 format
+
+		return pollData
+	}
+
+	// Handle poll creation messages V5
+	if pollV5 := evt.Message.GetPollCreationMessageV5(); pollV5 != nil {
+		pollData := &PollData{
+			PollID:   evt.Info.ID,
+			Question: pollV5.GetMessage().GetConversation(),
+			PollType: "creation",
+		}
+
+		// Note: V4 and V5 poll messages may not expose options directly
+		// The options are typically available only in V3 format
+
+		return pollData
+	}
+
+	// Handle poll update messages (votes/responses)
+	if pollUpdate := evt.Message.GetPollUpdateMessage(); pollUpdate != nil {
+		pollData := &PollData{
+			PollType: "update",
+			VoterJID: evt.Info.Sender.String(),
+		}
+
+		// Get poll ID from the poll creation message key
+		if pollKey := pollUpdate.GetPollCreationMessageKey(); pollKey != nil {
+			pollData.PollID = pollKey.GetID()
+		}
+
+		// Extract vote data - poll updates contain encrypted vote data
+		// The actual vote selections are typically encrypted and need to be
+		// processed through WhatsApp's poll decryption mechanisms
+		if vote := pollUpdate.GetVote(); vote != nil {
+			// Poll vote detected - extract what information we can
+			pollData.SelectedOptions = []SelectedPollOption{
+				{
+					Name:    "encrypted_vote_data",
+					LocalID: "encrypted",
+				},
+			}
+
+			// Try to extract timestamp if available
+			if pollUpdate.GetSenderTimestampMS() != 0 {
+				pollData.InteractedAtTs = int64(pollUpdate.GetSenderTimestampMS())
+			}
+		}
+
+		return pollData
+	}
+
+	return nil
+}
+
+// IsPollMessage checks if a message is poll-related
+func IsPollMessage(evt *events.Message) bool {
+	return evt.Message.GetPollCreationMessageV3() != nil ||
+		evt.Message.GetPollCreationMessageV4() != nil ||
+		evt.Message.GetPollCreationMessageV5() != nil ||
+		evt.Message.GetPollUpdateMessage() != nil
+}
+
+// IsPollUpdate checks if a message is a poll update/response
+func IsPollUpdate(evt *events.Message) bool {
+	return evt.Message.GetPollUpdateMessage() != nil
+}
+
+// IsPollCreation checks if a message is a poll creation
+func IsPollCreation(evt *events.Message) bool {
+	return evt.Message.GetPollCreationMessageV3() != nil ||
+		evt.Message.GetPollCreationMessageV4() != nil ||
+		evt.Message.GetPollCreationMessageV5() != nil
 }

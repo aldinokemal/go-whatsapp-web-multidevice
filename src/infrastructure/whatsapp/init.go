@@ -10,23 +10,23 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.mau.fi/whatsmeow/proto/waHistorySync"
-
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
-	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 )
 
 // Type definitions
@@ -460,12 +460,30 @@ func handleStreamReplaced(_ context.Context) {
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	// Log message metadata
 	metaParts := buildMessageMetaParts(evt)
-	log.Infof("Received message %s from %s (%s): %+v",
-		evt.Info.ID,
-		evt.Info.SourceString(),
-		strings.Join(metaParts, ", "),
-		evt.Message,
-	)
+
+	// Enhanced logging for poll messages
+	if utils.IsPollMessage(evt) {
+		if utils.IsPollCreation(evt) {
+			log.Infof("Received POLL CREATION message %s from %s (%s)",
+				evt.Info.ID,
+				evt.Info.SourceString(),
+				strings.Join(metaParts, ", "),
+			)
+		} else if utils.IsPollUpdate(evt) {
+			log.Infof("Received POLL UPDATE/RESPONSE message %s from %s (%s)",
+				evt.Info.ID,
+				evt.Info.SourceString(),
+				strings.Join(metaParts, ", "),
+			)
+		}
+	} else {
+		log.Infof("Received message %s from %s (%s): %+v",
+			evt.Info.ID,
+			evt.Info.SourceString(),
+			strings.Join(metaParts, ", "),
+			evt.Message,
+		)
+	}
 
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
@@ -481,8 +499,12 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// Handle auto-reply if configured
 	handleAutoReply(ctx, evt, chatStorageRepo)
 
-	// Forward to webhook if configured
-	handleWebhookForward(ctx, evt)
+	// Forward to webhook if configured - use enhanced version for poll messages
+	if utils.IsPollMessage(evt) {
+		handleWebhookForwardWithStorage(ctx, evt, chatStorageRepo)
+	} else {
+		handleWebhookForward(ctx, evt)
+	}
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {
@@ -653,6 +675,27 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 		go func(evt *events.Message) {
 			if err := forwardMessageToWebhook(ctx, evt); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
+			}
+		}(evt)
+	}
+}
+
+func handleWebhookForwardWithStorage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	// Skip webhook for specific protocol messages that shouldn't trigger webhooks
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		protocolType := protocolMessage.GetType().String()
+		// Skip EPHEMERAL_SYNC_RESPONSE but allow REVOKE and MESSAGE_EDIT
+		if protocolType == "EPHEMERAL_SYNC_RESPONSE" {
+			log.Debugf("Skipping webhook for EPHEMERAL_SYNC_RESPONSE message")
+			return
+		}
+	}
+
+	if len(config.WhatsappWebhook) > 0 &&
+		!strings.Contains(evt.Info.SourceString(), "broadcast") {
+		go func(evt *events.Message) {
+			if err := forwardMessageToWebhookWithStorage(ctx, evt, chatStorageRepo); err != nil {
+				logrus.Error("Failed forward to webhook with storage: ", err)
 			}
 		}(evt)
 	}
