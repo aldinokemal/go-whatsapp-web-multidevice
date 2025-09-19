@@ -34,6 +34,25 @@ type ParticipantStatus struct {
 	Message     string `json:"message"`
 }
 
+type GetGroupParticipantsRequest struct {
+	GroupID string `json:"group_id" query:"group_id"`
+}
+
+type GroupParticipant struct {
+	JID          string `json:"jid"`
+	PhoneNumber  string `json:"phone_number"`
+	LID          string `json:"lid,omitempty"`
+	DisplayName  string `json:"display_name,omitempty"`
+	IsAdmin      bool   `json:"is_admin"`
+	IsSuperAdmin bool   `json:"is_super_admin"`
+}
+
+type GetGroupParticipantsResponse struct {
+	GroupID      string             `json:"group_id"`
+	Name         string             `json:"name"`
+	Participants []GroupParticipant `json:"participants"`
+}
+
 type GetGroupRequestParticipantsRequest struct {
 	GroupID string `json:"group_id" query:"group_id"`
 }
