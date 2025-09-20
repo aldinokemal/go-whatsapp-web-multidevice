@@ -113,13 +113,13 @@ export default {
         }
     },
     template: `
-    <div class="purple card" @click="openModal()" style="cursor:pointer;">
+    <div class="blue card" @click="openModal()" style="cursor:pointer;">
         <div class="content">
-            <a class="ui purple right ribbon label">Send</a>
+            <a class="ui blue right ribbon label">Send</a>
             <div class="header">Send Sticker</div>
             <div class="description">
                 Send sticker with automatic conversion to WebP format
-                <div class="ui purple horizontal label">jpg/jpeg/png/webp/gif</div>
+                <div class="ui blue horizontal label">jpg/jpeg/png/webp/gif</div>
             </div>
         </div>
     </div>
@@ -164,7 +164,7 @@ export default {
                 <div class="field" style="padding-bottom: 30px">
                     <label>Sticker Image</label>
                     <input type="file" style="display: none" id="file_sticker" accept="image/png,image/jpg,image/jpeg,image/webp,image/gif" @change="handleStickerChange"/>
-                    <label for="file_sticker" class="ui positive medium purple left floated button" style="color: white">
+                    <label for="file_sticker" class="ui positive medium blue left floated button" style="color: white">
                         <i class="ui upload icon"></i>
                         Upload sticker
                     </label>

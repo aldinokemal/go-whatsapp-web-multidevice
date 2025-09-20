@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -911,36 +912,56 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	var (
-		stickerPath      string
-		deletedItems     []string
-		stickerBytes     []byte
+		stickerPath  string
+		deletedItems []string
+		stickerBytes []byte
 	)
+
+	// Resolve absolute base directory for send items
+	absBaseDir, err := filepath.Abs(config.PathSendItems)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+	}
 
 	defer func() {
 		// Delete temporary files
 		for _, path := range deletedItems {
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to cleanup temporary file %s: %v", path, err)
+			}
 		}
 	}()
 
 	// Handle sticker from URL or file
 	if request.StickerURL != nil && *request.StickerURL != "" {
 		// Download sticker from URL
-		imageData, fileName, err := utils.DownloadImageFromURL(*request.StickerURL)
+		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
 		}
 
-		// Save original file temporarily
-		stickerPath = fmt.Sprintf("%s/sticker_%s", config.PathSendItems, fileName)
-		err = os.WriteFile(stickerPath, imageData, 0644)
+		// Create safe temporary file within base dir
+		f, err := os.CreateTemp(absBaseDir, "sticker_*")
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
 		}
+		stickerPath = f.Name()
+		if _, err := f.Write(imageData); err != nil {
+			f.Close()
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to write sticker: %v", err))
+		}
+		_ = f.Close()
 		deletedItems = append(deletedItems, stickerPath)
 	} else if request.Sticker != nil {
-		// Save sticker file to server
-		stickerPath = fmt.Sprintf("%s/sticker_%s", config.PathSendItems, request.Sticker.Filename)
+		// Create safe temporary file within base dir
+		f, err := os.CreateTemp(absBaseDir, "sticker_*")
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
+		}
+		stickerPath = f.Name()
+		_ = f.Close()
+
+		// Save uploaded file to safe path
 		err = fasthttp.SaveMultipartFile(request.Sticker, stickerPath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
@@ -958,7 +979,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	bounds := srcImage.Bounds()
 	width := bounds.Dx()
 	height := bounds.Dy()
-	
+
 	if width > 512 || height > 512 {
 		if width > height {
 			srcImage = imaging.Resize(srcImage, 512, 0, imaging.Lanczos)
@@ -968,13 +989,13 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	// Convert to WebP using external command (ffmpeg or cwebp)
-	webpPath := fmt.Sprintf("%s/sticker_%s.webp", config.PathSendItems, fiberUtils.UUIDv4())
+	webpPath := filepath.Join(absBaseDir, fmt.Sprintf("sticker_%s.webp", fiberUtils.UUIDv4()))
 	deletedItems = append(deletedItems, webpPath)
 
 	// First save as PNG temporarily
-	pngPath := fmt.Sprintf("%s/temp_%s.png", config.PathSendItems, fiberUtils.UUIDv4())
+	pngPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_%s.png", fiberUtils.UUIDv4()))
 	deletedItems = append(deletedItems, pngPath)
-	
+
 	err = imaging.Save(srcImage, pngPath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save temporary PNG: %v", err))
@@ -982,14 +1003,18 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 
 	// Try to use ffmpeg first (most common), then cwebp
 	var convertCmd *exec.Cmd
-	
+
+	// Add execution timeout for conversion
+	convCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
 	// Check if ffmpeg is available
 	if _, err := exec.LookPath("ffmpeg"); err == nil {
-		// Use ffmpeg to convert to WebP with transparency support
-		convertCmd = exec.Command("ffmpeg", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
+		// Use ffmpeg to convert to WebP with transparency support, overwrite if exists
+		convertCmd = exec.CommandContext(convCtx, "ffmpeg", "-y", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
 	} else if _, err := exec.LookPath("cwebp"); err == nil {
 		// Use cwebp as fallback
-		convertCmd = exec.Command("cwebp", "-q", "60", "-o", webpPath, pngPath)
+		convertCmd = exec.CommandContext(convCtx, "cwebp", "-q", "60", "-o", webpPath, pngPath)
 	} else {
 		// If neither tool is available, return error
 		return response, pkgError.InternalServerError("neither ffmpeg nor cwebp is installed for WebP conversion")
@@ -997,7 +1022,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 
 	var stderr bytes.Buffer
 	convertCmd.Stderr = &stderr
-	
+
 	if err := convertCmd.Run(); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert sticker to WebP: %v, stderr: %s", err, stderr.String()))
 	}
