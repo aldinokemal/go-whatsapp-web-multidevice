@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.11.0
+  version: 6.12.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -615,6 +615,58 @@ paths:
                   type: integer
                   example: 3600
                   description: Disappearing message duration in seconds (optional)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/sticker:
+    post:
+      operationId: sendSticker
+      tags:
+        - send
+      summary: Send Sticker
+      description: Send sticker with automatic conversion to WebP format
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '6289685028129@s.whatsapp.net'
+                  description: Phone number with country code
+                sticker:
+                  type: string
+                  format: binary
+                  description: Sticker image file (jpg/jpeg/png/webp/gif)
+                sticker_url:
+                  type: string
+                  example: https://example.com/sticker.png
+                  description: URL of sticker image to send
+                duration:
+                  type: integer
+                  example: 3600
+                  description: Disappearing message duration in seconds (optional)
+                is_forwarded:
+                  type: boolean
+                  example: false
+                  description: Whether this is a forwarded sticker
       responses:
         '200':
           description: OK

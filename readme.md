@@ -49,6 +49,10 @@ Download:
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
 - Post Whatsapp Status
+- **Send Stickers** - Automatically converts images to WebP sticker format
+  - Supports JPG, JPEG, PNG, WebP, and GIF formats
+  - Automatic resizing to 512x512 pixels
+  - Preserves transparency for PNG images
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -215,6 +219,7 @@ The WhatsApp MCP server provides comprehensive tools for AI agents to interact w
 - `whatsapp_send_link` - Send links with custom captions
 - `whatsapp_send_location` - Send location coordinates (latitude/longitude)
 - `whatsapp_send_image` - Send images with captions, compression, and view-once options
+- `whatsapp_send_sticker` - Send stickers with automatic WebP conversion (supports JPG/PNG/GIF)
 
 ##### **📋 Chat & Contact Management**
 
@@ -416,6 +421,7 @@ You can fork or edit this source code !
 | ✅       | Send Audio                             | POST   | /send/audio                         |
 | ✅       | Send File                              | POST   | /send/file                          |
 | ✅       | Send Video                             | POST   | /send/video                         |
+| ✅       | Send Sticker                           | POST   | /send/sticker                       |
 | ✅       | Send Contact                           | POST   | /send/contact                       |
 | ✅       | Send Link                              | POST   | /send/link                          |
 | ✅       | Send Location                          | POST   | /send/location                      |
@@ -482,6 +488,7 @@ You can fork or edit this source code !
 | Send Image           | ![Send Image](./gallery/send-image.png)                       |
 | Send File            | ![Send File](./gallery/send-file.png)                         |
 | Send Video           | ![Send Video](./gallery/send-video.png)                       |
+| Send Sticker         | ![Send Sticker](./gallery/send-sticker.png)                   |
 | Send Contact         | ![Send Contact](./gallery/send-contact.png)                   |
 | Send Location        | ![Send Location](./gallery/send-location.png)                 |
 | Send Audio           | ![Send Audio](./gallery/send-audio.png)                       |

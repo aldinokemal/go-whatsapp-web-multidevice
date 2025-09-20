@@ -120,6 +120,61 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 	return nil
 }
 
+func ValidateSendSticker(ctx context.Context, request domainSend.StickerRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	// Custom validation for phone number format
+	if err := validatePhoneNumber(request.Phone); err != nil {
+		return err
+	}
+
+	// Either Sticker or StickerURL must be provided
+	if request.Sticker == nil && (request.StickerURL == nil || *request.StickerURL == "") {
+		return pkgError.ValidationError("either Sticker or StickerURL must be provided")
+	}
+
+	// Both cannot be provided at the same time
+	if request.Sticker != nil && request.StickerURL != nil && *request.StickerURL != "" {
+		return pkgError.ValidationError("cannot provide both Sticker file and StickerURL")
+	}
+
+	// Validate file type if sticker file is provided
+	if request.Sticker != nil {
+		availableMimes := map[string]bool{
+			"image/jpeg": true,
+			"image/jpg":  true,
+			"image/png":  true,
+			"image/webp": true, // Also accept WebP directly
+			"image/gif":  true, // Support GIF for animated stickers
+		}
+
+		if !availableMimes[request.Sticker.Header.Get("Content-Type")] {
+			return pkgError.ValidationError("your sticker is not allowed. please use jpg/jpeg/png/webp/gif")
+		}
+	}
+
+	// Validate URL if provided
+	if request.StickerURL != nil && *request.StickerURL != "" {
+		err := validation.Validate(*request.StickerURL, is.URL)
+		if err != nil {
+			return pkgError.ValidationError("StickerURL must be a valid URL")
+		}
+	}
+
+	// Validate duration
+	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
