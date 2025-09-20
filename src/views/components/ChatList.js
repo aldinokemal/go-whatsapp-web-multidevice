@@ -26,11 +26,7 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalChatList').modal({
-                onApprove: function () {
-                    return false;
-                }
-            }).modal('show');
+            $('#modalChatList').modal('show');
             this.loadChats();
         },
         async loadChats() {
