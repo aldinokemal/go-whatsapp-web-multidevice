@@ -26,6 +26,7 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(s.toolSendLink(), s.handleSendLink)
 	mcpServer.AddTool(s.toolSendLocation(), s.handleSendLocation)
 	mcpServer.AddTool(s.toolSendImage(), s.handleSendImage)
+	mcpServer.AddTool(s.toolSendSticker(), s.handleSendSticker)
 }
 
 func (s *SendHandler) toolSendText() mcp.Tool {
@@ -345,4 +346,54 @@ func (s *SendHandler) handleSendImage(ctx context.Context, request mcp.CallToolR
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Image sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendSticker() mcp.Tool {
+	sendStickerTool := mcp.NewTool("whatsapp_send_sticker",
+		mcp.WithDescription("Send a sticker to a WhatsApp contact or group. Images are automatically converted to WebP sticker format."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send sticker to"),
+		),
+		mcp.WithString("sticker_url",
+			mcp.Description("URL of the image to convert to sticker and send"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this is a forwarded sticker"),
+		),
+	)
+
+	return sendStickerTool
+}
+
+func (s *SendHandler) handleSendSticker(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	stickerURL, stickerURLOk := request.GetArguments()["sticker_url"].(string)
+	if !stickerURLOk || stickerURL == "" {
+		return nil, errors.New("sticker_url must be a non-empty string")
+	}
+
+	isForwarded := false
+	if val, ok := request.GetArguments()["is_forwarded"].(bool); ok {
+		isForwarded = val
+	}
+
+	stickerRequest := domainSend.StickerRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		StickerURL: &stickerURL,
+	}
+
+	res, err := s.sendService.SendSticker(ctx, stickerRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Sticker sent successfully with ID %s", res.MessageID)), nil
 }
