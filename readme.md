@@ -198,10 +198,46 @@ standardized protocol.
 
 #### Available MCP Tools
 
-- `whatsapp_send_text` - Send text messages
-- `whatsapp_send_contact` - Send contact cards
-- `whatsapp_send_link` - Send links with captions
-- `whatsapp_send_location` - Send location coordinates
+The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized protocol. Below is the complete list of available tools:
+
+##### **📱 Connection Management**
+
+- `whatsapp_connection_status` - Check whether the WhatsApp client is connected and logged in
+- `whatsapp_login_qr` - Initiate QR code based login flow with image output
+- `whatsapp_login_with_code` - Generate pairing code for multi-device login using phone number
+- `whatsapp_logout` - Sign out the current WhatsApp session
+- `whatsapp_reconnect` - Attempt to reconnect to WhatsApp using stored session
+
+##### **💬 Messaging & Communication**
+
+- `whatsapp_send_text` - Send text messages with reply and forwarding support
+- `whatsapp_send_contact` - Send contact cards with name and phone number
+- `whatsapp_send_link` - Send links with custom captions
+- `whatsapp_send_location` - Send location coordinates (latitude/longitude)
+- `whatsapp_send_image` - Send images with captions, compression, and view-once options
+
+##### **📋 Chat & Contact Management**
+
+- `whatsapp_list_contacts` - Retrieve all contacts in your WhatsApp account
+- `whatsapp_list_chats` - Get recent chats with pagination and search filters
+- `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
+- `whatsapp_download_message_media` - Download images/videos from messages
+
+##### **👥 Group Management**
+
+- `whatsapp_group_create` - Create new groups with optional initial participants
+- `whatsapp_group_join_via_link` - Join groups using invite links
+- `whatsapp_group_leave` - Leave groups by group ID
+- `whatsapp_group_participants` - List all participants in a group
+- `whatsapp_group_manage_participants` - Add, remove, promote, or demote group members
+- `whatsapp_group_invite_link` - Get or reset group invite links
+- `whatsapp_group_info` - Get detailed group information
+- `whatsapp_group_set_name` - Update group display name
+- `whatsapp_group_set_topic` - Update group description/topic
+- `whatsapp_group_set_locked` - Toggle admin-only group info editing
+- `whatsapp_group_set_announce` - Toggle announcement-only mode
+- `whatsapp_group_join_requests` - List pending join requests
+- `whatsapp_group_manage_join_requests` - Approve or reject join requests
 
 #### MCP Endpoints
 
