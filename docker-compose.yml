@@ -5,11 +5,96 @@ services:
       options:
         max-size: "200k"
         max-file: "10"
-    build:
-      context: .
-      dockerfile: ./docker/golang.Dockerfile
+    image: whatsapp-fixed
+    pull_policy: never
     restart: "on-failure"
     ports:
       - "3000:3000"
+      - "8081:8080"  # MCP server port (changed to avoid conflict)
     env_file:
       - src/.env
+    environment:
+      - AI_SERVICE_URL=http://host.docker.internal:8000
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8080
+      - WHATSAPP_AUTO_REPLY="I'm processing your message. Please wait a moment."
+    depends_on:
+      - ai-whatsapp-bot
+    command: ["rest"]
+    volumes:
+      - whatsapp_storage:/app/storages
+    networks:
+      - whatsapp-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ai-whatsapp-bot:
+    image: ai-bot-fixed
+    pull_policy: never
+    container_name: ai-whatsapp-bot
+    network_mode: host
+    environment:
+      - OLLAMA_URL=http://localhost:11434
+      - OLLAMA_MODEL=smollm2:latest
+      - AI_TEMPERATURE=0.7
+      - AI_MAX_TOKENS=500
+      - AI_PERSONALITY=helpful
+      - AI_ENABLE_QUESTIONS=true
+      - ASSISTANT_NAMES=Jason
+      - AUTO_REPLY_THRESHOLD=0.8
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - CONVERSATION_TIMEOUT_HOURS=24
+      - CLEANUP_INTERVAL_HOURS=1
+      - API_KEY=${AI_API_KEY:-}
+    restart: unless-stopped
+    volumes:
+      - conversations:/app/conversations
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - whatsapp-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "--fail", "http://localhost:11434/api/tags"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1.0"
+  #         memory: 4G
+  #       reservations:
+  #         cpus: "0.5"
+  #         memory: 2G
+
+networks:
+  whatsapp-network:
+    driver: bridge
+
+volumes:
+  conversations:
+  whatsapp_storage:
+  # ollama_data:

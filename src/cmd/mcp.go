@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -43,6 +45,14 @@ func mcpServer(_ *cobra.Command, _ []string) {
 	// Add all WhatsApp tools
 	sendHandler := mcp.InitMcpSend(sendUsecase)
 	sendHandler.AddSendTools(mcpServer)
+
+	// Add AI tools
+	aiServiceURL := os.Getenv("AI_SERVICE_URL")
+	if aiServiceURL == "" {
+		aiServiceURL = "http://localhost:8000" // fallback for local development
+	}
+	aiBridge := mcp.NewAIBridge(aiServiceURL, 120*time.Second, logrus.StandardLogger())
+	aiBridge.AddAITools(mcpServer)
 
 	// Create SSE server
 	sseServer := server.NewSSEServer(

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# echo 'nameserver 8.8.8.8' > /etc/resolv.conf
+docker build . -f ./docker/golang.Dockerfile --pull=true --no-cache --progress=plain "$@"
