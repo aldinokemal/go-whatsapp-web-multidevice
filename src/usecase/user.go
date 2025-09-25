@@ -117,10 +117,10 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 
 }
 
-func (service serviceUser) MyListGroups(_ context.Context) (response domainUser.MyListGroupsResponse, err error) {
+func (service serviceUser) MyListGroups(ctx context.Context) (response domainUser.MyListGroupsResponse, err error) {
 	utils.MustLogin(whatsapp.GetClient())
 
-	groups, err := whatsapp.GetClient().GetJoinedGroups()
+	groups, err := whatsapp.GetClient().GetJoinedGroups(ctx)
 	if err != nil {
 		return
 	}
