@@ -140,6 +140,42 @@ func (service serviceGroup) ManageParticipant(ctx context.Context, request domai
 	return result, nil
 }
 
+func (service serviceGroup) GetGroupParticipants(ctx context.Context, request domainGroup.GetGroupParticipantsRequest) (response domainGroup.GetGroupParticipantsResponse, err error) {
+	if err = validations.ValidateGetGroupParticipants(ctx, request); err != nil {
+		return response, err
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	if err != nil {
+		return response, err
+	}
+
+	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	if err != nil {
+		return response, err
+	}
+
+	response.GroupID = groupJID.String()
+	if groupInfo != nil {
+		response.Name = groupInfo.GroupName.Name
+		response.Participants = make([]domainGroup.GroupParticipant, 0, len(groupInfo.Participants))
+		for _, participant := range groupInfo.Participants {
+			participantData := domainGroup.GroupParticipant{
+				JID:          participant.JID.String(),
+				PhoneNumber:  participant.PhoneNumber.String(),
+				LID:          participant.LID.String(),
+				DisplayName:  participant.DisplayName,
+				IsAdmin:      participant.IsAdmin,
+				IsSuperAdmin: participant.IsSuperAdmin,
+			}
+
+			response.Participants = append(response.Participants, participantData)
+		}
+	}
+
+	return response, nil
+}
+
 func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, request domainGroup.GetGroupRequestParticipantsRequest) (result []domainGroup.GetGroupRequestParticipantsResponse, err error) {
 	if err = validations.ValidateGetGroupRequestParticipants(ctx, request); err != nil {
 		return result, err

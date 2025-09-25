@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -915,6 +916,189 @@ func (service serviceSend) getMentionFromText(_ context.Context, messages string
 		}
 	}
 	return result
+}
+
+func (service serviceSend) SendSticker(ctx context.Context, request domainSend.StickerRequest) (response domainSend.GenericResponse, err error) {
+	// Validate request
+	err = validations.ValidateSendSticker(ctx, request)
+	if err != nil {
+		return response, err
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	var (
+		stickerPath  string
+		deletedItems []string
+		stickerBytes []byte
+	)
+
+	// Resolve absolute base directory for send items
+	absBaseDir, err := filepath.Abs(config.PathSendItems)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+	}
+
+	defer func() {
+		// Delete temporary files
+		for _, path := range deletedItems {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to cleanup temporary file %s: %v", path, err)
+			}
+		}
+	}()
+
+	// Handle sticker from URL or file
+	if request.StickerURL != nil && *request.StickerURL != "" {
+		// Download sticker from URL
+		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
+		}
+
+		// Create safe temporary file within base dir
+		f, err := os.CreateTemp(absBaseDir, "sticker_*")
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
+		}
+		stickerPath = f.Name()
+		if _, err := f.Write(imageData); err != nil {
+			f.Close()
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to write sticker: %v", err))
+		}
+		_ = f.Close()
+		deletedItems = append(deletedItems, stickerPath)
+	} else if request.Sticker != nil {
+		// Create safe temporary file within base dir
+		f, err := os.CreateTemp(absBaseDir, "sticker_*")
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
+		}
+		stickerPath = f.Name()
+		_ = f.Close()
+
+		// Save uploaded file to safe path
+		err = fasthttp.SaveMultipartFile(request.Sticker, stickerPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
+		}
+		deletedItems = append(deletedItems, stickerPath)
+	}
+
+	// Convert image to WebP format for sticker (512x512 max size)
+	srcImage, err := imaging.Open(stickerPath)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
+	}
+
+	// Resize image to max 512x512 maintaining aspect ratio
+	bounds := srcImage.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	if width > 512 || height > 512 {
+		if width > height {
+			srcImage = imaging.Resize(srcImage, 512, 0, imaging.Lanczos)
+		} else {
+			srcImage = imaging.Resize(srcImage, 0, 512, imaging.Lanczos)
+		}
+	}
+
+	// Convert to WebP using external command (ffmpeg or cwebp)
+	webpPath := filepath.Join(absBaseDir, fmt.Sprintf("sticker_%s.webp", fiberUtils.UUIDv4()))
+	deletedItems = append(deletedItems, webpPath)
+
+	// First save as PNG temporarily
+	pngPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_%s.png", fiberUtils.UUIDv4()))
+	deletedItems = append(deletedItems, pngPath)
+
+	err = imaging.Save(srcImage, pngPath)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save temporary PNG: %v", err))
+	}
+
+	// Try to use ffmpeg first (most common), then cwebp
+	var convertCmd *exec.Cmd
+
+	// Add execution timeout for conversion
+	convCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	// Check if ffmpeg is available
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		// Use ffmpeg to convert to WebP with transparency support, overwrite if exists
+		convertCmd = exec.CommandContext(convCtx, "ffmpeg", "-y", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
+	} else if _, err := exec.LookPath("cwebp"); err == nil {
+		// Use cwebp as fallback
+		convertCmd = exec.CommandContext(convCtx, "cwebp", "-q", "60", "-o", webpPath, pngPath)
+	} else {
+		// If neither tool is available, return error
+		return response, pkgError.InternalServerError("neither ffmpeg nor cwebp is installed for WebP conversion")
+	}
+
+	var stderr bytes.Buffer
+	convertCmd.Stderr = &stderr
+
+	if err := convertCmd.Run(); err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert sticker to WebP: %v, stderr: %s", err, stderr.String()))
+	}
+
+	// Read the WebP file
+	stickerBytes, err = os.ReadFile(webpPath)
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read WebP sticker: %v", err))
+	}
+
+	// Upload sticker to WhatsApp servers
+	stickerUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
+	if err != nil {
+		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
+	}
+
+	// Create sticker message
+	msg := &waE2E.Message{
+		StickerMessage: &waE2E.StickerMessage{
+			URL:           proto.String(stickerUploaded.URL),
+			DirectPath:    proto.String(stickerUploaded.DirectPath),
+			Mimetype:      proto.String("image/webp"),
+			FileLength:    proto.Uint64(stickerUploaded.FileLength),
+			FileSHA256:    stickerUploaded.FileSHA256,
+			FileEncSHA256: stickerUploaded.FileEncSHA256,
+			MediaKey:      stickerUploaded.MediaKey,
+			Width:         proto.Uint32(uint32(srcImage.Bounds().Dx())),
+			Height:        proto.Uint32(uint32(srcImage.Bounds().Dy())),
+			IsAnimated:    proto.Bool(false),
+		},
+	}
+
+	if request.BaseRequest.IsForwarded {
+		msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(100),
+		}
+	}
+
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+		if msg.StickerMessage.ContextInfo == nil {
+			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	}
+
+	content := "🎨 Sticker"
+
+	// Send the sticker message
+	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	return response, nil
 }
 
 func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
