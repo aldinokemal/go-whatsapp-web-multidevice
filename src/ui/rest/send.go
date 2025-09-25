@@ -16,6 +16,7 @@ func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	app.Post("/send/image", rest.SendImage)
 	app.Post("/send/file", rest.SendFile)
 	app.Post("/send/video", rest.SendVideo)
+	app.Post("/send/sticker", rest.SendSticker)
 	app.Post("/send/contact", rest.SendContact)
 	app.Post("/send/link", rest.SendLink)
 	app.Post("/send/location", rest.SendLocation)
@@ -104,6 +105,29 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendVideo(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Send) SendSticker(c *fiber.Ctx) error {
+	var request domainSend.StickerRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	// Try to get file but ignore error if not provided
+	if stickerFile, errFile := c.FormFile("sticker"); errFile == nil {
+		request.Sticker = stickerFile
+	}
+
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.SendSticker(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

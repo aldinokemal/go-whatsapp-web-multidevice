@@ -17,6 +17,7 @@ type IGroupManagement interface {
 // IGroupParticipants handles group participant operations
 type IGroupParticipants interface {
 	ManageParticipant(ctx context.Context, request ParticipantRequest) (result []ParticipantStatus, err error)
+	GetGroupParticipants(ctx context.Context, request GetGroupParticipantsRequest) (response GetGroupParticipantsResponse, err error)
 	GetGroupRequestParticipants(ctx context.Context, request GetGroupRequestParticipantsRequest) (result []GetGroupRequestParticipantsResponse, err error)
 	ManageGroupRequestParticipants(ctx context.Context, request GroupRequestParticipantsRequest) (result []ParticipantStatus, err error)
 }

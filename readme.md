@@ -49,6 +49,10 @@ Download:
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
 - Post Whatsapp Status
+- **Send Stickers** - Automatically converts images to WebP sticker format
+  - Supports JPG, JPEG, PNG, WebP, and GIF formats
+  - Automatic resizing to 512x512 pixels
+  - Preserves transparency for PNG images
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -198,10 +202,47 @@ standardized protocol.
 
 #### Available MCP Tools
 
-- `whatsapp_send_text` - Send text messages
-- `whatsapp_send_contact` - Send contact cards
-- `whatsapp_send_link` - Send links with captions
-- `whatsapp_send_location` - Send location coordinates
+The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized protocol. Below is the complete list of available tools:
+
+##### **📱 Connection Management**
+
+- `whatsapp_connection_status` - Check whether the WhatsApp client is connected and logged in
+- `whatsapp_login_qr` - Initiate QR code based login flow with image output
+- `whatsapp_login_with_code` - Generate pairing code for multi-device login using phone number
+- `whatsapp_logout` - Sign out the current WhatsApp session
+- `whatsapp_reconnect` - Attempt to reconnect to WhatsApp using stored session
+
+##### **💬 Messaging & Communication**
+
+- `whatsapp_send_text` - Send text messages with reply and forwarding support
+- `whatsapp_send_contact` - Send contact cards with name and phone number
+- `whatsapp_send_link` - Send links with custom captions
+- `whatsapp_send_location` - Send location coordinates (latitude/longitude)
+- `whatsapp_send_image` - Send images with captions, compression, and view-once options
+- `whatsapp_send_sticker` - Send stickers with automatic WebP conversion (supports JPG/PNG/GIF)
+
+##### **📋 Chat & Contact Management**
+
+- `whatsapp_list_contacts` - Retrieve all contacts in your WhatsApp account
+- `whatsapp_list_chats` - Get recent chats with pagination and search filters
+- `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
+- `whatsapp_download_message_media` - Download images/videos from messages
+
+##### **👥 Group Management**
+
+- `whatsapp_group_create` - Create new groups with optional initial participants
+- `whatsapp_group_join_via_link` - Join groups using invite links
+- `whatsapp_group_leave` - Leave groups by group ID
+- `whatsapp_group_participants` - List all participants in a group
+- `whatsapp_group_manage_participants` - Add, remove, promote, or demote group members
+- `whatsapp_group_invite_link` - Get or reset group invite links
+- `whatsapp_group_info` - Get detailed group information
+- `whatsapp_group_set_name` - Update group display name
+- `whatsapp_group_set_topic` - Update group description/topic
+- `whatsapp_group_set_locked` - Toggle admin-only group info editing
+- `whatsapp_group_set_announce` - Toggle announcement-only mode
+- `whatsapp_group_join_requests` - List pending join requests
+- `whatsapp_group_manage_join_requests` - Approve or reject join requests
 
 #### MCP Endpoints
 
@@ -227,11 +268,13 @@ For AI tools that support MCP with SSE (like Cursor), add this configuration:
 ### Production Mode REST (docker)
 
 Using Docker Hub:
+
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
 
 Using GitHub Container Registry:
+
 ```bash
 docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages ghcr.io/aldinokemal/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
 ```
@@ -378,6 +421,7 @@ You can fork or edit this source code !
 | ✅       | Send Audio                             | POST   | /send/audio                         |
 | ✅       | Send File                              | POST   | /send/file                          |
 | ✅       | Send Video                             | POST   | /send/video                         |
+| ✅       | Send Sticker                           | POST   | /send/sticker                       |
 | ✅       | Send Contact                           | POST   | /send/contact                       |
 | ✅       | Send Link                              | POST   | /send/link                          |
 | ✅       | Send Location                          | POST   | /send/location                      |
@@ -396,10 +440,12 @@ You can fork or edit this source code !
 | ✅       | Group Info                             | GET    | /group/info                         |
 | ✅       | Leave Group                            | POST   | /group/leave                        |
 | ✅       | Create Group                           | POST   | /group                              |
+| ✅       | List Participants in Group             | GET    | /group/participants                 |
 | ✅       | Add Participants in Group              | POST   | /group/participants                 |
 | ✅       | Remove Participant in Group            | POST   | /group/participants/remove          |
 | ✅       | Promote Participant in Group           | POST   | /group/participants/promote         |
 | ✅       | Demote Participant in Group            | POST   | /group/participants/demote          |
+| ✅       | Export Group Participants (CSV)        | GET    | /group/participants/export          |
 | ✅       | List Requested Participants in Group   | GET    | /group/participant-requests         |
 | ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve |
 | ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject  |
@@ -442,6 +488,7 @@ You can fork or edit this source code !
 | Send Image           | ![Send Image](./gallery/send-image.png)                       |
 | Send File            | ![Send File](./gallery/send-file.png)                         |
 | Send Video           | ![Send Video](./gallery/send-video.png)                       |
+| Send Sticker         | ![Send Sticker](./gallery/send-sticker.png)                   |
 | Send Contact         | ![Send Contact](./gallery/send-contact.png)                   |
 | Send Location        | ![Send Location](./gallery/send-location.png)                 |
 | Send Audio           | ![Send Audio](./gallery/send-audio.png)                       |
