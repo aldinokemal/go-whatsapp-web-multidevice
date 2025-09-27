@@ -30,12 +30,22 @@ func (handler *App) Login(c *fiber.Ctx) error {
 	response, err := handler.Service.Login(c.UserContext())
 	utils.PanicIfNeeded(err)
 
+	host := c.Get("X-Forwarded-Host")
+	if host == "" {
+		host = c.Hostname()
+	}
+
+	protocol := c.Get("X-Forwarded-Proto")
+	if protocol == "" {
+		protocol = c.Protocol()
+	}
+
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Login success",
 		Results: map[string]any{
-			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Protocol(), c.Hostname(), config.AppBasePath, response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", protocol, host, config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
