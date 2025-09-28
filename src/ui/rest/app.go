@@ -44,7 +44,10 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		protocol = c.Protocol()
 	}
 	if port == "" {
-		port = fmt.Sprintf("%d", c.Port())
+		port = c.Port()
+		if port == "0" {
+			port = ""
+		}
 	}
 	defaultPort := "80"
 	if protocol == "https" {
