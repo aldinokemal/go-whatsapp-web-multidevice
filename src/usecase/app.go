@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"encoding/base64"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -91,13 +90,6 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 						logrus.Error("Error when write qr code to file: ", err)
 					}
 
-					// Generate QR as PNG byte array and encode to base64
-					qrBytes, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
-					if err != nil {
-						logrus.Error("Error when encode qr code to bytes: ", err)
-					} else {
-						response.Base64Data = base64.StdEncoding.EncodeToString(qrBytes)
-					}
 					go func() {
 						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)
