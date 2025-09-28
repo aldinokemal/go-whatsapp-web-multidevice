@@ -30,14 +30,25 @@ func (handler *App) Login(c *fiber.Ctx) error {
 	response, err := handler.Service.Login(c.UserContext())
 	utils.PanicIfNeeded(err)
 
+	// configure host, protocol, and port with X-Forwarded headers support
+	// applied for reverse proxy support (Kong, Envoy, Traefik, HAProxy)
 	host := c.Get("X-Forwarded-Host")
+	protocol := c.Get("X-Forwarded-Proto")
+	port := c.Get("X-Forwarded-Port")
+
 	if host == "" {
 		host = c.Hostname()
 	}
-
-	protocol := c.Get("X-Forwarded-Proto")
 	if protocol == "" {
 		protocol = c.Protocol()
+	}
+	if port == "" {
+		port = fmt.Sprintf("%d", c.Port())
+	}
+	// Only add port if it's not 80
+	hostWithPort := host
+	if port != "80" && port != "" {
+		hostWithPort = fmt.Sprintf("%s:%s", host, port)
 	}
 
 	return c.JSON(utils.ResponseData{
@@ -45,7 +56,7 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Login success",
 		Results: map[string]any{
-			"qr_link":     fmt.Sprintf("%s://%s%s/%s", protocol, host, config.AppBasePath, response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", protocol, hostWithPort, config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
