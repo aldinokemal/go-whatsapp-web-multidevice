@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -45,10 +46,16 @@ func (handler *App) Login(c *fiber.Ctx) error {
 	if port == "" {
 		port = fmt.Sprintf("%d", c.Port())
 	}
-	// Only add port if it's not 80
+	defaultPort := "80"
+	if protocol == "https" {
+		defaultPort = "443"
+	}
+
 	hostWithPort := host
-	if port != "80" && port != "" {
-		hostWithPort = fmt.Sprintf("%s:%s", host, port)
+	if port != "" && port != defaultPort {
+		if _, _, splitErr := net.SplitHostPort(host); splitErr != nil {
+			hostWithPort = fmt.Sprintf("%s:%s", host, port)
+		}
 	}
 
 	return c.JSON(utils.ResponseData{
