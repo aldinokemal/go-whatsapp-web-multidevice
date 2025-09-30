@@ -1,6 +1,6 @@
 /**
  * WhatsApp API MultiDevice
- * 6.10.0
+ * 6.12.0
  * DO NOT MODIFY - This file has been generated using oazapfts.
  * See https://www.npmjs.com/package/oazapfts
  */
@@ -336,6 +336,24 @@ export type CreateGroupResponse = {
     results?: {
         group_id?: string;
     };
+};
+export type GroupParticipantItem = {
+    jid?: string;
+    phone_number?: string;
+    lid?: string | null;
+    display_name?: string | null;
+    is_admin?: boolean;
+    is_super_admin?: boolean;
+};
+export type GroupParticipantsResult = {
+    group_id?: string;
+    name?: string;
+    participants?: GroupParticipantItem[];
+};
+export type GroupParticipantsResponse = {
+    code?: string;
+    message?: string;
+    results?: GroupParticipantsResult;
 };
 export type ManageParticipantRequest = {
     group_id?: string;
@@ -798,6 +816,38 @@ export function sendFile({ body }: {
         status: 500;
         data: ErrorInternalServer;
     }>("/send/file", oazapfts.multipart({
+        ...opts,
+        method: "POST",
+        body
+    }));
+}
+/**
+ * Send Sticker
+ */
+export function sendSticker({ body }: {
+    body?: {
+        /** Phone number with country code */
+        phone?: string;
+        /** Sticker image file (jpg/jpeg/png/webp/gif) */
+        sticker?: Blob;
+        /** URL of sticker image to send */
+        sticker_url?: string;
+        /** Disappearing message duration in seconds (optional) */
+        duration?: number;
+        /** Whether this is a forwarded sticker */
+        is_forwarded?: boolean;
+    };
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.fetchJson<{
+        status: 200;
+        data: SendResponse;
+    } | {
+        status: 400;
+        data: ErrorBadRequest;
+    } | {
+        status: 500;
+        data: ErrorInternalServer;
+    }>("/send/sticker", oazapfts.multipart({
         ...opts,
         method: "POST",
         body
@@ -1382,6 +1432,27 @@ export function createGroup({ body }: {
     }));
 }
 /**
+ * Get list of participants in a group
+ */
+export function getGroupParticipants({ groupId }: {
+    groupId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.fetchJson<{
+        status: 200;
+        data: GroupParticipantsResponse;
+    } | {
+        status: 400;
+        data: ErrorBadRequest;
+    } | {
+        status: 500;
+        data: ErrorInternalServer;
+    }>(`/group/participants${QS.query(QS.explode({
+        group_id: groupId
+    }))}`, {
+        ...opts
+    });
+}
+/**
  * Adding more participants to group
  */
 export function addParticipantToGroup({ manageParticipantRequest }: {
@@ -1401,6 +1472,27 @@ export function addParticipantToGroup({ manageParticipantRequest }: {
         method: "POST",
         body: manageParticipantRequest
     }));
+}
+/**
+ * Export group participants as CSV
+ */
+export function exportGroupParticipants({ groupId }: {
+    groupId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.fetchJson<{
+        status: 200;
+        data: Blob;
+    } | {
+        status: 400;
+        data: ErrorBadRequest;
+    } | {
+        status: 500;
+        data: ErrorInternalServer;
+    }>(`/group/participants/export${QS.query(QS.explode({
+        group_id: groupId
+    }))}`, {
+        ...opts
+    });
 }
 /**
  * Remove participants from group
