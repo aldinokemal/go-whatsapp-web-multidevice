@@ -132,13 +132,23 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, phoneNumber string
 
 	client := whatsapp.GetClient()
 	// detect is already logged in
-	if client.Store.ID != nil {
+	if client.Store.ID != nil || client.IsLoggedIn() {
 		logrus.Warn("User is already logged in")
 		return loginCode, pkgError.ErrAlreadyLoggedIn
 	}
 
 	// reconnect first
-	_ = service.Reconnect(ctx)
+	if err = service.Reconnect(ctx); err != nil {
+		logrus.Errorf("Error when reconnecting before login with code: %s", err.Error())
+		return loginCode, err
+	}
+
+	// refresh client reference after reconnect
+	client = whatsapp.GetClient()
+	if client.IsLoggedIn() || client.Store.ID != nil {
+		logrus.Warn("User is already logged in after reconnect")
+		return loginCode, pkgError.ErrAlreadyLoggedIn
+	}
 
 	logrus.Infof("[DEBUG] Starting phone pairing for number: %s", phoneNumber)
 	loginCode, err = client.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")

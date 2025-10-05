@@ -1,5 +1,8 @@
+import GroupListParticipants from "./GroupListParticipants.js";
+
 export default {
     name: 'ListGroup',
+    components: { GroupListParticipants },
     props: ['connected'],
     data() {
         return {
@@ -7,7 +10,7 @@ export default {
             selectedGroupId: null,
             requestedMembers: [],
             loadingRequestedMembers: false,
-            processingMember: null
+            processingMember: null,
         }
     },
     computed: {
@@ -111,6 +114,27 @@ export default {
                 showErrorInfo(errorMessage);
             }
         },
+        async handleSeeParticipants(group) {
+            if (!group || !group.JID) return;
+
+            this.selectedGroupId = group.JID;
+            $('#modalGroupList').modal('hide');
+
+            try {
+                await this.$refs.participantsModal.open(group);
+            } catch (error) {
+                const errorMessage = error?.message || 'Failed to fetch participants';
+                showErrorInfo(errorMessage);
+                $('#modalGroupList').modal('show');
+            }
+        },
+        handleExportParticipants(group) {
+            if (!group || !group.JID) return;
+
+            const baseURL = (window.http && window.http.defaults && window.http.defaults.baseURL) ? window.http.defaults.baseURL : '';
+            const exportUrl = `${baseURL}/group/participants/export?group_id=${encodeURIComponent(group.JID)}`;
+            window.open(exportUrl, '_blank');
+        },
         formatJID(jid) {
             return jid ? jid.split('@')[0] : '';
         },
@@ -118,6 +142,9 @@ export default {
             $('#modalRequestedMembers').modal('hide');
             // open modal again
             this.openModal();
+        },
+        handleParticipantsClosed() {
+            $('#modalGroupList').modal('show');
         },
         async handleProcessRequest(member, action) {
             if (!this.selectedGroupId || !member) return;
@@ -188,6 +215,8 @@ export default {
                     <td>{{ formatDate(g.GroupCreated) }}</td>
                     <td>
                         <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="ui blue tiny button" @click="handleSeeParticipants(g)">Participants</button>
+                            <button class="ui grey tiny button" @click="handleExportParticipants(g)">Export CSV</button>
                             <button v-if="isAdmin(g)" class="ui green tiny button" @click="handleSeeRequestedMember(g.JID)">Requested Members</button>
                             <button class="ui red tiny button" @click="handleLeaveGroup(g.JID)">Leave</button>
                         </div>
@@ -197,7 +226,9 @@ export default {
             </table>
         </div>
     </div>
-    
+
+    <group-list-participants ref="participantsModal" @closed="handleParticipantsClosed"></group-list-participants>
+
     <!-- Requested Members Modal -->
     <div class="ui modal" id="modalRequestedMembers">
         <i class="close icon"></i>

@@ -15,6 +15,7 @@ type IMediaSender interface {
 	SendFile(ctx context.Context, request FileRequest) (response GenericResponse, err error)
 	SendVideo(ctx context.Context, request VideoRequest) (response GenericResponse, err error)
 	SendAudio(ctx context.Context, request AudioRequest) (response GenericResponse, err error)
+	SendSticker(ctx context.Context, request StickerRequest) (response GenericResponse, err error)
 }
 
 // IInteractionSender handles interaction message sending operations
