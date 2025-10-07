@@ -390,10 +390,11 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
 	}
 
 	// Prepare CSV data with name and phone number in E.164 format
-	type ParticipantExport struct {
-		Name        string
-		PhoneNumber string
-	}
+    type ParticipantExport struct {
+        Name        string
+        PhoneNumber string
+        Attributes  string
+    }
 
     var participants []ParticipantExport
     for _, p := range groupInfo.Participants {
@@ -425,8 +426,8 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
             phoneNumber = "+" + phoneNumber
         }
 
-        // Try to get contact name, fallback to phone number if not available
-        contactName := phoneNumber
+        // Try to get contact name; leave empty if not available
+        contactName := ""
 
         if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, jid); err == nil {
             if contact.FullName != "" {
@@ -439,6 +440,7 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
         participants = append(participants, ParticipantExport{
             Name:        contactName,
             PhoneNumber: phoneNumber,
+            Attributes:  "{}",
         })
     }
 
@@ -450,21 +452,22 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 
-	// Write header as specified: name, phone number
-	header := []string{"name", "phone_number"}
-	if err := writer.Write(header); err != nil {
-		return nil, err
-	}
+    // Write header as specified: Name, Phone, Attributes
+    header := []string{"Name", "Phone", "Attributes"}
+    if err := writer.Write(header); err != nil {
+        return nil, err
+    }
 
 	// Write participant data
 	for _, p := range participants {
-		row := []string{
-			p.Name,
-			p.PhoneNumber,
-		}
-		if err := writer.Write(row); err != nil {
-			return nil, err
-		}
+        row := []string{
+            p.Name,
+            p.PhoneNumber,
+            p.Attributes,
+        }
+        if err := writer.Write(row); err != nil {
+            return nil, err
+        }
 	}
 
 	writer.Flush()
