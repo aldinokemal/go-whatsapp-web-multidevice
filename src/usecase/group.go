@@ -1,22 +1,23 @@
 package usecase
 
 import (
-	"bytes"
-	"context"
-	"encoding/csv"
-	"fmt"
-	"sort"
+    "bytes"
+    "context"
+    "encoding/csv"
+    "fmt"
+    "sort"
+    "unicode"
 
-	"github.com/sirupsen/logrus"
+    "github.com/sirupsen/logrus"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
-	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+    domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+    pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+    "go.mau.fi/whatsmeow"
+    "go.mau.fi/whatsmeow/types"
 )
 
 type serviceGroup struct {
@@ -394,34 +395,52 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
 		PhoneNumber string
 	}
 
-	var participants []ParticipantExport
-	for _, p := range groupInfo.Participants {
-		// Extract phone number from JID and format to E.164
-		phoneNumber := p.JID.User
-		if phoneNumber != "" {
-			// Ensure phone number starts with + for E.164 format
-			if phoneNumber[0] != '+' {
-				phoneNumber = "+" + phoneNumber
-			}
-		}
+    var participants []ParticipantExport
+    for _, p := range groupInfo.Participants {
+        jid := p.JID
 
-		// Try to get contact name, fallback to phone number if not available
-		contactName := phoneNumber
-		
-		// Check if we have contact information in the store
-		if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, p.JID); err == nil {
-			if contact.FullName != "" {
-				contactName = contact.FullName
-			} else if contact.PushName != "" {
-				contactName = contact.PushName
-			}
-		}
+        // Resolve LID -> PN (phone number) if needed
+        // Some participants may be represented by LID ("@lid"), which is not the phone number.
+        // Convert those to PN using the local store mapping.
+        if string(jid.Server) == "lid" { // same logic as other parts of the codebase
+            if pn, err := whatsapp.GetClient().Store.LIDs.GetPNForLID(ctx, jid); err == nil && !pn.IsEmpty() {
+                jid = pn
+            } else if err != nil {
+                logrus.Debugf("Failed to resolve PN for LID %s: %v", jid.String(), err)
+            }
+        }
 
-		participants = append(participants, ParticipantExport{
-			Name:        contactName,
-			PhoneNumber: phoneNumber,
-		})
-	}
+        // Extract phone number (digits only) from the resolved JID user
+        phoneNumber := jid.User
+        // Make sure the user part is actually numeric; if not, try best-effort extraction
+        if phoneNumber == "" || !allDigits(phoneNumber) {
+            // Fall back to extracting from full JID string (handles AD/device decorations)
+            extracted := utils.ExtractPhoneNumber(jid.String())
+            if extracted != "" {
+                phoneNumber = extracted
+            }
+        }
+        // Prefix with '+' to produce E.164-looking output
+        if phoneNumber != "" && phoneNumber[0] != '+' {
+            phoneNumber = "+" + phoneNumber
+        }
+
+        // Try to get contact name, fallback to phone number if not available
+        contactName := phoneNumber
+
+        if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, jid); err == nil {
+            if contact.FullName != "" {
+                contactName = contact.FullName
+            } else if contact.PushName != "" {
+                contactName = contact.PushName
+            }
+        }
+
+        participants = append(participants, ParticipantExport{
+            Name:        contactName,
+            PhoneNumber: phoneNumber,
+        })
+    }
 
 	// Sort participants by name for consistent output
 	sort.Slice(participants, func(i, j int) bool {
@@ -453,5 +472,15 @@ func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+    return buf.Bytes(), nil
+}
+
+// allDigits reports whether s consists solely of decimal digits.
+func allDigits(s string) bool {
+    for _, r := range s {
+        if !unicode.IsDigit(r) {
+            return false
+        }
+    }
+    return s != ""
 }
