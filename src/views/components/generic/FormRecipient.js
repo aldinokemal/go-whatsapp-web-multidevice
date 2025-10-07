@@ -9,6 +9,10 @@ export default {
             type: String,
             required: true
         },
+        originalPhone: {
+            type: String,
+            required: false
+        },
         showStatus: {
             type: Boolean,
             default: false
