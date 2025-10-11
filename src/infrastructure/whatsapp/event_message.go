@@ -18,20 +18,12 @@ import (
 
 // forwardMessageToWebhook is a helper function to forward message event to webhook url
 func forwardMessageToWebhook(ctx context.Context, evt *events.Message) error {
-	logrus.Infof("Forwarding message event to %d configured webhook(s)", len(config.WhatsappWebhook))
 	payload, err := createMessagePayload(ctx, evt)
 	if err != nil {
 		return err
 	}
 
-	for _, url := range config.WhatsappWebhook {
-		if err = submitWebhook(ctx, payload, url); err != nil {
-			return err
-		}
-	}
-
-	logrus.Info("Message event forwarded to webhook")
-	return nil
+	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message event")
 }
 
 func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]any, error) {
