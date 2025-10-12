@@ -48,6 +48,7 @@ type ChatInfo struct {
 	JID                 string `json:"jid"`
 	Name                string `json:"name"`
 	LastMessageTime     string `json:"last_message_time"`
+	UnreadCount         int    `json:"unread_count"`
 	EphemeralExpiration uint32 `json:"ephemeral_expiration"`
 	CreatedAt           string `json:"created_at"`
 	UpdatedAt           string `json:"updated_at"`
@@ -60,6 +61,7 @@ type MessageInfo struct {
 	Content    string `json:"content"`
 	Timestamp  string `json:"timestamp"`
 	IsFromMe   bool   `json:"is_from_me"`
+	IsRead     bool   `json:"is_read"`
 	MediaType  string `json:"media_type"`
 	Filename   string `json:"filename"`
 	URL        string `json:"url"`

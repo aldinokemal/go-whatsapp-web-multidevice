@@ -7,6 +7,7 @@ type Chat struct {
 	JID                 string    `db:"jid"`
 	Name                string    `db:"name"`
 	LastMessageTime     time.Time `db:"last_message_time"`
+	UnreadCount         int       `db:"unread_count"`
 	EphemeralExpiration uint32    `db:"ephemeral_expiration"`
 	CreatedAt           time.Time `db:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at"`
@@ -20,6 +21,7 @@ type Message struct {
 	Content       string    `db:"content"`
 	Timestamp     time.Time `db:"timestamp"`
 	IsFromMe      bool      `db:"is_from_me"`
+	IsRead        bool      `db:"is_read"`
 	MediaType     string    `db:"media_type"`
 	Filename      string    `db:"filename"`
 	URL           string    `db:"url"`
