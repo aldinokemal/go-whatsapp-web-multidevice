@@ -379,7 +379,7 @@ export default {
       }
     },
     async downloadAllMediaInMessages() {
-      const mediaMessages = this.messages.filter(message => 
+      const mediaMessages = this.messages.filter(message =>
         message.media_type && message.url && message.id &&
         !this.isMediaDownloaded(message.id) && !this.isMediaDownloading(message.id)
       );
@@ -390,7 +390,7 @@ export default {
 
       // Download in batches to respect concurrency limit
       const downloadQueue = [...mediaMessages];
-      
+
       const processQueue = async () => {
         while (downloadQueue.length > 0 && this.currentDownloads < this.maxConcurrentDownloads) {
           const message = downloadQueue.shift();
@@ -400,7 +400,7 @@ export default {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
-        
+
         // If there are still items in queue and we can download more, continue
         if (downloadQueue.length > 0 && this.currentDownloads < this.maxConcurrentDownloads) {
           setTimeout(processQueue, 500); // Wait a bit before checking again
@@ -410,30 +410,47 @@ export default {
       // Start processing
       processQueue();
     },
+    backToChatList() {
+      // Close current modal
+      $('#modalChatMessages').modal('hide');
+
+      // Open Chat List modal after a short delay
+      setTimeout(() => {
+        if (window.ChatListComponent && window.ChatListComponent.openModal) {
+          window.ChatListComponent.openModal();
+        } else {
+          // Fallback: try to find and click the Chat List card
+          const chatListCards = document.querySelectorAll('.card .header');
+          for (let card of chatListCards) {
+            if (card.textContent.includes('Chat List')) {
+              card.click();
+              break;
+            }
+          }
+        }
+      }, 200);
+    },
   },
   mounted() {
-    // Store the event handler so we can remove it later
-    this.handleOpenChatMessages = () => {
-      this.openModal();
-    };
-    
+    // Expose the openModal method globally for ChatList component to call
+    window.ChatMessagesComponent = this;
+
     // Handle retry media download events
     this.handleRetryMediaDownload = (event) => {
       const messageId = event.detail;
       this.retryMediaDownload(messageId);
     };
-    
-    // Listen for custom event from ChatList to open modal properly
-    window.addEventListener('openChatMessages', this.handleOpenChatMessages);
-    
+
     // Listen for retry media download events
     document.addEventListener('retryMediaDownload', this.handleRetryMediaDownload);
   },
   beforeUnmount() {
-    // Clean up event listeners
-    if (this.handleOpenChatMessages) {
-      window.removeEventListener('openChatMessages', this.handleOpenChatMessages);
+    // Clean up global reference
+    if (window.ChatMessagesComponent === this) {
+      delete window.ChatMessagesComponent;
     }
+
+    // Clean up event listeners
     if (this.handleRetryMediaDownload) {
       document.removeEventListener('retryMediaDownload', this.handleRetryMediaDownload);
     }
@@ -589,6 +606,10 @@ export default {
             </div>
         </div>
         <div class="actions">
+            <button class="ui button" @click="backToChatList">
+                <i class="arrow left icon"></i>
+                Back to Chat List
+            </button>
             <div class="ui approve button">Close</div>
         </div>
     </div>

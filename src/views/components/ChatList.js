@@ -26,12 +26,11 @@ export default {
     },
     methods: {
         openModal() {
-            $('#modalChatList').modal({
-                onApprove: function () {
-                    return false;
-                }
-            }).modal('show');
+            $('#modalChatList').modal('show');
             this.loadChats();
+        },
+        closeModal() {
+            $('#modalChatList').modal('hide');
         },
         async loadChats() {
             this.loading = true;
@@ -78,16 +77,17 @@ export default {
             this.selectedChatJid = jid;
             // Store the JID for the chat messages component
             localStorage.setItem('selectedChatJid', jid);
-            
-            // Close the current modal and trigger ChatMessages openModal method
-            $('#modalChatList').modal({
-                onHidden: function() {
-                    setTimeout(() => {
-                        // Trigger a custom event to open ChatMessages modal properly
-                        window.dispatchEvent(new CustomEvent('openChatMessages'));
-                    }, 100);
+
+            // Close the current modal
+            $('#modalChatList').modal('hide');
+
+            // Directly open ChatMessages modal after ChatList modal closes
+            setTimeout(() => {
+                // Find the ChatMessages component and call its openModal method
+                if (window.ChatMessagesComponent && window.ChatMessagesComponent.openModal) {
+                    window.ChatMessagesComponent.openModal();
                 }
-            }).modal('hide');
+            }, 200);
         },
         formatTimestamp(timestamp) {
             if (!timestamp) return 'N/A';
@@ -100,6 +100,16 @@ export default {
             return 'Other';
         }
     },
+    mounted() {
+        // Expose the component globally for other components to access
+        window.ChatListComponent = this;
+    },
+    beforeUnmount() {
+        // Clean up global reference
+        if (window.ChatListComponent === this) {
+            delete window.ChatListComponent;
+        }
+    },
     template: `
     <div class="purple card" @click="openModal()" style="cursor: pointer">
         <div class="content">
@@ -110,7 +120,7 @@ export default {
             </div>
         </div>
     </div>
-    
+
     <!--  Modal ChatList  -->
     <div class="ui large modal" id="modalChatList">
         <i class="close icon"></i>
