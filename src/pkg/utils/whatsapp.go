@@ -232,14 +232,16 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 			messageText = "📊 " + messageText
 		}
 	} else if pollMessageV4 := evt.Message.GetPollCreationMessageV4(); pollMessageV4 != nil {
-		messageText = pollMessageV4.GetMessage().GetConversation()
+		if pollMessage := pollMessageV4.GetMessage(); pollMessage != nil {
+			messageText = pollMessage.GetConversation()
+		}
 		if messageText == "" {
 			messageText = "📊 Poll"
 		} else {
 			messageText = "📊 " + messageText
 		}
 	} else if pollMessageV5 := evt.Message.GetPollCreationMessageV5(); pollMessageV5 != nil {
-		messageText = pollMessageV5.GetMessage().GetConversation()
+		messageText = pollMessageV5.GetName()
 		if messageText == "" {
 			messageText = "📊 Poll"
 		} else {
