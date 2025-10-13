@@ -1,22 +1,28 @@
 package usecase
 
 import (
-	"context"
-	"fmt"
+    "bytes"
+    "context"
+    "encoding/csv"
+    "fmt"
+    "sort"
+    "unicode"
 
-	"github.com/sirupsen/logrus"
+    "github.com/sirupsen/logrus"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
-	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+    domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+    pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+    "github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+    "go.mau.fi/whatsmeow"
+    "go.mau.fi/whatsmeow/types"
 )
 
-type serviceGroup struct{}
+type serviceGroup struct {
+	// GroupRepo domainGroup.IGroupRepository // Not needed for current implementation
+}
 
 func NewGroupService() domainGroup.IGroupUsecase {
 	return &serviceGroup{}
@@ -398,4 +404,122 @@ func (service serviceGroup) GetGroupInviteLink(ctx context.Context, request doma
 	}
 
 	return response, nil
+}
+
+func (service serviceGroup) ExportGroupParticipants(ctx context.Context, request domainGroup.ExportGroupParticipantsRequest) (csvData []byte, err error) {
+	if err = validations.ValidateExportGroupParticipants(ctx, request); err != nil {
+		return nil, err
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	if err != nil {
+		return nil, err
+	}
+
+	if groupInfo == nil {
+		return nil, pkgError.ErrNotFound
+	}
+
+	// Prepare CSV data with name and phone number in E.164 format
+    type ParticipantExport struct {
+        Name        string
+        PhoneNumber string
+        Attributes  string
+    }
+
+    var participants []ParticipantExport
+    for _, p := range groupInfo.Participants {
+        jid := p.JID
+
+        // Resolve LID -> PN (phone number) if needed
+        // Some participants may be represented by LID ("@lid"), which is not the phone number.
+        // Convert those to PN using the local store mapping.
+        if string(jid.Server) == "lid" { // same logic as other parts of the codebase
+            if pn, err := whatsapp.GetClient().Store.LIDs.GetPNForLID(ctx, jid); err == nil && !pn.IsEmpty() {
+                jid = pn
+            } else if err != nil {
+                logrus.Debugf("Failed to resolve PN for LID %s: %v", jid.String(), err)
+            }
+        }
+
+        // Extract phone number (digits only) from the resolved JID user
+        phoneNumber := jid.User
+        // Make sure the user part is actually numeric; if not, try best-effort extraction
+        if phoneNumber == "" || !allDigits(phoneNumber) {
+            // Fall back to extracting from full JID string (handles AD/device decorations)
+            extracted := utils.ExtractPhoneNumber(jid.String())
+            if extracted != "" {
+                phoneNumber = extracted
+            }
+        }
+        // Prefix with '+' to produce E.164-looking output
+        if phoneNumber != "" && phoneNumber[0] != '+' {
+            phoneNumber = "+" + phoneNumber
+        }
+
+        // Try to get contact name; leave empty if not available
+        contactName := ""
+
+        if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, jid); err == nil {
+            if contact.FullName != "" {
+                contactName = contact.FullName
+            } else if contact.PushName != "" {
+                contactName = contact.PushName
+            }
+        }
+
+        participants = append(participants, ParticipantExport{
+            Name:        contactName,
+            PhoneNumber: phoneNumber,
+            Attributes:  "{}",
+        })
+    }
+
+	// Sort participants by name for consistent output
+	sort.Slice(participants, func(i, j int) bool {
+		return participants[i].Name < participants[j].Name
+	})
+
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+    // Write header as specified: Name, Phone, Attributes
+    header := []string{"Name", "Phone", "Attributes"}
+    if err := writer.Write(header); err != nil {
+        return nil, err
+    }
+
+	// Write participant data
+	for _, p := range participants {
+        row := []string{
+            p.Name,
+            p.PhoneNumber,
+            p.Attributes,
+        }
+        if err := writer.Write(row); err != nil {
+            return nil, err
+        }
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+
+    return buf.Bytes(), nil
+}
+
+// allDigits reports whether s consists solely of decimal digits.
+func allDigits(s string) bool {
+    for _, r := range s {
+        if !unicode.IsDigit(r) {
+            return false
+        }
+    }
+    return s != ""
 }
