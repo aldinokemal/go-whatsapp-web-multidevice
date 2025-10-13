@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -70,15 +68,6 @@ func createReceiptPayload(evt *events.Receipt) map[string]any {
 
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs
 func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt) error {
-	logrus.Infof("Forwarding message ack event to %d configured webhook(s)", len(config.WhatsappWebhook))
 	payload := createReceiptPayload(evt)
-
-	for _, url := range config.WhatsappWebhook {
-		if err := submitWebhook(ctx, payload, url); err != nil {
-			return err
-		}
-	}
-
-	logrus.Info("Message ack event forwarded to webhook")
-	return nil
+	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message ack event")
 }
