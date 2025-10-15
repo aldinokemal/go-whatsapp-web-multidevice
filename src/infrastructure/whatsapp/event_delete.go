@@ -4,28 +4,18 @@ import (
 	"context"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
-	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 // forwardDeleteToWebhook sends a delete event to webhook
 func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) error {
-	logrus.Infof("Forwarding delete event to %d configured webhook(s)", len(config.WhatsappWebhook))
 	payload, err := createDeletePayload(ctx, evt, message)
 	if err != nil {
 		return err
 	}
 
-	for _, url := range config.WhatsappWebhook {
-		if err = submitWebhook(ctx, payload, url); err != nil {
-			return err
-		}
-	}
-
-	logrus.Info("Delete event forwarded to webhook")
-	return nil
+	return forwardPayloadToConfiguredWebhooks(ctx, payload, "delete event")
 }
 
 // createDeletePayload creates a webhook payload for delete events
