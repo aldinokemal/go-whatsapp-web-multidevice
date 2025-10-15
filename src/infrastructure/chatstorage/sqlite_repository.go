@@ -66,7 +66,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	query := `
 		SELECT id, chat_jid, sender, content, timestamp, is_from_me, is_read,
 			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
+			file_enc_sha256, file_length, reaction_emoji, created_at, updated_at
 		FROM messages
 		WHERE id = ?
 		LIMIT 1
@@ -178,8 +178,8 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 		INSERT INTO messages (
 			id, chat_jid, sender, content, timestamp, is_from_me, is_read,
 			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, reaction_emoji, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id, chat_jid) DO UPDATE SET
 			sender = excluded.sender,
 			content = excluded.content,
@@ -193,6 +193,7 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 			file_sha256 = excluded.file_sha256,
 			file_enc_sha256 = excluded.file_enc_sha256,
 			file_length = excluded.file_length,
+			reaction_emoji = excluded.reaction_emoji,
 			updated_at = excluded.updated_at
 	`
 
@@ -200,7 +201,7 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 		message.ID, message.ChatJID, message.Sender, message.Content,
 		message.Timestamp, message.IsFromMe, message.IsRead, message.MediaType, message.Filename,
 		message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-		message.FileLength, message.CreatedAt, message.UpdatedAt,
+		message.FileLength, message.ReactionEmoji, message.CreatedAt, message.UpdatedAt,
 	)
 
 	return err
@@ -223,8 +224,8 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		INSERT INTO messages (
 			id, chat_jid, sender, content, timestamp, is_from_me, is_read,
 			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, reaction_emoji, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id, chat_jid) DO UPDATE SET
 			sender = excluded.sender,
 			content = excluded.content,
@@ -238,6 +239,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 			file_sha256 = excluded.file_sha256,
 			file_enc_sha256 = excluded.file_enc_sha256,
 			file_length = excluded.file_length,
+			reaction_emoji = excluded.reaction_emoji,
 			updated_at = excluded.updated_at
 	`)
 	if err != nil {
@@ -259,7 +261,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 			message.ID, message.ChatJID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.IsRead, message.MediaType, message.Filename,
 			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-			message.FileLength, message.CreatedAt, message.UpdatedAt,
+			message.FileLength, message.ReactionEmoji, message.CreatedAt, message.UpdatedAt,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to store message %s: %w", message.ID, err)
@@ -299,7 +301,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	query := `
 		SELECT id, chat_jid, sender, content, timestamp, is_from_me, is_read,
 			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
+			file_enc_sha256, file_length, reaction_emoji, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -359,7 +361,7 @@ func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int)
 	query := `
 		SELECT id, chat_jid, sender, content, timestamp, is_from_me, is_read,
 			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
+			file_enc_sha256, file_length, reaction_emoji, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -403,6 +405,20 @@ func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
 	return err
 }
 
+// UpdateMessageReaction updates the reaction emoji on a specific message
+func (r *SQLiteRepository) UpdateMessageReaction(messageID, chatJID, emoji string) error {
+	query := `
+		UPDATE messages
+		SET reaction_emoji = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ?
+	`
+	_, err := r.db.Exec(query, emoji, time.Now(), messageID, chatJID)
+	if err != nil {
+		return fmt.Errorf("failed to update message reaction: %w", err)
+	}
+	return nil
+}
+
 // getCount is a private helper for count queries
 func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 	var count int64
@@ -417,7 +433,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 		&message.ID, &message.ChatJID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.IsRead, &message.MediaType, &message.Filename,
 		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
-		&message.FileLength, &message.CreatedAt, &message.UpdatedAt,
+		&message.FileLength, &message.ReactionEmoji, &message.CreatedAt, &message.UpdatedAt,
 	)
 	return message, err
 }
@@ -511,6 +527,31 @@ func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string
 
 func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Message) error {
 	if evt == nil || evt.Message == nil {
+		return nil
+	}
+
+	// Check if this is a reaction message
+	if reactionMessage := evt.Message.GetReactionMessage(); reactionMessage != nil {
+		// This is a reaction - update the original message with the reaction emoji
+		emoji := reactionMessage.GetText()
+		targetMessageID := reactionMessage.GetKey().GetID()
+		chatJID := evt.Info.Chat.String()
+
+		logrus.Infof("Received reaction '%s' for message %s in chat %s", emoji, targetMessageID, chatJID)
+
+		// Update the original message with the reaction
+		query := `
+			UPDATE messages
+			SET reaction_emoji = ?, updated_at = ?
+			WHERE id = ? AND chat_jid = ?
+		`
+		_, err := r.db.Exec(query, emoji, time.Now(), targetMessageID, chatJID)
+		if err != nil {
+			logrus.WithError(err).Warnf("Failed to update reaction for message %s", targetMessageID)
+			return fmt.Errorf("failed to update message reaction: %w", err)
+		}
+
+		logrus.Infof("Successfully updated reaction for message %s", targetMessageID)
 		return nil
 	}
 
@@ -946,6 +987,15 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		-- Update existing chats to have 0 unread count
 		UPDATE chats SET unread_count = 0 WHERE unread_count IS NULL;
+		`,
+
+		// Migration 4: Add reaction support
+		`
+		-- Add reaction_emoji column to messages table
+		ALTER TABLE messages ADD COLUMN reaction_emoji TEXT DEFAULT '';
+
+		-- Create index for efficient reaction queries
+		CREATE INDEX IF NOT EXISTS idx_messages_reaction ON messages(reaction_emoji);
 		`,
 	}
 }

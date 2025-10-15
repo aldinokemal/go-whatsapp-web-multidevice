@@ -84,6 +84,17 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, err
 	}
 
+	// Update local database with the sent reaction (optimistic update)
+	// This allows the user to see their own reactions immediately
+	chatJID := dataWaRecipient.String()
+	err = service.chatStorageRepo.UpdateMessageReaction(request.MessageID, chatJID, request.Emoji)
+	if err != nil {
+		logrus.WithError(err).Warnf("Failed to update local database with sent reaction for message %s", request.MessageID)
+		// Don't fail the whole operation since the reaction was successfully sent to WhatsApp
+	} else {
+		logrus.Infof("Updated local database with sent reaction '%s' for message %s in chat %s", request.Emoji, request.MessageID, chatJID)
+	}
+
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Reaction sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
