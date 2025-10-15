@@ -48,24 +48,27 @@ type ChatInfo struct {
 	JID                 string `json:"jid"`
 	Name                string `json:"name"`
 	LastMessageTime     string `json:"last_message_time"`
+	UnreadCount         int    `json:"unread_count"`
 	EphemeralExpiration uint32 `json:"ephemeral_expiration"`
 	CreatedAt           string `json:"created_at"`
 	UpdatedAt           string `json:"updated_at"`
 }
 
 type MessageInfo struct {
-	ID         string `json:"id"`
-	ChatJID    string `json:"chat_jid"`
-	SenderJID  string `json:"sender_jid"`
-	Content    string `json:"content"`
-	Timestamp  string `json:"timestamp"`
-	IsFromMe   bool   `json:"is_from_me"`
-	MediaType  string `json:"media_type"`
-	Filename   string `json:"filename"`
-	URL        string `json:"url"`
-	FileLength uint64 `json:"file_length"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID            string `json:"id"`
+	ChatJID       string `json:"chat_jid"`
+	SenderJID     string `json:"sender_jid"`
+	Content       string `json:"content"`
+	Timestamp     string `json:"timestamp"`
+	IsFromMe      bool   `json:"is_from_me"`
+	IsRead        bool   `json:"is_read"`
+	MediaType     string `json:"media_type"`
+	Filename      string `json:"filename"`
+	URL           string `json:"url"`
+	FileLength    uint64 `json:"file_length"`
+	ReactionEmoji string `json:"reaction_emoji"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 type PaginationResponse struct {

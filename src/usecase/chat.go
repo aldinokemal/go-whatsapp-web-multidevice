@@ -59,6 +59,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 			JID:                 chat.JID,
 			Name:                chat.Name,
 			LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
+			UnreadCount:         chat.UnreadCount,
 			EphemeralExpiration: chat.EphemeralExpiration,
 			CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
@@ -156,18 +157,20 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	messageInfos := make([]domainChat.MessageInfo, 0, len(messages))
 	for _, message := range messages {
 		messageInfo := domainChat.MessageInfo{
-			ID:         message.ID,
-			ChatJID:    message.ChatJID,
-			SenderJID:  message.Sender,
-			Content:    message.Content,
-			Timestamp:  message.Timestamp.Format(time.RFC3339),
-			IsFromMe:   message.IsFromMe,
-			MediaType:  message.MediaType,
-			Filename:   message.Filename,
-			URL:        message.URL,
-			FileLength: message.FileLength,
-			CreatedAt:  message.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:  message.UpdatedAt.Format(time.RFC3339),
+			ID:            message.ID,
+			ChatJID:       message.ChatJID,
+			SenderJID:     message.Sender,
+			Content:       message.Content,
+			Timestamp:     message.Timestamp.Format(time.RFC3339),
+			IsFromMe:      message.IsFromMe,
+			IsRead:        message.IsRead,
+			MediaType:     message.MediaType,
+			Filename:      message.Filename,
+			URL:           message.URL,
+			FileLength:    message.FileLength,
+			ReactionEmoji: message.ReactionEmoji,
+			CreatedAt:     message.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:     message.UpdatedAt.Format(time.RFC3339),
 		}
 		messageInfos = append(messageInfos, messageInfo)
 	}
@@ -177,6 +180,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		JID:                 chat.JID,
 		Name:                chat.Name,
 		LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
+		UnreadCount:         chat.UnreadCount,
 		EphemeralExpiration: chat.EphemeralExpiration,
 		CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),

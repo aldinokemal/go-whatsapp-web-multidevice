@@ -24,6 +24,7 @@ type IChatStorageRepository interface {
 	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
 	DeleteMessage(id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error
+	UpdateMessageReaction(messageID, chatJID, emoji string) error // Update reaction on a message
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)

@@ -31,15 +31,21 @@ func NewAppService(chatStorageRepo domainChatStorage.IChatStorageRepository) dom
 	}
 }
 
-func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginResponse, err error) {
+func (service *serviceApp) Login(ctx context.Context) (response domainApp.LoginResponse, err error) {
 	client := whatsapp.GetClient()
 	if client == nil {
 		return response, pkgError.ErrWaCLI
 	}
 
+	// Check if already connected and logged in
+	if client.IsConnected() && client.IsLoggedIn() {
+		logrus.Info("Client is already connected and logged in")
+		return response, pkgError.ErrAlreadyLoggedIn
+	}
+
 	// [DEBUG] Log database state before login
 	logrus.Info("[DEBUG] Starting login process...")
-	devices, dbErr := whatsapp.GetDB().GetAllDevices(context.Background())
+	devices, dbErr := whatsapp.GetDB().GetAllDevices(ctx)
 	if dbErr != nil {
 		logrus.Errorf("[DEBUG] Error getting devices before login: %v", dbErr)
 	} else {
@@ -62,7 +68,7 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 	chImage := make(chan string)
 
 	logrus.Info("[DEBUG] Attempting to get QR channel...")
-	ch, err := client.GetQRChannel(context.Background())
+	ch, err := client.GetQRChannel(ctx)
 	if err != nil {
 		logrus.Errorf("[DEBUG] GetQRChannel failed: %v", err)
 		logrus.Error(err.Error())
@@ -79,6 +85,8 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 		}
 	} else {
 		logrus.Info("[DEBUG] QR channel obtained successfully")
+		logrus.Info("QR code generated - waiting for user to scan")
+
 		go func() {
 			for evt := range ch {
 				response.Code = evt.Code
@@ -89,6 +97,7 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 					if err != nil {
 						logrus.Error("Error when write qr code to file: ", err)
 					}
+					logrus.Infof("QR code image saved to: %s", qrPath)
 					go func() {
 						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)
@@ -100,6 +109,8 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 						}
 					}()
 					chImage <- qrPath
+				} else if evt.Event == "success" {
+					logrus.Info("QR code scanning completed successfully")
 				} else {
 					logrus.Error("error when get qrCode", evt.Event, evt.Error)
 				}
