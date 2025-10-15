@@ -1,6 +1,7 @@
 package whatsapp
 
 import (
+    "database/sql"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -183,24 +184,114 @@ func GetConnectionStatus() (isConnected bool, isLoggedIn bool, deviceID string) 
 }
 
 // CleanupDatabase removes the database file to prevent foreign key constraint issues
-func CleanupDatabase() error {
-	dbPath := strings.TrimPrefix(config.DBURI, "file:")
-	if strings.Contains(dbPath, "?") {
-		dbPath = strings.Split(dbPath, "?")[0]
-	}
+func CleanupDatabase() error { // Deprecated: use CleanupDatabaseByURI for specific URIs
+    return CleanupDatabaseByURI(context.Background(), config.DBURI)
+}
 
-	logrus.Infof("[CLEANUP] Removing database file: %s", dbPath)
-	if err := os.Remove(dbPath); err != nil {
-		if !os.IsNotExist(err) {
-			logrus.Errorf("[CLEANUP] Error removing database file: %v", err)
-			return err
-		} else {
-			logrus.Info("[CLEANUP] Database file already removed")
-		}
-	} else {
-		logrus.Info("[CLEANUP] Database file removed successfully")
-	}
-	return nil
+// CleanupDatabaseByURI removes WhatsApp tables or files based on the given DB URI.
+// - SQLite (file:): remove the database file
+// - Postgres (postgres:): TRUNCATE all whatsmeow_* tables with CASCADE
+func CleanupDatabaseByURI(ctx context.Context, dbURI string) error {
+    switch {
+    case strings.HasPrefix(dbURI, "file:"):
+        dbPath := strings.TrimPrefix(dbURI, "file:")
+        if strings.Contains(dbPath, "?") {
+            dbPath = strings.Split(dbPath, "?")[0]
+        }
+
+        logrus.Infof("[CLEANUP] Removing SQLite database file: %s", dbPath)
+        if err := os.Remove(dbPath); err != nil {
+            if os.IsNotExist(err) {
+                logrus.Info("[CLEANUP] SQLite database file already removed")
+                return nil
+            }
+            logrus.Errorf("[CLEANUP] Error removing SQLite database file: %v", err)
+            return err
+        }
+        logrus.Info("[CLEANUP] SQLite database file removed successfully")
+        return nil
+
+    case strings.HasPrefix(dbURI, "postgres"):
+        // Connect and truncate whatsmeow_* tables
+        logrus.Info("[CLEANUP] Truncating WhatsApp tables on PostgreSQL (CASCADE)...")
+        sqlDB, err := sql.Open("postgres", dbURI)
+        if err != nil {
+            return fmt.Errorf("open postgres for cleanup: %w", err)
+        }
+        defer sqlDB.Close()
+
+        // Find tables that belong to whatsmeow
+        rows, err := sqlDB.QueryContext(ctx, `
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_type = 'BASE TABLE'
+              AND table_schema NOT IN ('pg_catalog','information_schema')
+              AND table_name LIKE 'whatsmeow_%'
+        `)
+        if err != nil {
+            return fmt.Errorf("list whatsmeow tables: %w", err)
+        }
+        defer rows.Close()
+
+        type tbl struct{ schema, name string }
+        var tables []tbl
+        for rows.Next() {
+            var t tbl
+            if err := rows.Scan(&t.schema, &t.name); err != nil {
+                return fmt.Errorf("scan table: %w", err)
+            }
+            tables = append(tables, t)
+        }
+        if err := rows.Err(); err != nil {
+            return fmt.Errorf("iterate tables: %w", err)
+        }
+
+        if len(tables) == 0 {
+            logrus.Info("[CLEANUP] No whatsmeow_* tables found to truncate")
+            return nil
+        }
+
+        // Disable constraints temporarily to avoid ordering issues, then TRUNCATE CASCADE
+        // Note: TRUNCATE ... CASCADE should be enough, but we also wrap in a transaction.
+        tx, err := sqlDB.BeginTx(ctx, nil)
+        if err != nil {
+            return fmt.Errorf("begin tx: %w", err)
+        }
+        defer func() {
+            _ = tx.Rollback()
+        }()
+
+        for _, t := range tables {
+            stmt := fmt.Sprintf("TRUNCATE TABLE \"%s\".\"%s\" CASCADE;", t.schema, t.name)
+            if _, err := tx.ExecContext(ctx, stmt); err != nil {
+                return fmt.Errorf("truncate %s.%s: %w", t.schema, t.name, err)
+            }
+        }
+
+        if err := tx.Commit(); err != nil {
+            return fmt.Errorf("commit truncate tx: %w", err)
+        }
+
+        logrus.Infof("[CLEANUP] Truncated %d whatsmeow_* tables successfully", len(tables))
+        return nil
+    default:
+        // Unknown or unsupported scheme: no-op
+        logrus.Warnf("[CLEANUP] Unsupported DB URI scheme for cleanup: %s", dbURI)
+        return nil
+    }
+}
+
+// CleanupAllWhatsAppDatabases cleans both the main DB and keys DB (if configured)
+func CleanupAllWhatsAppDatabases(ctx context.Context) error {
+    if err := CleanupDatabaseByURI(ctx, config.DBURI); err != nil {
+        return err
+    }
+    if config.DBKeysURI != "" {
+        if err := CleanupDatabaseByURI(ctx, config.DBKeysURI); err != nil {
+            return err
+        }
+    }
+    return nil
 }
 
 // CleanupTemporaryFiles removes history files, QR images, and send items
@@ -281,8 +372,8 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string, chatStorageRe
 		}
 	}
 
-	// Clean up database
-	if err := CleanupDatabase(); err != nil {
+    // Clean up WhatsApp databases (main + keys if any)
+    if err := CleanupAllWhatsAppDatabases(ctx); err != nil {
 		return nil, nil, fmt.Errorf("database cleanup failed: %v", err)
 	}
 
