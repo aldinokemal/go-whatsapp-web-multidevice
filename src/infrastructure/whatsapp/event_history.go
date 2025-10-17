@@ -5,96 +5,109 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
-
-	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/proto/waWeb"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// forwardMessageToWebhook is a helper function to forward message event to webhook url
-func forwardMessageToWebhook(ctx context.Context, evt *events.Message) error {
-	payload, err := createMessagePayload(ctx, evt)
-	if err != nil {
-		return err
+// forwardHistoryToWebhook is a helper function to forward message history event to webhook url
+func forwardHistoryToWebhook(ctx context.Context, evt *events.HistorySync) error {
+	logrus.Infof("Forwarding message history event to %d configured webhook(s)", len(config.WhatsappWebhook))
+	history := createHistoryMessagePayload(ctx, evt)
+	if len(history) == 0 {
+		return nil
 	}
 
-	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message event")
-}
+	payload := map[string]any{
+		"event":    "message.history",
+		"messages": history,
+	}
 
-func extractCaption(msg *waE2E.Message) string {
-	if imageMessage := msg.GetImageMessage(); imageMessage != nil {
-		return imageMessage.GetCaption()
-	}
-	if videoMessage := msg.GetVideoMessage(); videoMessage != nil {
-		return videoMessage.GetCaption()
-	}
-	if documentMessage := msg.GetDocumentWithCaptionMessage(); documentMessage != nil {
-		return documentMessage.Message.DocumentMessage.GetCaption()
-	}
-	if liveLocationMessage := msg.GetLiveLocationMessage(); liveLocationMessage != nil {
-		return liveLocationMessage.GetCaption()
-	}
-	return ""
-}
-
-func extractText(msg *waE2E.Message) string {
-	if extendedTextMessage := msg.GetExtendedTextMessage(); extendedTextMessage != nil {
-		if quotedMessage := extendedTextMessage.ContextInfo.GetQuotedMessage(); quotedMessage != nil {
-			return quotedMessage.GetConversation()
+	for _, url := range config.WhatsappWebhook {
+		if err := submitWebhook(ctx, payload, url); err != nil {
+			return err
 		}
-		return extendedTextMessage.GetText()
 	}
-	if conversation := msg.GetConversation(); conversation != "" {
-		return conversation
-	}
-	return ""
+
+	logrus.Info("Message history event forwarded to webhook")
+	return nil
 }
 
-func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]any, error) {
-	message := utils.BuildEventMessage(evt)
-	waReaction := utils.BuildEventReaction(evt)
-	forwarded := utils.BuildForwarded(evt)
-
-	body := make(map[string]any)
-
-	body["sender_id"] = evt.Info.Sender.User
-	body["chat_id"] = evt.Info.Chat.User
-
-	if from := evt.Info.SourceString(); from != "" {
-		body["from"] = from
-
-		from_user, from_group := from, ""
-		if strings.Contains(from, " in ") {
-			from_user = strings.Split(from, " in ")[0]
-			from_group = strings.Split(from, " in ")[1]
-		}
-
-		if strings.HasSuffix(from_user, "@lid") {
-			body["from_lid"] = from_user
-			lid, err := types.ParseJID(from_user)
-			if err != nil {
-				logrus.Errorf("Error when parse jid: %v", err)
-			} else {
-				pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+func createHistoryMessagePayload(ctx context.Context, evt *events.HistorySync) []map[string]any {
+	payload := []map[string]any{}
+	for _, conversation := range evt.Data.Conversations {
+		for _, historySyncMsg := range conversation.Messages {
+			if webMessageInfo := historySyncMsg.GetMessage(); webMessageInfo != nil {
+				msgHistory, err := createMessagePayloadFromHistory(ctx, webMessageInfo)
 				if err != nil {
-					logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
-				}
-				if !pn.IsEmpty() {
-					if from_group != "" {
-						body["from"] = fmt.Sprintf("%s in %s", pn.String(), from_group)
-					} else {
-						body["from"] = pn.String()
-					}
+					logrus.Errorf("Error when create message payload from history: %v", err)
+				} else {
+					payload = append(payload, msgHistory)
 				}
 			}
 		}
 	}
+	return payload
+}
+
+func createMessagePayloadFromHistory(ctx context.Context, evt *waWeb.WebMessageInfo) (map[string]any, error) {
+	body := make(map[string]any)
+	chatId := evt.GetKey().GetRemoteJID()
+	participantId := evt.GetKey().GetParticipant()
+
+	if strings.HasSuffix(chatId, "@lid") {
+		body["from_lid"] = chatId
+		lid, err := types.ParseJID(chatId)
+		if err != nil {
+			logrus.Errorf("Error when parse jid: %v", err)
+		} else {
+			pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+			if err != nil {
+				logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+			}
+			if !pn.IsEmpty() {
+				if from_group := strings.HasSuffix(chatId, "@g.us"); from_group {
+					chatId = fmt.Sprintf("%s in %s", pn.String(), chatId)
+				} else {
+					chatId = pn.String()
+				}
+			}
+		}
+	}
+
+	body["chat_id"] = chatId
+	body["sender_id"] = chatId
+
+	if strings.HasSuffix(participantId, "@lid") {
+		body["from_lid"] = participantId
+		lid, err := types.ParseJID(participantId)
+		if err != nil {
+			logrus.Errorf("Error when parse jid: %v", err)
+		} else {
+			pn, err := cli.Store.LIDs.GetPNForLID(ctx, lid)
+			if err != nil {
+				logrus.Errorf("Error when get pn for lid %s: %v", lid.String(), err)
+			}
+			if !pn.IsEmpty() {
+				participantId = pn.String()
+			}
+		}
+	}
+
+	body["from"] = chatId
+
+	if participantId != "" {
+		body["from"] = chatId + " in " + participantId
+		body["sender_id"] = participantId
+	}
+
+	message := utils.BuildEventHistoryMessage(evt)
+
 	if message.ID != "" {
 		tags := regexp.MustCompile(`\B@\w+`).FindAllString(message.Text, -1)
 		tagsMap := make(map[string]bool)
@@ -117,19 +130,23 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 		}
 		body["message"] = message
 	}
-	if pushname := evt.Info.PushName; pushname != "" {
+
+	waReaction := utils.BuildEventHistoryReaction(evt)
+	forwarded := utils.BuildEventHistoryForwarded(evt)
+
+	if pushname := evt.GetPushName(); pushname != "" {
 		body["pushname"] = pushname
 	}
 	if waReaction.Message != "" {
 		body["reaction"] = waReaction
 	}
-	if evt.IsViewOnce {
-		body["view_once"] = evt.IsViewOnce
+	if isViewOnce := evt.Message.GetViewOnceMessage(); isViewOnce != nil {
+		body["view_once"] = isViewOnce != nil
 	}
 	if forwarded {
 		body["forwarded"] = forwarded
 	}
-	if timestamp := evt.Info.Timestamp.Format(time.RFC3339); timestamp != "" {
+	if timestamp := evt.MessageTimestamp; timestamp != nil {
 		body["timestamp"] = timestamp
 	}
 
@@ -164,7 +181,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {
 		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, audioMedia)
 		if err != nil {
-			logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
+			logrus.Errorf("Failed to download audio: %v", err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 		}
 		body["audio"] = path
@@ -181,7 +198,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if documentMedia := evt.Message.GetDocumentMessage(); documentMedia != nil {
 		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, documentMedia)
 		if err != nil {
-			logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
+			logrus.Errorf("Failed to download document: %v", err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 		}
 		body["document"] = path
@@ -190,7 +207,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if imageMedia := evt.Message.GetImageMessage(); imageMedia != nil {
 		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, imageMedia)
 		if err != nil {
-			logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
+			logrus.Errorf("Failed to download image: %v", err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 		}
 		body["image"] = path
@@ -215,7 +232,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if stickerMedia := evt.Message.GetStickerMessage(); stickerMedia != nil {
 		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, stickerMedia)
 		if err != nil {
-			logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
+			logrus.Errorf("Failed to download sticker: %v", err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 		}
 		body["sticker"] = path
@@ -224,7 +241,7 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 	if videoMedia := evt.Message.GetVideoMessage(); videoMedia != nil {
 		path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, videoMedia)
 		if err != nil {
-			logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
+			logrus.Errorf("Failed to download video: %v", err)
 			return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 		}
 		body["video"] = path
