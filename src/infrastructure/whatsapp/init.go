@@ -504,7 +504,11 @@ func buildMessageMetaParts(evt *events.Message) []string {
 
 func handleImageMessage(ctx context.Context, evt *events.Message) {
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := utils.ExtractMedia(ctx, cli, config.PathStorages, img); err != nil {
+		deviceID := cli.Store.ID.User
+		chatJID := evt.Info.Chat.String()
+		messageID := evt.Info.ID
+
+		if path, err := utils.ExtractMediaWithInfo(ctx, cli, config.PathStorages, img, chatJID, messageID, deviceID); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", path)

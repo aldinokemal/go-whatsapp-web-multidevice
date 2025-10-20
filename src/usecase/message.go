@@ -276,8 +276,10 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("unsupported media type: %s", message.MediaType)
 	}
 
-	// Download the media using existing utils.ExtractMedia function
-	extractedMedia, err := utils.ExtractMedia(ctx, whatsapp.GetClient(), dateDir, downloadableMsg.(whatsmeow.DownloadableMessage))
+	// Download the media with organized path structure
+	client := whatsapp.GetClient()
+	deviceID := client.Store.ID.User
+	extractedMedia, err := utils.ExtractMediaWithInfo(ctx, client, dateDir, downloadableMsg.(whatsmeow.DownloadableMessage), message.ChatJID, request.MessageID, deviceID)
 	if err != nil {
 		return response, fmt.Errorf("failed to download media: %v", err)
 	}

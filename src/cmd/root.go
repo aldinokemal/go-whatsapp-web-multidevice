@@ -21,6 +21,7 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/storage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
@@ -119,6 +120,37 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
+	}
+
+	// Media Storage settings
+	if envStorageType := viper.GetString("media_storage_type"); envStorageType != "" {
+		config.MediaStorageType = envStorageType
+	}
+
+	// S3/MinIO settings
+	if envS3Endpoint := viper.GetString("s3_endpoint"); envS3Endpoint != "" {
+		config.S3Endpoint = envS3Endpoint
+	}
+	if envS3Region := viper.GetString("s3_region"); envS3Region != "" {
+		config.S3Region = envS3Region
+	}
+	if envS3AccessKeyID := viper.GetString("s3_access_key_id"); envS3AccessKeyID != "" {
+		config.S3AccessKeyID = envS3AccessKeyID
+	}
+	if envS3SecretAccessKey := viper.GetString("s3_secret_access_key"); envS3SecretAccessKey != "" {
+		config.S3SecretAccessKey = envS3SecretAccessKey
+	}
+	if envS3Bucket := viper.GetString("s3_bucket"); envS3Bucket != "" {
+		config.S3Bucket = envS3Bucket
+	}
+	if viper.IsSet("s3_force_path_style") {
+		config.S3ForcePathStyle = viper.GetBool("s3_force_path_style")
+	}
+	if envS3PublicURL := viper.GetString("s3_public_url"); envS3PublicURL != "" {
+		config.S3PublicURL = envS3PublicURL
+	}
+	if viper.IsSet("s3_use_server_proxy") {
+		config.S3UseServerProxy = viper.GetBool("s3_use_server_proxy")
 	}
 }
 
@@ -228,6 +260,12 @@ func initChatStorage() (*sql.DB, error) {
 }
 
 func initApp() {
+	// Configure log formatter with timestamps
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+	})
+
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
 		logrus.SetLevel(logrus.DebugLevel)
@@ -257,6 +295,30 @@ func initApp() {
 	}
 
 	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+
+	// Initialize storage
+	storageType, err := storage.ParseStorageType(config.MediaStorageType)
+	if err != nil {
+		logrus.Fatalf("invalid media storage type: %v", err)
+	}
+
+	var s3Config *storage.S3Config
+	if storageType == storage.StorageTypeS3 {
+		s3Config = &storage.S3Config{
+			Endpoint:        config.S3Endpoint,
+			Region:          config.S3Region,
+			AccessKeyID:     config.S3AccessKeyID,
+			SecretAccessKey: config.S3SecretAccessKey,
+			Bucket:          config.S3Bucket,
+			ForcePathStyle:  config.S3ForcePathStyle,
+			PublicURL:       config.S3PublicURL,
+			UseServerProxy:  config.S3UseServerProxy,
+		}
+	}
+
+	if err := storage.InitStorage(storageType, config.PathMedia, s3Config); err != nil {
+		logrus.Fatalf("failed to initialize media storage: %v", err)
+	}
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo)
