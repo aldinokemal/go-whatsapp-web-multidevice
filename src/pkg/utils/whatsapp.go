@@ -586,18 +586,21 @@ func ExtractMediaWithInfo(ctx context.Context, client *whatsmeow.Client, mediaFi
 	// Build path with device ID, chat JID, and message ID if provided
 	var filename string
 	if deviceID != "" && chatJID != "" && messageID != "" {
-		// Sanitize JID and message ID for use in path (remove special characters)
-		sanitizedJID := strings.ReplaceAll(chatJID, "@", "_")
-		sanitizedJID = strings.ReplaceAll(sanitizedJID, ".", "_")
-		sanitizedMessageID := strings.ReplaceAll(messageID, ":", "_")
-		sanitizedMessageID = strings.ReplaceAll(sanitizedMessageID, ".", "_")
-
-		// Format: deviceID/chatJID/messageID.ext (message ID is unique, no need for timestamp)
-		filename = fmt.Sprintf("%s/%s/%s%s", deviceID, sanitizedJID, sanitizedMessageID, extension)
+		// Whitelist-only sanitize: keep [A-Za-z0-9_-]
+		reSeg := regexp.MustCompile(`[^A-Za-z0-9_\-]`)
+		dev := reSeg.ReplaceAllString(deviceID, "_")
+		jid := reSeg.ReplaceAllString(chatJID, "_")
+		msg := reSeg.ReplaceAllString(messageID, "_")
+		if dev == "" || jid == "" || msg == "" {
+			return ExtractedMedia{}, fmt.Errorf("invalid media path segments")
+		}
+		// deviceID/jid/messageID + ext
+		key := filepath.ToSlash(filepath.Join(dev, jid, msg)) + extension
+		filename = key
 		logrus.Debugf("Organized path: %s", filename)
 	} else {
 		// Fallback to timestamp + random ID if no message info provided (for backward compatibility)
-		shortID := strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+		shortID := uuid.NewString()[:8]
 		filename = fmt.Sprintf("%d-%s%s", time.Now().Unix(), shortID, extension)
 	}
 
