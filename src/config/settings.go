@@ -40,4 +40,17 @@ var (
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
 	ChatStorageEnableWAL         = true
+
+	// Media Storage Configuration
+	MediaStorageType = "local" // "local" or "s3"
+
+	// S3/MinIO Configuration
+	S3Endpoint        = ""
+	S3Region          = "us-east-1"
+	S3AccessKeyID     = ""
+	S3SecretAccessKey = ""
+	S3Bucket          = ""
+	S3ForcePathStyle  = false
+	S3PublicURL       = ""
+	S3UseServerProxy  = false // Use server download endpoint for private bucket access
 )

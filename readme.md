@@ -162,6 +162,39 @@ Note: Command-line flags will override any values set in environment variables o
 4. run `go run . rest` (for REST API mode)
 5. Open `http://localhost:3000`
 
+### Using Makefile (Recommended)
+
+For easier building, running, and dependency management, use the included Makefile:
+
+```bash
+# Clone the repository
+git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice
+cd go-whatsapp-web-multidevice
+
+# Build and run in REST mode
+make build
+make run-rest
+
+# Or simply
+make run
+
+# Run with hot reload (requires air)
+make dev-rest
+
+# Update dependencies
+make update-deps
+
+# Run tests
+make test
+
+# View all available commands
+make help
+```
+
+**Documentation**:
+- [Makefile Quick Reference](MAKEFILE_QUICKREF.md) - Common commands
+- [Complete Makefile Guide](MAKEFILE_GUIDE.md) - Detailed documentation
+
 ### Docker (you don't need to install in required)
 
 1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
