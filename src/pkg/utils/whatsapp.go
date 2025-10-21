@@ -35,6 +35,10 @@ var knownDocumentMIMEByExtension = map[string]string{
 
 var knownDocumentExtensionByMIME map[string]string
 
+// pathSegmentSanitizer is precompiled regex for sanitizing path segments
+// Only allows alphanumeric, underscore, and hyphen characters
+var pathSegmentSanitizer = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
+
 func init() {
 	knownDocumentExtensionByMIME = make(map[string]string, len(knownDocumentMIMEByExtension))
 	for ext, mimeType := range knownDocumentMIMEByExtension {
@@ -587,10 +591,9 @@ func ExtractMediaWithInfo(ctx context.Context, client *whatsmeow.Client, mediaFi
 	var filename string
 	if deviceID != "" && chatJID != "" && messageID != "" {
 		// Whitelist-only sanitize: keep [A-Za-z0-9_-]
-		reSeg := regexp.MustCompile(`[^A-Za-z0-9_\-]`)
-		dev := reSeg.ReplaceAllString(deviceID, "_")
-		jid := reSeg.ReplaceAllString(chatJID, "_")
-		msg := reSeg.ReplaceAllString(messageID, "_")
+		dev := pathSegmentSanitizer.ReplaceAllString(deviceID, "_")
+		jid := pathSegmentSanitizer.ReplaceAllString(chatJID, "_")
+		msg := pathSegmentSanitizer.ReplaceAllString(messageID, "_")
 		if dev == "" || jid == "" || msg == "" {
 			return ExtractedMedia{}, fmt.Errorf("invalid media path segments")
 		}
