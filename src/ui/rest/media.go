@@ -2,6 +2,8 @@ package rest
 
 import (
 	"context"
+	"mime"
+	"path/filepath"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/storage"
 	"github.com/gofiber/fiber/v2"
@@ -60,9 +62,15 @@ func downloadMediaHandler(c *fiber.Ctx) error {
 
 	logrus.Debugf("✅ Successfully downloaded media: %s, size: %d bytes", path, len(data))
 
-	// Set appropriate content type header
-	c.Set("Content-Type", "application/octet-stream")
-	c.Set("Content-Disposition", "inline; filename=\""+filename+"\"")
+	// Detect content type from file extension
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Set("Content-Type", contentType)
+
+	// Properly escape filename for Content-Disposition header (use base to prevent directory components)
+	c.Set("Content-Disposition", "inline; filename=\""+filepath.Base(filename)+"\"")
 
 	return c.Send(data)
 }

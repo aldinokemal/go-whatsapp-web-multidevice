@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -218,15 +217,6 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
-	// Create directory structure for organized storage
-	chatDir := filepath.Join(config.PathMedia, utils.ExtractPhoneNumber(message.ChatJID))
-	dateDir := filepath.Join(chatDir, message.Timestamp.Format("2006-01-02"))
-
-	err = os.MkdirAll(dateDir, 0755)
-	if err != nil {
-		return response, fmt.Errorf("failed to create directory: %v", err)
-	}
-
 	// Create a downloadable message interface based on media type
 	var downloadableMsg interface{}
 
@@ -279,7 +269,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	// Download the media with organized path structure
 	client := whatsapp.GetClient()
 	deviceID := client.Store.ID.User
-	extractedMedia, err := utils.ExtractMediaWithInfo(ctx, client, dateDir, downloadableMsg.(whatsmeow.DownloadableMessage), message.ChatJID, request.MessageID, deviceID)
+	extractedMedia, err := utils.ExtractMediaWithInfo(ctx, client, downloadableMsg.(whatsmeow.DownloadableMessage), message.ChatJID, request.MessageID, deviceID)
 	if err != nil {
 		return response, fmt.Errorf("failed to download media: %v", err)
 	}

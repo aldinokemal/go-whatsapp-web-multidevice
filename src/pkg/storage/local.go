@@ -94,7 +94,11 @@ func (s *LocalStorage) Delete(ctx context.Context, path string) error {
 	return nil
 }
 
-// GetURL returns the local file path
+// GetURL returns a web-friendly URL for the local file
 func (s *LocalStorage) GetURL(path string) string {
-	return path
+	// Return relative URL for static file serving
+	// Clean path and convert to forward slashes for web compatibility
+	key := filepath.ToSlash(filepath.Clean(path))
+	// Prefix with '/' so clients can fetch it via the static file server
+	return "/" + filepath.ToSlash(filepath.Join(s.basePath, key))
 }

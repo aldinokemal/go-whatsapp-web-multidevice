@@ -508,7 +508,7 @@ func handleImageMessage(ctx context.Context, evt *events.Message) {
 		chatJID := evt.Info.Chat.String()
 		messageID := evt.Info.ID
 
-		if path, err := utils.ExtractMediaWithInfo(ctx, cli, config.PathStorages, img, chatJID, messageID, deviceID); err != nil {
+		if path, err := utils.ExtractMediaWithInfo(ctx, cli, img, chatJID, messageID, deviceID); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", path)

@@ -19,6 +19,7 @@ type MinIOStorage struct {
 	publicURL      string
 	endpoint       string
 	useServerProxy bool
+	region         string
 }
 
 // NewMinIOStorage creates a new MinIO storage instance using native SDK
@@ -68,6 +69,7 @@ func NewMinIOStorage(cfg S3Config) (*MinIOStorage, error) {
 		publicURL:      cfg.PublicURL,
 		endpoint:       cfg.Endpoint,
 		useServerProxy: cfg.UseServerProxy,
+		region:         cfg.Region,
 	}, nil
 }
 
@@ -143,13 +145,15 @@ func (s *MinIOStorage) GetURL(path string) string {
 
 	// If custom public URL is configured, use it for public bucket
 	if s.publicURL != "" {
-		url := fmt.Sprintf("%s/%s/%s", s.publicURL, s.bucket, path)
+		base := strings.TrimRight(s.publicURL, "/")
+		url := fmt.Sprintf("%s/%s/%s", base, s.bucket, path)
 		logrus.Debugf("🔗 Public URL: %s", url)
 		return url
 	}
 
 	// Otherwise, construct the direct S3/MinIO URL for public bucket
-	url := fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucket, path)
+	base := strings.TrimRight(s.endpoint, "/")
+	url := fmt.Sprintf("%s/%s/%s", base, s.bucket, path)
 	logrus.Debugf("🔗 Public URL: %s", url)
 	return url
 }

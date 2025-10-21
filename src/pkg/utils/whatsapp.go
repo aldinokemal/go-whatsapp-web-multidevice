@@ -540,12 +540,12 @@ type ExtractedMedia struct {
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
-func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
-	return ExtractMediaWithInfo(ctx, client, storageLocation, mediaFile, "", "", "")
+func ExtractMedia(ctx context.Context, client *whatsmeow.Client, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
+	return ExtractMediaWithInfo(ctx, client, mediaFile, "", "", "")
 }
 
 // ExtractMediaWithInfo is a helper function to extract media from whatsapp with additional path organization
-func ExtractMediaWithInfo(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage, chatJID, messageID, deviceID string) (extractedMedia ExtractedMedia, err error) {
+func ExtractMediaWithInfo(ctx context.Context, client *whatsmeow.Client, mediaFile whatsmeow.DownloadableMessage, chatJID, messageID, deviceID string) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")
 		return extractedMedia, nil

@@ -3,11 +3,15 @@ package storage
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
 
-var globalStorage MediaStorage
+var (
+	globalStorage MediaStorage
+	storageMu     sync.RWMutex
+)
 
 // InitStorage initializes the global storage instance based on configuration
 func InitStorage(storageType StorageType, localBasePath string, s3Config *S3Config) error {
@@ -39,23 +43,33 @@ func InitStorage(storageType StorageType, localBasePath string, s3Config *S3Conf
 		return fmt.Errorf("unsupported storage type: %s", storageType)
 	}
 
+	storageMu.Lock()
 	globalStorage = storage
+	storageMu.Unlock()
 	return nil
 }
 
 // GetStorage returns the global storage instance
 func GetStorage() MediaStorage {
-	if globalStorage == nil {
-		logrus.Warn("Storage not initialized, using default local storage")
-		// Fallback to local storage
-		storage, err := NewLocalStorage("statics/media")
-		if err != nil {
-			logrus.Errorf("Failed to create fallback local storage: %v", err)
-			return nil
-		}
-		globalStorage = storage
+	storageMu.RLock()
+	s := globalStorage
+	storageMu.RUnlock()
+	if s != nil {
+		return s
 	}
-	return globalStorage
+	logrus.Warn("Storage not initialized, using default local storage")
+	fallback, err := NewLocalStorage("statics/media")
+	if err != nil {
+		logrus.Errorf("Failed to create fallback local storage: %v", err)
+		return nil
+	}
+	storageMu.Lock()
+	if globalStorage == nil {
+		globalStorage = fallback
+	}
+	s = globalStorage
+	storageMu.Unlock()
+	return s
 }
 
 // ParseStorageType converts a string to StorageType
