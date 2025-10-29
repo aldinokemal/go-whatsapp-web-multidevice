@@ -19,7 +19,7 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string) erro
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	postBody, err := json.Marshal(payload)
-	if err != nil {
+	if postBody == nil || err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
 
