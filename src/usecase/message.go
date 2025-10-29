@@ -37,13 +37,13 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	ids := []types.MessageID{request.MessageID}
-	if err = whatsapp.GetClient().MarkRead(ids, time.Now(), dataWaRecipient, *whatsapp.GetClient().Store.ID); err != nil {
+	if err = whatsapp.GetClient().MarkRead(ctx, ids, time.Now(), dataWaRecipient, *whatsapp.GetClient().Store.ID); err != nil {
 		return response, err
 	}
 
@@ -63,7 +63,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	if err = validations.ValidateReactMessage(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -93,7 +93,7 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	if err = validations.ValidateRevokeMessage(ctx, request); err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -112,7 +112,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 	if err = validations.ValidateDeleteMessage(ctx, request); err != nil {
 		return err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -169,7 +169,7 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 		return err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}

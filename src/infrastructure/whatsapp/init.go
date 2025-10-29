@@ -409,9 +409,9 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 }
 
-func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {
+func handleAppStateSyncComplete(ctx context.Context, evt *events.AppStateSyncComplete) {
 	if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-		if err := cli.SendPresence(types.PresenceAvailable); err != nil {
+		if err := cli.SendPresence(ctx, types.PresenceAvailable); err != nil {
 			log.Warnf("Failed to send available presence: %v", err)
 		} else {
 			log.Infof("Marked self as available")
@@ -457,14 +457,14 @@ func handleLoggedOut(ctx context.Context, evt *events.LoggedOut, chatStorageRepo
 	}
 }
 
-func handleConnectionEvents(_ context.Context, evt any) {
+func handleConnectionEvents(ctx context.Context, evt any) {
 	if len(cli.Store.PushName) == 0 {
 		return
 	}
 
 	// Send presence available when connecting and when the pushname is changed.
 	// This makes sure that outgoing messages always have the right pushname.
-	if err := cli.SendPresence(types.PresenceAvailable); err != nil {
+	if err := cli.SendPresence(ctx, types.PresenceAvailable); err != nil {
 		log.Warnf("Failed to send available presence: %v", err)
 	} else {
 		log.Infof("Marked self as available")
@@ -547,7 +547,7 @@ func handleImageMessage(ctx context.Context, evt *events.Message) {
 	}
 }
 
-func handleAutoMarkRead(_ context.Context, evt *events.Message) {
+func handleAutoMarkRead(ctx context.Context, evt *events.Message) {
 	// Only mark read if auto-mark read is enabled and message is incoming
 	if !config.WhatsappAutoMarkRead || evt.Info.IsFromMe {
 		return
@@ -559,7 +559,7 @@ func handleAutoMarkRead(_ context.Context, evt *events.Message) {
 	chat := evt.Info.Chat
 	sender := evt.Info.Sender
 
-	if err := cli.MarkRead(messageIDs, timestamp, chat, sender); err != nil {
+	if err := cli.MarkRead(ctx, messageIDs, timestamp, chat, sender); err != nil {
 		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
 	} else {
 		log.Debugf("Marked message %s as read", evt.Info.ID)
