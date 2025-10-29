@@ -182,14 +182,68 @@ func GetConnectionStatus() (isConnected bool, isLoggedIn bool, deviceID string) 
 	return isConnected, isLoggedIn, deviceID
 }
 
-// CleanupDatabase removes the database file to prevent foreign key constraint issues
+// CleanupDatabase removes the database file (SQLite) or deletes all devices (PostgreSQL) to prevent foreign key constraint issues
 func CleanupDatabase() error {
+	// Check if using PostgreSQL
+	if strings.HasPrefix(config.DBURI, "postgres:") {
+		logrus.Info("[CLEANUP] PostgreSQL detected - deleting all devices from database")
+
+		// Check if database is initialized
+		if db == nil {
+			logrus.Warn("[CLEANUP] Database is nil, skipping device deletion")
+			return nil
+		}
+
+		ctx := context.Background()
+
+		// Get all devices
+		devices, err := db.GetAllDevices(ctx)
+		if err != nil {
+			logrus.Errorf("[CLEANUP] Error getting devices: %v", err)
+			return fmt.Errorf("failed to get devices: %v", err)
+		}
+
+		logrus.Infof("[CLEANUP] Found %d devices to delete", len(devices))
+
+		// Delete each device (this will cascade delete related records like identity keys, sessions, etc.)
+		for _, device := range devices {
+			logrus.Infof("[CLEANUP] Deleting device: %s", device.ID)
+			if err := db.DeleteDevice(ctx, device); err != nil {
+				logrus.Errorf("[CLEANUP] Error deleting device %s: %v", device.ID, err)
+				return fmt.Errorf("failed to delete device %s: %v", device.ID, err)
+			}
+		}
+
+		// Also clean up keysDB if it exists and is separate
+		if keysDB != nil && keysDB != db {
+			keysDevices, err := keysDB.GetAllDevices(ctx)
+			if err != nil {
+				logrus.Errorf("[CLEANUP] Error getting devices from keysDB: %v", err)
+				return fmt.Errorf("failed to get devices from keysDB: %v", err)
+			}
+
+			logrus.Infof("[CLEANUP] Found %d devices in keysDB to delete", len(keysDevices))
+
+			for _, device := range keysDevices {
+				logrus.Infof("[CLEANUP] Deleting device from keysDB: %s", device.ID)
+				if err := keysDB.DeleteDevice(ctx, device); err != nil {
+					logrus.Errorf("[CLEANUP] Error deleting device %s from keysDB: %v", device.ID, err)
+					return fmt.Errorf("failed to delete device %s from keysDB: %v", device.ID, err)
+				}
+			}
+		}
+
+		logrus.Info("[CLEANUP] All devices deleted successfully from PostgreSQL")
+		return nil
+	}
+
+	// SQLite: Remove the database file
 	dbPath := strings.TrimPrefix(config.DBURI, "file:")
 	if strings.Contains(dbPath, "?") {
 		dbPath = strings.Split(dbPath, "?")[0]
 	}
 
-	logrus.Infof("[CLEANUP] Removing database file: %s", dbPath)
+	logrus.Infof("[CLEANUP] SQLite detected - removing database file: %s", dbPath)
 	if err := os.Remove(dbPath); err != nil {
 		if !os.IsNotExist(err) {
 			logrus.Errorf("[CLEANUP] Error removing database file: %v", err)
