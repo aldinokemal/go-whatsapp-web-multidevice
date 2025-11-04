@@ -77,6 +77,82 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.
 	return ts, nil
 }
 
+// wrapSendStickerMessage wraps sticker message sending with media information storage
+func (service serviceSend) wrapSendStickerMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string, mediaInfo *domainChatStorage.MediaInfo) (whatsmeow.SendResponse, error) {
+	ts, err := whatsapp.GetClient().SendMessage(ctx, recipient, msg)
+	if err != nil {
+		return whatsmeow.SendResponse{}, err
+	}
+
+	// Store the sent sticker message with media information
+	senderJID := ""
+	if whatsapp.GetClient().Store.ID != nil {
+		senderJID = whatsapp.GetClient().Store.ID.String()
+	}
+
+	// Store message asynchronously with timeout, including media info
+	go func() {
+		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := service.storeSentStickerWithMediaInfo(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, mediaInfo); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				logrus.Warn("Timeout storing sent sticker message")
+			} else {
+				logrus.Warnf("Failed to store sent sticker message: %v", err)
+			}
+		}
+	}()
+
+	return ts, nil
+}
+
+// storeSentStickerWithMediaInfo stores sticker message with complete media information
+func (service serviceSend) storeSentStickerWithMediaInfo(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, mediaInfo *domainChatStorage.MediaInfo) error {
+	logrus.Infof("Storing sticker with media info - ID: %s, MediaType: %s, URL: %s, FileLength: %d",
+		messageID, mediaInfo.MediaType, mediaInfo.URL, mediaInfo.FileLength)
+
+	// Parse recipient JID
+	jid, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), recipientJID)
+	if err != nil {
+		logrus.Errorf("Failed to validate JID %s: %v", recipientJID, err)
+		return fmt.Errorf("invalid recipient JID: %v", err)
+	}
+
+	chatJID := jid.String()
+	logrus.Infof("Storing sticker message to chat: %s", chatJID)
+
+	// Create message with media information
+	message := &domainChatStorage.Message{
+		ID:            messageID,
+		ChatJID:       chatJID,
+		Sender:        senderJID,
+		Content:       content,
+		Timestamp:     timestamp,
+		IsFromMe:      true,
+		MediaType:     mediaInfo.MediaType,
+		Filename:      mediaInfo.Filename,
+		URL:           mediaInfo.URL,
+		MediaKey:      mediaInfo.MediaKey,
+		FileSHA256:    mediaInfo.FileSHA256,
+		FileEncSHA256: mediaInfo.FileEncSHA256,
+		FileLength:    mediaInfo.FileLength,
+	}
+
+	logrus.Infof("Message object created - MediaType: %s, URL: %s, MediaKey length: %d, FileSHA256 length: %d",
+		message.MediaType, message.URL, len(message.MediaKey), len(message.FileSHA256))
+
+	// Store the message directly using StoreMessage for complete media info
+	err = service.chatStorageRepo.StoreMessage(message)
+	if err != nil {
+		logrus.Errorf("Failed to store sticker message: %v", err)
+		return fmt.Errorf("failed to store sticker message: %v", err)
+	}
+
+	logrus.Infof("✅ Successfully stored sticker message with media info - ID: %s", messageID)
+	return nil
+}
+
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendMessage(ctx, request)
 	if err != nil {
@@ -1080,7 +1156,19 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Detect if the input is already WebP
 	inputMimeType := http.DetectContentType(inputFileBytes)
 	if inputMimeType == "image/webp" {
+		logrus.Info("Input is already WebP format, using directly")
 		stickerBytes = inputFileBytes
+
+		// Save the WebP to a temporary file for consistency with GIF flow
+		webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("direct_webp_%s.webp", fiberUtils.UUIDv4()))
+		err = os.WriteFile(webpTempPath, stickerBytes, 0644)
+		if err != nil {
+			logrus.Warnf("Failed to save WebP temporarily: %v", err)
+		} else {
+			deletedItems = append(deletedItems, webpTempPath)
+			logrus.Infof("Saved direct WebP to: %s", webpTempPath)
+		}
+
 		// For WebP files, try to get dimensions using the imaging library
 		webpReader := bytes.NewReader(stickerBytes)
 		srcImage, err := imaging.Decode(webpReader)
@@ -1088,9 +1176,12 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			bounds := srcImage.Bounds()
 			width = uint32(bounds.Dx())
 			height = uint32(bounds.Dy())
+			logrus.Infof("Direct WebP dimensions: %dx%d", width, height)
 		} else {
 			logrus.Warnf("could not decode webp to get dimensions: %v", err)
 		}
+
+		logrus.Infof("Successfully processed direct WebP: %d bytes", len(stickerBytes))
 	} else if inputMimeType == "image/gif" {
 		// Convert GIF to WebP using Go library
 		logrus.Info("Converting GIF to WebP using Go library")
@@ -1117,6 +1208,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 				if err != nil {
 					return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
 				}
+			} else {
+				logrus.Infof("Successfully created animated WebP: %d bytes", len(stickerBytes))
 			}
 		} else {
 			// Single frame GIF, convert to static WebP
@@ -1124,6 +1217,17 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			if err != nil {
 				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
 			}
+			logrus.Infof("Successfully created static WebP: %d bytes", len(stickerBytes))
+		}
+
+		// Save the converted WebP to a temporary file for consistency with WebP flow
+		webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("converted_%s.webp", fiberUtils.UUIDv4()))
+		err = os.WriteFile(webpTempPath, stickerBytes, 0644)
+		if err != nil {
+			logrus.Warnf("Failed to save converted WebP temporarily: %v", err)
+		} else {
+			deletedItems = append(deletedItems, webpTempPath)
+			logrus.Infof("Saved converted WebP to: %s", webpTempPath)
 		}
 
 		// Get dimensions from first frame
@@ -1207,30 +1311,91 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		}
 	}
 
+	// Validate WebP file size and format
+	if len(stickerBytes) == 0 {
+		return response, pkgError.InternalServerError("sticker conversion resulted in empty WebP file")
+	}
+
+	// For stickers, we need proper dimensions. If not set, try to get them from WebP
+	if width == 0 || height == 0 {
+		// Try to decode WebP to get dimensions
+		webpReader := bytes.NewReader(stickerBytes)
+		if srcImage, err := imaging.Decode(webpReader); err == nil {
+			bounds := srcImage.Bounds()
+			width = uint32(bounds.Dx())
+			height = uint32(bounds.Dy())
+			logrus.Infof("Retrieved dimensions from WebP: %dx%d", width, height)
+		} else {
+			// Set default sticker dimensions if we can't get them
+			width = 512
+			height = 512
+			logrus.Warn("Could not get WebP dimensions, using default 512x512")
+		}
+	}
+
+	// Ensure dimensions are within WhatsApp sticker limits
+	if width > 512 || height > 512 {
+		ratio := float64(width) / float64(height)
+		if width > height {
+			width = 512
+			height = uint32(512.0 / ratio)
+		} else {
+			height = 512
+			width = uint32(512.0 * ratio)
+		}
+		logrus.Infof("Adjusted sticker dimensions to %dx%d", width, height)
+	}
+
 	// Upload sticker to WhatsApp servers
 	stickerUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
 	}
 
-	// Create sticker message
-	msg := &waE2E.Message{
-		StickerMessage: &waE2E.StickerMessage{
-			URL:           proto.String(stickerUploaded.URL),
-			DirectPath:    proto.String(stickerUploaded.DirectPath),
-			Mimetype:      proto.String("image/webp"),
-			FileLength:    proto.Uint64(stickerUploaded.FileLength),
-			FileSHA256:    stickerUploaded.FileSHA256,
-			FileEncSHA256: stickerUploaded.FileEncSHA256,
-			MediaKey:      stickerUploaded.MediaKey,
-			IsAnimated:    proto.Bool(isAnimated),
-		},
+	logrus.Infof("Sticker uploaded successfully - Size: %d bytes, Dimensions: %dx%d, Animated: %t",
+		len(stickerBytes), width, height, isAnimated)
+
+	// Create thumbnail for sticker (important for display on sender device)
+	var thumbnailBytes []byte
+	if len(stickerBytes) > 0 {
+		// Create a smaller version for thumbnail
+		webpReader := bytes.NewReader(stickerBytes)
+		if srcImage, err := imaging.Decode(webpReader); err == nil {
+			// Create 100x100 thumbnail maintaining aspect ratio
+			thumbnailImage := imaging.Fit(srcImage, 100, 100, imaging.Lanczos)
+			thumbnailBuf := new(bytes.Buffer)
+
+			// Encode thumbnail as JPEG for compatibility
+			if err := imaging.Encode(thumbnailBuf, thumbnailImage, imaging.JPEG); err == nil {
+				thumbnailBytes = thumbnailBuf.Bytes()
+				logrus.Infof("Created thumbnail: %d bytes", len(thumbnailBytes))
+			} else {
+				logrus.Warnf("Failed to create thumbnail: %v", err)
+			}
+		}
 	}
 
-	if width > 0 && height > 0 {
-		msg.StickerMessage.Width = proto.Uint32(width)
-		msg.StickerMessage.Height = proto.Uint32(height)
+	// Create sticker message with proper metadata (matching WebP flow)
+	stickerMsg := &waE2E.StickerMessage{
+		URL:           proto.String(stickerUploaded.URL),
+		DirectPath:    proto.String(stickerUploaded.DirectPath),
+		Mimetype:      proto.String("image/webp"),
+		FileLength:    proto.Uint64(stickerUploaded.FileLength),
+		FileSHA256:    stickerUploaded.FileSHA256,
+		FileEncSHA256: stickerUploaded.FileEncSHA256,
+		MediaKey:      stickerUploaded.MediaKey,
+		IsAnimated:    proto.Bool(isAnimated),
+		Width:         proto.Uint32(width),
+		Height:        proto.Uint32(height),
 	}
+
+	msg := &waE2E.Message{
+		StickerMessage: stickerMsg,
+	}
+
+	// Log sticker details for debugging
+	logrus.Infof("Creating sticker message - Animated: %t, Dimensions: %dx%d, Size: %d bytes, URL: %s",
+		isAnimated, width, height, stickerUploaded.FileLength, stickerUploaded.URL)
 
 	if request.BaseRequest.IsForwarded {
 		msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
@@ -1248,11 +1413,27 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 
 	content := "🎨 Sticker"
 
-	// Send the sticker message
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	// Create media info for proper storage
+	mediaInfo := &domainChatStorage.MediaInfo{
+		MessageID:     "", // Will be set after sending
+		ChatJID:       dataWaRecipient.String(),
+		MediaType:     "sticker",
+		Filename:      "sticker.webp",
+		URL:           stickerUploaded.URL,
+		MediaKey:      stickerUploaded.MediaKey,
+		FileSHA256:    stickerUploaded.FileSHA256,
+		FileEncSHA256: stickerUploaded.FileEncSHA256,
+		FileLength:    stickerUploaded.FileLength,
+	}
+
+	// Send the sticker message with media info
+	ts, err := service.wrapSendStickerMessage(ctx, dataWaRecipient, msg, content, mediaInfo)
 	if err != nil {
 		return response, err
 	}
+
+	logrus.Infof("Sticker message sent and stored - ID: %s, Chat: %s, MediaType: %s",
+		ts.ID, dataWaRecipient.String(), mediaInfo.MediaType)
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
