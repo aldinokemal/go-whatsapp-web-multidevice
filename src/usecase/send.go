@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
+	"image/gif"
 	"mime"
 	"net/http"
 	"os"
@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"golang.org/x/image/webp"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -25,6 +23,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	chaiWebp "github.com/chai2010/webp"
 	"github.com/disintegration/imaging"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/sirupsen/logrus"
@@ -895,6 +894,110 @@ func (service serviceSend) getMentionFromText(_ context.Context, messages string
 	return result
 }
 
+// convertGIFToAnimatedWebP converts GIF to WebP using available tools
+func (service serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir string) ([]byte, error) {
+	// Create temporary files for input and output
+	gifTempPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_gif_%s.gif", fiberUtils.UUIDv4()))
+	webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_webp_%s.webp", fiberUtils.UUIDv4()))
+
+	// Ensure cleanup
+	defer func() {
+		os.Remove(gifTempPath)
+		os.Remove(webpTempPath)
+	}()
+
+	// Write GIF bytes to temporary file
+	err := os.WriteFile(gifTempPath, gifBytes, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write temporary GIF file: %v", err)
+	}
+
+	// Try different approaches for animated WebP conversion
+	var cmd *exec.Cmd
+	var converted bool
+
+	// Method 1: Try gif2webp (if available)
+	if _, err := exec.LookPath("gif2webp"); err == nil {
+		logrus.Info("Using gif2webp for animated WebP conversion")
+		cmd = exec.Command("gif2webp", "-q", "85", "-m", "4", gifTempPath, "-o", webpTempPath)
+		if err := cmd.Run(); err == nil {
+			converted = true
+		} else {
+			logrus.Warnf("gif2webp failed: %v", err)
+		}
+	}
+
+	// Method 2: Try ffmpeg with basic WebP (without libwebp requirement)
+	if !converted && exec.Command("ffmpeg", "-version").Run() == nil {
+		logrus.Info("Using ffmpeg for WebP conversion")
+		// Use basic ffmpeg WebP conversion (may work even without libwebp)
+		cmd = exec.Command("ffmpeg", "-i", gifTempPath, "-vf", "scale=512:512:force_original_aspect_ratio=decrease", "-q:v", "5", "-y", webpTempPath)
+		if err := cmd.Run(); err == nil {
+			converted = true
+		} else {
+			logrus.Warnf("ffmpeg WebP conversion failed: %v", err)
+		}
+	}
+
+	// Method 3: Try imagemagick (if available)
+	if !converted {
+		if _, err := exec.LookPath("convert"); err == nil {
+			logrus.Info("Using ImageMagick for WebP conversion")
+			cmd = exec.Command("convert", gifTempPath, "-quality", "85", webpTempPath)
+			if err := cmd.Run(); err == nil {
+				converted = true
+			} else {
+				logrus.Warnf("ImageMagick conversion failed: %v", err)
+			}
+		}
+	}
+
+	if !converted {
+		return nil, fmt.Errorf("no suitable tool found for animated WebP conversion (tried gif2webp, ffmpeg, imagemagick)")
+	}
+
+	// Read the resulting WebP file
+	webpBytes, err := os.ReadFile(webpTempPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read converted WebP file: %v", err)
+	}
+
+	return webpBytes, nil
+}
+
+// convertGIFToWebPStatic converts GIF to static WebP (fallback method)
+func (service serviceSend) convertGIFToWebPStatic(gifBytes []byte) ([]byte, error) {
+	// Decode GIF
+	reader := bytes.NewReader(gifBytes)
+	gifData, err := gif.DecodeAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode GIF: %v", err)
+	}
+
+	if len(gifData.Image) == 0 {
+		return nil, fmt.Errorf("GIF contains no frames")
+	}
+
+	// Convert first frame to WebP with good quality
+	firstFrame := gifData.Image[0]
+
+	// Create output buffer
+	outputBuf := new(bytes.Buffer)
+
+	// Encode as WebP with high quality settings
+	opts := &chaiWebp.Options{
+		Lossless: false,
+		Quality:  85, // High quality for stickers
+	}
+
+	err = chaiWebp.Encode(outputBuf, firstFrame, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode frame to WebP: %v", err)
+	}
+
+	return outputBuf.Bytes(), nil
+}
+
 func (service serviceSend) SendSticker(ctx context.Context, request domainSend.StickerRequest) (response domainSend.GenericResponse, err error) {
 	// Validate request
 	err = validations.ValidateSendSticker(ctx, request)
@@ -966,7 +1069,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	var width, height uint32
-	var srcImage image.Image
+	var isAnimated bool
 
 	// Check if the input file is already WebP format
 	inputFileBytes, err := os.ReadFile(stickerPath)
@@ -978,18 +1081,71 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	inputMimeType := http.DetectContentType(inputFileBytes)
 	if inputMimeType == "image/webp" {
 		stickerBytes = inputFileBytes
-		// Try to get dimensions from WebP file
+		// For WebP files, try to get dimensions using the imaging library
 		webpReader := bytes.NewReader(stickerBytes)
-		webpConfig, err := webp.DecodeConfig(webpReader)
+		srcImage, err := imaging.Decode(webpReader)
 		if err == nil {
-			width = uint32(webpConfig.Width)
-			height = uint32(webpConfig.Height)
+			bounds := srcImage.Bounds()
+			width = uint32(bounds.Dx())
+			height = uint32(bounds.Dy())
 		} else {
-			logrus.Warnf("could not decode webp config to get dimensions: %v", err)
+			logrus.Warnf("could not decode webp to get dimensions: %v", err)
+		}
+	} else if inputMimeType == "image/gif" {
+		// Convert GIF to WebP using Go library
+		logrus.Info("Converting GIF to WebP using Go library")
+
+		// First check if it's actually animated
+		reader := bytes.NewReader(inputFileBytes)
+		gifData, err := gif.DecodeAll(reader)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to decode GIF: %v", err))
+		}
+
+		// Try to convert to animated WebP first, fallback to static if it fails
+		isAnimated = len(gifData.Image) > 1 // Set based on actual frame count
+
+		if isAnimated {
+			logrus.Info("Converting GIF to animated WebP")
+			// Try animated WebP conversion
+			stickerBytes, err = service.convertGIFToAnimatedWebP(inputFileBytes, absBaseDir)
+			if err != nil {
+				logrus.Warnf("Failed to create animated WebP, falling back to static: %v", err)
+				// Fallback to static WebP
+				isAnimated = false
+				stickerBytes, err = service.convertGIFToWebPStatic(inputFileBytes)
+				if err != nil {
+					return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
+				}
+			}
+		} else {
+			// Single frame GIF, convert to static WebP
+			stickerBytes, err = service.convertGIFToWebPStatic(inputFileBytes)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
+			}
+		}
+
+		// Get dimensions from first frame
+		if len(gifData.Image) > 0 {
+			bounds := gifData.Image[0].Bounds()
+			width = uint32(bounds.Dx())
+			height = uint32(bounds.Dy())
+
+			// Resize if too large (maintain aspect ratio)
+			if width > 512 || height > 512 {
+				if width > height {
+					height = uint32(float64(height) * (512.0 / float64(width)))
+					width = 512
+				} else {
+					width = uint32(float64(width) * (512.0 / float64(height)))
+					height = 512
+				}
+			}
 		}
 	} else {
 		// For non-WebP formats, use the original conversion logic
-		srcImage, err = imaging.Open(stickerPath)
+		srcImage, err := imaging.Open(stickerPath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
 		}
@@ -1057,13 +1213,6 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
 	}
 
-	// Get dimensions for the sticker message
-	if srcImage != nil {
-		bounds := srcImage.Bounds()
-		width = uint32(bounds.Dx())
-		height = uint32(bounds.Dy())
-	}
-
 	// Create sticker message
 	msg := &waE2E.Message{
 		StickerMessage: &waE2E.StickerMessage{
@@ -1074,7 +1223,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			FileSHA256:    stickerUploaded.FileSHA256,
 			FileEncSHA256: stickerUploaded.FileEncSHA256,
 			MediaKey:      stickerUploaded.MediaKey,
-			IsAnimated:    proto.Bool(false),
+			IsAnimated:    proto.Bool(isAnimated),
 		},
 	}
 
