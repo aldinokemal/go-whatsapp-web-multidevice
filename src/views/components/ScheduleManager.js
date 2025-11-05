@@ -158,8 +158,11 @@ export default {
             return this.constants.TYPEUSER;
         },
         formatStatus(status) {
-            const meta = STATUS_LABELS[status] || { label: status || 'Unknown', color: 'grey' };
-            return `<span class="ui ${meta.color} label">${meta.label}</span>`;
+            const meta = STATUS_LABELS[status];
+            if (meta) {
+                return `<span class="ui ${meta.color} label">${meta.label}</span>`;
+            }
+            return `<span class="ui grey label">Unknown</span>`;
         },
         formatTimestamp(value) {
             if (!value) {

@@ -192,8 +192,12 @@ func (s *serviceSchedule) RunNow(ctx context.Context, id int64) (*domainSchedule
 }
 
 func truncateError(msg string) string {
-	if len(msg) <= manualRunMaxErrorLength {
-		return msg
-	}
-	return msg[:manualRunMaxErrorLength]
+    if len(msg) <= manualRunMaxErrorLength {
+        return msg
+    }
+    runes := []rune(msg)
+    if len(runes) <= manualRunMaxErrorLength {
+        return msg
+    }
+    return string(runes[:manualRunMaxErrorLength])
 }

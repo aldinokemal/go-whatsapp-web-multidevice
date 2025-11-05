@@ -199,33 +199,53 @@ func (r *SQLiteRepository) MarkProcessing(ctx context.Context, id int64) (bool, 
 
 // MarkSent marks a scheduled message as successfully sent.
 func (r *SQLiteRepository) MarkSent(ctx context.Context, id int64, messageID string, sentAt time.Time) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		`UPDATE scheduled_messages
-		 SET status = ?, message_id = ?, sent_at = ?, updated_at = ?, error = NULL
-		 WHERE id = ?`,
-		domainSchedule.StatusSent,
-		messageID,
-		sentAt.UTC(),
-		time.Now().UTC(),
-		id,
-	)
-	return err
+    result, err := r.db.ExecContext(
+        ctx,
+        `UPDATE scheduled_messages
+         SET status = ?, message_id = ?, sent_at = ?, updated_at = ?, error = NULL
+         WHERE id = ?`,
+        domainSchedule.StatusSent,
+        messageID,
+        sentAt.UTC(),
+        time.Now().UTC(),
+        id,
+    )
+    if err != nil {
+        return err
+    }
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+    if rowsAffected == 0 {
+        return sql.ErrNoRows
+    }
+    return nil
 }
 
 // MarkFailed marks a scheduled message as failed with the provided error message.
 func (r *SQLiteRepository) MarkFailed(ctx context.Context, id int64, errMsg string) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		`UPDATE scheduled_messages
-		 SET status = ?, error = ?, updated_at = ?
-		 WHERE id = ?`,
-		domainSchedule.StatusFailed,
-		errMsg,
-		time.Now().UTC(),
-		id,
-	)
-	return err
+    result, err := r.db.ExecContext(
+        ctx,
+        `UPDATE scheduled_messages
+         SET status = ?, error = ?, updated_at = ?
+         WHERE id = ?`,
+        domainSchedule.StatusFailed,
+        errMsg,
+        time.Now().UTC(),
+        id,
+    )
+    if err != nil {
+        return err
+    }
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+    if rowsAffected == 0 {
+        return sql.ErrNoRows
+    }
+    return nil
 }
 
 // List retrieves scheduled messages using optional status filters with pagination.
