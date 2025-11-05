@@ -155,6 +155,10 @@ func parseScheduleID(c *fiber.Ctx) (int64, error) {
 		return 0, pkgError.ValidationError("invalid scheduled message id")
 	}
 
+	if id <= 0 {
+		return 0, pkgError.ValidationError("invalid scheduled message id")
+	}
+
 	return id, nil
 }
 
