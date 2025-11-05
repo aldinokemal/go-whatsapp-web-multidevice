@@ -71,12 +71,12 @@ func (controller *Schedule) Create(c *fiber.Ctx) error {
 	message, err := controller.Service.Create(c.UserContext(), payload)
 	utils.PanicIfNeeded(err)
 
-	return c.JSON(utils.ResponseData{
-		Status:  200,
-		Code:    "SUCCESS",
-		Message: "Scheduled message created",
-		Results: message,
-	})
+    return c.Status(fiber.StatusCreated).JSON(utils.ResponseData{
+        Status:  201,
+        Code:    "SUCCESS",
+        Message: "Scheduled message created",
+        Results: message,
+    })
 }
 
 func (controller *Schedule) Get(c *fiber.Ctx) error {
@@ -186,13 +186,13 @@ func parseStatuses(raw string) ([]domainSchedule.Status, error) {
 }
 
 func parseQueryInt(value string, fallback int) int {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
+    if strings.TrimSpace(value) == "" {
+        return fallback
+    }
 
-	v, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-	return v
+    v, err := strconv.Atoi(value)
+    if err != nil || v < 0 {
+        return fallback
+    }
+    return v
 }
