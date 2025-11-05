@@ -3,7 +3,6 @@ package usecase
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"image/gif"
 	"mime"
@@ -46,119 +45,68 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
-// wrapSendMessage wraps the message sending process with message ID saving
-func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
+func (service *serviceSend) wrapAndStoreMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string, mediaInfo *domainChatStorage.MediaInfo) (whatsmeow.SendResponse, error) {
 	ts, err := whatsapp.GetClient().SendMessage(ctx, recipient, msg)
 	if err != nil {
 		return whatsmeow.SendResponse{}, err
 	}
 
-	// Store the sent message using chatstorage
 	senderJID := ""
 	if whatsapp.GetClient().Store.ID != nil {
 		senderJID = whatsapp.GetClient().Store.ID.String()
 	}
 
-	// Store message asynchronously with timeout
-	// Use a goroutine to avoid blocking the send operation
 	go func() {
-		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		storeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				logrus.Warn("Timeout storing sent message")
-			} else {
-				logrus.Warnf("Failed to store sent message: %v", err)
-			}
+		if err := service.storeMessage(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, mediaInfo); err != nil {
+			logrus.Errorf("Failed to store sent message with media info: %v", err)
 		}
 	}()
 
 	return ts, nil
 }
 
-// wrapSendStickerMessage wraps sticker message sending with media information storage
-func (service serviceSend) wrapSendStickerMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string, mediaInfo *domainChatStorage.MediaInfo) (whatsmeow.SendResponse, error) {
-	ts, err := whatsapp.GetClient().SendMessage(ctx, recipient, msg)
-	if err != nil {
-		return whatsmeow.SendResponse{}, err
+func (service *serviceSend) storeMessage(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, mediaInfo *domainChatStorage.MediaInfo) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("chat storage repository is not initialized")
 	}
 
-	// Store the sent sticker message with media information
-	senderJID := ""
-	if whatsapp.GetClient().Store.ID != nil {
-		senderJID = whatsapp.GetClient().Store.ID.String()
-	}
-
-	// Store message asynchronously with timeout, including media info
-	go func() {
-		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		if err := service.storeSentStickerWithMediaInfo(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, mediaInfo); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				logrus.Warn("Timeout storing sent sticker message")
-			} else {
-				logrus.Warnf("Failed to store sent sticker message: %v", err)
-			}
-		}
-	}()
-
-	return ts, nil
-}
-
-// storeSentStickerWithMediaInfo stores sticker message with complete media information
-func (service serviceSend) storeSentStickerWithMediaInfo(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, mediaInfo *domainChatStorage.MediaInfo) error {
-	logrus.Infof("Storing sticker with media info - ID: %s, MediaType: %s, URL: %s, FileLength: %d",
-		messageID, mediaInfo.MediaType, mediaInfo.URL, mediaInfo.FileLength)
-
-	// Parse recipient JID
 	jid, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), recipientJID)
 	if err != nil {
-		logrus.Errorf("Failed to validate JID %s: %v", recipientJID, err)
-		return fmt.Errorf("invalid recipient JID: %v", err)
+		return fmt.Errorf("invalid recipient JID: %w", err)
 	}
-
 	chatJID := jid.String()
-	logrus.Infof("Storing sticker message to chat: %s", chatJID)
 
-	// Create message with media information
 	message := &domainChatStorage.Message{
-		ID:            messageID,
-		ChatJID:       chatJID,
-		Sender:        senderJID,
-		Content:       content,
-		Timestamp:     timestamp,
-		IsFromMe:      true,
-		MediaType:     mediaInfo.MediaType,
-		Filename:      mediaInfo.Filename,
-		URL:           mediaInfo.URL,
-		MediaKey:      mediaInfo.MediaKey,
-		FileSHA256:    mediaInfo.FileSHA256,
-		FileEncSHA256: mediaInfo.FileEncSHA256,
-		FileLength:    mediaInfo.FileLength,
+		ID:        messageID,
+		ChatJID:   chatJID,
+		Sender:    senderJID,
+		Content:   content,
+		Timestamp: timestamp,
+		IsFromMe:  true,
 	}
 
-	logrus.Infof("Message object created - MediaType: %s, URL: %s, MediaKey length: %d, FileSHA256 length: %d",
-		message.MediaType, message.URL, len(message.MediaKey), len(message.FileSHA256))
-
-	// Store the message directly using StoreMessage for complete media info
-	err = service.chatStorageRepo.StoreMessage(message)
-	if err != nil {
-		logrus.Errorf("Failed to store sticker message: %v", err)
-		return fmt.Errorf("failed to store sticker message: %v", err)
+	if mediaInfo != nil {
+		message.MediaType = mediaInfo.MediaType
+		message.Filename = mediaInfo.Filename
+		message.URL = mediaInfo.URL
+		message.MediaKey = mediaInfo.MediaKey
+		message.FileSHA256 = mediaInfo.FileSHA256
+		message.FileEncSHA256 = mediaInfo.FileEncSHA256
+		message.FileLength = mediaInfo.FileLength
 	}
 
-	logrus.Infof("✅ Successfully stored sticker message with media info - ID: %s", messageID)
-	return nil
+	return service.chatStorageRepo.StoreMessage(message)
 }
 
-func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendMessage(ctx, request)
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -195,13 +143,8 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		if err != nil {
 			logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *request.ReplyMessageID, err)
 		} else if message != nil { // Only set reply context if we found the message
-			// Ensure we use a full JID (user@server) for the Participant field
-			// Use the sender JID from storage as-is. Modern storage should already provide
-			// fully-qualified JIDs (e.g., user@s.whatsapp.net or group@g.us). Avoid mutating
-			// the JID here to prevent corrupting valid group or special JIDs.
 			participantJID := message.Sender
 
-			// Build base ContextInfo with reply details
 			ctxInfo := &waE2E.ContextInfo{
 				StanzaID:    request.ReplyMessageID,
 				Participant: proto.String(participantJID),
@@ -210,20 +153,17 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 				},
 			}
 
-			// Preserve forwarding flag if set
 			if request.BaseRequest.IsForwarded {
 				ctxInfo.IsForwarded = proto.Bool(true)
 				ctxInfo.ForwardingScore = proto.Uint32(100)
 			}
 
-			// Preserve disappearing message duration if provided
 			if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 				ctxInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 			} else {
 				ctxInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(participantJID))
 			}
 
-			// Preserve mentions
 			if len(parsedMentions) > 0 {
 				ctxInfo.MentionedJID = parsedMentions
 			}
@@ -237,7 +177,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		}
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, request.Message)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, request.Message, nil)
 	if err != nil {
 		return response, err
 	}
@@ -247,7 +187,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	return response, nil
 }
 
-func (service serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendImage(ctx context.Context, request domainSend.ImageRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendImage(ctx, request)
 	if err != nil {
 		return response, err
@@ -266,13 +206,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	)
 
 	if request.ImageURL != nil && *request.ImageURL != "" {
-		// Download image from URL
 		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
 		}
-
-		// WebP images are now sent directly without conversion
 
 		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
 		imageName = fileName
@@ -281,7 +218,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save downloaded image %v", err))
 		}
 	} else if request.Image != nil {
-		// Save image to server
 		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
 		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
 		if err != nil {
@@ -291,13 +227,11 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
-	/* Generate thumbnail with smalled image size */
 	srcImage, err := imaging.Open(oriImagePath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
 
-	// Resize Thumbnail
 	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
 	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
 	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
@@ -306,7 +240,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	deletedItems = append(deletedItems, imageThumbnail)
 
 	if request.Compress {
-		// Resize image
 		openImageBuffer, err := imaging.Open(oriImagePath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for compression: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
@@ -322,7 +255,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		imagePath = oriImagePath
 	}
 
-	// Send to WA server
 	dataWaCaption := request.Caption
 	dataWaImage, err := os.ReadFile(imagePath)
 	if err != nil {
@@ -358,7 +290,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 	}
 
-	// Set duration expiration
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.ImageMessage.ContextInfo == nil {
 			msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{}
@@ -370,7 +301,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if request.Caption != "" {
 		caption = "🖼️ " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, caption, nil)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -386,7 +317,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	return response, nil
 }
 
-func (service serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendFile(ctx context.Context, request domainSend.FileRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendFile(ctx, request)
 	if err != nil {
 		return response, err
@@ -399,7 +330,6 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
 	fileMimeType := resolveDocumentMIME(request.File.Filename, fileBytes)
 
-	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
@@ -437,7 +367,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if request.Caption != "" {
 		caption = "📄 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, caption, nil)
 	if err != nil {
 		return response, err
 	}
@@ -462,7 +392,7 @@ func resolveDocumentMIME(filename string, fileBytes []byte) string {
 	return http.DetectContentType(fileBytes)
 }
 
-func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendVideo(ctx, request)
 	if err != nil {
 		return response, err
@@ -478,10 +408,8 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		deletedItems   []string
 	)
 
-	// Ensure temporary files are always removed, even on early returns
 	defer func() {
 		if len(deletedItems) > 0 {
-			// Run cleanup in background with slight delay to avoid race with open handles
 			go utils.RemoveFile(1, deletedItems...)
 		}
 	}()
@@ -490,37 +418,30 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 
 	var oriVideoPath string
 
-	// Determine source of video (URL or uploaded file)
 	if request.VideoURL != nil && *request.VideoURL != "" {
-		// Download video bytes
 		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(*request.VideoURL)
 		if errDownload != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
 		}
-		// Build file path to save the downloaded video temporarily
 		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+fileName)
 		if errWrite := os.WriteFile(oriVideoPath, videoBytes, 0644); errWrite != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store downloaded video in server %v", errWrite))
 		}
 	} else if request.Video != nil {
-		// Save uploaded video to server
 		oriVideoPath = fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+request.Video.Filename)
 		err = fasthttp.SaveMultipartFile(request.Video, oriVideoPath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to store video in server %v", err))
 		}
 	} else {
-		// This should not happen due to validation, but guard anyway
 		return response, pkgError.ValidationError("either Video or VideoURL must be provided")
 	}
 
-	// Check if ffmpeg is installed
 	_, err = exec.LookPath("ffmpeg")
 	if err != nil {
 		return response, pkgError.InternalServerError("ffmpeg not installed")
 	}
 
-	// Generate thumbnail using ffmpeg
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
 	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
 	err = cmdThumbnail.Run()
@@ -528,7 +449,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create thumbnail %v", err))
 	}
 
-	// Resize Thumbnail
 	srcImage, err := imaging.Open(thumbnailVideoPath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open generated video thumbnail image '%s': %v. Possible causes: file not found, unsupported format, or permission denied.", thumbnailVideoPath, err))
@@ -543,17 +463,9 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
 	videoThumbnail = thumbnailResizeVideoPath
 
-	// Compress if requested
 	if request.Compress {
 		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
 
-		// Use proper compression settings to reduce file size
-		// -crf 28: Constant Rate Factor (18-28 is good range, higher = smaller file)
-		// -preset medium: Balance between encoding speed and compression efficiency
-		// -c:v libx264: Use H.264 codec for video
-		// -c:a aac: Use AAC codec for audio
-		// -movflags +faststart: Optimize for web streaming
-		// -vf scale=720:-2: Scale video to max width 720px, maintain aspect ratio
 		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath,
 			"-c:v", "libx264",
 			"-crf", "28",
@@ -562,10 +474,9 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 			"-c:a", "aac",
 			"-b:a", "128k",
 			"-movflags", "+faststart",
-			"-y", // Overwrite output file if it exists
+			"-y",
 			compresVideoPath)
 
-		// Capture both stdout and stderr for better error reporting
 		output, err := cmdCompress.CombinedOutput()
 		if err != nil {
 			logrus.Errorf("ffmpeg compression failed: %v, output: %s", err, string(output))
@@ -579,7 +490,6 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	}
 	deletedItems = append(deletedItems, oriVideoPath)
 
-	//Send to WA server
 	dataWaVideo, err := os.ReadFile(videoPath)
 	if err != nil {
 		return response, err
@@ -627,7 +537,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if request.Caption != "" {
 		caption = "🎥 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, caption, nil)
 	if err != nil {
 		return response, err
 	}
@@ -637,7 +547,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	return response, nil
 }
 
-func (service serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendContact(ctx context.Context, request domainSend.ContactRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendContact(ctx, request)
 	if err != nil {
 		return response, err
@@ -670,7 +580,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 
 	content := "👤 " + request.ContactName
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, content, nil)
 	if err != nil {
 		return response, err
 	}
@@ -680,7 +590,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	return response, nil
 }
 
-func (service serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendLink(ctx context.Context, request domainSend.LinkRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendLink(ctx, request)
 	if err != nil {
 		return response, err
@@ -695,14 +605,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
-	// Log image dimensions if available, otherwise note it's a square image or dimensions not available
 	if metadata.Width != nil && metadata.Height != nil {
 		logrus.Debugf("Image dimensions: %dx%d", *metadata.Width, *metadata.Height)
 	} else {
 		logrus.Debugf("Image dimensions: Square image or dimensions not available")
 	}
 
-	// Create the message
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 		Text:          proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
 		Title:         proto.String(metadata.Title),
@@ -725,11 +633,9 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
 		uploadedThumb, err := service.uploadMedia(ctx, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
 		if err == nil {
-			// Update the message with the uploaded thumbnail information
 			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
@@ -745,7 +651,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if request.Caption != "" {
 		content = "🔗 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, content, nil)
 	if err != nil {
 		return response, err
 	}
@@ -755,7 +661,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	return response, nil
 }
 
-func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendLocation(ctx, request)
 	if err != nil {
 		return response, err
@@ -765,7 +671,6 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 		return response, err
 	}
 
-	// Compose WhatsApp Proto
 	msg := &waE2E.Message{
 		LocationMessage: &waE2E.LocationMessage{
 			DegreesLatitude:  proto.Float64(utils.StrToFloat64(request.Latitude)),
@@ -789,8 +694,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 
 	content := "📍 " + request.Latitude + ", " + request.Longitude
 
-	// Send WhatsApp Message Proto
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, content, nil)
 	if err != nil {
 		return response, err
 	}
@@ -800,8 +704,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	return response, nil
 }
 
-func (service serviceSend) SendAudio(ctx context.Context, request domainSend.AudioRequest) (response domainSend.GenericResponse, err error) {
-	// Validate request
+func (service *serviceSend) SendAudio(ctx context.Context, request domainSend.AudioRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendAudio(ctx, request)
 	if err != nil {
 		return response, err
@@ -817,7 +720,6 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		audioMimeType string
 	)
 
-	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
 		audioBytes, _, err = utils.DownloadAudioFromURL(*request.AudioURL)
 		if err != nil {
@@ -829,7 +731,6 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		audioMimeType = http.DetectContentType(audioBytes)
 	}
 
-	// upload to WhatsApp servers
 	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
@@ -864,7 +765,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	content := "🎵 Audio"
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, content, nil)
 	if err != nil {
 		return response, err
 	}
@@ -874,7 +775,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	return response, nil
 }
 
-func (service serviceSend) SendPoll(ctx context.Context, request domainSend.PollRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendPoll(ctx context.Context, request domainSend.PollRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendPoll(ctx, request)
 	if err != nil {
 		return response, err
@@ -895,7 +796,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 		msg.PollCreationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapAndStoreMessage(ctx, dataWaRecipient, msg, content, nil)
 	if err != nil {
 		return response, err
 	}
@@ -905,7 +806,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	return response, nil
 }
 
-func (service serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendPresence(ctx, request)
 	if err != nil {
 		return response, err
@@ -921,7 +822,7 @@ func (service serviceSend) SendPresence(ctx context.Context, request domainSend.
 	return response, nil
 }
 
-func (service serviceSend) SendChatPresence(ctx context.Context, request domainSend.ChatPresenceRequest) (response domainSend.GenericResponse, err error) {
+func (service *serviceSend) SendChatPresence(ctx context.Context, request domainSend.ChatPresenceRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendChatPresence(ctx, request)
 	if err != nil {
 		return response, err
@@ -959,10 +860,9 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 	return response, nil
 }
 
-func (service serviceSend) getMentionFromText(_ context.Context, messages string) (result []string) {
+func (service *serviceSend) getMentionFromText(_ context.Context, messages string) (result []string) {
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
-		// Get JID from phone number
 		if dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
@@ -970,31 +870,23 @@ func (service serviceSend) getMentionFromText(_ context.Context, messages string
 	return result
 }
 
-// convertGIFToAnimatedWebP converts GIF to WebP using available tools
-func (service serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir string) ([]byte, error) {
-	// Create temporary files for input and output
+func (service *serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir string) ([]byte, error) {
 	gifTempPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_gif_%s.gif", fiberUtils.UUIDv4()))
 	webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_webp_%s.webp", fiberUtils.UUIDv4()))
-
-	// Ensure cleanup
 	defer func() {
 		os.Remove(gifTempPath)
 		os.Remove(webpTempPath)
 	}()
 
-	// Write GIF bytes to temporary file
 	err := os.WriteFile(gifTempPath, gifBytes, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write temporary GIF file: %v", err)
+		return nil, fmt.Errorf("failed to write temporary GIF file: %w", err)
 	}
 
-	// Try different approaches for animated WebP conversion
 	var cmd *exec.Cmd
 	var converted bool
 
-	// Method 1: Try gif2webp (if available)
 	if _, err := exec.LookPath("gif2webp"); err == nil {
-		logrus.Info("Using gif2webp for animated WebP conversion")
 		cmd = exec.Command("gif2webp", "-q", "85", "-m", "4", gifTempPath, "-o", webpTempPath)
 		if err := cmd.Run(); err == nil {
 			converted = true
@@ -1003,10 +895,7 @@ func (service serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir 
 		}
 	}
 
-	// Method 2: Try ffmpeg with basic WebP (without libwebp requirement)
 	if !converted && exec.Command("ffmpeg", "-version").Run() == nil {
-		logrus.Info("Using ffmpeg for WebP conversion")
-		// Use basic ffmpeg WebP conversion (may work even without libwebp)
 		cmd = exec.Command("ffmpeg", "-i", gifTempPath, "-vf", "scale=512:512:force_original_aspect_ratio=decrease", "-q:v", "5", "-y", webpTempPath)
 		if err := cmd.Run(); err == nil {
 			converted = true
@@ -1015,10 +904,8 @@ func (service serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir 
 		}
 	}
 
-	// Method 3: Try imagemagick (if available)
 	if !converted {
 		if _, err := exec.LookPath("convert"); err == nil {
-			logrus.Info("Using ImageMagick for WebP conversion")
 			cmd = exec.Command("convert", gifTempPath, "-quality", "85", webpTempPath)
 			if err := cmd.Run(); err == nil {
 				converted = true
@@ -1029,232 +916,221 @@ func (service serviceSend) convertGIFToAnimatedWebP(gifBytes []byte, absBaseDir 
 	}
 
 	if !converted {
-		return nil, fmt.Errorf("no suitable tool found for animated WebP conversion (tried gif2webp, ffmpeg, imagemagick)")
+		return nil, fmt.Errorf("no suitable tool found for animated WebP conversion")
 	}
 
-	// Read the resulting WebP file
-	webpBytes, err := os.ReadFile(webpTempPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read converted WebP file: %v", err)
-	}
-
-	return webpBytes, nil
+	return os.ReadFile(webpTempPath)
 }
 
-// convertGIFToWebPStatic converts GIF to static WebP (fallback method)
-func (service serviceSend) convertGIFToWebPStatic(gifBytes []byte) ([]byte, error) {
-	// Decode GIF
+func (service *serviceSend) convertGIFToWebPStatic(gifBytes []byte) ([]byte, error) {
 	reader := bytes.NewReader(gifBytes)
 	gifData, err := gif.DecodeAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode GIF: %v", err)
+		return nil, fmt.Errorf("failed to decode GIF: %w", err)
 	}
 
 	if len(gifData.Image) == 0 {
 		return nil, fmt.Errorf("GIF contains no frames")
 	}
 
-	// Convert first frame to WebP with good quality
 	firstFrame := gifData.Image[0]
-
-	// Create output buffer
 	outputBuf := new(bytes.Buffer)
-
-	// Encode as WebP with high quality settings
-	opts := &chaiWebp.Options{
-		Lossless: false,
-		Quality:  85, // High quality for stickers
-	}
+	opts := &chaiWebp.Options{Lossless: false, Quality: 85}
 
 	err = chaiWebp.Encode(outputBuf, firstFrame, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode frame to WebP: %v", err)
+		return nil, fmt.Errorf("failed to encode frame to WebP: %w", err)
 	}
 
 	return outputBuf.Bytes(), nil
 }
 
-func (service serviceSend) SendSticker(ctx context.Context, request domainSend.StickerRequest) (response domainSend.GenericResponse, err error) {
-	// Validate request
-	err = validations.ValidateSendSticker(ctx, request)
+type processedMedia struct {
+	Path        string
+	Thumbnail   []byte
+	Data        []byte
+	Mimetype    string
+	IsAnimated  bool
+	Width       uint32
+	Height      uint32
+	FileLength  uint64
+	cleanupFunc func()
+}
+
+func (service *serviceSend) SendSticker(ctx context.Context, request domainSend.StickerRequest) (response domainSend.GenericResponse, err error) {
+	if err := validations.ValidateSendSticker(ctx, request); err != nil {
+		return response, err
+	}
+
+	recipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	stickerPath, cleanup, err := service.getStickerPath(request)
+	if err != nil {
+		return response, err
+	}
+	defer cleanup()
+
+	processed, err := service.processSticker(ctx, stickerPath)
+	if err != nil {
+		return response, err
+	}
+	defer processed.cleanupFunc()
+
+	uploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, processed.Data, recipient)
+	if err != nil {
+		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
+	}
+
+	msg := service.buildStickerMessage(request, uploaded, processed)
+
+	ts, err := service.wrapAndStoreMessage(ctx, recipient, msg, "🎨 Sticker", &domainChatStorage.MediaInfo{
+		MediaType:     "sticker",
+		URL:           uploaded.URL,
+		MediaKey:      uploaded.MediaKey,
+		FileSHA256:    uploaded.FileSHA256,
+		FileEncSHA256: uploaded.FileEncSHA256,
+		FileLength:    uploaded.FileLength,
+	})
 	if err != nil {
 		return response, err
 	}
 
-	var (
-		stickerPath  string
-		deletedItems []string
-		stickerBytes []byte
-	)
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+	return response, nil
+}
 
-	// Resolve absolute base directory for send items
+func (service *serviceSend) getStickerPath(request domainSend.StickerRequest) (string, func(), error) {
 	absBaseDir, err := filepath.Abs(config.PathSendItems)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+		return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
 	}
 
-	defer func() {
-		// Delete temporary files
+	var stickerPath string
+	var deletedItems []string
+	cleanup := func() {
 		for _, path := range deletedItems {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				logrus.Warnf("Failed to cleanup temporary file %s: %v", path, err)
 			}
 		}
-	}()
+	}
 
-	// Handle sticker from URL or file
 	if request.StickerURL != nil && *request.StickerURL != "" {
-		// Download sticker from URL
 		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
+			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
 		}
 
-		// Create safe temporary file within base dir
 		f, err := os.CreateTemp(absBaseDir, "sticker_*")
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
+			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
 		}
 		stickerPath = f.Name()
 		if _, err := f.Write(imageData); err != nil {
 			f.Close()
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to write sticker: %v", err))
+			cleanup()
+			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to write sticker: %v", err))
 		}
 		_ = f.Close()
 		deletedItems = append(deletedItems, stickerPath)
 	} else if request.Sticker != nil {
-		// Create safe temporary file within base dir
 		f, err := os.CreateTemp(absBaseDir, "sticker_*")
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
+			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
 		}
 		stickerPath = f.Name()
 		_ = f.Close()
 
-		// Save uploaded file to safe path
 		err = fasthttp.SaveMultipartFile(request.Sticker, stickerPath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
+			cleanup()
+			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
 		}
 		deletedItems = append(deletedItems, stickerPath)
 	}
 
+	return stickerPath, cleanup, nil
+}
+
+func (service *serviceSend) processSticker(ctx context.Context, stickerPath string) (*processedMedia, error) {
+	absBaseDir, err := filepath.Abs(config.PathSendItems)
+	if err != nil {
+		return nil, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+	}
+
+	var deletedItems []string
+	cleanup := func() {
+		for _, path := range deletedItems {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to cleanup temporary file %s: %v", path, err)
+			}
+		}
+	}
+
+	inputFileBytes, err := os.ReadFile(stickerPath)
+	if err != nil {
+		cleanup()
+		return nil, pkgError.InternalServerError(fmt.Sprintf("failed to read input file: %v", err))
+	}
+
+	var stickerBytes []byte
 	var width, height uint32
 	var isAnimated bool
 
-	// Check if the input file is already WebP format
-	inputFileBytes, err := os.ReadFile(stickerPath)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read input file: %v", err))
-	}
-
-	// Detect if the input is already WebP
 	inputMimeType := http.DetectContentType(inputFileBytes)
 	if inputMimeType == "image/webp" {
-		logrus.Info("Input is already WebP format, using directly")
 		stickerBytes = inputFileBytes
-
-		// Save the WebP to a temporary file for consistency with GIF flow
-		webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("direct_webp_%s.webp", fiberUtils.UUIDv4()))
-		err = os.WriteFile(webpTempPath, stickerBytes, 0644)
-		if err != nil {
-			logrus.Warnf("Failed to save WebP temporarily: %v", err)
-		} else {
-			deletedItems = append(deletedItems, webpTempPath)
-			logrus.Infof("Saved direct WebP to: %s", webpTempPath)
-		}
-
-		// For WebP files, try to get dimensions using the imaging library
 		webpReader := bytes.NewReader(stickerBytes)
 		srcImage, err := imaging.Decode(webpReader)
 		if err == nil {
 			bounds := srcImage.Bounds()
 			width = uint32(bounds.Dx())
 			height = uint32(bounds.Dy())
-			logrus.Infof("Direct WebP dimensions: %dx%d", width, height)
-		} else {
-			logrus.Warnf("could not decode webp to get dimensions: %v", err)
 		}
-
-		logrus.Infof("Successfully processed direct WebP: %d bytes", len(stickerBytes))
 	} else if inputMimeType == "image/gif" {
-		// Convert GIF to WebP using Go library
-		logrus.Info("Converting GIF to WebP using Go library")
-
-		// First check if it's actually animated
 		reader := bytes.NewReader(inputFileBytes)
 		gifData, err := gif.DecodeAll(reader)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to decode GIF: %v", err))
+			cleanup()
+			return nil, pkgError.InternalServerError(fmt.Sprintf("failed to decode GIF: %v", err))
 		}
 
-		// Try to convert to animated WebP first, fallback to static if it fails
-		isAnimated = len(gifData.Image) > 1 // Set based on actual frame count
-
+		isAnimated = len(gifData.Image) > 1
 		if isAnimated {
-			logrus.Info("Converting GIF to animated WebP")
-			// Try animated WebP conversion
 			stickerBytes, err = service.convertGIFToAnimatedWebP(inputFileBytes, absBaseDir)
 			if err != nil {
 				logrus.Warnf("Failed to create animated WebP, falling back to static: %v", err)
-				// Fallback to static WebP
 				isAnimated = false
 				stickerBytes, err = service.convertGIFToWebPStatic(inputFileBytes)
 				if err != nil {
-					return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
+					cleanup()
+					return nil, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
 				}
-			} else {
-				logrus.Infof("Successfully created animated WebP: %d bytes", len(stickerBytes))
 			}
 		} else {
-			// Single frame GIF, convert to static WebP
 			stickerBytes, err = service.convertGIFToWebPStatic(inputFileBytes)
 			if err != nil {
-				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
+				cleanup()
+				return nil, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF to WebP: %v", err))
 			}
-			logrus.Infof("Successfully created static WebP: %d bytes", len(stickerBytes))
 		}
 
-		// Save the converted WebP to a temporary file for consistency with WebP flow
-		webpTempPath := filepath.Join(absBaseDir, fmt.Sprintf("converted_%s.webp", fiberUtils.UUIDv4()))
-		err = os.WriteFile(webpTempPath, stickerBytes, 0644)
-		if err != nil {
-			logrus.Warnf("Failed to save converted WebP temporarily: %v", err)
-		} else {
-			deletedItems = append(deletedItems, webpTempPath)
-			logrus.Infof("Saved converted WebP to: %s", webpTempPath)
-		}
-
-		// Get dimensions from first frame
 		if len(gifData.Image) > 0 {
 			bounds := gifData.Image[0].Bounds()
 			width = uint32(bounds.Dx())
 			height = uint32(bounds.Dy())
-
-			// Resize if too large (maintain aspect ratio)
-			if width > 512 || height > 512 {
-				if width > height {
-					height = uint32(float64(height) * (512.0 / float64(width)))
-					width = 512
-				} else {
-					width = uint32(float64(width) * (512.0 / float64(height)))
-					height = 512
-				}
-			}
 		}
 	} else {
-		// For non-WebP formats, use the original conversion logic
 		srcImage, err := imaging.Open(stickerPath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
+			cleanup()
+			return nil, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
 		}
 
-		// Resize image to max 512x512 maintaining aspect ratio
 		bounds := srcImage.Bounds()
 		imgWidth := bounds.Dx()
 		imgHeight := bounds.Dy()
@@ -1267,73 +1143,63 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			}
 		}
 
-		// Convert to WebP using external command (ffmpeg or cwebp)
 		webpPath := filepath.Join(absBaseDir, fmt.Sprintf("sticker_%s.webp", fiberUtils.UUIDv4()))
 		deletedItems = append(deletedItems, webpPath)
 
-		// First save as PNG temporarily
 		pngPath := filepath.Join(absBaseDir, fmt.Sprintf("temp_%s.png", fiberUtils.UUIDv4()))
 		deletedItems = append(deletedItems, pngPath)
 
 		err = imaging.Save(srcImage, pngPath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save temporary PNG: %v", err))
+			cleanup()
+			return nil, pkgError.InternalServerError(fmt.Sprintf("failed to save temporary PNG: %v", err))
 		}
 
-		// Add execution timeout for conversion
 		convCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
-		// Try to use ffmpeg first (most common), then cwebp
 		var convertCmd *exec.Cmd
 		if _, err := exec.LookPath("ffmpeg"); err == nil {
-			// Use ffmpeg to convert to WebP with transparency support, overwrite if exists
 			convertCmd = exec.CommandContext(convCtx, "ffmpeg", "-y", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
 		} else if _, err := exec.LookPath("cwebp"); err == nil {
-			// Use cwebp as fallback
 			convertCmd = exec.CommandContext(convCtx, "cwebp", "-q", "60", "-o", webpPath, pngPath)
 		} else {
-			// If neither tool is available, return error
-			return response, pkgError.InternalServerError("neither ffmpeg nor cwebp is installed for WebP conversion")
+			cleanup()
+			return nil, pkgError.InternalServerError("neither ffmpeg nor cwebp is installed for WebP conversion")
 		}
 
 		var stderr bytes.Buffer
 		convertCmd.Stderr = &stderr
 
 		if err := convertCmd.Run(); err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert sticker to WebP: %v, stderr: %s", err, stderr.String()))
+			cleanup()
+			return nil, pkgError.InternalServerError(fmt.Sprintf("failed to convert sticker to WebP: %v, stderr: %s", err, stderr.String()))
 		}
 
-		// Read the WebP file
 		stickerBytes, err = os.ReadFile(webpPath)
 		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read WebP sticker: %v", err))
+			cleanup()
+			return nil, pkgError.InternalServerError(fmt.Sprintf("failed to read WebP sticker: %v", err))
 		}
 	}
 
-	// Validate WebP file size and format
 	if len(stickerBytes) == 0 {
-		return response, pkgError.InternalServerError("sticker conversion resulted in empty WebP file")
+		cleanup()
+		return nil, pkgError.InternalServerError("sticker conversion resulted in empty WebP file")
 	}
 
-	// For stickers, we need proper dimensions. If not set, try to get them from WebP
 	if width == 0 || height == 0 {
-		// Try to decode WebP to get dimensions
 		webpReader := bytes.NewReader(stickerBytes)
 		if srcImage, err := imaging.Decode(webpReader); err == nil {
 			bounds := srcImage.Bounds()
 			width = uint32(bounds.Dx())
 			height = uint32(bounds.Dy())
-			logrus.Infof("Retrieved dimensions from WebP: %dx%d", width, height)
 		} else {
-			// Set default sticker dimensions if we can't get them
 			width = 512
 			height = 512
-			logrus.Warn("Could not get WebP dimensions, using default 512x512")
 		}
 	}
 
-	// Ensure dimensions are within WhatsApp sticker limits
 	if width > 512 || height > 512 {
 		ratio := float64(width) / float64(height)
 		if width > height {
@@ -1343,104 +1209,51 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			height = 512
 			width = uint32(512.0 * ratio)
 		}
-		logrus.Infof("Adjusted sticker dimensions to %dx%d", width, height)
 	}
 
-	// Upload sticker to WhatsApp servers
-	stickerUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
-	if err != nil {
-		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
-	}
+	return &processedMedia{
+		Data:        stickerBytes,
+		Mimetype:    "image/webp",
+		IsAnimated:  isAnimated,
+		Width:       width,
+		Height:      height,
+		cleanupFunc: cleanup,
+	}, nil
+}
 
-	logrus.Infof("Sticker uploaded successfully - Size: %d bytes, Dimensions: %dx%d, Animated: %t",
-		len(stickerBytes), width, height, isAnimated)
-
-	// Create thumbnail for sticker (important for display on sender device)
-	var thumbnailBytes []byte
-	if len(stickerBytes) > 0 {
-		// Create a smaller version for thumbnail
-		webpReader := bytes.NewReader(stickerBytes)
-		if srcImage, err := imaging.Decode(webpReader); err == nil {
-			// Create 100x100 thumbnail maintaining aspect ratio
-			thumbnailImage := imaging.Fit(srcImage, 100, 100, imaging.Lanczos)
-			thumbnailBuf := new(bytes.Buffer)
-
-			// Encode thumbnail as JPEG for compatibility
-			if err := imaging.Encode(thumbnailBuf, thumbnailImage, imaging.JPEG); err == nil {
-				thumbnailBytes = thumbnailBuf.Bytes()
-				logrus.Infof("Created thumbnail: %d bytes", len(thumbnailBytes))
-			} else {
-				logrus.Warnf("Failed to create thumbnail: %v", err)
-			}
-		}
-	}
-
-	// Create sticker message with proper metadata (matching WebP flow)
+func (service *serviceSend) buildStickerMessage(request domainSend.StickerRequest, uploaded whatsmeow.UploadResponse, media *processedMedia) *waE2E.Message {
 	stickerMsg := &waE2E.StickerMessage{
-		URL:           proto.String(stickerUploaded.URL),
-		DirectPath:    proto.String(stickerUploaded.DirectPath),
-		Mimetype:      proto.String("image/webp"),
-		FileLength:    proto.Uint64(stickerUploaded.FileLength),
-		FileSHA256:    stickerUploaded.FileSHA256,
-		FileEncSHA256: stickerUploaded.FileEncSHA256,
-		MediaKey:      stickerUploaded.MediaKey,
-		IsAnimated:    proto.Bool(isAnimated),
-		Width:         proto.Uint32(width),
-		Height:        proto.Uint32(height),
+		URL:           proto.String(uploaded.URL),
+		DirectPath:    proto.String(uploaded.DirectPath),
+		Mimetype:      proto.String(media.Mimetype),
+		FileLength:    proto.Uint64(uploaded.FileLength),
+		FileSHA256:    uploaded.FileSHA256,
+		FileEncSHA256: uploaded.FileEncSHA256,
+		MediaKey:      uploaded.MediaKey,
+		IsAnimated:    proto.Bool(media.IsAnimated),
+		Width:         proto.Uint32(media.Width),
+		Height:        proto.Uint32(media.Height),
 	}
 
-	msg := &waE2E.Message{
-		StickerMessage: stickerMsg,
-	}
-
-	// Log sticker details for debugging
-	logrus.Infof("Creating sticker message - Animated: %t, Dimensions: %dx%d, Size: %d bytes, URL: %s",
-		isAnimated, width, height, stickerUploaded.FileLength, stickerUploaded.URL)
+	msg := &waE2E.Message{StickerMessage: stickerMsg}
+	ephemeralExpiration := service.getDefaultEphemeralExpiration(request.Phone)
+	ctxInfo := &waE2E.ContextInfo{}
 
 	if request.BaseRequest.IsForwarded {
-		msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
-			IsForwarded:     proto.Bool(true),
-			ForwardingScore: proto.Uint32(100),
-		}
+		ctxInfo.IsForwarded = proto.Bool(true)
+		ctxInfo.ForwardingScore = proto.Uint32(100)
 	}
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
-		if msg.StickerMessage.ContextInfo == nil {
-			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{}
-		}
-		msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+		ctxInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	} else {
+		ctxInfo.Expiration = proto.Uint32(ephemeralExpiration)
 	}
-
-	content := "🎨 Sticker"
-
-	// Create media info for proper storage
-	mediaInfo := &domainChatStorage.MediaInfo{
-		MessageID:     "", // Will be set after sending
-		ChatJID:       dataWaRecipient.String(),
-		MediaType:     "sticker",
-		Filename:      "sticker.webp",
-		URL:           stickerUploaded.URL,
-		MediaKey:      stickerUploaded.MediaKey,
-		FileSHA256:    stickerUploaded.FileSHA256,
-		FileEncSHA256: stickerUploaded.FileEncSHA256,
-		FileLength:    stickerUploaded.FileLength,
-	}
-
-	// Send the sticker message with media info
-	ts, err := service.wrapSendStickerMessage(ctx, dataWaRecipient, msg, content, mediaInfo)
-	if err != nil {
-		return response, err
-	}
-
-	logrus.Infof("Sticker message sent and stored - ID: %s, Chat: %s, MediaType: %s",
-		ts.ID, dataWaRecipient.String(), mediaInfo.MediaType)
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
-	return response, nil
+	msg.StickerMessage.ContextInfo = ctxInfo
+	return msg
 }
 
-func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+func (service *serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if recipient.Server == types.NewsletterServer {
 		uploaded, err = whatsapp.GetClient().UploadNewsletter(ctx, media, mediaType)
 	} else {
@@ -1449,7 +1262,7 @@ func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.
 	return uploaded, err
 }
 
-func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
+func (service *serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
 	expiration = 0
 	if jid == "" {
 		return expiration
