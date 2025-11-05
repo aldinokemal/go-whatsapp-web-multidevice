@@ -118,6 +118,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
   /schedule/messages/{id}:
+    get:
+      operationId: scheduleGet
+      tags:
+        - schedule
+      summary: Get a scheduled message by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Scheduled message fetched
+                  results:
+                    $ref: '#/components/schemas/ScheduledMessage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
     put:
       operationId: scheduleUpdate
       tags:

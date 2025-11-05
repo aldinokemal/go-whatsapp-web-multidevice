@@ -25,6 +25,7 @@ func InitRestSchedule(app fiber.Router, service domainSchedule.IScheduleUsecase)
 	rest := Schedule{Service: service}
 
 	app.Get("/schedule/messages", rest.List)
+	app.Get("/schedule/messages/:id", rest.Get)
 	app.Post("/schedule/messages", rest.Create)
 	app.Put("/schedule/messages/:id", rest.Update)
 	app.Delete("/schedule/messages/:id", rest.Delete)
@@ -74,6 +75,21 @@ func (controller *Schedule) Create(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Scheduled message created",
+		Results: message,
+	})
+}
+
+func (controller *Schedule) Get(c *fiber.Ctx) error {
+	id, err := parseScheduleID(c)
+	utils.PanicIfNeeded(err)
+
+	message, err := controller.Service.Get(c.UserContext(), id)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Scheduled message fetched",
 		Results: message,
 	})
 }
