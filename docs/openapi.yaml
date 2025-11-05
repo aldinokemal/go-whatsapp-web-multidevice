@@ -20,10 +20,219 @@ tags:
     description: Group setting
   - name: newsletter
     description: newsletter setting
+  - name: schedule
+    description: Manage scheduled messages (CRUD + run-now)
 security:
   - basicAuth: []
 
 paths:
+  /schedule/messages:
+    get:
+      operationId: scheduleList
+      tags:
+        - schedule
+      summary: List scheduled messages
+      parameters:
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated list of statuses to filter (pending,sending,sent,failed)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Scheduled messages fetched
+                  results:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ScheduledMessage'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    post:
+      operationId: scheduleCreate
+      tags:
+        - schedule
+      summary: Create a scheduled message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMessagePayload'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Scheduled message created
+                  results:
+                    $ref: '#/components/schemas/ScheduledMessage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /schedule/messages/{id}:
+    put:
+      operationId: scheduleUpdate
+      tags:
+        - schedule
+      summary: Update a scheduled message (pending/failed only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMessagePayload'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Scheduled message updated
+                  results:
+                    $ref: '#/components/schemas/ScheduledMessage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    delete:
+      operationId: scheduleDelete
+      tags:
+        - schedule
+      summary: Delete a scheduled message (pending/failed only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /schedule/messages/{id}/run:
+    post:
+      operationId: scheduleRunNow
+      tags:
+        - schedule
+      summary: Immediately dispatch a pending scheduled message
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Scheduled message dispatched
+                  results:
+                    $ref: '#/components/schemas/ScheduledMessage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /app/login:
     get:
       operationId: appLogin
@@ -450,6 +659,11 @@ paths:
                   type: integer
                   example: 3600
                   description: Disappearing message duration in seconds (optional)
+                schedule_at:
+                  type: string
+                  format: date-time
+                  example: '2024-07-01T10:00:00Z'
+                  description: Optional ISO8601 timestamp to schedule the message for later delivery
       responses:
         '200':
           description: OK
@@ -2411,6 +2625,87 @@ components:
       type: http
       scheme: basic
   schemas:
+    ScheduledMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 42
+        phone:
+          type: string
+          example: "628123456789@s.whatsapp.net"
+        message:
+          type: string
+          example: "Hello from the future"
+        reply_message_id:
+          type: string
+          nullable: true
+          example: "3EB0288F008D32FCD0A424"
+        is_forwarded:
+          type: boolean
+          example: false
+        duration:
+          type: integer
+          nullable: true
+          example: 3600
+        schedule_at:
+          type: string
+          format: date-time
+          example: "2024-11-15T10:30:00Z"
+        status:
+          type: string
+          enum: [pending, sending, sent, failed]
+          example: pending
+        attempts:
+          type: integer
+          example: 0
+        error:
+          type: string
+          nullable: true
+          example: "invalid recipient"
+        message_id:
+          type: string
+          nullable: true
+          example: "ABCD1234"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ScheduleMessagePayload:
+      type: object
+      required:
+        - phone
+        - message
+        - schedule_at
+      properties:
+        phone:
+          type: string
+          description: WA JID or bare number (auto-suffixed)
+          example: "628123456789@s.whatsapp.net"
+        message:
+          type: string
+          example: "Reminder: standup in 10 minutes"
+        reply_message_id:
+          type: string
+          nullable: true
+        is_forwarded:
+          type: boolean
+          example: false
+        duration:
+          type: integer
+          nullable: true
+          description: Disappearing messages duration (seconds)
+        schedule_at:
+          type: string
+          format: date-time
+          description: UTC time; must be >= 5s and <= 30 days in the future
     CreateGroupResponse:
       type: object
       properties:
@@ -2737,6 +3032,16 @@ components:
             message_id:
               type: string
               example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+            scheduled_id:
+              type: integer
+              example: 42
+              nullable: true
+            scheduled_for:
+              type: string
+              format: date-time
+              example: '2024-07-01T10:00:00Z'
+              nullable: true
+              description: When present, indicates the message is queued for future delivery
             status:
               type: string
               example: '<feature> success ....'
