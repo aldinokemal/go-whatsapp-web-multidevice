@@ -463,7 +463,7 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 
 func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {
 	if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-		if err := cli.SendPresence(types.PresenceAvailable); err != nil {
+		if err := cli.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
 			log.Warnf("Failed to send available presence: %v", err)
 		} else {
 			log.Infof("Marked self as available")
@@ -500,7 +500,7 @@ func handleConnectionEvents(_ context.Context) {
 
 	// Send presence available when connecting and when the pushname is changed.
 	// This makes sure that outgoing messages always have the right pushname.
-	if err := cli.SendPresence(types.PresenceAvailable); err != nil {
+	if err := cli.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
 		log.Warnf("Failed to send available presence: %v", err)
 	} else {
 		log.Infof("Marked self as available")
@@ -578,7 +578,7 @@ func handleAutoMarkRead(_ context.Context, evt *events.Message) {
 	chat := evt.Info.Chat
 	sender := evt.Info.Sender
 
-	if err := cli.MarkRead(messageIDs, timestamp, chat, sender); err != nil {
+	if err := cli.MarkRead(context.Background(), messageIDs, timestamp, chat, sender); err != nil {
 		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
 	} else {
 		log.Debugf("Marked message %s as read", evt.Info.ID)

@@ -43,7 +43,7 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	}
 
 	ids := []types.MessageID{request.MessageID}
-	if err = whatsapp.GetClient().MarkRead(ids, time.Now(), dataWaRecipient, *whatsapp.GetClient().Store.ID); err != nil {
+	if err = whatsapp.GetClient().MarkRead(ctx, ids, time.Now(), dataWaRecipient, *whatsapp.GetClient().Store.ID); err != nil {
 		return response, err
 	}
 
