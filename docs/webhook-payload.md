@@ -511,6 +511,10 @@ Triggered when users are demoted from admin.
   "action": "message_edited",
   "chat_id": "6289XXXXXXXXX",
   "edited_text": "hhhiawww",
+  "original_message_id": "D6271D8223A05B4DA6AE9FE3CD632543",
+  "original_from_me": false,
+  "original_chat": "6289XXXXXXXXX@s.whatsapp.net",
+  "edit_timestamp": "2025-07-13T11:14:19Z",
   "from": "6289XXXXXXXXX@s.whatsapp.net",
   "message": {
     "text": "hhhiawww",
@@ -523,6 +527,12 @@ Triggered when users are demoted from admin.
   "timestamp": "2025-07-13T11:14:19Z"
 }
 ```
+
+**New Fields Explained:**
+- `original_message_id`: The ID of the message that was edited (use this to track which message was modified)
+- `original_from_me`: Boolean indicating if the original message was sent by you
+- `original_chat`: The chat JID where the original message was sent
+- `edit_timestamp`: When the edit occurred (may differ from the original timestamp)
 
 ## Special Flags
 

@@ -119,6 +119,19 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 			}
 		case "MESSAGE_EDIT":
 			body["action"] = "message_edited"
+			// Extract original message ID that was edited
+			if key := protocolMessage.GetKey(); key != nil {
+				body["original_message_id"] = key.GetID()
+				body["original_from_me"] = key.GetFromMe()
+				if key.GetRemoteJID() != "" {
+					body["original_chat"] = key.GetRemoteJID()
+				}
+			}
+			// Extract edit timestamp
+			if timestamp := protocolMessage.GetTimestampMS(); timestamp > 0 {
+				body["edit_timestamp"] = time.UnixMilli(timestamp).Format(time.RFC3339)
+			}
+			// Extract new edited content
 			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 				if editedText := editedMessage.GetExtendedTextMessage(); editedText != nil {
 					body["edited_text"] = editedText.GetText()
