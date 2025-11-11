@@ -6,7 +6,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/mark3labs/mcp-go/server"
@@ -32,10 +31,7 @@ func mcpServer(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 
 	// Set auto reconnect checking with a valid client reference
-	client := whatsappCli
-	if client == nil {
-		client = whatsapp.GetClient()
-	}
+	client := getValidWhatsAppClient()
 	if client == nil {
 		logrus.Warn("whatsapp client is nil; auto-reconnect checker not started")
 	} else {
