@@ -114,12 +114,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 
 	// Set auto reconnect checking with a guaranteed client instance
-	client := getValidWhatsAppClient()
-	if client == nil {
-		logrus.Warn("whatsapp client is nil; auto-reconnect checker not started")
-	} else {
-		go helpers.SetAutoReconnectChecking(client)
-	}
+	startAutoReconnectCheckerIfClientAvailable()
 
 	if err := app.Listen(":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())

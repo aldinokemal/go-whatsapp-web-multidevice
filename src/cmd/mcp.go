@@ -31,12 +31,7 @@ func mcpServer(_ *cobra.Command, _ []string) {
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 
 	// Set auto reconnect checking with a valid client reference
-	client := getValidWhatsAppClient()
-	if client == nil {
-		logrus.Warn("whatsapp client is nil; auto-reconnect checker not started")
-	} else {
-		go helpers.SetAutoReconnectChecking(client)
-	}
+	startAutoReconnectCheckerIfClientAvailable()
 
 	// Create MCP server with capabilities
 	mcpServer := server.NewMCPServer(
