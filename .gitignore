@@ -14,3 +14,4 @@ storages
 bin
 .playwright-mcp
 .cursor/mcp.json
+build/
