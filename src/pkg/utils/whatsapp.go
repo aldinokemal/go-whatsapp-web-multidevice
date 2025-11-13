@@ -606,7 +606,7 @@ func SanitizePhone(phone *string) {
 func IsOnWhatsapp(ctx context.Context, client *whatsmeow.Client, jid string) (bool, string) {
 	// only check if the jid a user with @s.whatsapp.net
 	if strings.Contains(jid, "@s.whatsapp.net") {
-		data, err := client.IsOnWhatsApp(ctx, []string{jid})
+		data, err := client.IsOnWhatsApp(context.Background(), []string{jid})
 		if err != nil {
 			logrus.Error("Failed to check if user is on whatsapp: ", err)
 			return false, jid
