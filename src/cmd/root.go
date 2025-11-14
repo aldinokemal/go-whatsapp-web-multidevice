@@ -17,9 +17,11 @@ import (
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
+	domainSchedule "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/schedule"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	scheduleInfra "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/schedule"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
@@ -41,8 +43,10 @@ var (
 	// Chat Storage
 	chatStorageDB   *sql.DB
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+	scheduleRepo    domainSchedule.IScheduledMessageRepository
 
 	// Usecase
+	scheduleUsecase   domainSchedule.IScheduleUsecase
 	appUsecase        domainApp.IAppUsecase
 	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
@@ -250,6 +254,15 @@ func initApp() {
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
 	chatStorageRepo.InitializeSchema()
 
+	scheduleRepo = scheduleInfra.NewSQLiteRepository(chatStorageDB)
+	if scheduleRepo != nil {
+		if reset, err := scheduleRepo.ResetStuck(ctx, 5*time.Minute); err != nil {
+			logrus.Warnf("failed to reset stuck scheduled messages: %v", err)
+		} else if reset > 0 {
+			logrus.Infof("reset %d scheduled messages stuck in sending state", reset)
+		}
+	}
+
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
 	var keysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
@@ -261,7 +274,8 @@ func initApp() {
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
-	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
+	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo, scheduleRepo)
+	scheduleUsecase = usecase.NewScheduleService(scheduleRepo, sendUsecase)
 	userUsecase = usecase.NewUserService()
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
