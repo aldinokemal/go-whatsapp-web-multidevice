@@ -20,7 +20,7 @@ func (service serviceNewsletter) Unfollow(ctx context.Context, request domainNew
 		return err
 	}
 
-	JID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.NewsletterID)
+	JID, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.NewsletterID)
 	if err != nil {
 		return err
 	}

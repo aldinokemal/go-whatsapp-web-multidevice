@@ -79,7 +79,8 @@ type CheckRequest struct {
 }
 
 type CheckResponse struct {
-	IsOnWhatsApp bool `json:"is_on_whatsapp"`
+	IsOnWhatsApp bool   `json:"is_on_whatsapp"`
+	Phone        string `json:"phone"`
 }
 
 type BusinessProfileRequest struct {
