@@ -675,15 +675,16 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 		}
 
 		// Store the sent auto-reply message
-		if err := chatStorageRepo.StoreSentMessageWithContext(
-			ctx,
-			response.ID,                     // Message ID from WhatsApp response
-			senderJID,                       // Our JID as sender
-			recipientJID.String(),           // Recipient JID
-			config.WhatsappAutoReplyMessage, // Auto-reply content
-			response.Timestamp,              // Timestamp from response
-		); err != nil {
-			// Log storage error but don't fail the auto-reply
+		// Manually create and store the message object
+		message := &domainChatStorage.Message{
+			ID:        response.ID,
+			ChatJID:   recipientJID.String(),
+			Sender:    senderJID,
+			Content:   config.WhatsappAutoReplyMessage,
+			Timestamp: response.Timestamp,
+			IsFromMe:  true,
+		}
+		if err := chatStorageRepo.StoreMessage(message); err != nil {
 			log.Errorf("Failed to store auto-reply message in chat storage: %v", err)
 		} else {
 			log.Debugf("Auto-reply message %s stored successfully in chat storage", response.ID)
