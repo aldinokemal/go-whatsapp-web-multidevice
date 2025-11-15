@@ -7,8 +7,11 @@ main
 main.exe
 *.jpe
 src/pkged.go
+src/whatsapp
+src/whatsapp.exe
 storages
 .env
 bin
 .playwright-mcp
 .cursor/mcp.json
+build/

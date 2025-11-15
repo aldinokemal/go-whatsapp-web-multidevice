@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"mime"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/storage"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -34,6 +34,10 @@ var knownDocumentMIMEByExtension = map[string]string{
 }
 
 var knownDocumentExtensionByMIME map[string]string
+
+// pathSegmentSanitizer is precompiled regex for sanitizing path segments
+// Only allows alphanumeric, underscore, and hyphen characters
+var pathSegmentSanitizer = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
 
 func init() {
 	knownDocumentExtensionByMIME = make(map[string]string, len(knownDocumentMIMEByExtension))
@@ -540,7 +544,12 @@ type ExtractedMedia struct {
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
-func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
+func ExtractMedia(ctx context.Context, client *whatsmeow.Client, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
+	return ExtractMediaWithInfo(ctx, client, mediaFile, "", "", "")
+}
+
+// ExtractMediaWithInfo is a helper function to extract media from whatsapp with additional path organization
+func ExtractMediaWithInfo(ctx context.Context, client *whatsmeow.Client, mediaFile whatsmeow.DownloadableMessage, chatJID, messageID, deviceID string) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
 		logrus.Info("Skip download because data is nil")
 		return extractedMedia, nil
@@ -578,11 +587,38 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
-	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
-	if err != nil {
-		return extractedMedia, err
+	// Build path with device ID, chat JID, and message ID if provided
+	var filename string
+	if deviceID != "" && chatJID != "" && messageID != "" {
+		// Whitelist-only sanitize: keep [A-Za-z0-9_-]
+		dev := pathSegmentSanitizer.ReplaceAllString(deviceID, "_")
+		jid := pathSegmentSanitizer.ReplaceAllString(chatJID, "_")
+		msg := pathSegmentSanitizer.ReplaceAllString(messageID, "_")
+		if dev == "" || jid == "" || msg == "" {
+			return ExtractedMedia{}, fmt.Errorf("invalid media path segments")
+		}
+		// deviceID/jid/messageID + ext
+		key := filepath.ToSlash(filepath.Join(dev, jid, msg)) + extension
+		filename = key
+		logrus.Debugf("Organized path: %s", filename)
+	} else {
+		// Fallback to timestamp + random ID if no message info provided (for backward compatibility)
+		shortID := uuid.NewString()[:8]
+		filename = fmt.Sprintf("%d-%s%s", time.Now().Unix(), shortID, extension)
 	}
+
+	// Use the storage interface to save the media
+	mediaStorage := storage.GetStorage()
+	if mediaStorage == nil {
+		return extractedMedia, fmt.Errorf("media storage not initialized")
+	}
+
+	path, err := mediaStorage.Save(ctx, data, filename)
+	if err != nil {
+		return extractedMedia, fmt.Errorf("failed to save media: %w", err)
+	}
+
+	extractedMedia.MediaPath = mediaStorage.GetURL(path)
 	return extractedMedia, nil
 }
 
