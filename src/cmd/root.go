@@ -294,7 +294,7 @@ func initApp() {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
 
-	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
 
 	// Initialize storage
 	storageType, err := storage.ParseStorageType(config.MediaStorageType)
