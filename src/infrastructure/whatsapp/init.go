@@ -237,13 +237,56 @@ func CleanupDatabase() error {
 		return nil
 	}
 
-	// SQLite: Remove the database file
+	// SQLite: Close database connections before removing the file
+	logrus.Info("[CLEANUP] SQLite detected - closing database connections before file removal")
+
+	// Close the main database connection
+	if db != nil {
+		logrus.Info("[CLEANUP] Closing main database connection")
+		if err := db.Close(); err != nil {
+			logrus.Errorf("[CLEANUP] Error closing main database: %v", err)
+			return fmt.Errorf("failed to close main database: %v", err)
+		}
+		logrus.Info("[CLEANUP] Main database connection closed successfully")
+	}
+
+	// Close keysDB if it exists and is separate from main db
+	if keysDB != nil && keysDB != db {
+		logrus.Info("[CLEANUP] Closing keysDB database connection")
+		if err := keysDB.Close(); err != nil {
+			logrus.Errorf("[CLEANUP] Error closing keysDB: %v", err)
+			return fmt.Errorf("failed to close keysDB: %v", err)
+		}
+		logrus.Info("[CLEANUP] KeysDB connection closed successfully")
+
+		// Remove keysDB file if it's also SQLite
+		if config.DBKeysURI != "" && strings.HasPrefix(config.DBKeysURI, "file:") {
+			keysDBPath := strings.TrimPrefix(config.DBKeysURI, "file:")
+			if strings.Contains(keysDBPath, "?") {
+				keysDBPath = strings.Split(keysDBPath, "?")[0]
+			}
+
+			logrus.Infof("[CLEANUP] Removing keysDB file: %s", keysDBPath)
+			if err := os.Remove(keysDBPath); err != nil {
+				if !os.IsNotExist(err) {
+					logrus.Errorf("[CLEANUP] Error removing keysDB file: %v", err)
+					return fmt.Errorf("failed to remove keysDB file: %v", err)
+				} else {
+					logrus.Info("[CLEANUP] KeysDB file already removed")
+				}
+			} else {
+				logrus.Info("[CLEANUP] KeysDB file removed successfully")
+			}
+		}
+	}
+
+	// Now remove the main database file
 	dbPath := strings.TrimPrefix(config.DBURI, "file:")
 	if strings.Contains(dbPath, "?") {
 		dbPath = strings.Split(dbPath, "?")[0]
 	}
 
-	logrus.Infof("[CLEANUP] SQLite detected - removing database file: %s", dbPath)
+	logrus.Infof("[CLEANUP] Removing main database file: %s", dbPath)
 	if err := os.Remove(dbPath); err != nil {
 		if !os.IsNotExist(err) {
 			logrus.Errorf("[CLEANUP] Error removing database file: %v", err)
