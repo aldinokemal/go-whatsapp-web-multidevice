@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -15,6 +16,10 @@ func SetAutoConnectAfterBooting(service domainApp.IAppUsecase) {
 }
 
 func SetAutoReconnectChecking(cli *whatsmeow.Client) {
+	if cli == nil {
+		logrus.Warn("SetAutoReconnectChecking was called with a nil WhatsApp client; skipping auto-reconnect loop")
+		return
+	}
 	// Run every 5 minutes to check if the connection is still alive, if not, reconnect
 	go func() {
 		for {
