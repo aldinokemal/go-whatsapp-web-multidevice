@@ -298,7 +298,7 @@ func (handler *Send) SendMessage(c *fiber.Ctx) error {
 
 ### 2. Update Usecase Layer
 
-**Goal:** Make all usecases session-aware.
+**Goal:** Make all use cases session-aware.
 
 **Files to Update:**
 - `src/usecase/app.go`
@@ -766,8 +766,8 @@ func TestStoreMessage_WithSession(t *testing.T)
 ## Additional Resources
 
 - WhatsApp Multi-Device Documentation: https://github.com/tulir/whatsmeow
-- Session Management Best Practices: [Add link]
-- Database Migration Guide: [Add link]
+- Session Management Best Practices: https://pkg.go.dev/sync#RWMutex
+- Database Migration Guide: https://www.sqlite.org/lang_altertable.html
 
 ## Contributors
 
