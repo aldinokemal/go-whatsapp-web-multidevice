@@ -100,17 +100,17 @@ func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container) {
 	}
 }
 
-// InitWaCLI initializes the WhatsApp client
-func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *whatsmeow.Client {
+// initClientCore contains the shared initialization logic for WhatsApp clients
+// It handles device retrieval, configuration, and client creation but does not register event handlers
+func initClientCore(ctx context.Context, storeContainer, keysStoreContainer *sqlstore.Container, loggerName string) (*whatsmeow.Client, error) {
+	// Get first device from store
 	device, err := storeContainer.GetFirstDevice(ctx)
 	if err != nil {
-		log.Errorf("Failed to get device: %v", err)
-		panic(err)
+		return nil, fmt.Errorf("failed to get device: %w", err)
 	}
 
 	if device == nil {
-		log.Errorf("No device found")
-		panic("No device found")
+		return nil, fmt.Errorf("no device found")
 	}
 
 	// Configure device properties
@@ -118,15 +118,11 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 
-	// Set global database reference for remote logout cleanup
-	db = storeContainer
-	keysDB = keysStoreContainer
-
 	// Configure a separated database for accelerating encryption caching
-	if keysDB != nil && device.ID != nil {
+	if keysStoreContainer != nil && device.ID != nil {
 		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
 
-		syncKeysDevice(ctx, db, keysDB)
+		syncKeysDevice(ctx, storeContainer, keysStoreContainer)
 		device.Identities = innerStore
 		device.Sessions = innerStore
 		device.PreKeys = innerStore
@@ -135,16 +131,34 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		device.PrivacyTokens = innerStore
 	}
 
-	// Create and configure the client
-	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
-	cli.EnableAutoReconnect = true
-	cli.AutoTrustIdentity = true
+	// Create and configure the client with provided logger name
+	client := whatsmeow.NewClient(device, waLog.Stdout(loggerName, config.WhatsappLogLevel, true))
+	client.EnableAutoReconnect = true
+	client.AutoTrustIdentity = true
 
-	cli.AddEventHandler(func(rawEvt interface{}) {
+	return client, nil
+}
+
+// InitWaCLI initializes the WhatsApp client
+func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *whatsmeow.Client {
+	// Use common initialization logic
+	client, err := initClientCore(ctx, storeContainer, keysStoreContainer, "Client")
+	if err != nil {
+		log.Errorf("Failed to initialize WhatsApp client: %v", err)
+		panic(err)
+	}
+
+	// Set global database reference for remote logout cleanup
+	db = storeContainer
+	keysDB = keysStoreContainer
+	cli = client
+
+	// Register non-session event handler
+	client.AddEventHandler(func(rawEvt interface{}) {
 		handler(ctx, rawEvt, chatStorageRepo)
 	})
 
-	return cli
+	return client
 }
 
 // UpdateGlobalClient updates the global cli variable with a new client instance
@@ -171,40 +185,14 @@ func GetDB() *sqlstore.Container {
 // InitWaCLIWithSession initializes a WhatsApp client for a specific session
 // This is the session-aware version of InitWaCLI
 func InitWaCLIWithSession(ctx context.Context, sessionID string, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) (*whatsmeow.Client, error) {
-	device, err := storeContainer.GetFirstDevice(ctx)
+	// Use common initialization logic with session-specific logger name
+	loggerName := fmt.Sprintf("Client-%s", sessionID)
+	client, err := initClientCore(ctx, storeContainer, keysStoreContainer, loggerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device for session %s: %w", sessionID, err)
+		return nil, fmt.Errorf("failed to initialize client for session %s: %w", sessionID, err)
 	}
 
-	if device == nil {
-		return nil, fmt.Errorf("no device found for session %s", sessionID)
-	}
-
-	// Configure device properties
-	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
-	store.DeviceProps.PlatformType = &config.AppPlatform
-	store.DeviceProps.Os = &osName
-
-	// Configure a separated database for accelerating encryption caching
-	if keysStoreContainer != nil && device.ID != nil {
-		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
-
-		syncKeysDevice(ctx, storeContainer, keysStoreContainer)
-		device.Identities = innerStore
-		device.Sessions = innerStore
-		device.PreKeys = innerStore
-		device.SenderKeys = innerStore
-		device.MsgSecrets = innerStore
-		device.PrivacyTokens = innerStore
-	}
-
-	// Create and configure the client with session-specific logger
-	clientLogger := waLog.Stdout(fmt.Sprintf("Client-%s", sessionID), config.WhatsappLogLevel, true)
-	client := whatsmeow.NewClient(device, clientLogger)
-	client.EnableAutoReconnect = true
-	client.AutoTrustIdentity = true
-
-	// Add session-aware event handler
+	// Register session-aware event handler
 	client.AddEventHandler(func(rawEvt interface{}) {
 		handlerWithSession(ctx, sessionID, rawEvt, chatStorageRepo)
 	})
