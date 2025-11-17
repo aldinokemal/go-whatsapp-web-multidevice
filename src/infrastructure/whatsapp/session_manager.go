@@ -72,42 +72,23 @@ func (sm *SessionManager) AddSession(sessionID string, client *whatsmeow.Client,
 
 // RemoveSession removes a session from the manager and closes its database handles
 func (sm *SessionManager) RemoveSession(sessionID string) error {
+	// Step 1: Lock mutex and copy session out, then remove from map
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
+		sm.mu.Unlock()
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 
-	// Disconnect the client if it's connected
-	if session.Client != nil && session.Client.IsConnected() {
-		session.Client.Disconnect()
-		logrus.Debugf("Disconnected client for session %s", sessionID)
-	}
-
-	// Close database handles if they're still open
-	// Note: It's safe to call Close multiple times on sqlstore.Container
-	if session.DB != nil {
-		if err := session.DB.Close(); err != nil {
-			logrus.Warnf("Failed to close main DB for session %s during removal: %v", sessionID, err)
-		} else {
-			logrus.Debugf("Closed main DB for session %s", sessionID)
-		}
-	}
-
-	if session.KeysDB != nil {
-		if err := session.KeysDB.Close(); err != nil {
-			logrus.Warnf("Failed to close keys DB for session %s during removal: %v", sessionID, err)
-		} else {
-			logrus.Debugf("Closed keys DB for session %s", sessionID)
-		}
-	}
+	// Copy the session value before removing
+	sessionCopy := *session
 
 	// Remove from sessions map
 	delete(sm.sessions, sessionID)
 
 	// Update default session if removed
+	remainingCount := len(sm.sessions)
 	if sm.default == sessionID {
 		sm.default = ""
 		// Set a new default from remaining sessions
@@ -118,7 +99,35 @@ func (sm *SessionManager) RemoveSession(sessionID string) error {
 		}
 	}
 
-	logrus.Infof("Session %s removed from session manager (remaining sessions: %d)", sessionID, len(sm.sessions))
+	// Unlock before performing I/O operations
+	sm.mu.Unlock()
+
+	// Step 2: Perform cleanup I/O operations without holding the lock
+	// Disconnect the client if it's connected
+	if sessionCopy.Client != nil && sessionCopy.Client.IsConnected() {
+		sessionCopy.Client.Disconnect()
+		logrus.Debugf("Disconnected client for session %s", sessionID)
+	}
+
+	// Close database handles if they're still open
+	// Note: It's safe to call Close multiple times on sqlstore.Container
+	if sessionCopy.DB != nil {
+		if err := sessionCopy.DB.Close(); err != nil {
+			logrus.Warnf("Failed to close main DB for session %s during removal: %v", sessionID, err)
+		} else {
+			logrus.Debugf("Closed main DB for session %s", sessionID)
+		}
+	}
+
+	if sessionCopy.KeysDB != nil {
+		if err := sessionCopy.KeysDB.Close(); err != nil {
+			logrus.Warnf("Failed to close keys DB for session %s during removal: %v", sessionID, err)
+		} else {
+			logrus.Debugf("Closed keys DB for session %s", sessionID)
+		}
+	}
+
+	logrus.Infof("Session %s removed from session manager (remaining sessions: %d)", sessionID, remainingCount)
 	return nil
 }
 
