@@ -765,9 +765,9 @@ func TestStoreMessage_WithSession(t *testing.T)
 
 ## Additional Resources
 
-- WhatsApp Multi-Device Documentation: https://github.com/tulir/whatsmeow
-- Session Management Best Practices: https://pkg.go.dev/sync#RWMutex
-- Database Migration Guide: https://www.sqlite.org/lang_altertable.html
+- [WhatsApp Multi-Device Documentation](https://github.com/tulir/whatsmeow)
+- [Session Management Best Practices](https://pkg.go.dev/sync#RWMutex)
+- [Database Migration Guide](https://www.sqlite.org/lang_altertable.html)
 
 ## Contributors
 
