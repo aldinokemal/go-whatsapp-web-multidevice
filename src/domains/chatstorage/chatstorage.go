@@ -5,6 +5,7 @@ import "time"
 // Chat represents a WhatsApp chat/conversation
 type Chat struct {
 	JID                 string    `db:"jid"`
+	SessionID           string    `db:"session_id"`
 	Name                string    `db:"name"`
 	LastMessageTime     time.Time `db:"last_message_time"`
 	EphemeralExpiration uint32    `db:"ephemeral_expiration"`
@@ -16,6 +17,7 @@ type Chat struct {
 type Message struct {
 	ID            string    `db:"id"`
 	ChatJID       string    `db:"chat_jid"`
+	SessionID     string    `db:"session_id"`
 	Sender        string    `db:"sender"`
 	Content       string    `db:"content"`
 	Timestamp     time.Time `db:"timestamp"`
@@ -47,6 +49,7 @@ type MediaInfo struct {
 // MessageFilter represents query filters for messages
 type MessageFilter struct {
 	ChatJID   string
+	SessionID string
 	Limit     int
 	Offset    int
 	StartTime *time.Time
@@ -57,6 +60,7 @@ type MessageFilter struct {
 
 // ChatFilter represents query filters for chats
 type ChatFilter struct {
+	SessionID  string
 	Limit      int
 	Offset     int
 	SearchName string

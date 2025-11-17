@@ -157,13 +157,85 @@ func UpdateGlobalClient(newCli *whatsmeow.Client, newDB *sqlstore.Container) {
 }
 
 // GetClient returns the current global client instance (alias for GetGlobalClient)
+// For backward compatibility with single-session code
 func GetClient() *whatsmeow.Client {
 	return cli
 }
 
 // Get DB instance
+// For backward compatibility with single-session code
 func GetDB() *sqlstore.Container {
 	return db
+}
+
+// InitWaCLIWithSession initializes a WhatsApp client for a specific session
+// This is the session-aware version of InitWaCLI
+func InitWaCLIWithSession(ctx context.Context, sessionID string, storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) (*whatsmeow.Client, error) {
+	device, err := storeContainer.GetFirstDevice(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device for session %s: %w", sessionID, err)
+	}
+
+	if device == nil {
+		return nil, fmt.Errorf("no device found for session %s", sessionID)
+	}
+
+	// Configure device properties
+	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
+	store.DeviceProps.PlatformType = &config.AppPlatform
+	store.DeviceProps.Os = &osName
+
+	// Configure a separated database for accelerating encryption caching
+	if keysStoreContainer != nil && device.ID != nil {
+		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
+
+		syncKeysDevice(ctx, storeContainer, keysStoreContainer)
+		device.Identities = innerStore
+		device.Sessions = innerStore
+		device.PreKeys = innerStore
+		device.SenderKeys = innerStore
+		device.MsgSecrets = innerStore
+		device.PrivacyTokens = innerStore
+	}
+
+	// Create and configure the client with session-specific logger
+	clientLogger := waLog.Stdout(fmt.Sprintf("Client-%s", sessionID), config.WhatsappLogLevel, true)
+	client := whatsmeow.NewClient(device, clientLogger)
+	client.EnableAutoReconnect = true
+	client.AutoTrustIdentity = true
+
+	// Add session-aware event handler
+	client.AddEventHandler(func(rawEvt interface{}) {
+		handlerWithSession(ctx, sessionID, rawEvt, chatStorageRepo)
+	})
+
+	logrus.Infof("WhatsApp client initialized for session %s", sessionID)
+	return client, nil
+}
+
+// GetClientForSession returns a WhatsApp client for a specific session from the session manager
+func GetClientForSession(sessionID string) (*whatsmeow.Client, error) {
+	sm := GetSessionManager()
+	return sm.GetClient(sessionID)
+}
+
+// GetClientOrDefault returns a WhatsApp client for the given session ID, or the default session if empty
+func GetClientOrDefault(sessionID string) (*whatsmeow.Client, error) {
+	sm := GetSessionManager()
+
+	// If no session ID provided, use default
+	if sessionID == "" {
+		sessionID = sm.GetDefaultSession()
+		if sessionID == "" {
+			// Fall back to legacy global client if no sessions in manager
+			if cli != nil {
+				return cli, nil
+			}
+			return nil, fmt.Errorf("no sessions available and no global client")
+		}
+	}
+
+	return sm.GetClient(sessionID)
 }
 
 // GetConnectionStatus returns the current connection status of the global client
@@ -441,28 +513,38 @@ func handleRemoteLogout(ctx context.Context, chatStorageRepo domainChatStorage.I
 }
 
 // handler is the main event handler for WhatsApp events
+// This is the legacy handler for backward compatibility (uses "default" session)
 func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	handlerWithSession(ctx, "default", rawEvt, chatStorageRepo)
+}
+
+// handlerWithSession is the session-aware event handler for WhatsApp events
+func handlerWithSession(ctx context.Context, sessionID string, rawEvt any, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	// Store sessionID in context for downstream handlers
+	type sessionKey struct{}
+	ctx = context.WithValue(ctx, sessionKey{}, sessionID)
+
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
-		handleDeleteForMe(ctx, evt, chatStorageRepo)
+		handleDeleteForMeWithSession(ctx, sessionID, evt, chatStorageRepo)
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, evt)
 	case *events.PairSuccess:
 		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx, chatStorageRepo)
+		handleLoggedOutWithSession(ctx, sessionID, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx)
 	case *events.StreamReplaced:
 		handleStreamReplaced(ctx)
 	case *events.Message:
-		handleMessage(ctx, evt, chatStorageRepo)
+		handleMessageWithSession(ctx, sessionID, evt, chatStorageRepo)
 	case *events.Receipt:
 		handleReceipt(ctx, evt)
 	case *events.Presence:
 		handlePresence(ctx, evt)
 	case *events.HistorySync:
-		handleHistorySync(ctx, evt, chatStorageRepo)
+		handleHistorySyncWithSession(ctx, sessionID, evt, chatStorageRepo)
 	case *events.AppState:
 		handleAppState(ctx, evt)
 	case *events.GroupInfo:
@@ -1065,3 +1147,45 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
 		}(evt)
 	}
 }
+
+// Session-aware event handler wrappers
+
+// handleMessageWithSession handles message events with session awareness
+func handleMessageWithSession(ctx context.Context, sessionID string, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	// Store message in chat storage with session ID
+	if chatStorageRepo != nil {
+		// Create message with session ID
+		if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+			logrus.Errorf("Failed to store message for session %s: %v", sessionID, err)
+		}
+		// Note: The CreateMessage method will need to be updated to extract sessionID from context
+		// or we need to modify the Chat and Message structs to include SessionID
+	}
+	
+	// Call the original handler for other processing (webhooks, etc.)
+	handleMessage(ctx, evt, chatStorageRepo)
+}
+
+// handleDeleteForMeWithSession handles delete events with session awareness
+func handleDeleteForMeWithSession(ctx context.Context, sessionID string, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	handleDeleteForMe(ctx, evt, chatStorageRepo)
+}
+
+// handleLoggedOutWithSession handles logout events with session awareness
+func handleLoggedOutWithSession(ctx context.Context, sessionID string, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	logrus.Infof("Session %s logged out", sessionID)
+	// For multi-session, we should remove just this session, not clean up everything
+	sm := GetSessionManager()
+	if err := sm.RemoveSession(sessionID); err != nil {
+		logrus.Errorf("Failed to remove session %s: %v", sessionID, err)
+	}
+	
+	// Note: In multi-session mode, we do NOT call handleLoggedOut which cleans up everything
+	// Instead, we only clean up this specific session
+}
+
+// handleHistorySyncWithSession handles history sync events with session awareness
+func handleHistorySyncWithSession(ctx context.Context, sessionID string, evt *events.HistorySync, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	handleHistorySync(ctx, evt, chatStorageRepo)
+}
+

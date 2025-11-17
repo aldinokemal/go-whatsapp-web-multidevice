@@ -29,29 +29,39 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 	now := time.Now()
 	chat.UpdatedAt = now
 
+	// Set default session_id if not provided
+	if chat.SessionID == "" {
+		chat.SessionID = "default"
+	}
+
 	query := `
-		INSERT INTO chats (jid, name, last_message_time, ephemeral_expiration, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(jid) DO UPDATE SET
+		INSERT INTO chats (jid, session_id, name, last_message_time, ephemeral_expiration, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(jid, session_id) DO UPDATE SET
 			name = excluded.name,
 			last_message_time = excluded.last_message_time,
 			ephemeral_expiration = excluded.ephemeral_expiration,
 			updated_at = excluded.updated_at
 	`
 
-	_, err := r.db.Exec(query, chat.JID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, chat.UpdatedAt)
+	_, err := r.db.Exec(query, chat.JID, chat.SessionID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, chat.UpdatedAt)
 	return err
 }
 
-// GetChat retrieves a chat by JID
+// GetChat retrieves a chat by JID (for backward compatibility, uses 'default' session)
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
+	return r.GetChatBySession(jid, "default")
+}
+
+// GetChatBySession retrieves a chat by JID and session ID
+func (r *SQLiteRepository) GetChatBySession(jid string, sessionID string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT jid, name, last_message_time, ephemeral_expiration, created_at, updated_at
+		SELECT jid, session_id, name, last_message_time, ephemeral_expiration, created_at, updated_at
 		FROM chats
-		WHERE jid = ?
+		WHERE jid = ? AND session_id = ?
 	`
 
-	chat, err := r.scanChat(r.db.QueryRow(query, jid))
+	chat, err := r.scanChat(r.db.QueryRow(query, jid, sessionID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -59,19 +69,24 @@ func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) 
 	return chat, err
 }
 
-// GetMessageByID retrieves a message by its ID from any chat
+// GetMessageByID retrieves a message by its ID from any chat (for backward compatibility, uses 'default' session)
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
+	return r.GetMessageByIDAndSession(id, "default")
+}
+
+// GetMessageByIDAndSession retrieves a message by its ID and session from any chat
+func (r *SQLiteRepository) GetMessageByIDAndSession(id string, sessionID string) (*domainChatStorage.Message, error) {
 	query := `
-		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+		SELECT id, chat_jid, session_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
-		WHERE id = ?
+		WHERE id = ? AND session_id = ?
 		LIMIT 1
 	`
 
-	message, err := r.scanMessage(r.db.QueryRow(query, id))
+	message, err := r.scanMessage(r.db.QueryRow(query, id, sessionID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -85,9 +100,17 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 	var args []any
 
 	query := `
-		SELECT c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at
+		SELECT c.jid, c.session_id, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at
 		FROM chats c
 	`
+
+	// Filter by session_id if provided, otherwise default to 'default'
+	sessionID := filter.SessionID
+	if sessionID == "" {
+		sessionID = "default"
+	}
+	conditions = append(conditions, "c.session_id = ?")
+	args = append(args, sessionID)
 
 	if filter.SearchName != "" {
 		conditions = append(conditions, "c.name LIKE ?")
@@ -95,7 +118,7 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 	}
 
 	if filter.HasMedia {
-		query += " INNER JOIN messages m ON c.jid = m.chat_jid"
+		query += " INNER JOIN messages m ON c.jid = m.chat_jid AND c.session_id = m.session_id"
 		conditions = append(conditions, "m.media_type != ''")
 	}
 
@@ -173,13 +196,18 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 		return nil
 	}
 
+	// Set default session_id if not provided
+	if message.SessionID == "" {
+		message.SessionID = "default"
+	}
+
 	query := `
 		INSERT INTO messages (
-			id, chat_jid, sender, content, timestamp, is_from_me, 
-			media_type, filename, url, media_key, file_sha256, 
+			id, chat_jid, session_id, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, chat_jid) DO UPDATE SET
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id, chat_jid, session_id) DO UPDATE SET
 			sender = excluded.sender,
 			content = excluded.content,
 			timestamp = excluded.timestamp,
@@ -195,7 +223,7 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 	`
 
 	_, err := r.db.Exec(query,
-		message.ID, message.ChatJID, message.Sender, message.Content,
+		message.ID, message.ChatJID, message.SessionID, message.Sender, message.Content,
 		message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
 		message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
 		message.FileLength, message.CreatedAt, message.UpdatedAt,
@@ -219,11 +247,11 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	// Prepare the statement once for better performance
 	stmt, err := tx.Prepare(`
 		INSERT INTO messages (
-			id, chat_jid, sender, content, timestamp, is_from_me, 
-			media_type, filename, url, media_key, file_sha256, 
+			id, chat_jid, session_id, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, chat_jid) DO UPDATE SET
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id, chat_jid, session_id) DO UPDATE SET
 			sender = excluded.sender,
 			content = excluded.content,
 			timestamp = excluded.timestamp,
@@ -252,8 +280,13 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		message.CreatedAt = now
 		message.UpdatedAt = now
 
+		// Set default session_id if not provided
+		if message.SessionID == "" {
+			message.SessionID = "default"
+		}
+
 		_, err = stmt.Exec(
-			message.ID, message.ChatJID, message.Sender, message.Content,
+			message.ID, message.ChatJID, message.SessionID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
 			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
 			message.FileLength, message.CreatedAt, message.UpdatedAt,
@@ -273,6 +306,14 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 
 	conditions = append(conditions, "chat_jid = ?")
 	args = append(args, filter.ChatJID)
+
+	// Filter by session_id if provided, otherwise default to 'default'
+	sessionID := filter.SessionID
+	if sessionID == "" {
+		sessionID = "default"
+	}
+	conditions = append(conditions, "session_id = ?")
+	args = append(args, sessionID)
 
 	if filter.StartTime != nil {
 		conditions = append(conditions, "timestamp >= ?")
@@ -294,7 +335,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	}
 
 	query := `
-		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+		SELECT id, chat_jid, session_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
@@ -411,7 +452,7 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
 	message := &domainChatStorage.Message{}
 	err := scanner.Scan(
-		&message.ID, &message.ChatJID, &message.Sender, &message.Content,
+		&message.ID, &message.ChatJID, &message.SessionID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.Filename,
 		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
 		&message.FileLength, &message.CreatedAt, &message.UpdatedAt,
@@ -423,7 +464,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*domainChatStorage.Chat, error) {
 	chat := &domainChatStorage.Chat{}
 	err := scanner.Scan(
-		&chat.JID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
+		&chat.JID, &chat.SessionID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
 		&chat.CreatedAt, &chat.UpdatedAt,
 	)
 	return chat, err
@@ -511,6 +552,13 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return nil
 	}
 
+	// Extract sessionID from context, default to "default" if not found
+	type sessionKey struct{}
+	sessionID, ok := ctx.Value(sessionKey{}).(string)
+	if !ok || sessionID == "" {
+		sessionID = "default"
+	}
+
 	// Extract chat and sender information
 	chatJID := evt.Info.Chat.String()
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
@@ -520,7 +568,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	chatName := r.GetChatNameWithPushName(evt.Info.Chat, chatJID, evt.Info.Sender.User, evt.Info.PushName)
 
 	// Get existing chat to preserve ephemeral_expiration if needed
-	existingChat, err := r.GetChat(chatJID)
+	existingChat, err := r.GetChatBySession(chatJID, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
@@ -531,6 +579,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Create or update chat
 	chat := &domainChatStorage.Chat{
 		JID:             chatJID,
+		SessionID:       sessionID,
 		Name:            chatName,
 		LastMessageTime: evt.Info.Timestamp,
 	}
@@ -562,6 +611,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	message := &domainChatStorage.Message{
 		ID:            evt.Info.ID,
 		ChatJID:       chatJID,
+		SessionID:     sessionID,
 		Sender:        sender,
 		Content:       content,
 		Timestamp:     evt.Info.Timestamp,
@@ -636,6 +686,13 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
+	// Extract sessionID from context, default to "default" if not found
+	type sessionKey struct{}
+	sessionID, ok := ctx.Value(sessionKey{}).(string)
+	if !ok || sessionID == "" {
+		sessionID = "default"
+	}
+
 	// Ensure JID is properly formatted
 	jid, err := types.ParseJID(recipientJID)
 	if err != nil {
@@ -655,7 +712,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	}
 
 	// Get existing chat to preserve ephemeral_expiration
-	existingChat, err := r.GetChat(chatJID)
+	existingChat, err := r.GetChatBySession(chatJID, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
@@ -663,6 +720,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	// Store or update chat, preserving existing ephemeral_expiration
 	chat := &domainChatStorage.Chat{
 		JID:             chatJID,
+		SessionID:       sessionID,
 		Name:            chatName,
 		LastMessageTime: timestamp,
 	}
@@ -687,6 +745,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	message := &domainChatStorage.Message{
 		ID:        messageID,
 		ChatJID:   chatJID,
+		SessionID: sessionID,
 		Sender:    senderJID,
 		Content:   content,
 		Timestamp: timestamp,
@@ -809,6 +868,78 @@ func (r *SQLiteRepository) getMigrations() []string {
 		// Migration 2: Add index for message ID lookups (performance optimization)
 		`
 		CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
+		`,
+
+		// Migration 3: Add session_id column to support multi-session functionality
+		// Note: SQLite doesn't support modifying PRIMARY KEY, so we recreate tables
+		`
+		-- Create new chats table with session_id
+		CREATE TABLE IF NOT EXISTS chats_new (
+			jid TEXT NOT NULL,
+			session_id TEXT NOT NULL DEFAULT 'default',
+			name TEXT NOT NULL,
+			last_message_time TIMESTAMP NOT NULL,
+			ephemeral_expiration INTEGER DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (jid, session_id)
+		);
+
+		-- Copy data from old table
+		INSERT OR IGNORE INTO chats_new (jid, session_id, name, last_message_time, ephemeral_expiration, created_at, updated_at)
+		SELECT jid, 'default', name, last_message_time, ephemeral_expiration, created_at, updated_at
+		FROM chats;
+
+		-- Drop old table and rename new one
+		DROP TABLE chats;
+		ALTER TABLE chats_new RENAME TO chats;
+
+		-- Create new messages table with session_id
+		CREATE TABLE IF NOT EXISTS messages_new (
+			id TEXT NOT NULL,
+			chat_jid TEXT NOT NULL,
+			session_id TEXT NOT NULL DEFAULT 'default',
+			sender TEXT NOT NULL,
+			content TEXT,
+			timestamp TIMESTAMP NOT NULL,
+			is_from_me BOOLEAN DEFAULT FALSE,
+			media_type TEXT,
+			filename TEXT,
+			url TEXT,
+			media_key BLOB,
+			file_sha256 BLOB,
+			file_enc_sha256 BLOB,
+			file_length INTEGER DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id, chat_jid, session_id),
+			FOREIGN KEY (chat_jid, session_id) REFERENCES chats(jid, session_id) ON DELETE CASCADE
+		);
+
+		-- Copy data from old table
+		INSERT OR IGNORE INTO messages_new (id, chat_jid, session_id, sender, content, timestamp, is_from_me, media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length, created_at, updated_at)
+		SELECT id, chat_jid, 'default', sender, content, timestamp, is_from_me, media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length, created_at, updated_at
+		FROM messages;
+
+		-- Drop old table and rename new one
+		DROP TABLE messages;
+		ALTER TABLE messages_new RENAME TO messages;
+
+		-- Recreate indexes
+		CREATE INDEX IF NOT EXISTS idx_messages_chat_jid ON messages(chat_jid);
+		CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_messages_media_type ON messages(media_type);
+		CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
+		CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
+		CREATE INDEX IF NOT EXISTS idx_chats_last_message ON chats(last_message_time);
+		CREATE INDEX IF NOT EXISTS idx_chats_name ON chats(name);
+
+		-- Create indexes for session_id lookups
+		CREATE INDEX IF NOT EXISTS idx_chats_session_id ON chats(session_id);
+		CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+
+		-- Create composite index for chat lookups by session
+		CREATE INDEX IF NOT EXISTS idx_chats_session_jid ON chats(session_id, jid);
 		`,
 	}
 }

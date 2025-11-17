@@ -89,6 +89,7 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Rest
 	rest.InitRestApp(apiGroup, appUsecase)
+	rest.InitRestSession(apiGroup) // Multi-session support
 	rest.InitRestChat(apiGroup, chatUsecase)
 	rest.InitRestSend(apiGroup, sendUsecase)
 	rest.InitRestUser(apiGroup, userUsecase)
