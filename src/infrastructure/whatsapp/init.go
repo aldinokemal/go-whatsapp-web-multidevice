@@ -1137,17 +1137,7 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo) {
 
 // handleMessageWithSession handles message events with session awareness
 func handleMessageWithSession(ctx context.Context, sessionID string, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
-	// Store message in chat storage with session ID
-	if chatStorageRepo != nil {
-		// Create message with session ID
-		if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
-			logrus.Errorf("Failed to store message for session %s: %v", sessionID, err)
-		}
-		// Note: The CreateMessage method will need to be updated to extract sessionID from context
-		// or we need to modify the Chat and Message structs to include SessionID
-	}
-	
-	// Call the original handler for other processing (webhooks, etc.)
+	// Call the original handler which stores the message and reads sessionID from context
 	handleMessage(ctx, evt, chatStorageRepo)
 }
 
