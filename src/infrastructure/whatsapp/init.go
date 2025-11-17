@@ -1207,6 +1207,45 @@ func cleanupSessionFiles(sessionID string) {
 	logrus.Infof("Cleaned up files for session %s", sessionID)
 }
 
+// cleanupSessionResources closes session DB handles and removes temporary files
+func cleanupSessionResources(sessionID string) {
+	if sessionID == "" {
+		logrus.Warn("Cannot cleanup resources for empty sessionID")
+		return
+	}
+
+	sm := GetSessionManager()
+
+	// Get the session to access its DB handles
+	session, err := sm.GetSession(sessionID)
+	if err != nil {
+		logrus.Warnf("Failed to get session %s for resource cleanup: %v", sessionID, err)
+		// Continue with file cleanup even if we can't get the session
+	} else {
+		// Close database handles if they're still open
+		if session.DB != nil {
+			if err := session.DB.Close(); err != nil {
+				logrus.Warnf("Failed to close main DB for session %s: %v", sessionID, err)
+			} else {
+				logrus.Debugf("Closed main DB for session %s", sessionID)
+			}
+		}
+
+		if session.KeysDB != nil {
+			if err := session.KeysDB.Close(); err != nil {
+				logrus.Warnf("Failed to close keys DB for session %s: %v", sessionID, err)
+			} else {
+				logrus.Debugf("Closed keys DB for session %s", sessionID)
+			}
+		}
+	}
+
+	// Remove session-specific temporary files
+	cleanupSessionFiles(sessionID)
+
+	logrus.Infof("Cleaned up resources for session %s", sessionID)
+}
+
 // handleLoggedOutWithSession handles logout events with session awareness
 func handleLoggedOutWithSession(ctx context.Context, sessionID string, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	logrus.Infof("Session %s logged out, starting cleanup...", sessionID)
@@ -1220,14 +1259,14 @@ func handleLoggedOutWithSession(ctx context.Context, sessionID string, chatStora
 		}
 	}
 
-	// Step 2: Remove session from manager (will disconnect client and close DB handles)
+	// Step 2: Close DB handles and remove temporary files
+	cleanupSessionResources(sessionID)
+
+	// Step 3: Remove session from manager (disconnect client and clean up session state)
 	if err := sm.RemoveSession(sessionID); err != nil {
 		logrus.Errorf("Failed to remove session %s from manager: %v", sessionID, err)
 		return
 	}
-
-	// Step 3: Clean up session-specific files
-	cleanupSessionFiles(sessionID)
 
 	logrus.Infof("Session %s cleanup completed", sessionID)
 }
