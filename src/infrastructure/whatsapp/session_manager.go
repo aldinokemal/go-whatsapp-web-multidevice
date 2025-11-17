@@ -295,13 +295,29 @@ func (sm *SessionManager) GetConnectionStatus(sessionID string) (isConnected boo
 
 // DisconnectAll disconnects all sessions
 func (sm *SessionManager) DisconnectAll() {
+	// Step 1: Collect sessions that need disconnecting while holding the lock
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
+	type sessionToDisconnect struct {
+		id     string
+		client *whatsmeow.Client
+	}
+
+	sessionsToDisconnect := make([]sessionToDisconnect, 0, len(sm.sessions))
 	for id, session := range sm.sessions {
 		if session.Client != nil && session.Client.IsConnected() {
-			session.Client.Disconnect()
-			logrus.Infof("Session %s disconnected", id)
+			sessionsToDisconnect = append(sessionsToDisconnect, sessionToDisconnect{
+				id:     id,
+				client: session.Client,
+			})
 		}
+	}
+
+	sm.mu.Unlock()
+
+	// Step 2: Perform I/O operations without holding the lock
+	for _, s := range sessionsToDisconnect {
+		s.client.Disconnect()
+		logrus.Infof("Session %s disconnected", s.id)
 	}
 }
