@@ -207,7 +207,9 @@ func GetClientForSession(sessionID string) (*whatsmeow.Client, error) {
 	return sm.GetClient(sessionID)
 }
 
-// GetClientOrDefault returns a WhatsApp client for the given session ID, or the default session if empty
+// GetClientOrDefault returns a WhatsApp client for the given session ID, or the default session if empty.
+// DEPRECATED: Legacy global client fallback has been removed. All clients must be managed through SessionManager.
+// Returns an error if no sessions are available or if the requested session does not exist.
 func GetClientOrDefault(sessionID string) (*whatsmeow.Client, error) {
 	sm := GetSessionManager()
 
@@ -215,11 +217,7 @@ func GetClientOrDefault(sessionID string) (*whatsmeow.Client, error) {
 	if sessionID == "" {
 		sessionID = sm.GetDefaultSession()
 		if sessionID == "" {
-			// Fall back to legacy global client if no sessions in manager
-			if cli != nil {
-				return cli, nil
-			}
-			return nil, fmt.Errorf("no sessions available and no global client")
+			return nil, fmt.Errorf("no sessions available: please initialize at least one session through SessionManager")
 		}
 	}
 

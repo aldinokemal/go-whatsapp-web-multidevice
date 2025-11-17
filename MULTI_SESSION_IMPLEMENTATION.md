@@ -191,6 +191,9 @@ func InitWaCLIWithSession(
 func GetClientForSession(sessionID string) (*whatsmeow.Client, error)
 
 // Get client for session or default
+// NOTE: Legacy global client fallback has been removed. If sessionID is empty,
+// this function will use the default session from SessionManager. Returns an
+// error if no sessions are available.
 func GetClientOrDefault(sessionID string) (*whatsmeow.Client, error)
 ```
 
@@ -700,9 +703,18 @@ func TestStoreMessage_WithSession(t *testing.T)
 2. **Backward Compatibility:**
    - All existing API calls work without changes
    - Omitting `session` parameter uses "default" session
-   - Global `whatsappCli` variable still works
+   - Global `whatsappCli` variable still works for legacy initialization
 
-3. **Gradual Adoption:**
+3. **Breaking Changes:**
+   - **`GetClientOrDefault()` no longer falls back to global `cli` variable**
+     - Previously: Would return legacy global client if no sessions existed
+     - Now: Returns error if SessionManager has no sessions
+     - **Action Required:** Ensure at least one session is initialized via SessionManager
+     - Error message: "no sessions available: please initialize at least one session through SessionManager"
+   - Code using `GetClientOrDefault()` must handle the case where no sessions exist
+   - Legacy global client is only maintained for backward compatibility with `InitWaCLI()`
+
+4. **Gradual Adoption:**
    - Users can continue using single session
    - Multi-session features opt-in
    - Add new sessions when ready
@@ -731,6 +743,13 @@ func TestStoreMessage_WithSession(t *testing.T)
 
 **Problem:** Client returns nil
 **Solution:** Verify session was properly initialized, check initialization logs
+
+**Problem:** "no sessions available: please initialize at least one session through SessionManager"
+**Solution:**
+- This occurs when `GetClientOrDefault()` is called but SessionManager has no sessions
+- Ensure at least one session is initialized via `sm.AddSession()` or `InitWaCLIWithSession()`
+- The legacy global client fallback has been removed; use explicit session management
+- Check that session initialization completed successfully during app startup
 
 ### Event Handling Issues
 
