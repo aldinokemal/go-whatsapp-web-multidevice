@@ -207,7 +207,7 @@ func GetClientOrDefault(sessionID string) (*whatsmeow.Client, error)
 
 **New Session Management Endpoints:**
 
-```
+```plaintext
 GET  /sessions                  - List all sessions with status
 GET  /sessions/:id/status       - Get status of specific session
 POST /sessions/:id/set-default  - Set default session
@@ -520,7 +520,7 @@ var SessionConfigs = []SessionConfig{
 ```
 
 **Environment Variables:**
-```
+```bash
 # Default session
 DB_URI=file:storages/whatsapp.db
 DB_KEYS_URI=
