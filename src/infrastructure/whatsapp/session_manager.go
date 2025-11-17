@@ -234,8 +234,9 @@ func (sm *SessionManager) GetAllSessionsWithStatus() []map[string]interface{} {
 	return result
 }
 
-// UpdateSession updates an existing session's client and databases
-func (sm *SessionManager) UpdateSession(sessionID string, client *whatsmeow.Client, db *sqlstore.Container) error {
+// UpdateSession atomically updates all fields of an existing session
+// All fields are updated together under mutex lock to ensure consistency
+func (sm *SessionManager) UpdateSession(sessionID string, client *whatsmeow.Client, db *sqlstore.Container, keysDB *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -244,8 +245,11 @@ func (sm *SessionManager) UpdateSession(sessionID string, client *whatsmeow.Clie
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 
+	// Update all session fields atomically
 	session.Client = client
 	session.DB = db
+	session.KeysDB = keysDB
+	session.ChatStorageRepo = chatStorageRepo
 
 	logrus.Infof("Session %s updated successfully", sessionID)
 	return nil
