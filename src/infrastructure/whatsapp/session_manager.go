@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -91,11 +92,18 @@ func (sm *SessionManager) RemoveSession(sessionID string) error {
 	remainingCount := len(sm.sessions)
 	if sm.default == sessionID {
 		sm.default = ""
-		// Set a new default from remaining sessions
-		for id := range sm.sessions {
-			sm.default = id
-			logrus.Infof("Session %s set as new default session", id)
-			break
+		// Set a new default from remaining sessions (deterministically)
+		if remainingCount > 0 {
+			// Gather remaining session IDs into a slice
+			sessionIDs := make([]string, 0, remainingCount)
+			for id := range sm.sessions {
+				sessionIDs = append(sessionIDs, id)
+			}
+			// Sort for deterministic selection
+			sort.Strings(sessionIDs)
+			// Pick the first session alphabetically as the new default
+			sm.default = sessionIDs[0]
+			logrus.Infof("Session %s set as new default session", sm.default)
 		}
 	}
 
