@@ -46,6 +46,7 @@ type IChatStorageRepository interface {
 	// Cleanup operations
 	TruncateAllChats() error
 	TruncateAllDataWithLogging(logPrefix string) error
+	DeleteSessionData(sessionID string) error
 
 	// Schema operations
 	InitializeSchema() error

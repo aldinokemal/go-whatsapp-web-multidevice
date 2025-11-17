@@ -509,6 +509,42 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	return tx.Commit()
 }
 
+// DeleteSessionData deletes all chats and messages for a specific session
+func (r *SQLiteRepository) DeleteSessionData(sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("sessionID cannot be empty")
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete messages for this session first (foreign key constraint)
+	result, err := tx.Exec("DELETE FROM messages WHERE session_id = ?", sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to delete messages for session %s: %w", sessionID, err)
+	}
+
+	messagesDeleted, _ := result.RowsAffected()
+
+	// Delete chats for this session
+	result, err = tx.Exec("DELETE FROM chats WHERE session_id = ?", sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to delete chats for session %s: %w", sessionID, err)
+	}
+
+	chatsDeleted, _ := result.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	logrus.Infof("Deleted chat storage data for session %s: %d chats, %d messages", sessionID, chatsDeleted, messagesDeleted)
+	return nil
+}
+
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
 func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	// First, check if chat already exists with a name

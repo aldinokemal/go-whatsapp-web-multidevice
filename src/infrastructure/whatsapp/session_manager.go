@@ -70,7 +70,7 @@ func (sm *SessionManager) AddSession(sessionID string, client *whatsmeow.Client,
 	return nil
 }
 
-// RemoveSession removes a session from the manager
+// RemoveSession removes a session from the manager and closes its database handles
 func (sm *SessionManager) RemoveSession(sessionID string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -83,8 +83,28 @@ func (sm *SessionManager) RemoveSession(sessionID string) error {
 	// Disconnect the client if it's connected
 	if session.Client != nil && session.Client.IsConnected() {
 		session.Client.Disconnect()
+		logrus.Debugf("Disconnected client for session %s", sessionID)
 	}
 
+	// Close database handles if they're still open
+	// Note: It's safe to call Close multiple times on sqlstore.Container
+	if session.DB != nil {
+		if err := session.DB.Close(); err != nil {
+			logrus.Warnf("Failed to close main DB for session %s during removal: %v", sessionID, err)
+		} else {
+			logrus.Debugf("Closed main DB for session %s", sessionID)
+		}
+	}
+
+	if session.KeysDB != nil {
+		if err := session.KeysDB.Close(); err != nil {
+			logrus.Warnf("Failed to close keys DB for session %s during removal: %v", sessionID, err)
+		} else {
+			logrus.Debugf("Closed keys DB for session %s", sessionID)
+		}
+	}
+
+	// Remove from sessions map
 	delete(sm.sessions, sessionID)
 
 	// Update default session if removed

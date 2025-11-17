@@ -1156,17 +1156,90 @@ func handleDeleteForMeWithSession(ctx context.Context, sessionID string, evt *ev
 	handleDeleteForMe(ctx, evt, chatStorageRepo)
 }
 
+// cleanupSessionFiles removes session-specific temporary files (QR codes, etc.)
+func cleanupSessionFiles(sessionID string) {
+	if sessionID == "" {
+		logrus.Warn("Cannot cleanup files for empty sessionID")
+		return
+	}
+
+	// Pattern 1: QR code images in qrcode directory
+	qrPattern := fmt.Sprintf("%s/%s*.png", config.PathQrCode, sessionID)
+	qrFiles, err := filepath.Glob(qrPattern)
+	if err != nil {
+		logrus.Warnf("Failed to glob QR code files for session %s: %v", sessionID, err)
+	} else {
+		for _, file := range qrFiles {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to remove QR code file %s: %v", file, err)
+			} else {
+				logrus.Debugf("Removed QR code file: %s", file)
+			}
+		}
+	}
+
+	// Pattern 2: Session database files in storages directory
+	dbPattern := fmt.Sprintf("%s/%s*.db", config.PathStorages, sessionID)
+	dbFiles, err := filepath.Glob(dbPattern)
+	if err != nil {
+		logrus.Warnf("Failed to glob database files for session %s: %v", sessionID, err)
+	} else {
+		for _, file := range dbFiles {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to remove database file %s: %v", file, err)
+			} else {
+				logrus.Debugf("Removed database file: %s", file)
+			}
+		}
+	}
+
+	// Pattern 3: WAL and SHM files (SQLite journal files)
+	walPattern := fmt.Sprintf("%s/%s*.db-wal", config.PathStorages, sessionID)
+	walFiles, err := filepath.Glob(walPattern)
+	if err == nil {
+		for _, file := range walFiles {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to remove WAL file %s: %v", file, err)
+			}
+		}
+	}
+
+	shmPattern := fmt.Sprintf("%s/%s*.db-shm", config.PathStorages, sessionID)
+	shmFiles, err := filepath.Glob(shmPattern)
+	if err == nil {
+		for _, file := range shmFiles {
+			if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to remove SHM file %s: %v", file, err)
+			}
+		}
+	}
+
+	logrus.Infof("Cleaned up files for session %s", sessionID)
+}
+
 // handleLoggedOutWithSession handles logout events with session awareness
 func handleLoggedOutWithSession(ctx context.Context, sessionID string, chatStorageRepo domainChatStorage.IChatStorageRepository) {
-	logrus.Infof("Session %s logged out", sessionID)
-	// For multi-session, we should remove just this session, not clean up everything
+	logrus.Infof("Session %s logged out, starting cleanup...", sessionID)
+
 	sm := GetSessionManager()
-	if err := sm.RemoveSession(sessionID); err != nil {
-		logrus.Errorf("Failed to remove session %s: %v", sessionID, err)
+
+	// Step 1: Clean up chat storage data
+	if chatStorageRepo != nil {
+		if err := chatStorageRepo.DeleteSessionData(sessionID); err != nil {
+			logrus.Errorf("Failed to delete chat storage data for session %s: %v", sessionID, err)
+		}
 	}
-	
-	// Note: In multi-session mode, we do NOT call handleLoggedOut which cleans up everything
-	// Instead, we only clean up this specific session
+
+	// Step 2: Remove session from manager (will disconnect client and close DB handles)
+	if err := sm.RemoveSession(sessionID); err != nil {
+		logrus.Errorf("Failed to remove session %s from manager: %v", sessionID, err)
+		return
+	}
+
+	// Step 3: Clean up session-specific files
+	cleanupSessionFiles(sessionID)
+
+	logrus.Infof("Session %s cleanup completed", sessionID)
 }
 
 // handleHistorySyncWithSession handles history sync events with session awareness
