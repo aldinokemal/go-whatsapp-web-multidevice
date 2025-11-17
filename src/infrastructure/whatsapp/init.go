@@ -506,9 +506,8 @@ func handler(ctx context.Context, rawEvt any, chatStorageRepo domainChatStorage.
 
 // handlerWithSession is the session-aware event handler for WhatsApp events
 func handlerWithSession(ctx context.Context, sessionID string, rawEvt any, chatStorageRepo domainChatStorage.IChatStorageRepository) {
-	// Store sessionID in context for downstream handlers
-	type sessionKey struct{}
-	ctx = context.WithValue(ctx, sessionKey{}, sessionID)
+	// Store sessionID in context for downstream handlers using the documented context key
+	ctx = domainChatStorage.WithSessionID(ctx, sessionID)
 
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:

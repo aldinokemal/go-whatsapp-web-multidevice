@@ -105,12 +105,18 @@ CREATE TABLE messages (
 
 **Context-Based Session Tracking:**
 ```go
-// sessionKey is used to store/retrieve sessionID from context
-type sessionKey struct{}
+// Use the documented context key from chatstorage package
+import domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+
+// Set sessionID in context
+ctx = domainChatStorage.WithSessionID(ctx, sessionID)
 
 // Extract sessionID from context
-sessionID, ok := ctx.Value(sessionKey{}).(string)
-if !ok || sessionID == "" {
+sessionID := domainChatStorage.GetSessionIDOrDefault(ctx)
+
+// Or check if it exists
+sessionID, ok := domainChatStorage.GetSessionID(ctx)
+if !ok {
     sessionID = "default"
 }
 ```
@@ -284,8 +290,7 @@ func (handler *Send) SendMessage(c *fiber.Ctx) error {
 
     // Use client for operations...
     // Pass sessionID in context for chat storage
-    type sessionKey struct{}
-    ctx := context.WithValue(c.UserContext(), sessionKey{}, sessionID)
+    ctx := domainChatStorage.WithSessionID(c.UserContext(), sessionID)
 
     // Continue with normal logic...
 }
@@ -325,8 +330,7 @@ func (service *serviceSend) SendText(
     }
 
     // Add sessionID to context for chat storage
-    type sessionKey struct{}
-    ctx = context.WithValue(ctx, sessionKey{}, sessionID)
+    ctx = domainChatStorage.WithSessionID(ctx, sessionID)
 
     // Use client for operations...
 }

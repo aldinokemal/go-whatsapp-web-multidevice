@@ -552,12 +552,8 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return nil
 	}
 
-	// Extract sessionID from context, default to "default" if not found
-	type sessionKey struct{}
-	sessionID, ok := ctx.Value(sessionKey{}).(string)
-	if !ok || sessionID == "" {
-		sessionID = "default"
-	}
+	// Extract sessionID from context using the documented context key
+	sessionID := domainChatStorage.GetSessionIDOrDefault(ctx)
 
 	// Extract chat and sender information
 	chatJID := evt.Info.Chat.String()
@@ -686,12 +682,8 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
-	// Extract sessionID from context, default to "default" if not found
-	type sessionKey struct{}
-	sessionID, ok := ctx.Value(sessionKey{}).(string)
-	if !ok || sessionID == "" {
-		sessionID = "default"
-	}
+	// Extract sessionID from context using the documented context key
+	sessionID := domainChatStorage.GetSessionIDOrDefault(ctx)
 
 	// Ensure JID is properly formatted
 	jid, err := types.ParseJID(recipientJID)

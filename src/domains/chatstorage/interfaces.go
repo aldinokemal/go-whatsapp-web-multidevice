@@ -10,7 +10,13 @@ import (
 
 type IChatStorageRepository interface {
 	// Chat operations
+
+	// CreateMessage stores a message from a WhatsApp event.
+	// The session ID must be provided in the context using CtxKeySessionID.
+	// Use WithSessionID(ctx, sessionID) to set it before calling this method.
+	// If no session ID is found in context, implementations default to "default".
 	CreateMessage(ctx context.Context, evt *events.Message) error
+
 	StoreChat(chat *Chat) error
 	GetChat(jid string) (*Chat, error)
 	GetChats(filter *ChatFilter) ([]*Chat, error)
@@ -23,6 +29,11 @@ type IChatStorageRepository interface {
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
 	DeleteMessage(id, chatJID string) error
+
+	// StoreSentMessageWithContext stores a sent message.
+	// The session ID must be provided in the context using CtxKeySessionID.
+	// Use WithSessionID(ctx, sessionID) to set it before calling this method.
+	// If no session ID is found in context, implementations default to "default".
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error
 
 	// Statistics
