@@ -2,7 +2,6 @@ package chatstorage
 
 import (
 	"context"
-	"time"
 
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -23,7 +22,6 @@ type IChatStorageRepository interface {
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
 	DeleteMessage(id, chatJID string) error
-	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
