@@ -600,6 +600,9 @@ func buildMessageMetaParts(evt *events.Message) []string {
 }
 
 func handleImageMessage(ctx context.Context, evt *events.Message) {
+	if !config.WhatsappAutoDownloadMedia {
+		return
+	}
 	if img := evt.Message.GetImageMessage(); img != nil {
 		if path, err := utils.ExtractMedia(ctx, cli, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
