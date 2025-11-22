@@ -137,8 +137,9 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		device.PrivacyTokens = innerStore
 	}
 
-	// Create and configure the client
-	client := whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
+	// Create and configure the client with filtered logging to avoid noisy reconnection EOF errors
+	baseLogger := waLog.Stdout("Client", config.WhatsappLogLevel, true)
+	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
 
