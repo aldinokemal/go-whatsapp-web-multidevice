@@ -17,9 +17,13 @@ DOCKER_FILE=docker/golang.Dockerfile
 # Get GitHub username from remote URL, fallback to git user.name without spaces
 GITHUB_USER?=$(shell git remote get-url origin 2>/dev/null | sed -n 's/.*github.com[:/]\([^/]*\)\/.*/\1/p' | tr '[:upper:]' '[:lower:]' || echo "$(shell git config user.name | tr '[:upper:]' '[:lower:]' | tr -d ' ')")
 IMAGE_NAME=go-whatsapp-web-multidevice
-VERSION?=latest
+# Auto-detect version from config/settings.go, fallback to 'latest' if not found
+APP_VERSION?=$(shell grep 'AppVersion.*=' src/config/settings.go 2>/dev/null | sed -n 's/.*"\(.*\)"/\1/p' || echo "latest")
+VERSION?=$(APP_VERSION)
 GHCR_REGISTRY=ghcr.io
-GHCR_IMAGE=$(GHCR_REGISTRY)/$(GITHUB_USER)/$(IMAGE_NAME):$(VERSION)
+GHCR_IMAGE=$(GHCR_REGISTRY)/$(GITHUB_USER)/$(IMAGE_NAME)
+GHCR_IMAGE_VERSIONED=$(GHCR_IMAGE):$(VERSION)
+GHCR_IMAGE_LATEST=$(GHCR_IMAGE):latest
 
 # Default target
 .DEFAULT_GOAL := help
@@ -67,11 +71,11 @@ help:
 	@echo "  docker-logs         View Docker container logs"
 	@echo ""
 	@echo "Docker Registry Commands:"
-	@echo "  docker-login-ghcr   Login to GitHub Container Registry"
-	@echo "  docker-build-image  Build Docker image for GHCR"
-	@echo "  docker-push-ghcr    Push Docker image to GHCR"
-	@echo "  docker-release      Build and push to GHCR (build + push)"
-	@echo "  docker-tag          Tag image with custom version"
+	@echo "  docker-login-ghcr   Login to GitHub Container Registry (using gh CLI)"
+	@echo "  docker-build-image  Build image with version & latest tags"
+	@echo "  docker-push-ghcr    Push both version & latest tags to GHCR"
+	@echo "  docker-release      Build and push (auto-versioned from config)"
+	@echo "  docker-tag          Tag image with custom version (VERSION=v1.0.0)"
 	@echo ""
 	@echo "Utility Commands:"
 	@echo "  clean          Remove build artifacts and cache"
@@ -246,40 +250,73 @@ docker-logs:
 ## docker-login-ghcr: Login to GitHub Container Registry
 docker-login-ghcr:
 	@echo "Logging in to GitHub Container Registry..."
-	@if [ -z "$(GITHUB_TOKEN)" ]; then \
-		echo "Error: GITHUB_TOKEN environment variable not set"; \
+	@if command -v gh > /dev/null 2>&1; then \
+		echo "Using GitHub CLI (gh) for authentication..."; \
+		gh auth token | docker login ghcr.io -u $(GITHUB_USER) --password-stdin; \
+	elif [ -n "$(GITHUB_TOKEN)" ]; then \
+		echo "Using GITHUB_TOKEN environment variable..."; \
+		echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u $(GITHUB_USER) --password-stdin; \
+	else \
+		echo "Error: Neither 'gh' CLI nor GITHUB_TOKEN is available"; \
 		echo ""; \
-		echo "Please set it with:"; \
+		echo "Option 1 (Recommended): Install and login with GitHub CLI:"; \
+		echo "  gh auth login"; \
+		echo ""; \
+		echo "Option 2: Set GITHUB_TOKEN:"; \
 		echo "  export GITHUB_TOKEN=\"your-github-token\""; \
-		echo ""; \
-		echo "Create a token at: https://github.com/settings/tokens/new?scopes=write:packages"; \
+		echo "  Create token at: https://github.com/settings/tokens/new?scopes=write:packages"; \
 		exit 1; \
 	fi
-	@echo "$(GITHUB_TOKEN)" | docker login ghcr.io -u $(GITHUB_USER) --password-stdin
 	@echo "✅ Login successful!"
 
-## docker-build-image: Build Docker image for GitHub Container Registry
+## docker-build-image: Build Docker image for GitHub Container Registry with version and latest tags
 docker-build-image:
-	@echo "Building Docker image: $(GHCR_IMAGE)"
-	@echo "GitHub User: $(GITHUB_USER)"
-	@echo "Version: $(VERSION)"
-	docker build -f $(DOCKER_FILE) -t $(GHCR_IMAGE) .
-	@echo "Image built successfully: $(GHCR_IMAGE)"
-
-## docker-push-ghcr: Push Docker image to GitHub Container Registry
-docker-push-ghcr:
-	@echo "Pushing image to GHCR: $(GHCR_IMAGE)"
-	docker push $(GHCR_IMAGE)
-	@echo "Image pushed successfully!"
+	@echo "Building Docker images..."
+	@echo "  GitHub User: $(GITHUB_USER)"
+	@echo "  Image Name: $(IMAGE_NAME)"
+	@echo "  Version: $(VERSION)"
 	@echo ""
-	@echo "Image is now available at:"
-	@echo "  docker pull $(GHCR_IMAGE)"
+	@echo "Building and tagging:"
+	@echo "  - $(GHCR_IMAGE_VERSIONED)"
+	@echo "  - $(GHCR_IMAGE_LATEST)"
+	docker build -f $(DOCKER_FILE) -t $(GHCR_IMAGE_VERSIONED) -t $(GHCR_IMAGE_LATEST) .
+	@echo ""
+	@echo "✅ Images built successfully with tags:"
+	@echo "  - $(GHCR_IMAGE_VERSIONED)"
+	@echo "  - $(GHCR_IMAGE_LATEST)"
 
-## docker-release: Build and push Docker image to GHCR
+## docker-push-ghcr: Push Docker image to GitHub Container Registry (both version and latest tags)
+docker-push-ghcr:
+	@echo "Pushing images to GitHub Container Registry..."
+	@echo ""
+	@echo "Pushing versioned image: $(GHCR_IMAGE_VERSIONED)"
+	docker push $(GHCR_IMAGE_VERSIONED)
+	@echo "✅ Version tag pushed!"
+	@echo ""
+	@echo "Pushing latest image: $(GHCR_IMAGE_LATEST)"
+	docker push $(GHCR_IMAGE_LATEST)
+	@echo "✅ Latest tag pushed!"
+	@echo ""
+	@echo "Images are now available at:"
+	@echo "  docker pull $(GHCR_IMAGE_VERSIONED)"
+	@echo "  docker pull $(GHCR_IMAGE_LATEST)"
+
+## docker-release: Build and push Docker image to GHCR (both version and latest tags)
 docker-release: docker-build-image docker-push-ghcr
 	@echo ""
+	@echo "========================================="
 	@echo "✅ Docker image released successfully!"
-	@echo "  Image: $(GHCR_IMAGE)"
+	@echo "========================================="
+	@echo "Version: $(VERSION)"
+	@echo ""
+	@echo "Available tags:"
+	@echo "  - $(GHCR_IMAGE_VERSIONED)"
+	@echo "  - $(GHCR_IMAGE_LATEST)"
+	@echo ""
+	@echo "Pull with:"
+	@echo "  docker pull $(GHCR_IMAGE_VERSIONED)"
+	@echo "  docker pull $(GHCR_IMAGE_LATEST)"
+	@echo "========================================="
 
 ## docker-tag: Tag image with custom version
 docker-tag:
