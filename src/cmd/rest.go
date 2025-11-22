@@ -33,6 +33,8 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	logrus.Infof("🚀 Starting REST API mode...")
+
 	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
 		return token != nil
@@ -103,6 +105,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	rest.InitRestMessage(apiGroup, messageUsecase)
 	rest.InitRestGroup(apiGroup, groupUsecase)
 	rest.InitRestNewsletter(apiGroup, newsletterUsecase)
+	rest.InitRestMedia(apiGroup) // Media download endpoint for private S3 buckets
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{
@@ -120,8 +123,7 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
-	// Set auto reconnect checking
-	go helpers.SetAutoReconnectChecking(whatsappCli)
+	// Note: Removed SetAutoReconnectChecking as whatsmeow has built-in auto-reconnect (EnableAutoReconnect = true)
 
 	if err := app.Listen(":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())
