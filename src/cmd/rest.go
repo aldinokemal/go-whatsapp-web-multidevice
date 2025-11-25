@@ -37,12 +37,20 @@ func restServer(_ *cobra.Command, _ []string) {
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
 		return token != nil
 	})
-	app := fiber.New(fiber.Config{
+	fiberConfig := fiber.Config{
 		Views:                   engine,
 		EnableTrustedProxyCheck: true,
 		BodyLimit:               int(config.WhatsappSettingMaxVideoSize),
 		Network:                 "tcp",
-	})
+	}
+
+	// Configure proxy settings if trusted proxies are specified
+	if len(config.AppTrustedProxies) > 0 {
+		fiberConfig.TrustedProxies = config.AppTrustedProxies
+		fiberConfig.ProxyHeader = fiber.HeaderXForwardedHost
+	}
+
+	app := fiber.New(fiberConfig)
 
 	app.Static(config.AppBasePath+"/statics", "./statics")
 	app.Use(config.AppBasePath+"/components", filesystem.New(filesystem.Config{

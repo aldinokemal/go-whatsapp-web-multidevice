@@ -5,13 +5,14 @@ import (
 )
 
 var (
-	AppVersion             = "v7.8.2"
+	AppVersion             = "v7.9.0"
 	AppPort                = "3000"
 	AppDebug               = false
 	AppOs                  = "AldinoKemal"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
 	AppBasePath            = ""
+	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 
 	McpPort = "8080"
 	McpHost = "localhost"
@@ -26,6 +27,7 @@ var (
 
 	WhatsappAutoReplyMessage       string
 	WhatsappAutoMarkRead           = false // Auto-mark incoming messages as read
+	WhatsappAutoDownloadMedia      = true  // Auto-download media from incoming messages
 	WhatsappWebhook                []string
 	WhatsappWebhookSecret                = "secret"
 	WhatsappLogLevel                     = "ERROR"
