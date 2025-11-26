@@ -11,6 +11,7 @@ export default {
             requestedMembers: [],
             loadingRequestedMembers: false,
             processingMember: null,
+            exportingGroupId: null
         }
     },
     computed: {
@@ -30,6 +31,35 @@ export default {
                 showSuccessInfo("Groups fetched")
             } catch (err) {
                 showErrorInfo(err)
+            }
+        },
+        async exportGroupParticipants(groupId) {
+            if (!groupId) {
+                showErrorInfo("Invalid group id");
+                return;
+            }
+
+            this.exportingGroupId = groupId;
+            try {
+                const response = await window.http.get(`/group/export-participants?group_id=${groupId}`, {
+                    responseType: 'blob'
+                });
+
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `group-participants-${groupId}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+
+                showSuccessInfo("Participants exported successfully as CSV");
+            } catch (error) {
+                const errorMessage = error.response?.data?.message || error.message || "Failed to export participants";
+                showErrorInfo(errorMessage);
+            } finally {
+                this.exportingGroupId = null;
             }
         },
         dtClear() {
@@ -218,6 +248,12 @@ export default {
                             <button class="ui blue tiny button" @click="handleSeeParticipants(g)">Participants</button>
                             <button class="ui grey tiny button" @click="handleExportParticipants(g)">Export CSV</button>
                             <button v-if="isAdmin(g)" class="ui green tiny button" @click="handleSeeRequestedMember(g.JID)">Requested Members</button>
+                            <button class="ui blue tiny button"
+                                    :class="{ loading: exportingGroupId === g.JID }"
+                                    :disabled="exportingGroupId === g.JID"
+                                    @click="exportGroupParticipants(g.JID)">
+                                Export CSV
+                            </button>
                             <button class="ui red tiny button" @click="handleLeaveGroup(g.JID)">Leave</button>
                         </div>
                     </td>
