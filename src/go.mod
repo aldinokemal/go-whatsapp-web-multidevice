@@ -7,12 +7,12 @@ require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/gofiber/fiber/v2 v2.52.9
+	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.43.0
+	github.com/mark3labs/mcp-go v0.43.1
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.68.0
 	go.mau.fi/libsignal v0.2.1
-	go.mau.fi/whatsmeow v0.0.0-20251116104239-3aca43070cd4
+	go.mau.fi/whatsmeow v0.0.0-20251127132918-b9ac3d51d746
 	golang.org/x/image v0.33.0
 	google.golang.org/protobuf v1.36.10
 )
@@ -52,7 +52,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20250904145737-900bdf8bb490 // indirect
+	github.com/petermattis/goid v0.0.0-20251121121749-a11dd1a45f9a // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
@@ -70,8 +70,8 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.mau.fi/util v0.9.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
-	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect

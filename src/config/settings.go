@@ -25,12 +25,13 @@ var (
 	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on"
 	DBKeysURI = ""
 
-	WhatsappAutoReplyMessage       string
-	WhatsappAutoMarkRead           = false // Auto-mark incoming messages as read
-	WhatsappAutoDownloadMedia      = true  // Auto-download media from incoming messages
-	WhatsappWebhook                []string
-	WhatsappWebhookSecret                = "secret"
-	WhatsappLogLevel                     = "ERROR"
+	WhatsappAutoReplyMessage            string
+	WhatsappAutoMarkRead                = false // Auto-mark incoming messages as read
+	WhatsappAutoDownloadMedia           = true  // Auto-download media from incoming messages
+	WhatsappWebhook                     []string
+	WhatsappWebhookSecret               = "secret"
+	WhatsappWebhookInsecureSkipVerify   = false // Skip TLS certificate verification for webhooks (insecure)
+	WhatsappLogLevel                    = "ERROR"
 	WhatsappSettingMaxImageSize    int64 = 20000000  // 20MB
 	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB
 	WhatsappSettingMaxVideoSize    int64 = 100000000 // 100MB

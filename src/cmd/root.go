@@ -124,6 +124,9 @@ func initEnvConfig() {
 	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
 		config.WhatsappWebhookSecret = envWebhookSecret
 	}
+	if viper.IsSet("whatsapp_webhook_insecure_skip_verify") {
+		config.WhatsappWebhookInsecureSkipVerify = viper.GetBool("whatsapp_webhook_insecure_skip_verify")
+	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -213,6 +216,12 @@ func initFlags() {
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
 		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookInsecureSkipVerify,
+		"webhook-insecure-skip-verify", "",
+		config.WhatsappWebhookInsecureSkipVerify,
+		`skip TLS certificate verification for webhooks (INSECURE - use only for development/self-signed certs) --webhook-insecure-skip-verify <true/false> | example: --webhook-insecure-skip-verify=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
