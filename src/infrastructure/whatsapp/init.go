@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,6 +39,7 @@ type ExtractedMedia struct {
 
 // Global variables
 var (
+	globalStateMu sync.RWMutex
 	cli           *whatsmeow.Client
 	db            *sqlstore.Container // Add global database reference for cleanup
 	keysDB        *sqlstore.Container
@@ -118,15 +120,15 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
 
-	// Set global database reference for remote logout cleanup
-	db = storeContainer
-	keysDB = keysStoreContainer
+	// Keep references for global state update after client creation
+	primaryDB := storeContainer
+	keysContainer := keysStoreContainer
 
 	// Configure a separated database for accelerating encryption caching
-	if keysDB != nil && device.ID != nil {
+	if keysContainer != nil && device.ID != nil {
 		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
 
-		syncKeysDevice(ctx, db, keysDB)
+		syncKeysDevice(ctx, primaryDB, keysContainer)
 		device.Identities = innerStore
 		device.Sessions = innerStore
 		device.PreKeys = innerStore
@@ -135,48 +137,70 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		device.PrivacyTokens = innerStore
 	}
 
-	// Create and configure the client
-	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", config.WhatsappLogLevel, true))
-	cli.EnableAutoReconnect = true
-	cli.AutoTrustIdentity = true
+	// Create and configure the client with filtered logging to avoid noisy reconnection EOF errors
+	baseLogger := waLog.Stdout("Client", config.WhatsappLogLevel, true)
+	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
+	client.EnableAutoReconnect = true
+	client.AutoTrustIdentity = true
 
-	cli.AddEventHandler(func(rawEvt interface{}) {
+	client.AddEventHandler(func(rawEvt interface{}) {
 		handler(ctx, rawEvt, chatStorageRepo)
 	})
 
-	return cli
+	globalStateMu.Lock()
+	cli = client
+	db = primaryDB
+	keysDB = keysContainer
+	globalStateMu.Unlock()
+
+	return client
 }
 
 // UpdateGlobalClient updates the global cli variable with a new client instance
 // This is needed when reinitializing the client after logout to ensure all
 // infrastructure code uses the new client instance
 func UpdateGlobalClient(newCli *whatsmeow.Client, newDB *sqlstore.Container) {
+	globalStateMu.Lock()
 	cli = newCli
 	db = newDB
+	globalStateMu.Unlock()
 	log.Infof("Global WhatsApp client updated successfully")
 }
 
 // GetClient returns the current global client instance (alias for GetGlobalClient)
 func GetClient() *whatsmeow.Client {
+	globalStateMu.RLock()
+	defer globalStateMu.RUnlock()
 	return cli
 }
 
 // Get DB instance
 func GetDB() *sqlstore.Container {
+	globalStateMu.RLock()
+	defer globalStateMu.RUnlock()
 	return db
+}
+
+func getStoreContainers() (*sqlstore.Container, *sqlstore.Container) {
+	globalStateMu.RLock()
+	defer globalStateMu.RUnlock()
+	return db, keysDB
 }
 
 // GetConnectionStatus returns the current connection status of the global client
 func GetConnectionStatus() (isConnected bool, isLoggedIn bool, deviceID string) {
-	if cli == nil {
+	globalStateMu.RLock()
+	currentClient := cli
+	globalStateMu.RUnlock()
+	if currentClient == nil {
 		return false, false, ""
 	}
 
-	isConnected = cli.IsConnected()
-	isLoggedIn = cli.IsLoggedIn()
+	isConnected = currentClient.IsConnected()
+	isLoggedIn = currentClient.IsLoggedIn()
 
-	if cli.Store != nil && cli.Store.ID != nil {
-		deviceID = cli.Store.ID.String()
+	if currentClient.Store != nil && currentClient.Store.ID != nil {
+		deviceID = currentClient.Store.ID.String()
 	}
 
 	return isConnected, isLoggedIn, deviceID
@@ -184,12 +208,17 @@ func GetConnectionStatus() (isConnected bool, isLoggedIn bool, deviceID string) 
 
 // CleanupDatabase removes the database file (SQLite) or deletes all devices (PostgreSQL) to prevent foreign key constraint issues
 func CleanupDatabase() error {
+	globalStateMu.RLock()
+	currentDB := db
+	currentKeysDB := keysDB
+	globalStateMu.RUnlock()
+
 	// Check if using PostgreSQL
 	if strings.HasPrefix(config.DBURI, "postgres:") {
 		logrus.Info("[CLEANUP] PostgreSQL detected - deleting all devices from database")
 
 		// Check if database is initialized
-		if db == nil {
+		if currentDB == nil {
 			logrus.Warn("[CLEANUP] Database is nil, skipping device deletion")
 			return nil
 		}
@@ -197,7 +226,7 @@ func CleanupDatabase() error {
 		ctx := context.Background()
 
 		// Get all devices
-		devices, err := db.GetAllDevices(ctx)
+		devices, err := currentDB.GetAllDevices(ctx)
 		if err != nil {
 			logrus.Errorf("[CLEANUP] Error getting devices: %v", err)
 			return fmt.Errorf("failed to get devices: %v", err)
@@ -208,15 +237,15 @@ func CleanupDatabase() error {
 		// Delete each device (this will cascade delete related records like identity keys, sessions, etc.)
 		for _, device := range devices {
 			logrus.Infof("[CLEANUP] Deleting device: %s", device.ID)
-			if err := db.DeleteDevice(ctx, device); err != nil {
+			if err := currentDB.DeleteDevice(ctx, device); err != nil {
 				logrus.Errorf("[CLEANUP] Error deleting device %s: %v", device.ID, err)
 				return fmt.Errorf("failed to delete device %s: %v", device.ID, err)
 			}
 		}
 
 		// Also clean up keysDB if it exists and is separate
-		if keysDB != nil && keysDB != db {
-			keysDevices, err := keysDB.GetAllDevices(ctx)
+		if currentKeysDB != nil && currentKeysDB != currentDB {
+			keysDevices, err := currentKeysDB.GetAllDevices(ctx)
 			if err != nil {
 				logrus.Errorf("[CLEANUP] Error getting devices from keysDB: %v", err)
 				return fmt.Errorf("failed to get devices from keysDB: %v", err)
@@ -226,7 +255,7 @@ func CleanupDatabase() error {
 
 			for _, device := range keysDevices {
 				logrus.Infof("[CLEANUP] Deleting device from keysDB: %s", device.ID)
-				if err := keysDB.DeleteDevice(ctx, device); err != nil {
+				if err := currentKeysDB.DeleteDevice(ctx, device); err != nil {
 					logrus.Errorf("[CLEANUP] Error deleting device %s from keysDB: %v", device.ID, err)
 					return fmt.Errorf("failed to delete device %s from keysDB: %v", device.ID, err)
 				}
@@ -345,14 +374,11 @@ func ReinitializeWhatsAppComponents(ctx context.Context, chatStorageRepo domainC
 	logrus.Info("[CLEANUP] Reinitializing database and client...")
 
 	newDB := InitWaDB(ctx, config.DBURI)
+	var newKeysDB *sqlstore.Container
 	if config.DBKeysURI != "" {
-		keysDB = InitWaDB(ctx, config.DBKeysURI)
+		newKeysDB = InitWaDB(ctx, config.DBKeysURI)
 	}
-	newCli := InitWaCLI(ctx, newDB, keysDB, chatStorageRepo)
-
-	// Update global references
-	db = newDB
-	cli = newCli
+	newCli := InitWaCLI(ctx, newDB, newKeysDB, chatStorageRepo)
 
 	logrus.Info("[CLEANUP] Database and client reinitialized successfully")
 
@@ -364,8 +390,8 @@ func PerformCompleteCleanup(ctx context.Context, logPrefix string, chatStorageRe
 	logrus.Infof("[%s] Starting complete cleanup process...", logPrefix)
 
 	// Disconnect current client if it exists
-	if cli != nil {
-		cli.Disconnect()
+	if current := GetClient(); current != nil {
+		current.Disconnect()
 		logrus.Infof("[%s] Client disconnected", logPrefix)
 	}
 
@@ -421,8 +447,8 @@ func handleRemoteLogout(ctx context.Context, chatStorageRepo domainChatStorage.I
 	logrus.Info("[REMOTE_LOGOUT] This will clear all WhatsApp session data and chat storage")
 
 	// Log database state before cleanup
-	if db != nil {
-		devices, dbErr := db.GetAllDevices(ctx)
+	if database := GetDB(); database != nil {
+		devices, dbErr := database.GetAllDevices(ctx)
 		if dbErr != nil {
 			logrus.Errorf("[REMOTE_LOGOUT] Error getting devices before cleanup: %v", dbErr)
 		} else {
@@ -506,9 +532,13 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 }
 
-func handleAppStateSyncComplete(ctx context.Context, evt *events.AppStateSyncComplete) {
-	if len(cli.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-		if err := cli.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+func handleAppStateSyncComplete(_ context.Context, evt *events.AppStateSyncComplete) {
+	client := GetClient()
+	if client == nil {
+		return
+	}
+	if len(client.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
+		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
 			log.Warnf("Failed to send available presence: %v", err)
 		} else {
 			log.Infof("Marked self as available")
@@ -521,7 +551,8 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 		Code:    "LOGIN_SUCCESS",
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
-	syncKeysDevice(ctx, db, keysDB)
+	primaryDB, secondaryDB := getStoreContainers()
+	syncKeysDevice(ctx, primaryDB, secondaryDB)
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func() {
@@ -554,14 +585,18 @@ func handleLoggedOut(ctx context.Context, evt *events.LoggedOut, chatStorageRepo
 	}
 }
 
-func handleConnectionEvents(ctx context.Context, evt any) {
-	if len(cli.Store.PushName) == 0 {
+func handleConnectionEvents(_ context.Context, evt any) {
+	client := GetClient()
+	if client == nil {
+		return
+	}
+	if len(client.Store.PushName) == 0 {
 		return
 	}
 
 	// Send presence available when connecting and when the pushname is changed.
 	// This makes sure that outgoing messages always have the right pushname.
-	if err := cli.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+	if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
 		log.Warnf("Failed to send available presence: %v", err)
 	} else {
 		log.Infof("Marked self as available")
@@ -638,8 +673,12 @@ func handleImageMessage(ctx context.Context, evt *events.Message) {
 	if !config.WhatsappAutoDownloadMedia {
 		return
 	}
+	client := GetClient()
+	if client == nil {
+		return
+	}
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := utils.ExtractMedia(ctx, cli, config.PathStorages, img); err != nil {
+		if path, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", path)
@@ -653,13 +692,18 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message) {
 		return
 	}
 
+	client := GetClient()
+	if client == nil {
+		return
+	}
+
 	// Mark the message as read
 	messageIDs := []types.MessageID{evt.Info.ID}
 	timestamp := time.Now()
 	chat := evt.Info.Chat
 	sender := evt.Info.Sender
 
-	if err := cli.MarkRead(context.Background(), messageIDs, timestamp, chat, sender); err != nil {
+	if err := client.MarkRead(context.Background(), messageIDs, timestamp, chat, sender); err != nil {
 		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
 	} else {
 		log.Debugf("Marked message %s as read", evt.Info.ID)
@@ -668,6 +712,11 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message) {
 
 func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	if config.WhatsappAutoReplyMessage == "" {
+		return
+	}
+
+	client := GetClient()
+	if client == nil {
 		return
 	}
 
@@ -736,7 +785,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	recipientJID := utils.FormatJID(evt.Info.Sender.String())
 
 	// Send the auto-reply message
-	response, err := cli.SendMessage(
+	response, err := client.SendMessage(
 		ctx,
 		recipientJID,
 		&waE2E.Message{Conversation: proto.String(config.WhatsappAutoReplyMessage)},
@@ -751,8 +800,8 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	if chatStorageRepo != nil {
 		// Get our own JID as sender
 		senderJID := ""
-		if cli.Store.ID != nil {
-			senderJID = cli.Store.ID.String()
+		if client.Store.ID != nil {
+			senderJID = client.Store.ID.String()
 		}
 
 		// Store the sent auto-reply message
@@ -828,11 +877,16 @@ func handlePresence(_ context.Context, evt *events.Presence) {
 }
 
 func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	client := GetClient()
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		log.Warnf("Skipping history sync handling: WhatsApp client not initialized")
+		return
+	}
 	id := atomic.AddInt32(&historySyncID, 1)
 	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
 		config.PathStorages,
 		startupTime,
-		cli.Store.ID.String(),
+		client.Store.ID.String(),
 		id,
 		evt.Data.SyncType.String(),
 	)
@@ -896,6 +950,8 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 	conversations := data.GetConversations()
 	log.Infof("Processing %d conversations from history sync", len(conversations))
 
+	client := GetClient()
+
 	for _, conv := range conversations {
 		chatJID := conv.GetID()
 		if chatJID == "" {
@@ -956,8 +1012,8 @@ func processConversationMessages(_ context.Context, data *waHistorySync.HistoryS
 			isFromMe := msgKey.GetFromMe()
 			if isFromMe {
 				// For self-messages, use the full JID format to match regular message processing
-				if cli.Store.ID != nil {
-					sender = cli.Store.ID.String() // Use full JID instead of just User part
+				if client != nil && client.Store.ID != nil {
+					sender = client.Store.ID.String() // Use full JID instead of just User part
 				} else {
 					// Skip messages where we can't determine the sender to avoid NOT NULL violations
 					log.Warnf("Skipping self-message %s: client ID unavailable", messageID)
