@@ -209,7 +209,7 @@ func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinCh
 	}
 
 	// Validate JID and ensure connection
-	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	targetJID, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.ChatJID)
 	if err != nil {
 		return response, err
 	}
