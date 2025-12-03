@@ -231,5 +231,22 @@ func createMessagePayload(ctx context.Context, evt *events.Message) (map[string]
 		}
 	}
 
+	// Handle PTV (Push-To-Video) messages - also known as "video notes" (circular video messages)
+	if ptvMedia := evt.Message.GetPtvMessage(); ptvMedia != nil {
+		if config.WhatsappAutoDownloadMedia {
+			path, err := utils.ExtractMedia(ctx, cli, config.PathMedia, ptvMedia)
+			if err != nil {
+				logrus.Errorf("Failed to download video note from %s: %v", evt.Info.SourceString(), err)
+				return nil, pkgError.WebhookError(fmt.Sprintf("Failed to download video note: %v", err))
+			}
+			body["video_note"] = path
+		} else {
+			body["video_note"] = map[string]any{
+				"url":     ptvMedia.GetURL(),
+				"caption": ptvMedia.GetCaption(),
+			}
+		}
+	}
+
 	return body, nil
 }

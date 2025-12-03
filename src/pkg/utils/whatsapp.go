@@ -273,6 +273,14 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 			vid.GetFileEncSHA256(), vid.GetFileLength()
 	}
 
+	// Check for PTV (video note) message - circular video messages
+	if ptv := msg.GetPtvMessage(); ptv != nil {
+		filename = GenerateMediaFilename("video_note", "mp4", ptv.GetCaption())
+		return "video_note", filename,
+			ptv.GetURL(), ptv.GetMediaKey(), ptv.GetFileSHA256(),
+			ptv.GetFileEncSHA256(), ptv.GetFileLength()
+	}
+
 	// Check for audio message
 	if aud := msg.GetAudioMessage(); aud != nil {
 		extension := "ogg"
