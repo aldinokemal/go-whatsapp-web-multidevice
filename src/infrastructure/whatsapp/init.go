@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -521,7 +522,7 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 
 	// Send webhook notification for delete event
-	if len(config.WhatsappWebhook) > 0 {
+	if len(config.WhatsappWebhook) > 0 && !config.WhatsappWebhookEventDelete {
 		go func() {
 			if err := forwardDeleteToWebhook(ctx, evt, message); err != nil {
 				log.Errorf("Failed to forward delete event to webhook: %v", err)
@@ -635,9 +636,9 @@ func buildMessageMetaParts(evt *events.Message) []string {
 }
 
 func handleImageMessage(ctx context.Context, evt *events.Message) {
-  if !config.WhatsappAutoDownloadMedia {
-    return 
-  }
+	if !config.WhatsappAutoDownloadMedia {
+		return
+	}
 	client := GetClient()
 	if client == nil {
 		return
@@ -797,6 +798,26 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 		}
 	}
 
+	// Skip webhook for message type is not in evn.WHATSAPP_WEBHOOK_MESSAGE_TYPE
+	logrus.Debugf("WhatsappWebhookMessageType = %v", evt)
+	logrus.Debugf("WhatsappWebhookMessageType = %v", config.WhatsappWebhookMessageType)
+	if len(config.WhatsappWebhookMessageType) > 0 && !slices.Contains(config.WhatsappWebhookMessageType, "all") {
+		messageType := utils.GetMessageType(evt.Message)
+		logrus.Debugf("messageType = %s", messageType)
+		skip := true
+		for _, filterType := range config.WhatsappWebhookMessageType {
+			if strings.EqualFold(filterType, messageType) {
+				skip = false
+				break
+			}
+		}
+
+		if skip {
+			logrus.Debugf("Skipping webhook for message type '%s'", messageType)
+			return
+		}
+	}
+
 	if len(config.WhatsappWebhook) > 0 &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(evt *events.Message) {
@@ -809,13 +830,15 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 
 func handleReceipt(ctx context.Context, evt *events.Receipt) {
 	sendReceipt := false
-	switch evt.Type {
-	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
-		sendReceipt = true
-		log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
-	case types.ReceiptTypeDelivered:
-		sendReceipt = true
-		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
+	if config.WhatsappWebhookEventReceipt {
+		switch evt.Type {
+		case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
+			sendReceipt = true
+			log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
+		case types.ReceiptTypeDelivered:
+			sendReceipt = true
+			log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
+		}
 	}
 
 	// Forward receipt (ack) event to webhook if configured

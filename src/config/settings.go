@@ -29,6 +29,9 @@ var (
 	WhatsappAutoMarkRead              = false // Auto-mark incoming messages as read
 	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
 	WhatsappWebhook                   []string
+	WhatsappWebhookMessageType        []string
+	WhatsappWebhookEventReceipt             = true // Whether to forwarding event receipt to configured webhook
+	WhatsappWebhookEventDelete              = true // Whether to forwarding event delete to configured webhook
 	WhatsappWebhookSecret                   = "secret"
 	WhatsappWebhookInsecureSkipVerify       = false // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappLogLevel                        = "ERROR"

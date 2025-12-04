@@ -717,3 +717,67 @@ func BuildForwarded(evt *events.Message) bool {
 	}
 	return false
 }
+
+// GetMessageType text | image | video | document | sticker | contact | location | live_location | text_edited | unknown
+func GetMessageType(message *waE2E.Message) string {
+	if message == nil {
+		return "unknown"
+	}
+
+	// Check for regular text message
+	if message.GetConversation() != "" {
+		return "text"
+	}
+
+	// Check for extended text message (with link preview, etc.)
+	if extendedText := message.GetExtendedTextMessage(); extendedText != nil {
+		if extendedText.GetText() != "" {
+			return "text"
+		}
+	}
+
+	if message.GetImageMessage() != nil {
+		return "image"
+	} else if message.GetVideoMessage() != nil {
+		return "video"
+	} else if message.GetAudioMessage() != nil {
+		return "audio"
+	} else if message.GetDocumentMessage() != nil {
+		return "document"
+	} else if message.GetStickerMessage() != nil {
+		return "sticker"
+	} else if message.GetContactMessage() != nil {
+		return "contact"
+	} else if message.GetLocationMessage() != nil {
+		return "location"
+	} else if message.GetLiveLocationMessage() != nil {
+		return "live_location"
+	}
+
+	// Check for protocol messages (e.g., edited messages, ephemeral settings)
+	if protocolMessage := message.GetProtocolMessage(); protocolMessage != nil {
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			// If an edited message contains text, classify as text
+			if editedMessage.GetConversation() != "" || (editedMessage.GetExtendedTextMessage() != nil && editedMessage.GetExtendedTextMessage().GetText() != "") {
+				return "text_edited"
+			}
+		}
+		return "protocol"
+	}
+
+	// Check for ephemeral messages (view once, disappearing messages)
+	// if viewOnce := message.GetViewOnceMessage(); viewOnce != nil {
+	// 	return GetMessageType(viewOnce.GetMessage()) + "_view_once"
+	// }
+	// if viewOnceV2 := message.GetViewOnceMessageV2(); viewOnceV2 != nil {
+	// 	return GetMessageType(viewOnceV2.GetMessage()) + "_view_once_v2"
+	// }
+	// if viewOnceV2Ext := message.GetViewOnceMessageV2Extension(); viewOnceV2Ext != nil {
+	// 	return GetMessageType(viewOnceV2Ext.GetMessage()) + "_view_once_v2_ext"
+	// }
+	// if ephemeral := message.GetEphemeralMessage(); ephemeral != nil {
+	// 	return GetMessageType(ephemeral.GetMessage()) + "_ephemeral"
+	// }
+
+	return "unknown"
+}

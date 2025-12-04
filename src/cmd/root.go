@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"strings"
 	"time"
+
+	"go.mau.fi/whatsmeow/store/sqlstore"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -124,6 +125,16 @@ func initEnvConfig() {
 	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
 		config.WhatsappWebhookSecret = envWebhookSecret
 	}
+	if envWebhookMessageType := viper.GetString("whatsapp_webhook_message_type"); envWebhookMessageType != "" {
+		types := strings.Split(envWebhookMessageType, ",")
+		config.WhatsappWebhookMessageType = types
+	}
+	if viper.IsSet("whatsapp_webhook_event_receipt") {
+		config.WhatsappWebhookEventReceipt = viper.GetBool("whatsapp_webhook_event_receipt")
+	}
+	if viper.IsSet("whatsapp_webhook_event_delete") {
+		config.WhatsappWebhookEventDelete = viper.GetBool("whatsapp_webhook_event_delete")
+	}
 	if viper.IsSet("whatsapp_webhook_insecure_skip_verify") {
 		config.WhatsappWebhookInsecureSkipVerify = viper.GetBool("whatsapp_webhook_insecure_skip_verify")
 	}
@@ -216,6 +227,24 @@ func initFlags() {
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
 		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.WhatsappWebhookMessageType,
+		"webhook-message-type", "",
+		config.WhatsappWebhookMessageType,
+		`types of messages will be forwarded to the webhook --webhook-message-type <string> | example: text,image,video,audio,document,location,contact"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookEventReceipt,
+		"webhook-event-receipt", "",
+		config.WhatsappWebhookEventReceipt,
+		`Whether to forwarding event receipt to configured webhook (default true) --webhook-event-receipt <true/false> | example: --webhook-event-receipt=false`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookEventDelete,
+		"webhook-event-delete", "",
+		config.WhatsappWebhookEventDelete,
+		`Whether to forwarding event delete to configured webhook (default true) --webhook-event-delete <true/false> | example: --webhook-event-delete=false`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookInsecureSkipVerify,
