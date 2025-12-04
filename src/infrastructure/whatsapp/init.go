@@ -799,7 +799,6 @@ func handleWebhookForward(ctx context.Context, evt *events.Message) {
 	}
 
 	// Skip webhook for message type is not in evn.WHATSAPP_WEBHOOK_MESSAGE_TYPE
-	logrus.Debugf("WhatsappWebhookMessageType = %v", evt)
 	logrus.Debugf("WhatsappWebhookMessageType = %v", config.WhatsappWebhookMessageType)
 	if len(config.WhatsappWebhookMessageType) > 0 && !slices.Contains(config.WhatsappWebhookMessageType, "all") {
 		messageType := utils.GetMessageType(evt.Message)
