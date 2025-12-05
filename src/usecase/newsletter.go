@@ -25,5 +25,5 @@ func (service serviceNewsletter) Unfollow(ctx context.Context, request domainNew
 		return err
 	}
 
-	return whatsapp.GetClient().UnfollowNewsletter(JID)
+	return whatsapp.GetClient().UnfollowNewsletter(ctx, JID)
 }

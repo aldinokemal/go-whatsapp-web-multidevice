@@ -94,6 +94,10 @@ func initEnvConfig() {
 	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
 		config.AppBasePath = envBasePath
 	}
+	if envTrustedProxies := viper.GetString("app_trusted_proxies"); envTrustedProxies != "" {
+		proxies := strings.Split(envTrustedProxies, ",")
+		config.AppTrustedProxies = proxies
+	}
 
 	// Database settings
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
@@ -110,12 +114,18 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_auto_mark_read") {
 		config.WhatsappAutoMarkRead = viper.GetBool("whatsapp_auto_mark_read")
 	}
+	if viper.IsSet("whatsapp_auto_download_media") {
+		config.WhatsappAutoDownloadMedia = viper.GetBool("whatsapp_auto_download_media")
+	}
 	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
 		webhook := strings.Split(envWebhook, ",")
 		config.WhatsappWebhook = webhook
 	}
 	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
 		config.WhatsappWebhookSecret = envWebhookSecret
+	}
+	if viper.IsSet("whatsapp_webhook_insecure_skip_verify") {
+		config.WhatsappWebhookInsecureSkipVerify = viper.GetBool("whatsapp_webhook_insecure_skip_verify")
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
@@ -155,6 +165,12 @@ func initFlags() {
 		config.AppBasePath,
 		`base path for subpath deployment --base-path <string> | example: --base-path="/gowa"`,
 	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.AppTrustedProxies,
+		"trusted-proxies", "",
+		config.AppTrustedProxies,
+		`trusted proxy IP ranges for reverse proxy deployments --trusted-proxies <string> | example: --trusted-proxies="0.0.0.0/0" or --trusted-proxies="10.0.0.0/8,172.16.0.0/12"`,
+	)
 
 	// Database flags
 	rootCmd.PersistentFlags().StringVarP(
@@ -183,6 +199,12 @@ func initFlags() {
 		config.WhatsappAutoMarkRead,
 		`auto mark incoming messages as read --auto-mark-read <true/false> | example: --auto-mark-read=true`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAutoDownloadMedia,
+		"auto-download-media", "",
+		config.WhatsappAutoDownloadMedia,
+		`auto download media from incoming messages --auto-download-media <true/false> | example: --auto-download-media=false`,
+	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.WhatsappWebhook,
 		"webhook", "w",
@@ -194,6 +216,12 @@ func initFlags() {
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
 		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookInsecureSkipVerify,
+		"webhook-insecure-skip-verify", "",
+		config.WhatsappWebhookInsecureSkipVerify,
+		`skip TLS certificate verification for webhooks (INSECURE - use only for development/self-signed certs) --webhook-insecure-skip-verify <true/false> | example: --webhook-insecure-skip-verify=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
@@ -256,7 +284,7 @@ func initApp() {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
 
-	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo)

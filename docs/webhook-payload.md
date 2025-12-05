@@ -506,10 +506,13 @@ Triggered when users are demoted from admin.
 
 ### Message Edited
 
+When a message is edited, the webhook includes the original message ID to track which message was modified.
+
 ```json
 {
   "action": "message_edited",
   "chat_id": "6289XXXXXXXXX",
+  "original_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
   "edited_text": "hhhiawww",
   "from": "6289XXXXXXXXX@s.whatsapp.net",
   "message": {
@@ -523,6 +526,11 @@ Triggered when users are demoted from admin.
   "timestamp": "2025-07-13T11:14:19Z"
 }
 ```
+
+**Fields:**
+- `original_message_id`: The ID of the message that was edited (use this to update the correct message in your database)
+- `edited_text`: The new text content after editing
+- `message.id`: The ID of the edit event itself (different from the original message ID)
 
 ## Special Flags
 

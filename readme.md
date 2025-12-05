@@ -69,6 +69,8 @@ Download:
   - `--autoreply="Don't reply this message"`
 - Auto mark read incoming messages
   - `--auto-mark-read=true` (automatically marks incoming messages as read)
+- Auto download media from incoming messages
+  - `--auto-download-media=false` (disable automatic media downloads, default: `true`)
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
@@ -81,6 +83,23 @@ Download:
 - **Webhook Payload Documentation**
   For detailed webhook payload schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- **Webhook TLS Configuration**
+
+  If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed certificates):
+  ```
+  tls: failed to verify certificate: x509: certificate signed by unknown authority
+  ```
+
+  You can disable TLS certificate verification using:
+  - `--webhook-insecure-skip-verify=true`
+  - Or environment variable: `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`
+
+  **Security Warning**: This option disables TLS certificate verification and should only be used in:
+  - Development/testing environments
+  - Cloudflare tunnels (which provide their own security layer)
+  - Internal networks with self-signed certificates
+
+  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt) instead of disabling verification.
 
 ## Configuration
 
@@ -115,13 +134,15 @@ To use environment variables:
 | `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
 | `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
 | `APP_BASE_PATH`               | Base path for subpath deployment            | -                                            | `APP_BASE_PATH=/gowa`                       |
+| `APP_TRUSTED_PROXIES`         | Trusted proxy IP ranges for reverse proxy   | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`             |
 | `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
 | `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
 | `WHATSAPP_AUTO_MARK_READ`     | Auto-mark incoming messages as read         | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`              |
+| `WHATSAPP_AUTO_DOWNLOAD_MEDIA`| Auto-download media from incoming messages  | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`        |
 | `WHATSAPP_WEBHOOK`            | Webhook URL(s) for events (comma-separated) | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
 | `WHATSAPP_WEBHOOK_SECRET`     | Webhook secret for validation               | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`  |
+| `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure) | `false` | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true` |
 | `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation                   | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`         |
-| `WHATSAPP_CHAT_STORAGE`       | Enable chat storage                         | `true`                                       | `WHATSAPP_CHAT_STORAGE=false`               |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 

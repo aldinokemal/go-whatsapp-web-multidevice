@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +17,16 @@ import (
 )
 
 func submitWebhook(ctx context.Context, payload map[string]any, url string) error {
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Configure HTTP client with optional TLS skip verification
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: config.WhatsappWebhookInsecureSkipVerify,
+		},
+	}
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
 
 	postBody, err := json.Marshal(payload)
 	if err != nil {

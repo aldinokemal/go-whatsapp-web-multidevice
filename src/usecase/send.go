@@ -812,7 +812,7 @@ func (service *serviceSend) SendPresence(ctx context.Context, request domainSend
 		return response, err
 	}
 
-	err = whatsapp.GetClient().SendPresence(types.Presence(request.Type))
+	err = whatsapp.GetClient().SendPresence(ctx, types.Presence(request.Type))
 	if err != nil {
 		return response, err
 	}
@@ -850,7 +850,7 @@ func (service *serviceSend) SendChatPresence(ctx context.Context, request domain
 		return response, fmt.Errorf("invalid action: %s. Must be 'start' or 'stop'", request.Action)
 	}
 
-	err = whatsapp.GetClient().SendChatPresence(userJid, presenceType, "")
+	err = whatsapp.GetClient().SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))
 	if err != nil {
 		return response, err
 	}
