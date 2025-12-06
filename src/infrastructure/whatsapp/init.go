@@ -77,7 +77,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 // Returns the original JID if it's not an @lid or if LID lookup fails
 func NormalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
 	// Only process @lid JIDs
-	if jid.Server != "lid" {
+	if jid.Server != types.HiddenUserServer {
 		return jid
 	}
 
@@ -106,7 +106,7 @@ func NormalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.C
 
 // GetLIDFromPhone attempts to resolve a phone number JID to an LID JID
 func GetLIDFromPhone(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
-	if jid.Server == "lid" {
+	if jid.Server == types.HiddenUserServer {
 		return jid
 	}
 

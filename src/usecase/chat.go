@@ -63,9 +63,9 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		// Try to normalize JID if it's an LID
 		// This handles the case where the chat was stored with an LID JID
 		// but we want to display the phone number JID
-		if jid, err := types.ParseJID(chat.JID); err == nil && jid.Server == "lid" {
+		if jid, err := types.ParseJID(chat.JID); err == nil && jid.Server == types.HiddenUserServer {
 			normalized := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
-			if normalized.Server != "lid" {
+			if normalized.Server != types.HiddenUserServer {
 				jidStr = normalized.String()
 				// Update name if it was just the LID ID
 				if name == jid.User {
@@ -121,10 +121,10 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	// If chat not found, try to check if we can resolve it via LID
 	if chat == nil {
 		client := whatsapp.GetClient()
-		if parsedJID, err := types.ParseJID(request.ChatJID); err == nil && parsedJID.Server != "lid" {
+		if parsedJID, err := types.ParseJID(request.ChatJID); err == nil && parsedJID.Server != types.HiddenUserServer {
 			// Try to get LID for this phone number
 			lidJID := whatsapp.GetLIDFromPhone(ctx, parsedJID, client)
-			if lidJID.Server == "lid" {
+			if lidJID.Server == types.HiddenUserServer {
 				// We found an LID, try to fetch chat with this LID
 				logrus.Infof("Chat not found for %s, trying LID %s", request.ChatJID, lidJID.String())
 				lidChat, err := service.chatStorageRepo.GetChat(lidJID.String())
@@ -200,12 +200,12 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		chatJID := message.ChatJID
 
 		// Normalize sender and chatJID if they are LIDs
-		if senderJID, err := types.ParseJID(sender); err == nil && senderJID.Server == "lid" {
+		if senderJID, err := types.ParseJID(sender); err == nil && senderJID.Server == types.HiddenUserServer {
 			normalized := whatsapp.NormalizeJIDFromLID(ctx, senderJID, client)
 			sender = normalized.String()
 		}
 
-		if cJID, err := types.ParseJID(chatJID); err == nil && cJID.Server == "lid" {
+		if cJID, err := types.ParseJID(chatJID); err == nil && cJID.Server == types.HiddenUserServer {
 			normalized := whatsapp.NormalizeJIDFromLID(ctx, cJID, client)
 			chatJID = normalized.String()
 		}
@@ -232,9 +232,9 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	respChatJID := chat.JID
 	respChatName := chat.Name
 
-	if jid, err := types.ParseJID(respChatJID); err == nil && jid.Server == "lid" {
+	if jid, err := types.ParseJID(respChatJID); err == nil && jid.Server == types.HiddenUserServer {
 		normalized := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
-		if normalized.Server != "lid" {
+		if normalized.Server != types.HiddenUserServer {
 			respChatJID = normalized.String()
 			if respChatName == jid.User {
 				respChatName = normalized.User
