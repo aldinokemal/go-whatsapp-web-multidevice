@@ -87,6 +87,14 @@
     </div>
 
     <div class="ui horizontal divider">
+        Schedule
+    </div>
+
+    <div class="ui three column stackable grid cards">
+        <schedule-manager></schedule-manager>
+    </div>
+
+    <div class="ui horizontal divider">
         Message
     </div>
 
@@ -200,6 +208,7 @@
     import SendPoll from "{{ .AppBasePath }}/components/SendPoll.js";
     import SendPresence from "{{ .AppBasePath }}/components/SendPresence.js";
     import SendChatPresence from "{{ .AppBasePath }}/components/SendChatPresence.js";
+    import ScheduleManager from "{{ .AppBasePath }}/components/ScheduleManager.js";
     import MessageDelete from "{{ .AppBasePath }}/components/MessageDelete.js";
     import MessageUpdate from "{{ .AppBasePath }}/components/MessageUpdate.js";
     import MessageReact from "{{ .AppBasePath }}/components/MessageReact.js";
@@ -260,6 +269,7 @@
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendSticker, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
+            ScheduleManager,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
