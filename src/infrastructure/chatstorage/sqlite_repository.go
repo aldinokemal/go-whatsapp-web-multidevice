@@ -11,7 +11,6 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -24,37 +23,6 @@ type SQLiteRepository struct {
 // NewSQLiteRepository creates a new SQLite repository
 func NewStorageRepository(db *sql.DB) domainChatStorage.IChatStorageRepository {
 	return &SQLiteRepository{db: db}
-}
-
-// normalizeJIDFromLID converts @lid JIDs to their corresponding @s.whatsapp.net JIDs
-// Returns the original JID if it's not an @lid or if LID lookup fails
-func normalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
-	// Only process @lid JIDs
-	if jid.Server != "lid" {
-		return jid
-	}
-
-	// Safety check
-	if client == nil || client.Store == nil || client.Store.LIDs == nil {
-		logrus.Warnf("Cannot resolve LID %s: client not available", jid.String())
-		return jid
-	}
-
-	// Attempt to get the phone number for this LID
-	pn, err := client.Store.LIDs.GetPNForLID(ctx, jid)
-	if err != nil {
-		logrus.Debugf("Failed to resolve LID %s to phone number: %v", jid.String(), err)
-		return jid
-	}
-
-	// If we got a valid phone number, use it
-	if !pn.IsEmpty() {
-		logrus.Debugf("Resolved LID %s to phone number %s", jid.String(), pn.String())
-		return pn
-	}
-
-	// Fallback to original JID
-	return jid
 }
 
 // StoreChat creates or updates a chat
@@ -548,8 +516,8 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	client := whatsapp.GetClient()
 
 	// Normalize chat and sender JIDs (convert @lid to @s.whatsapp.net)
-	normalizedChatJID := normalizeJIDFromLID(ctx, evt.Info.Chat, client)
-	normalizedSender := normalizeJIDFromLID(ctx, evt.Info.Sender, client)
+	normalizedChatJID := whatsapp.NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
+	normalizedSender := whatsapp.NormalizeJIDFromLID(ctx, evt.Info.Sender, client)
 
 	chatJID := normalizedChatJID.String()
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
@@ -685,7 +653,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	client := whatsapp.GetClient()
 
 	// Normalize recipient JID (convert @lid to @s.whatsapp.net)
-	normalizedJID := normalizeJIDFromLID(ctx, jid, client)
+	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
 	chatJID := normalizedJID.String()
 
 	// Get chat name (no pushname available for sent messages)
