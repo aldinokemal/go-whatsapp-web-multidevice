@@ -104,6 +104,30 @@ func NormalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.C
 	return jid
 }
 
+// GetLIDFromPhone attempts to resolve a phone number JID to an LID JID
+func GetLIDFromPhone(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
+	if jid.Server == "lid" {
+		return jid
+	}
+
+	if client == nil || client.Store == nil || client.Store.LIDs == nil {
+		return jid
+	}
+
+	lid, err := client.Store.LIDs.GetLIDForPN(ctx, jid)
+	if err != nil {
+		log.Debugf("Failed to resolve Phone %s to LID: %v", jid.String(), err)
+		return jid
+	}
+
+	if !lid.IsEmpty() {
+		log.Debugf("Resolved Phone %s to LID %s", jid.String(), lid.String())
+		return lid
+	}
+
+	return jid
+}
+
 func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container) {
 	if keysDB == nil {
 		return
