@@ -17,6 +17,7 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Get("/chats", rest.ListChats)
 	app.Get("/chat/:chat_jid/messages", rest.GetChatMessages)
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
+	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
 
 	return rest
 }
@@ -95,6 +96,33 @@ func (controller *Chat) PinChat(c *fiber.Ctx) error {
 	}
 
 	response, err := controller.Service.PinChat(c.UserContext(), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
+		Results: response,
+	})
+}
+
+func (controller *Chat) SetDisappearingTimer(c *fiber.Ctx) error {
+	var request domainChat.SetDisappearingTimerRequest
+
+	// Parse path parameter
+	request.ChatJID = c.Params("chat_jid")
+
+	// Parse JSON body
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	response, err := controller.Service.SetDisappearingTimer(c.UserContext(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

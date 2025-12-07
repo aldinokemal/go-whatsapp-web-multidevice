@@ -481,6 +481,7 @@ You can fork or edit this source code !
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Label Chat                             | POST   | /chat/:chat_jid/label               |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
+| ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 
 ```txt
 ✅ = Available
