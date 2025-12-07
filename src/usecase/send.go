@@ -1030,19 +1030,20 @@ func (service *serviceSend) getStickerPath(request domainSend.StickerRequest) (s
 			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
 		}
 		stickerPath = f.Name()
+		deletedItems = append(deletedItems, stickerPath)
 		if _, err := f.Write(imageData); err != nil {
 			f.Close()
 			cleanup()
 			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to write sticker: %v", err))
 		}
 		_ = f.Close()
-		deletedItems = append(deletedItems, stickerPath)
 	} else if request.Sticker != nil {
 		f, err := os.CreateTemp(absBaseDir, "sticker_*")
 		if err != nil {
 			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to create temp file: %v", err))
 		}
 		stickerPath = f.Name()
+		deletedItems = append(deletedItems, stickerPath)
 		_ = f.Close()
 
 		err = fasthttp.SaveMultipartFile(request.Sticker, stickerPath)
@@ -1050,7 +1051,6 @@ func (service *serviceSend) getStickerPath(request domainSend.StickerRequest) (s
 			cleanup()
 			return "", nil, pkgError.InternalServerError(fmt.Sprintf("failed to save sticker: %v", err))
 		}
-		deletedItems = append(deletedItems, stickerPath)
 	}
 
 	return stickerPath, cleanup, nil
