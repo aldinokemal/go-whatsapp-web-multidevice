@@ -68,16 +68,10 @@ func (service *serviceSend) wrapAndStoreMessage(ctx context.Context, recipient t
 	return ts, nil
 }
 
-func (service *serviceSend) storeMessage(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, mediaInfo *domainChatStorage.MediaInfo) error {
+func (service *serviceSend) storeMessage(ctx context.Context, messageID string, senderJID string, chatJID string, content string, timestamp time.Time, mediaInfo *domainChatStorage.MediaInfo) error {
 	if service.chatStorageRepo == nil {
 		return fmt.Errorf("chat storage repository is not initialized")
 	}
-
-	jid, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), recipientJID)
-	if err != nil {
-		return fmt.Errorf("invalid recipient JID: %w", err)
-	}
-	chatJID := jid.String()
 
 	message := &domainChatStorage.Message{
 		ID:        messageID,
