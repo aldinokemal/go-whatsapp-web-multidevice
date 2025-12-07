@@ -822,5 +822,47 @@ func (r *SQLiteRepository) getMigrations() []string {
 		`
 		CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
 		`,
+
+		// Migration 3: Add telegram_mappings table
+		`
+		CREATE TABLE IF NOT EXISTS telegram_mappings (
+			telegram_topic_id INTEGER NOT NULL,
+			whatsapp_jid TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (telegram_topic_id, whatsapp_jid)
+		);
+		CREATE INDEX IF NOT EXISTS idx_telegram_mappings_wa_jid ON telegram_mappings(whatsapp_jid);
+		CREATE INDEX IF NOT EXISTS idx_telegram_mappings_tg_topic ON telegram_mappings(telegram_topic_id);
+		`,
 	}
+}
+
+// GetTelegramTopicID retrieves the Telegram Topic ID for a given WhatsApp JID
+func (r *SQLiteRepository) GetTelegramTopicID(whatsappJID string) (int64, error) {
+	var topicID int64
+	err := r.db.QueryRow("SELECT telegram_topic_id FROM telegram_mappings WHERE whatsapp_jid = ?", whatsappJID).Scan(&topicID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return topicID, err
+}
+
+// GetWhatsAppJID retrieves the WhatsApp JID for a given Telegram Topic ID
+func (r *SQLiteRepository) GetWhatsAppJID(topicID int64) (string, error) {
+	var jid string
+	err := r.db.QueryRow("SELECT whatsapp_jid FROM telegram_mappings WHERE telegram_topic_id = ?", topicID).Scan(&jid)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return jid, err
+}
+
+// SaveTelegramMapping saves a mapping between Telegram Topic ID and WhatsApp JID
+func (r *SQLiteRepository) SaveTelegramMapping(topicID int64, whatsappJID string) error {
+	_, err := r.db.Exec(`
+		INSERT INTO telegram_mappings (telegram_topic_id, whatsapp_jid)
+		VALUES (?, ?)
+		ON CONFLICT(telegram_topic_id, whatsapp_jid) DO NOTHING
+	`, topicID, whatsappJID)
+	return err
 }

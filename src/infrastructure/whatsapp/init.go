@@ -77,7 +77,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 // Returns the original JID if it's not an @lid or if LID lookup fails
 func NormalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
 	// Only process @lid JIDs
-	if jid.Server != "lid" {
+	if jid.Server != types.HiddenUserServer {
 		return jid
 	}
 
@@ -101,6 +101,30 @@ func NormalizeJIDFromLID(ctx context.Context, jid types.JID, client *whatsmeow.C
 	}
 
 	// Fallback to original JID
+	return jid
+}
+
+// GetLIDFromPhone attempts to resolve a phone number JID to an LID JID
+func GetLIDFromPhone(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
+	if jid.Server == types.HiddenUserServer {
+		return jid
+	}
+
+	if client == nil || client.Store == nil || client.Store.LIDs == nil {
+		return jid
+	}
+
+	lid, err := client.Store.LIDs.GetLIDForPN(ctx, jid)
+	if err != nil {
+		log.Debugf("Failed to resolve Phone %s to LID: %v", jid.String(), err)
+		return jid
+	}
+
+	if !lid.IsEmpty() {
+		log.Debugf("Resolved Phone %s to LID %s", jid.String(), lid.String())
+		return lid
+	}
+
 	return jid
 }
 
@@ -646,6 +670,18 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 	// Forward to webhook if configured
 	handleWebhookForward(ctx, evt)
+
+	// Bridge to Telegram
+	go handleTelegramBridge(ctx, evt, chatStorageRepo)
+}
+
+// TelegramBridgeFunc is a callback function for bridging messages
+var TelegramBridgeFunc func(ctx context.Context, evt *events.Message, repo domainChatStorage.IChatStorageRepository)
+
+func handleTelegramBridge(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	if TelegramBridgeFunc != nil {
+		TelegramBridgeFunc(ctx, evt, chatStorageRepo)
+	}
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {
