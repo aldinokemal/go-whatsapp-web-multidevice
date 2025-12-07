@@ -670,6 +670,18 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 	// Forward to webhook if configured
 	handleWebhookForward(ctx, evt)
+
+	// Bridge to Telegram
+	go handleTelegramBridge(ctx, evt, chatStorageRepo)
+}
+
+// TelegramBridgeFunc is a callback function for bridging messages
+var TelegramBridgeFunc func(ctx context.Context, evt *events.Message, repo domainChatStorage.IChatStorageRepository)
+
+func handleTelegramBridge(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	if TelegramBridgeFunc != nil {
+		TelegramBridgeFunc(ctx, evt, chatStorageRepo)
+	}
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {

@@ -43,4 +43,10 @@ var (
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
 	ChatStorageEnableWAL         = true
+
+	// Telegram Bridge Configuration
+	TelegramBotToken      string
+	TelegramTargetGroupID int64
+	TelegramAdminID       int64
+	TelegramAllowedUsers  []int64
 )

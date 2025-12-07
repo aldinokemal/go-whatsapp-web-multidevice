@@ -10,10 +10,12 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/telegram"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
+	"github.com/PaulSonOfLars/gotgbot/v2"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
@@ -89,6 +91,20 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 					if err != nil {
 						logrus.Error("Error when write qr code to file: ", err)
 					}
+
+					// Send QR to Telegram if configured
+					if config.TelegramAdminID != 0 && telegram.Bot != nil {
+						go func(path string) {
+							f, err := os.Open(path)
+							if err == nil {
+								defer f.Close()
+								_, _ = telegram.Bot.SendPhoto(config.TelegramAdminID, f, &gotgbot.SendPhotoOpts{
+									Caption: "New WhatsApp Login QR Code",
+								})
+							}
+						}(qrPath)
+					}
+
 					go func() {
 						time.Sleep(response.Duration * time.Second)
 						err := os.Remove(qrPath)

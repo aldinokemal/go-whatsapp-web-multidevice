@@ -38,4 +38,9 @@ type IChatStorageRepository interface {
 
 	// Schema operations
 	InitializeSchema() error
+
+	// Telegram Mappings
+	GetTelegramTopicID(whatsappJID string) (int64, error)
+	GetWhatsAppJID(topicID int64) (string, error)
+	SaveTelegramMapping(topicID int64, whatsappJID string) error
 }

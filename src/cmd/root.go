@@ -20,6 +20,7 @@ import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/telegram"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
@@ -130,6 +131,24 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
+
+	// Telegram Bridge Configuration
+	if envTelegramBotToken := viper.GetString("telegram_bot_token"); envTelegramBotToken != "" {
+		config.TelegramBotToken = envTelegramBotToken
+	}
+	if envTelegramTargetGroupID := viper.GetInt64("telegram_target_group_id"); envTelegramTargetGroupID != 0 {
+		config.TelegramTargetGroupID = envTelegramTargetGroupID
+	}
+	if envTelegramAdminID := viper.GetInt64("telegram_admin_id"); envTelegramAdminID != 0 {
+		config.TelegramAdminID = envTelegramAdminID
+	}
+	if envTelegramAllowedUsers := viper.GetIntSlice("telegram_allowed_users"); len(envTelegramAllowedUsers) > 0 {
+		users := make([]int64, len(envTelegramAllowedUsers))
+		for i, v := range envTelegramAllowedUsers {
+			users[i] = int64(v)
+		}
+		config.TelegramAllowedUsers = users
+	}
 }
 
 func initFlags() {
@@ -229,6 +248,32 @@ func initFlags() {
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
 	)
+
+	// Telegram flags
+	rootCmd.PersistentFlags().StringVar(
+		&config.TelegramBotToken,
+		"telegram-bot-token",
+		"",
+		"Telegram Bot Token for the bridge",
+	)
+	rootCmd.PersistentFlags().Int64Var(
+		&config.TelegramTargetGroupID,
+		"telegram-target-group-id",
+		0,
+		"Telegram Supergroup ID for bridging messages",
+	)
+	rootCmd.PersistentFlags().Int64Var(
+		&config.TelegramAdminID,
+		"telegram-admin-id",
+		0,
+		"Telegram Admin ID for receiving QR codes",
+	)
+	rootCmd.PersistentFlags().Int64SliceVar(
+		&config.TelegramAllowedUsers,
+		"telegram-allowed-users",
+		nil,
+		"Comma-separated list of allowed Telegram User IDs",
+	)
 }
 
 func initChatStorage() (*sql.DB, error) {
@@ -277,6 +322,11 @@ func initApp() {
 
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
 	chatStorageRepo.InitializeSchema()
+
+	// Initialize Telegram Bot
+	if err := telegram.InitTelegram(chatStorageRepo); err != nil {
+		logrus.Errorf("Failed to initialize Telegram: %v", err)
+	}
 
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
 	var keysDB *sqlstore.Container
