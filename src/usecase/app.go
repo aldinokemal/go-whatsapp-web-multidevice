@@ -98,7 +98,7 @@ func (service *serviceApp) Login(_ context.Context) (response domainApp.LoginRes
 							f, err := os.Open(path)
 							if err == nil {
 								defer f.Close()
-								_, _ = telegram.Bot.SendPhoto(config.TelegramAdminID, f, &gotgbot.SendPhotoOpts{
+								_, _ = telegram.Bot.SendPhoto(config.TelegramAdminID, gotgbot.InputFileByReader("qr.png", f), &gotgbot.SendPhotoOpts{
 									Caption: "New WhatsApp Login QR Code",
 								})
 							}
