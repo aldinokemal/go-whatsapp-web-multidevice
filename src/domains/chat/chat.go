@@ -73,3 +73,16 @@ type PaginationResponse struct {
 	Offset int `json:"offset"`
 	Total  int `json:"total"`
 }
+
+// Disappearing Messages operations
+type SetDisappearingTimerRequest struct {
+	ChatJID      string `json:"chat_jid" uri:"chat_jid"`
+	TimerSeconds uint32 `json:"timer_seconds"`
+}
+
+type SetDisappearingTimerResponse struct {
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	ChatJID      string `json:"chat_jid"`
+	TimerSeconds uint32 `json:"timer_seconds"`
+}

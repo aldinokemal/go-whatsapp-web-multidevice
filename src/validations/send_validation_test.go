@@ -892,24 +892,29 @@ func TestValidateDuration(t *testing.T) {
 			err:      nil,
 		},
 		{
-			name:     "should success with valid duration",
-			duration: func() *int { d := 3600; return &d }(),
+			name:     "should success with 24h duration",
+			duration: func() *int { d := 86400; return &d }(),
 			err:      nil,
 		},
 		{
-			name:     "should success with max duration",
-			duration: func() *int { d := int(maxDuration); return &d }(),
+			name:     "should success with 7d duration",
+			duration: func() *int { d := 604800; return &d }(),
 			err:      nil,
+		},
+		{
+			name:     "should success with 90d duration",
+			duration: func() *int { d := 7776000; return &d }(),
+			err:      nil,
+		},
+		{
+			name:     "should error with invalid duration",
+			duration: func() *int { d := 12345; return &d }(),
+			err:      pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 		{
 			name:     "should error with negative duration",
 			duration: func() *int { d := -1; return &d }(),
-			err:      pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
-		},
-		{
-			name:     "should error with duration too high",
-			duration: func() *int { d := int(maxDuration) + 1; return &d }(),
-			err:      pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
+			err:      pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 	}
 
@@ -935,7 +940,7 @@ func TestValidateSendMessage_WithDuration(t *testing.T) {
 			args: args{request: domainSend.MessageRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := 3600; return &d }(),
+					Duration: func() *int { d := 86400; return &d }(),
 				},
 				Message: "Hello this is testing",
 			}},
@@ -946,11 +951,11 @@ func TestValidateSendMessage_WithDuration(t *testing.T) {
 			args: args{request: domainSend.MessageRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := -1; return &d }(),
+					Duration: func() *int { d := 12345; return &d }(),
 				},
 				Message: "Hello this is testing",
 			}},
-			err: pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
+			err: pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 	}
 
@@ -1023,7 +1028,7 @@ func TestValidateSendFile_WithDuration(t *testing.T) {
 			args: args{request: domainSend.FileRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := 3600; return &d }(),
+					Duration: func() *int { d := 604800; return &d }(),
 				},
 				File: file,
 			}},
@@ -1034,11 +1039,11 @@ func TestValidateSendFile_WithDuration(t *testing.T) {
 			args: args{request: domainSend.FileRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := -1; return &d }(),
+					Duration: func() *int { d := 12345; return &d }(),
 				},
 				File: file,
 			}},
-			err: pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
+			err: pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 	}
 
@@ -1070,7 +1075,7 @@ func TestValidateSendAudio_WithDuration(t *testing.T) {
 			args: args{request: domainSend.AudioRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := 3600; return &d }(),
+					Duration: func() *int { d := 7776000; return &d }(),
 				},
 				Audio: audio,
 			}},
@@ -1091,11 +1096,11 @@ func TestValidateSendAudio_WithDuration(t *testing.T) {
 			args: args{request: domainSend.AudioRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone:    "1728937129312@s.whatsapp.net",
-					Duration: func() *int { d := -1; return &d }(),
+					Duration: func() *int { d := 12345; return &d }(),
 				},
 				Audio: audio,
 			}},
-			err: pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
+			err: pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 	}
 
