@@ -244,3 +244,48 @@ func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinCh
 
 	return response, nil
 }
+
+func (service serviceChat) SetDisappearingTimer(ctx context.Context, request domainChat.SetDisappearingTimerRequest) (response domainChat.SetDisappearingTimerResponse, err error) {
+	if err = validations.ValidateSetDisappearingTimer(ctx, &request); err != nil {
+		return response, err
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Set disappearing timer using whatsmeow
+	if err = whatsapp.GetClient().SetDisappearingTimer(ctx, targetJID, time.Duration(request.TimerSeconds)*time.Second, time.Now()); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid":      request.ChatJID,
+			"timer_seconds": request.TimerSeconds,
+		}).Error("Failed to set disappearing timer")
+		return response, err
+	}
+
+	// Update local storage immediately for consistency
+	if existingChat, _ := service.chatStorageRepo.GetChat(request.ChatJID); existingChat != nil {
+		existingChat.EphemeralExpiration = request.TimerSeconds
+		_ = service.chatStorageRepo.StoreChat(existingChat)
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.TimerSeconds = request.TimerSeconds
+
+	if request.TimerSeconds == 0 {
+		response.Message = "Disappearing messages disabled"
+	} else {
+		response.Message = fmt.Sprintf("Disappearing messages set to %d seconds", request.TimerSeconds)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid":      request.ChatJID,
+		"timer_seconds": request.TimerSeconds,
+	}).Info("Disappearing timer set successfully")
+
+	return response, nil
+}
