@@ -164,8 +164,8 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 
 // StoreMessage creates or updates a message
 func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) error {
-	logrus.Infof("🗄️ [DB] StoreMessage called - ID: %s, ChatJID: %s, Content: %s, MediaType: %s",
-		message.ID, message.ChatJID, message.Content, message.MediaType)
+	logrus.Infof("🗄️ [DB] StoreMessage called - ID: %s, ChatJID: %s, ContentLength: %d, MediaType: %s",
+		message.ID, message.ChatJID, len(message.Content), message.MediaType)
 
 	now := time.Now()
 	message.CreatedAt = now
@@ -173,8 +173,8 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 
 	// Skip empty messages
 	if message.Content == "" && message.MediaType == "" {
-		logrus.Warnf("⚠️ [DB] Skipping empty message - ID: %s, Content: '%s', MediaType: '%s'",
-			message.ID, message.Content, message.MediaType)
+		logrus.Warnf("⚠️ [DB] Skipping empty message - ID: %s, MediaType: '%s'",
+			message.ID, message.MediaType)
 		return nil
 	}
 
