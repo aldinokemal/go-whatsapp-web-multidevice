@@ -13,20 +13,28 @@ import (
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
-// maxDuration represents the maximum allowed duration in seconds (uint32 max).
-const maxDuration int64 = 4294967295
+// ValidDurationValues contains WhatsApp's allowed disappearing message durations in seconds.
+// 0 = no expiry/disabled, 86400 = 24 hours, 604800 = 7 days, 7776000 = 90 days.
+var ValidDurationValues = []int{
+	0,       // No expiry / disabled
+	86400,   // 24 hours
+	604800,  // 7 days
+	7776000, // 90 days
+}
 
-// validateDuration validates that the duration pointer is nil or within acceptable bounds.
+// validateDuration validates that the duration pointer is nil or one of WhatsApp's standard values.
 func validateDuration(dur *int) error {
 	if dur == nil {
 		return nil
 	}
-	if *dur < 0 || int64(*dur) > int64(maxDuration) {
-		return pkgError.ValidationError(
-			fmt.Sprintf("duration must be between 0 and %d seconds (0 means no expiry)", maxDuration),
-		)
+	for _, valid := range ValidDurationValues {
+		if *dur == valid {
+			return nil
+		}
 	}
-	return nil
+	return pkgError.ValidationError(
+		"duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)",
+	)
 }
 
 // validatePhoneNumber validates that the phone number is in international format (not starting with 0)

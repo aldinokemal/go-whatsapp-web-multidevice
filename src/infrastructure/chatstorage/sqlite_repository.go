@@ -8,6 +8,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
@@ -511,13 +512,19 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return nil
 	}
 
-	// Extract chat and sender information
-	chatJID := evt.Info.Chat.String()
+	// Get WhatsApp client for LID resolution
+	client := whatsapp.GetClient()
+
+	// Normalize chat and sender JIDs (convert @lid to @s.whatsapp.net)
+	normalizedChatJID := whatsapp.NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
+	normalizedSender := whatsapp.NormalizeJIDFromLID(ctx, evt.Info.Sender, client)
+
+	chatJID := normalizedChatJID.String()
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
-	sender := evt.Info.Sender.String()
+	sender := normalizedSender.String()
 
 	// Get appropriate chat name using pushname if available
-	chatName := r.GetChatNameWithPushName(evt.Info.Chat, chatJID, evt.Info.Sender.User, evt.Info.PushName)
+	chatName := r.GetChatNameWithPushName(normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
 
 	// Get existing chat to preserve ephemeral_expiration if needed
 	existingChat, err := r.GetChat(chatJID)
@@ -642,10 +649,15 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		return fmt.Errorf("invalid JID format: %w", err)
 	}
 
-	chatJID := jid.String()
+	// Get WhatsApp client for LID resolution
+	client := whatsapp.GetClient()
+
+	// Normalize recipient JID (convert @lid to @s.whatsapp.net)
+	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
+	chatJID := normalizedJID.String()
 
 	// Get chat name (no pushname available for sent messages)
-	chatName := r.GetChatNameWithPushName(jid, chatJID, jid.User, "")
+	chatName := r.GetChatNameWithPushName(normalizedJID, chatJID, normalizedJID.User, "")
 
 	// Check context again before database operations
 	select {

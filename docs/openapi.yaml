@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.12.0
+  version: 6.13.0
   description: This API is used for sending whatsapp via API
 servers:
   - url: http://localhost:3000
@@ -1625,6 +1625,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  
+  /chat/{chat_jid}/disappearing:
+    post:
+      operationId: setDisappearingTimer
+      tags:
+        - chat
+      summary: Set disappearing messages timer
+      description: Set or disable disappearing messages for a chat. Valid timer values are 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d).
+      parameters:
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timer_seconds:
+                  type: integer
+                  example: 86400
+                  description: 'Timer in seconds: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)'
+              required:
+                - timer_seconds
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetDisappearingTimerResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
         '500':
           description: Internal Server Error
           content:
@@ -3435,6 +3482,33 @@ components:
             pinned:
               type: boolean
               example: true
+    SetDisappearingTimerResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Disappearing messages set to 86400 seconds
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Disappearing messages set to 86400 seconds
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            timer_seconds:
+              type: integer
+              example: 86400
     GroupInfoResponse:
       type: object
       properties:
