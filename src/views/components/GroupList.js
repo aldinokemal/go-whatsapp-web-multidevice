@@ -246,14 +246,19 @@ export default {
             <table v-else class="ui celled table">
                 <thead>
                     <tr>
-                        <th>User ID</th>
+                        <th>User</th>
+                        <th>Phone Number</th>
                         <th>Request Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-for="member in requestedMembers" :key="member.jid">
-                        <td>{{ formatJID(member.jid) }}</td>
+                        <td>
+                            <div class="header">{{ formatJID(member.jid) }}</div>
+                            <div v-if="member.display_name" class="description">{{ member.display_name }}</div>
+                        </td>
+                        <td>{{ member.phone_number || formatJID(member.jid) }}</td>
                         <td>{{ formatDate(member.requested_at) }}</td>
                         <td>
                             <div class="ui mini buttons">

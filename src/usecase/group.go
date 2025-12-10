@@ -191,9 +191,33 @@ func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, req
 		return result, err
 	}
 
+	// Collect JIDs for batch GetUserInfo call
+	jids := make([]types.JID, 0, len(participants))
+	for _, p := range participants {
+		jids = append(jids, p.JID)
+	}
+
+	// Fetch user info for verified business names (ignore errors)
+	userInfoMap := make(map[types.JID]types.UserInfo)
+	if len(jids) > 0 {
+		userInfoMap, _ = whatsapp.GetClient().GetUserInfo(ctx, jids)
+	}
+
 	for _, participant := range participants {
+		displayName := ""
+
+		// Try contact store first (for known contacts)
+		if contact, err := whatsapp.GetClient().Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
+			displayName = contact.FullName
+		} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
+			// Fall back to verified business name
+			displayName = info.VerifiedName.Details.GetVerifiedName()
+		}
+
 		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
 			JID:         participant.JID.String(),
+			PhoneNumber: participant.JID.User,
+			DisplayName: displayName,
 			RequestedAt: participant.RequestedAt,
 		})
 	}
