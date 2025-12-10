@@ -251,7 +251,7 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 	}
 
 	// Validate JID and ensure connection
-	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	targetJID, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.ChatJID)
 	if err != nil {
 		return response, err
 	}

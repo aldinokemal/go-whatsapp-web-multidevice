@@ -20,6 +20,9 @@ ENV TZ=UTC
 WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
+# Copy script to auto delete media downloaded
+COPY --from=builder /whatsapp/cronScripts /etc/periodic
+RUN chmod +x /etc/periodic/*
 # Run the binary.
 ENTRYPOINT ["/app/whatsapp"]
 

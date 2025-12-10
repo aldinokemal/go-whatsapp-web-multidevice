@@ -11,4 +11,5 @@ storages
 .env
 bin
 distplan.md
-*.sh
+build-publish.sh
+src/build-run.sh
