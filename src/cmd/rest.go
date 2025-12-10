@@ -99,6 +99,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	rest.InitRestApp(apiGroup, appUsecase)
 	rest.InitRestChat(apiGroup, chatUsecase)
 	rest.InitRestSend(apiGroup, sendUsecase)
+	if scheduleUsecase != nil {
+		rest.InitRestSchedule(apiGroup, scheduleUsecase)
+	}
 	rest.InitRestUser(apiGroup, userUsecase)
 	rest.InitRestMessage(apiGroup, messageUsecase)
 	rest.InitRestGroup(apiGroup, groupUsecase)
