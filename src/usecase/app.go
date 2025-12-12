@@ -151,7 +151,7 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, phoneNumber string
 	}
 
 	logrus.Infof("[DEBUG] Starting phone pairing for number: %s", phoneNumber)
-	loginCode, err = client.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	loginCode, err = client.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, config.AppOs)
 	if err != nil {
 		logrus.Errorf("Error when pairing phone: %s", err.Error())
 		return loginCode, err
