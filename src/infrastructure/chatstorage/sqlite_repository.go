@@ -164,20 +164,26 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 
 // StoreMessage creates or updates a message
 func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) error {
+	logrus.Infof("🗄️ [DB] StoreMessage called - ID: %s, ChatJID: %s, ContentLength: %d, MediaType: %s",
+		message.ID, message.ChatJID, len(message.Content), message.MediaType)
+
 	now := time.Now()
 	message.CreatedAt = now
 	message.UpdatedAt = now
 
 	// Skip empty messages
 	if message.Content == "" && message.MediaType == "" {
-		// This is not an error, just skip storing empty messages
+		logrus.Warnf("⚠️ [DB] Skipping empty message - ID: %s, MediaType: '%s'",
+			message.ID, message.MediaType)
 		return nil
 	}
 
+	logrus.Infof("📝 [DB] Preparing to insert/update message - ID: %s", message.ID)
+
 	query := `
 		INSERT INTO messages (
-			id, chat_jid, sender, content, timestamp, is_from_me, 
-			media_type, filename, url, media_key, file_sha256, 
+			id, chat_jid, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id, chat_jid) DO UPDATE SET
@@ -195,14 +201,25 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 			updated_at = excluded.updated_at
 	`
 
-	_, err := r.db.Exec(query,
+	logrus.Infof("💾 [DB] Executing SQL INSERT/UPDATE for message ID: %s", message.ID)
+
+	result, err := r.db.Exec(query,
 		message.ID, message.ChatJID, message.Sender, message.Content,
 		message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
 		message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
 		message.FileLength, message.CreatedAt, message.UpdatedAt,
 	)
 
-	return err
+	if err != nil {
+		logrus.Errorf("❌ [DB] SQL execution failed for message ID %s: %v", message.ID, err)
+		return err
+	}
+
+	// Log SQL result info
+	rowsAffected, _ := result.RowsAffected()
+	logrus.Infof("✅ [DB] SQL executed successfully - ID: %s, RowsAffected: %d", message.ID, rowsAffected)
+
+	return nil
 }
 
 // StoreMessagesBatch creates or updates multiple messages in a single transaction
