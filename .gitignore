@@ -10,5 +10,6 @@ src/pkged.go
 storages
 .env
 bin
-.playwright-mcp
-.cursor/mcp.json
+distplan.md
+build-publish.sh
+src/build-run.sh
