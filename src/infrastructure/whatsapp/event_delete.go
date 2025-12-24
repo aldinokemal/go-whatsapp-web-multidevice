@@ -5,12 +5,13 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 // forwardDeleteToWebhook sends a delete event to webhook
-func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) error {
-	payload, err := createDeletePayload(ctx, evt, message)
+func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) error {
+	payload, err := createDeletePayload(ctx, evt, message, deviceID, client)
 	if err != nil {
 		return err
 	}
@@ -19,14 +20,21 @@ func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, messag
 }
 
 // createDeletePayload creates a webhook payload for delete events
-func createDeletePayload(_ context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) (map[string]any, error) {
+func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) (map[string]any, error) {
 	body := make(map[string]any)
 
 	// Basic delete event information
 	body["action"] = "event.delete_for_me"
 	body["deleted_message_id"] = evt.MessageID
-	body["sender_id"] = evt.SenderJID.User
 	body["timestamp"] = time.Now().Format(time.RFC3339)
+	if deviceID != "" {
+		body["device_id"] = deviceID
+	}
+
+	// Resolve sender JID (convert LID to phone number if needed)
+	normalizedSenderJID := NormalizeJIDFromLID(ctx, evt.SenderJID, client)
+	body["from"] = normalizedSenderJID.ToNonAD().String()
+	body["sender_id"] = normalizedSenderJID.User
 
 	// Include original message information if available
 	if message != nil {
@@ -40,11 +48,6 @@ func createDeletePayload(_ context.Context, evt *events.DeleteForMe, message *do
 			body["original_media_type"] = message.MediaType
 			body["original_filename"] = message.Filename
 		}
-	}
-
-	// Parse sender JID for proper formatting
-	if evt.SenderJID.Server != "" {
-		body["from"] = evt.SenderJID.String()
 	}
 
 	return body, nil

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -95,14 +96,26 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup = app.Group(config.AppBasePath)
 	}
 
-	// Rest
-	rest.InitRestApp(apiGroup, appUsecase)
-	rest.InitRestChat(apiGroup, chatUsecase)
-	rest.InitRestSend(apiGroup, sendUsecase)
-	rest.InitRestUser(apiGroup, userUsecase)
-	rest.InitRestMessage(apiGroup, messageUsecase)
-	rest.InitRestGroup(apiGroup, groupUsecase)
-	rest.InitRestNewsletter(apiGroup, newsletterUsecase)
+	// Device manager aware routing
+	dm := whatsapp.GetDeviceManager()
+
+	registerDeviceScopedRoutes := func(r fiber.Router) {
+		rest.InitRestApp(r, appUsecase)
+		rest.InitRestChat(r, chatUsecase)
+		rest.InitRestSend(r, sendUsecase)
+		rest.InitRestUser(r, userUsecase)
+		rest.InitRestMessage(r, messageUsecase)
+		rest.InitRestGroup(r, groupUsecase)
+		rest.InitRestNewsletter(r, newsletterUsecase)
+		websocket.RegisterRoutes(r, appUsecase)
+	}
+
+	// Device management routes (no device_id required)
+	rest.InitRestDevice(apiGroup, deviceUsecase)
+
+	// Device-scoped operations (header-based)
+	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{
@@ -115,7 +128,6 @@ func restServer(_ *cobra.Command, _ []string) {
 		})
 	})
 
-	websocket.RegisterRoutes(apiGroup, appUsecase)
 	go websocket.RunHub()
 
 	// Set auto reconnect to whatsapp server after booting
@@ -124,7 +136,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Set auto reconnect checking with a guaranteed client instance
 	startAutoReconnectCheckerIfClientAvailable()
 
-	if err := app.Listen(":" + config.AppPort); err != nil {
+	if err := app.Listen(config.AppHost + ":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())
 	}
 }

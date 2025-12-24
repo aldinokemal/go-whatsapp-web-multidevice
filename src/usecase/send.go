@@ -45,16 +45,16 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 }
 
 // wrapSendMessage wraps the message sending process with message ID saving
-func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := whatsapp.GetClient().SendMessage(ctx, recipient, msg)
+func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
+	ts, err := client.SendMessage(ctx, recipient, msg)
 	if err != nil {
 		return whatsmeow.SendResponse{}, err
 	}
 
 	// Store the sent message using chatstorage
 	senderJID := ""
-	if whatsapp.GetClient().Store.ID != nil {
-		senderJID = whatsapp.GetClient().Store.ID.String()
+	if client.Store.ID != nil {
+		senderJID = client.Store.ID.String()
 	}
 
 	// Store message asynchronously with timeout
@@ -80,7 +80,13 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -159,7 +165,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		}
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, request.Message)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
 		return response, err
 	}
@@ -174,7 +180,13 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -273,7 +285,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	uploadedImage, err := service.uploadMedia(ctx, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
+	uploadedImage, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("failed to upload file: %v", err)
 		return response, err
@@ -315,7 +327,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if request.Caption != "" {
 		caption = "🖼️ " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -336,7 +348,13 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -345,7 +363,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	fileMimeType := resolveDocumentMIME(request.File.Filename, fileBytes)
 
 	// Send to WA server
-	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
+	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
@@ -382,7 +400,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if request.Caption != "" {
 		caption = "📄 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {
 		return response, err
 	}
@@ -412,7 +430,13 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -529,7 +553,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	uploaded, err := service.uploadMedia(ctx, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
+	uploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
 	}
@@ -572,7 +596,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if request.Caption != "" {
 		caption = "🎥 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {
 		return response, err
 	}
@@ -587,7 +611,13 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -615,7 +645,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 
 	content := "👤 " + request.ContactName
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -630,7 +660,13 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -672,7 +708,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
-		uploadedThumb, err := service.uploadMedia(ctx, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
+		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
 		if err == nil {
 			// Update the message with the uploaded thumbnail information
 			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
@@ -690,7 +726,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if request.Caption != "" {
 		content = "🔗 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -705,7 +741,13 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -735,7 +777,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	content := "📍 " + request.Latitude + ", " + request.Longitude
 
 	// Send WhatsApp Message Proto
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -752,7 +794,12 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -775,7 +822,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	// upload to WhatsApp servers
-	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
+	audioUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
 		return response, err
@@ -809,7 +856,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	content := "🎵 Audio"
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -824,14 +871,20 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	content := "📊 " + request.Question
 
-	msg := whatsapp.GetClient().BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.PollCreationMessage.ContextInfo == nil {
@@ -840,7 +893,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 		msg.PollCreationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -856,7 +909,12 @@ func (service serviceSend) SendPresence(ctx context.Context, request domainSend.
 		return response, err
 	}
 
-	err = whatsapp.GetClient().SendPresence(ctx, types.Presence(request.Type))
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	err = client.SendPresence(ctx, types.Presence(request.Type))
 	if err != nil {
 		return response, err
 	}
@@ -872,7 +930,12 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 		return response, err
 	}
 
-	userJid, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	userJid, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -894,7 +957,7 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 		return response, fmt.Errorf("invalid action: %s. Must be 'start' or 'stop'", request.Action)
 	}
 
-	err = whatsapp.GetClient().SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))
+	err = client.SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))
 	if err != nil {
 		return response, err
 	}
@@ -904,11 +967,16 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 	return response, nil
 }
 
-func (service serviceSend) getMentionFromText(_ context.Context, messages string) (result []string) {
+func (service serviceSend) getMentionFromText(ctx context.Context, messages string) (result []string) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result
+	}
+
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
 		// Get JID from phone number
-		if dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), mention); err == nil {
+		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
 	}
@@ -922,7 +990,12 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -1050,7 +1123,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	// Upload sticker to WhatsApp servers
-	stickerUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
+	stickerUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
 	}
@@ -1088,7 +1161,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	content := "🎨 Sticker"
 
 	// Send the sticker message
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -1098,11 +1171,11 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	return response, nil
 }
 
-func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if recipient.Server == types.NewsletterServer {
-		uploaded, err = whatsapp.GetClient().UploadNewsletter(ctx, media, mediaType)
+		uploaded, err = client.UploadNewsletter(ctx, media, mediaType)
 	} else {
-		uploaded, err = whatsapp.GetClient().Upload(ctx, media, mediaType)
+		uploaded, err = client.Upload(ctx, media, mediaType)
 	}
 	return uploaded, err
 }

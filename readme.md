@@ -40,6 +40,23 @@ Download:
 - `v7`
   - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
       from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+- `v8`
+  - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single server instance
+  - **New Device Management API**: New endpoints under `/devices` for managing multiple devices
+  - **Device scoping required**: All device-scoped REST API calls now require either:
+    - `X-Device-Id` header, or
+    - `device_id` query parameter
+    - If only one device is registered, it will be used as the default
+  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
+  - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which device received the event:
+
+    ```json
+    {
+      "event": "message",
+      "device_id": "628123456789@s.whatsapp.net",
+      "payload": { ... }
+    }
+    ```
 
 ## Feature
 
@@ -86,6 +103,7 @@ Download:
 - **Webhook TLS Configuration**
 
   If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed certificates):
+
   ```
   tls: failed to verify certificate: x509: certificate signed by unknown authority
   ```
@@ -130,6 +148,7 @@ To use environment variables:
 | Variable                      | Description                                 | Default                                      | Example                                     |
 |-------------------------------|---------------------------------------------|----------------------------------------------|---------------------------------------------|
 | `APP_PORT`                    | Application port                            | `3000`                                       | `APP_PORT=8080`                             |
+| `APP_HOST`                    | Host address to bind the server             | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                        |
 | `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
 | `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
 | `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
@@ -422,11 +441,21 @@ You can fork or edit this source code !
 
 | Feature | Menu                                   | Method | URL                                 |
 |---------|----------------------------------------|--------|-------------------------------------|
+| ✅       | List Devices                           | GET    | /devices                            |
+| ✅       | Add Device                             | POST   | /devices                            |
+| ✅       | Get Device Info                        | GET    | /devices/:device_id                 |
+| ✅       | Remove Device                          | DELETE | /devices/:device_id                 |
+| ✅       | Login Device (QR)                      | GET    | /devices/:device_id/login           |
+| ✅       | Login Device (Code)                    | POST   | /devices/:device_id/login/code      |
+| ✅       | Logout Device                          | POST   | /devices/:device_id/logout          |
+| ✅       | Reconnect Device                       | POST   | /devices/:device_id/reconnect       |
+| ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
 | ✅       | Login with Scan QR                     | GET    | /app/login                          |
 | ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
-| ✅       | Logout                                 | GET    | /app/logout                         |  
+| ✅       | Logout                                 | GET    | /app/logout                         |
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |
+| ✅       | Connection Status                      | GET    | /app/status                         |
 | ✅       | User Info                              | GET    | /user/info                          |
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
@@ -456,6 +485,7 @@ You can fork or edit this source code !
 | ✅       | Read Message (DM)                      | POST   | /message/:message_id/read           |
 | ✅       | Star Message                           | POST   | /message/:message_id/star           |
 | ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
+| ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Join Group With Link                   | POST   | /group/join-with-link               |
 | ✅       | Group Info From Link                   | GET    | /group/info-from-link               |
 | ✅       | Group Info                             | GET    | /group/info                         |
@@ -503,7 +533,7 @@ You can fork or edit this source code !
 
 | Description          | Image                                                         |
 |----------------------|---------------------------------------------------------------|
-| Homepage             | ![Homepage](./gallery/homepage.png)                           |
+| Homepage             | ![Homepage](./gallery/homepage.png?v=1)                       |
 | Login                | ![Login](./gallery/login.png)                                 |
 | Login With Code      | ![Login With Code](./gallery/login-with-code.png)             |
 | Send Message         | ![Send Message](./gallery/send-message.png)                   |

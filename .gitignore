@@ -12,3 +12,5 @@ storages
 bin
 .playwright-mcp
 .cursor/mcp.json
+.factory
+.vscode/settings.json

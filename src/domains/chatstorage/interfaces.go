@@ -35,6 +35,13 @@ type IChatStorageRepository interface {
 	// Cleanup operations
 	TruncateAllChats() error
 	TruncateAllDataWithLogging(logPrefix string) error
+	DeleteDeviceData(deviceID string) error
+
+	// Device registry operations
+	SaveDeviceRecord(record *DeviceRecord) error
+	ListDeviceRecords() ([]*DeviceRecord, error)
+	GetDeviceRecord(deviceID string) (*DeviceRecord, error)
+	DeleteDeviceRecord(deviceID string) error
 
 	// Schema operations
 	InitializeSchema() error

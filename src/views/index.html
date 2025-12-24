@@ -42,25 +42,38 @@
         </h1>
     </div>
 
-    <div class="ui success message" v-if="connected_devices != null">
+    <div class="ui info message" v-if="selectedDeviceId">
         <div class="header">
-            <i class="check circle icon"></i>
-            Device Connected Successfully
+            <i class="linkify icon"></i>
+            Device context active
         </div>
         <p>
-            Device ID: <b>[[ connected_devices[0].device ]]</b>
+            Using device: <b>[[ selectedDeviceId ]]</b>.
+            REST/WebSocket send <code>X-Device-Id</code> (or <code>?device_id=</code> for WS).
         </p>
     </div>
+
+    <device-manager 
+        ref="deviceManager"
+        ws-base-path="{{ .AppBasePath }}"
+        @device-selected="handleDeviceSelected"
+        @devices-updated="handleDevicesUpdated">
+    </device-manager>
 
     <div class="ui horizontal divider">
         App
     </div>
 
-    <div class="ui three column stackable grid cards">
-        <app-login :connected="connected_devices"></app-login>
+    <div class="ui warning message" v-if="!selectedDeviceId">
+        <div class="header">Device required</div>
+        <p>Select or create a device above. Provide <code>X-Device-Id</code> on REST calls.</p>
+    </div>
+
+    <div class="ui three column stackable grid cards" :class="{disabled: !selectedDeviceId}">
+        <app-login :logged-in="isSelectedDeviceLoggedIn"></app-login>
         <app-logout @reload-devices="handleReloadDevice"></app-logout>
         <app-reconnect @reload-devices="handleReloadDevice"></app-reconnect>
-        <app-login-with-code :connected="connected_devices"></app-login-with-code>
+        <app-login-with-code :logged-in="isSelectedDeviceLoggedIn"></app-login-with-code>
     </div>
 
     <div class="ui horizontal divider">
@@ -177,8 +190,10 @@
     }
 
 
+    const baseHost = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
+    const DEVICE_ID_HEADER = 'X-Device-Id';
     window.http = axios.create({
-        baseURL: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}{{ .AppBasePath }}`
+        baseURL: `${baseHost}{{ .AppBasePath }}`
     });
     {{ if isEnableBasicAuth .BasicAuthToken }}
     window.http.defaults.headers.common['Authorization'] = "{{ .BasicAuthToken }}";
@@ -231,6 +246,7 @@
     import ChatDisappearingManager from "{{ .AppBasePath }}/components/ChatDisappearingManager.js";
     import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
     import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
+    import DeviceManager from "{{ .AppBasePath }}/components/DeviceManager.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -251,13 +267,6 @@
         });
     }
 
-    const constructWebSocketURL = () => {
-        const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-        const basePath = '{{ .AppBasePath }}';
-        
-        return `${protocol}${location.host}${basePath}/ws`;
-    };
-
     Vue.createApp({
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
@@ -266,48 +275,93 @@
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
-            ChatPinManager, ChatDisappearingManager, ChatList, ChatMessages
+            ChatPinManager, ChatDisappearingManager, ChatList, ChatMessages,
+            DeviceManager
         },
         delimiters: ['[[', ']]'],
         data() {
             return {
                 app_ws: null,
                 connected_devices: null,
+                deviceList: [],
+                selectedDeviceId: '',
             }
+        },
+        computed: {
+            selectedDevice() {
+                if (!this.selectedDeviceId) return null;
+                return this.deviceList.find(d => (d.id || d.device) === this.selectedDeviceId) || null;
+            },
+            isSelectedDeviceLoggedIn() {
+                return this.selectedDevice?.state === 'logged_in';
+            },
         },
         methods: {
+            applyDeviceHeader(id) {
+                if (id) {
+                    window.http.defaults.headers.common[DEVICE_ID_HEADER] = id;
+                } else {
+                    delete window.http.defaults.headers.common[DEVICE_ID_HEADER];
+                    if (this.app_ws) {
+                        this.app_ws.close();
+                        this.app_ws = null;
+                    }
+                }
+            },
+            constructWebSocketURL() {
+                if (!this.selectedDeviceId) return '';
+                const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+                const basePath = '{{ .AppBasePath }}';
+                const deviceQuery = encodeURIComponent(this.selectedDeviceId);
+                const pathPrefix = basePath || '';
+                return `${protocol}${location.host}${pathPrefix}/ws?device_id=${deviceQuery}`;
+            },
             handleReloadDevice() {
-                this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}))
-            }
-        },
-        mounted() {
-            // Initialize app container as hidden
-            document.getElementById('app').style.display = 'none';
-            
-            if (window["WebSocket"]) {
-                this.app_ws = new WebSocket(constructWebSocketURL());
+                if (this.$refs.deviceManager) {
+                    this.$refs.deviceManager.refresh();
+                }
+                if (this.app_ws) {
+                    this.app_ws.send(JSON.stringify({"code": "FETCH_DEVICES"}));
+                }
+            },
+            handleDeviceSelected(id) {
+                this.selectedDeviceId = id;
+                this.applyDeviceHeader(id);
+                if (id) {
+                    this.connectWebSocket();
+                }
+            },
+            handleDevicesUpdated(devices) {
+                this.deviceList = devices;
+                this.connected_devices = devices;
+            },
+            connectWebSocket() {
+                if (!this.selectedDeviceId) {
+                    return;
+                }
+
+                if (this.app_ws) {
+                    this.app_ws.close();
+                    this.app_ws = null;
+                }
+
+                const wsURL = this.constructWebSocketURL();
+                if (!wsURL) {
+                    return;
+                }
+
+                this.app_ws = new WebSocket(wsURL);
 
                 this.app_ws.onopen = (evt) => {
-                    this.app_ws.send(JSON.stringify({
-                        "code": "FETCH_DEVICES",
-                        "message": "List device"
-                    }));
-                    
-                    // Show app container and hide splash screen with a slight delay
-                    setTimeout(() => {
-                        document.getElementById('app').style.display = 'block';
-                        document.getElementById('splash-screen').classList.add('fade-out');
-                    }, 1000);
+                    this.handleReloadDevice();
                 };
 
                 this.app_ws.onerror = (error) => {
-                     console.error('WebSocket error:', error);
-                     showErrorInfo('Connection error occurred. Please refresh the page.');
-                     // Hide splash screen and show error state
-                     setTimeout(() => {
-                         document.getElementById('app').style.display = 'block';
-                         document.getElementById('splash-screen').classList.add('fade-out');
-                     }, 1000);
+                    console.error('WebSocket error:', error);
+                    // Only show error notification if the device is logged in
+                    if (this.isSelectedDeviceLoggedIn) {
+                        showErrorInfo('Connection error occurred. Please refresh or re-select the device.');
+                    }
                 };
 
                 this.app_ws.onmessage = (evt) => {
@@ -330,15 +384,41 @@
                             // Optionally refresh the device list
                             this.handleReloadDevice()
                             break;
+                        case 'DEVICE_REMOVED': {
+                            const removedId = message.result?.device_id;
+                            const devices = message.result?.devices;
+                            showSuccessInfo('✅ ' + (message.message || 'Device removed'));
+
+                            if (Array.isArray(devices)) {
+                                this.deviceList = devices;
+                                this.connected_devices = devices;
+
+                                if (removedId && this.selectedDeviceId === removedId) {
+                                    this.selectedDeviceId = '';
+                                    this.applyDeviceHeader('');
+                                }
+
+                                if (!this.selectedDeviceId && this.deviceList.length > 0) {
+                                    const first = this.deviceList[0].id || this.deviceList[0].device;
+                                    this.setDeviceContext(first);
+                                }
+                            } else {
+                                this.handleReloadDevice();
+                            }
+                            break;
+                        }
                         default:
                             console.log(message)
                     }
                 };
-            } else {
-                console.error('Your browser does not support WebSockets');
-                // Hide splash screen if WebSocket is not supported
+            },
+        },
+        mounted() {
+            // Show app container and hide splash once initial data fetched
+            setTimeout(() => {
+                document.getElementById('app').style.display = 'block';
                 document.getElementById('splash-screen').classList.add('fade-out');
-            }
+            }, 800);
         },
     }).mount('#app')
 </script>

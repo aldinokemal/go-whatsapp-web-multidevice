@@ -55,17 +55,40 @@ def verify_webhook_signature(payload, signature, secret):
     return hmac.compare_digest(expected_signature, received_signature)
 ```
 
-## Common Payload Fields
+## Payload Structure
 
-All webhook payloads share these common fields:
+All webhook payloads follow a consistent top-level structure:
 
-| **Field**   | **Type** | **Description**                                                   |
-|-------------|----------|-------------------------------------------------------------------|
-| `sender_id` | string   | User part of sender JID (phone number, without `@s.whatsapp.net`) |
-| `chat_id`   | string   | User part of chat JID                                             |
-| `from`      | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)      |
-| `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)        |
-| `pushname`  | string   | Display name of the sender                                        |
+```json
+{
+  "event": "message",
+  "device_id": "628123456789@s.whatsapp.net",
+  "payload": {
+    // Event-specific fields
+  }
+}
+```
+
+### Top-Level Fields
+
+| **Field**   | **Type** | **Description**                                                                 |
+|-------------|----------|---------------------------------------------------------------------------------|
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `group.participants` |
+| `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`) |
+| `payload`   | object   | Event-specific payload data                                                     |
+
+### Common Payload Fields
+
+Fields commonly found inside the `payload` object:
+
+| **Field**     | **Type** | **Description**                                                   |
+|---------------|----------|-------------------------------------------------------------------|
+| `id`          | string   | Message ID                                                        |
+| `chat_id`     | string   | Chat JID (e.g., `628987654321@s.whatsapp.net` or `120363...@g.us` for groups) |
+| `from`        | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)      |
+| `from_lid`    | string   | LID (Linked ID) of the sender if available                        |
+| `from_name`   | string   | Display name (pushname) of the sender                             |
+| `timestamp`   | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)        |
 
 ## Message Events
 
@@ -73,16 +96,16 @@ All webhook payloads share these common fields:
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2023-10-15T10:30:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "Hello, how are you?",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6A1",
-    "replied_id": "",
-    "quoted_message": ""
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_lid": "251556368777322@lid",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T10:30:00Z",
+    "body": "Hello, how are you?"
   }
 }
 ```
@@ -91,16 +114,17 @@ All webhook payloads share these common fields:
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2023-10-15T10:35:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "I'm doing great, thanks!",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6A2",
-    "replied_id": "3EB0C127D7BACC83D6A1",
-    "quoted_message": "Hello, how are you?"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T10:35:00Z",
+    "body": "I'm doing great, thanks!",
+    "replied_to_id": "3EB0C127D7BACC83D6A1",
+    "quoted_body": "Hello, how are you?"
   }
 }
 ```
@@ -109,20 +133,16 @@ All webhook payloads share these common fields:
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2023-10-15T10:40:00Z",
-  "pushname": "John Doe",
-  "reaction": {
-    "message": "👍",
-    "id": "3EB0C127D7BACC83D6A1"
-  },
-  "message": {
-    "text": "",
+  "event": "message.reaction",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "88760C69D1F35FEB239102699AE9XXXX",
-    "replied_id": "",
-    "quoted_message": ""
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T10:40:00Z",
+    "reaction": "👍",
+    "reacted_message_id": "3EB0C127D7BACC83D6A1"
   }
 }
 ```
@@ -139,17 +159,16 @@ Triggered when a message is successfully delivered to the recipient's device.
 ```json
 {
   "event": "message.ack",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-18T22:44:20Z",
   "payload": {
+    "ids": ["3EB00106E8BE0F407E88EC"],
     "chat_id": "120363402106XXXXX@g.us",
-    "from": "6289685XXXXXX@s.whatsapp.net in 120363402106XXXXX@g.us",
-    "ids": [
-      "3EB00106E8BE0F407E88EC"
-    ],
+    "from": "6289685XXXXXX@s.whatsapp.net",
+    "from_lid": "251556368777322@lid",
     "receipt_type": "delivered",
-    "receipt_type_description": "means the message was delivered to the device (but the user might not have noticed).",
-    "sender_id": "6289685XXXXXX@s.whatsapp.net"
-  },
-  "timestamp": "2025-07-18T22:44:20Z"
+    "receipt_type_description": "means the message was delivered to the device (but the user might not have noticed)."
+  }
 }
 ```
 
@@ -160,17 +179,15 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 ```json
 {
   "event": "message.ack",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-18T22:44:44Z",
   "payload": {
+    "ids": ["3EB00106E8BE0F407E88EC"],
     "chat_id": "120363402106XXXXX@g.us",
-    "from": "6289685XXXXXX@s.whatsapp.net in 120363402106XXXXX@g.us",
-    "ids": [
-      "3EB00106E8BE0F407E88EC"
-    ],
+    "from": "6289685XXXXXX@s.whatsapp.net",
     "receipt_type": "read",
-    "receipt_type_description": "the user opened the chat and saw the message.",
-    "sender_id": "6289685XXXXXX@s.whatsapp.net"
-  },
-  "timestamp": "2025-07-18T22:44:44Z"
+    "receipt_type_description": "the user opened the chat and saw the message."
+  }
 }
 ```
 
@@ -179,13 +196,14 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 | **Field**                          | **Type** | **Description**                                           |
 |------------------------------------|----------|-----------------------------------------------------------|
 | `event`                            | string   | Always `"message.ack"` for receipt events                 |
-| `payload.chat_id`                  | string   | Chat identifier (group or individual chat)                |
-| `payload.from`                     | string   | Sender information with chat context                      |
+| `device_id`                        | string   | JID of the device that received this event                |
+| `timestamp`                        | string   | RFC3339 formatted timestamp when the receipt was received |
 | `payload.ids`                      | array    | Array of message IDs that received the acknowledgment     |
+| `payload.chat_id`                  | string   | Chat identifier (group or individual chat)                |
+| `payload.from`                     | string   | JID of the user who triggered the receipt                 |
+| `payload.from_lid`                 | string   | LID of the user (if available)                            |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
-| `payload.sender_id`                | string   | JID of the message sender                                 |
-| `timestamp`                        | string   | RFC3339 formatted timestamp when the receipt was received |
 
 ## Group Events
 
@@ -198,6 +216,8 @@ Triggered when users join or are added to a group.
 ```json
 {
   "event": "group.participants",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-28T10:30:00Z",
   "payload": {
     "chat_id": "120363402106XXXXX@g.us",
     "type": "join",
@@ -205,8 +225,7 @@ Triggered when users join or are added to a group.
       "6289685XXXXXX@s.whatsapp.net",
       "6289686YYYYYY@s.whatsapp.net"
     ]
-  },
-  "timestamp": "2025-07-28T10:30:00Z"
+  }
 }
 ```
 
@@ -217,14 +236,15 @@ Triggered when users leave or are removed from a group.
 ```json
 {
   "event": "group.participants",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-28T10:32:00Z",
   "payload": {
     "chat_id": "120363402106XXXXX@g.us",
     "type": "leave",
     "jids": [
       "6289687ZZZZZZ@s.whatsapp.net"
     ]
-  },
-  "timestamp": "2025-07-28T10:32:00Z"
+  }
 }
 ```
 
@@ -235,14 +255,15 @@ Triggered when users are promoted to admin.
 ```json
 {
   "event": "group.participants",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-28T10:33:00Z",
   "payload": {
     "chat_id": "120363402106XXXXX@g.us",
     "type": "promote",
     "jids": [
       "6289688AAAAAA@s.whatsapp.net"
     ]
-  },
-  "timestamp": "2025-07-28T10:33:00Z"
+  }
 }
 ```
 
@@ -253,14 +274,15 @@ Triggered when users are demoted from admin.
 ```json
 {
   "event": "group.participants",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2025-07-28T10:34:00Z",
   "payload": {
     "chat_id": "120363402106XXXXX@g.us",
     "type": "demote",
     "jids": [
       "6289689BBBBBB@s.whatsapp.net"
     ]
-  },
-  "timestamp": "2025-07-28T10:34:00Z"
+  }
 }
 ```
 
@@ -268,33 +290,51 @@ Triggered when users are demoted from admin.
 
 | **Field**         | **Type** | **Description**                                              |
 |-------------------|----------|--------------------------------------------------------------|
-| `event`           | string   | Always `"group.participants"` for group events              |
-| `payload.chat_id` | string   | Group identifier (e.g., `"120363402106XXXXX@g.us"`)         |
+| `event`           | string   | Always `"group.participants"` for group events               |
+| `device_id`       | string   | JID of the device that received this event                   |
+| `timestamp`       | string   | RFC3339 formatted timestamp when the group event occurred    |
+| `payload.chat_id` | string   | Group identifier (e.g., `"120363402106XXXXX@g.us"`)          |
 | `payload.type`    | string   | Action type: `"join"`, `"leave"`, `"promote"`, or `"demote"` |
-| `payload.jids`    | array    | Array of user JIDs affected by this action                  |
-| `timestamp`       | string   | RFC3339 formatted timestamp when the group event occurred   |
+| `payload.jids`    | array    | Array of user JIDs affected by this action                   |
 
 ## Media Messages
 
 ### Image Message
 
+When `WHATSAPP_AUTO_DOWNLOAD_MEDIA` is enabled, media is downloaded and `image` contains the file path.
+When disabled, `image` contains an object with the URL.
+
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628123456789",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2025-07-13T11:05:51Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "",
-    "id": "********************",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "image": {
-    "media_path": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpe",
-    "mime_type": "image/jpeg",
-    "caption": "gijg"
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A3",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:05:51Z",
+    "image": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpeg"
+  }
+}
+```
+
+With auto-download disabled:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A3",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:05:51Z",
+    "image": {
+      "url": "https://mmg.whatsapp.net/...",
+      "caption": "Check this out!"
+    }
   }
 }
 ```
@@ -303,21 +343,15 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628123456789",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2025-07-13T11:07:24Z",
-  "pushname": "Notification System",
-  "message": {
-    "text": "",
-    "id": "********************",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "video": {
-    "media_path": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.m4v",
-    "mime_type": "video/mp4",
-    "caption": "okk"
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A4",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:07:24Z",
+    "video": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.mp4"
   }
 }
 ```
@@ -326,21 +360,15 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2023-10-15T10:55:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6A5",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "audio": {
-    "media_path": "statics/media/1752404905-b9393cd1-8546-4df9-8a60-ee3276036aba.m4v",
-    "mime_type": "audio/ogg",
-    "caption": "okk"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T10:55:00Z",
+    "audio": "statics/media/1752404905-b9393cd1-8546-4df9-8a60-ee3276036aba.ogg"
   }
 }
 ```
@@ -349,21 +377,35 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "628123456789@s.whatsapp.net",
-  "timestamp": "2023-10-15T11:00:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6A6",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "document": {
-    "media_path": "statics/media/1752404965-b9393cd1-8546-4df9-8a60-ee3276036aba.m4v",
-    "mime_type": "application/pdf",
-    "caption": "okk"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:00:00Z",
+    "document": "statics/media/1752404965-document.pdf"
+  }
+}
+```
+
+With auto-download disabled:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A6",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:00:00Z",
+    "document": {
+      "url": "https://mmg.whatsapp.net/...",
+      "filename": "report.pdf"
+    }
   }
 }
 ```
@@ -372,22 +414,33 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "chat_id": "628968XXXXXXXX",
-  "from": "628968XXXXXXXX@s.whatsapp.net",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "446AC2BAF2061B53E24CA526DBDFBD4E",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "pushname": "Aldino Kemal",
-  "sender_id": "628968XXXXXXXX",
-  "sticker": {
-    "media_path": "statics/media/1752404986-ff2464a6-c54c-4e6c-afde-c4c925ce3573.webp",
-    "mime_type": "image/webp",
-    "caption": ""
-  },
-  "timestamp": "2025-07-13T11:09:45Z"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:09:45Z",
+    "sticker": "statics/media/1752404986-ff2464a6-c54c-4e6c-afde-c4c925ce3573.webp"
+  }
+}
+```
+
+### Video Note Message
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A7",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:02:00Z",
+    "video_note": "statics/media/1752404990-videonote.mp4"
+  }
 }
 ```
 
@@ -397,30 +450,19 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "chat_id": "6289XXXXXXXXX",
-  "contact": {
-    "displayName": "3Care",
-    "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;3Care;;;\nFN:3Care\nTEL;type=Mobile:+62 132\nEND:VCARD",
-    "contextInfo": {
-      "expiration": 7776000,
-      "ephemeralSettingTimestamp": 1751808692,
-      "disappearingMode": {
-        "initiator": 0,
-        "trigger": 1,
-        "initiatedByMe": true
-      }
-    }
-  },
-  "from": "6289XXXXXXXXX@s.whatsapp.net",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "56B3DFF4994284634E7AAFEEF6F1A0A2",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "pushname": "Aldino Kemal",
-  "sender_id": "6289XXXXXXXXX",
-  "timestamp": "2025-07-13T11:10:19Z"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:10:19Z",
+    "contact": {
+      "displayName": "3Care",
+      "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;3Care;;;\nFN:3Care\nTEL;type=Mobile:+62 132\nEND:VCARD"
+    }
+  }
 }
 ```
 
@@ -428,22 +470,20 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "John Doe",
-  "timestamp": "2023-10-15T11:15:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6A9",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "location": {
-    "degreesLatitude": -6.2088,
-    "degreesLongitude": 106.8456,
-    "name": "Jakarta, Indonesia",
-    "address": "Central Jakarta, DKI Jakarta, Indonesia"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:15:00Z",
+    "location": {
+      "degreesLatitude": -6.2088,
+      "degreesLongitude": 106.8456,
+      "name": "Jakarta, Indonesia",
+      "address": "Central Jakarta, DKI Jakarta, Indonesia"
+    }
   }
 }
 ```
@@ -452,31 +492,19 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "chat_id": "6289XXXXXXXXX",
-  "from": "6289XXXXXXXXX@s.whatsapp.net",
-  "location": {
-    "degreesLatitude": -7.8050297,
-    "degreesLongitude": 110.4549165,
-    "JPEGThumbnail": "base64_image_thumbnail",
-    "contextInfo": {
-      "expiration": 7776000,
-      "ephemeralSettingTimestamp": 1751808692,
-      "disappearingMode": {
-        "initiator": 0,
-        "trigger": 1,
-        "initiatedByMe": true
-      }
-    }
-  },
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "94D13237B4D7F33EE4A63228BBD79EC0",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "pushname": "Aldino Kemal",
-  "sender_id": "6289685XXXXXX",
-  "timestamp": "2025-07-13T11:11:22Z"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:11:22Z",
+    "live_location": {
+      "degreesLatitude": -7.8050297,
+      "degreesLongitude": 110.4549165
+    }
+  }
 }
 ```
 
@@ -486,21 +514,18 @@ Triggered when users are demoted from admin.
 
 ```json
 {
-  "action": "message_revoked",
-  "chat_id": "6289XXXXXXXXX",
-  "from": "6289XXXXXXXXX@s.whatsapp.net",
-  "message": {
-    "text": "",
+  "event": "message.revoked",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "F4062F2BBCB19B7432195AD7080DA4E2",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "pushname": "Aldino Kemal",
-  "revoked_chat": "6289XXXXXXXXX@s.whatsapp.net",
-  "revoked_from_me": true,
-  "revoked_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
-  "sender_id": "6289XXXXXXXXX",
-  "timestamp": "2025-07-13T11:13:30Z"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:13:30Z",
+    "revoked_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
+    "revoked_from_me": true,
+    "revoked_chat": "628987654321@s.whatsapp.net"
+  }
 }
 ```
 
@@ -510,27 +535,25 @@ When a message is edited, the webhook includes the original message ID to track 
 
 ```json
 {
-  "action": "message_edited",
-  "chat_id": "6289XXXXXXXXX",
-  "original_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
-  "edited_text": "hhhiawww",
-  "from": "6289XXXXXXXXX@s.whatsapp.net",
-  "message": {
-    "text": "hhhiawww",
+  "event": "message.edited",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "D6271D8223A05B4DA6AE9FE3CD632543",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "pushname": "Aldino Kemal",
-  "sender_id": "6289XXXXXXXXX",
-  "timestamp": "2025-07-13T11:14:19Z"
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:14:19Z",
+    "original_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
+    "body": "Updated message text"
+  }
 }
 ```
 
 **Fields:**
+
 - `original_message_id`: The ID of the message that was edited (use this to update the correct message in your database)
-- `edited_text`: The new text content after editing
-- `message.id`: The ID of the edit event itself (different from the original message ID)
+- `body`: The new text content after editing
+- `id`: The ID of the edit event itself (different from the original message ID)
 
 ## Special Flags
 
@@ -538,23 +561,17 @@ When a message is edited, the webhook includes the original message ID to track 
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "John Doe",
-  "timestamp": "2023-10-15T11:40:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6B2",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "image": {
-    "media_path": "statics/media/1752405060-b9393cd1-8546-4df9-8a60-ee3276036aba.m4v",
-    "mime_type": "image/jpeg",
-    "caption": "okk"
-  },
-  "view_once": true
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:40:00Z",
+    "image": "statics/media/1752405060-image.jpeg",
+    "view_once": true
+  }
 }
 ```
 
@@ -562,18 +579,17 @@ When a message is edited, the webhook includes the original message ID to track 
 
 ```json
 {
-  "sender_id": "628123456789",
-  "chat_id": "628987654321",
-  "from": "John Doe",
-  "timestamp": "2023-10-15T11:45:00Z",
-  "pushname": "John Doe",
-  "message": {
-    "text": "This is a forwarded message",
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
     "id": "3EB0C127D7BACC83D6B3",
-    "replied_id": "",
-    "quoted_message": ""
-  },
-  "forwarded": true
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:45:00Z",
+    "body": "This is a forwarded message",
+    "forwarded": true
+  }
 }
 ```
 
@@ -622,48 +638,49 @@ app.post('/webhook', (req, res) => {
     const data = JSON.parse(payload);
     console.log('Received webhook:', data);
 
-    // Handle different event types
-    if (data.event === 'message.ack') {
-        console.log(`Message ${data.payload.receipt_type}:`, {
-            chat_id: data.payload.chat_id,
-            message_ids: data.payload.ids,
-            description: data.payload.receipt_type_description
-        });
-    } else if (data.event === 'group.participants') {
-        console.log(`Group ${data.payload.type} event:`, {
-            chat_id: data.payload.chat_id,
-            type: data.payload.type,
-            affected_users: data.payload.jids
-        });
-        
-        // Handle specific group actions
-        switch (data.payload.type) {
-            case 'join':
-                console.log(`${data.payload.jids.length} users joined group ${data.payload.chat_id}`);
-                // Auto-greet new members
-                data.payload.jids.forEach(jid => {
-                    console.log(`Welcome ${jid} to the group!`);
-                });
-                break;
-            case 'leave':
-                console.log(`${data.payload.jids.length} users left group ${data.payload.chat_id}`);
-                // Update member database
-                break;
-            case 'promote':
-                console.log(`${data.payload.jids.length} users promoted in group ${data.payload.chat_id}`);
-                // Notify about new admins
-                break;
-            case 'demote':
-                console.log(`${data.payload.jids.length} users demoted in group ${data.payload.chat_id}`);
-                // Handle admin removal
-                break;
-        }
-    } else if (data.action === 'message_deleted_for_me') {
-        console.log('Message deleted:', data.deleted_message_id);
-    } else if (data.action === 'message_revoked') {
-        console.log('Message revoked:', data.revoked_message_id);
-    } else if (data.message) {
-        console.log('New message:', data.message.text);
+    // Handle different event types based on data.event
+    switch (data.event) {
+        case 'message':
+            console.log('New message:', {
+                id: data.payload.id,
+                from: data.payload.from,
+                body: data.payload.body,
+                chat_id: data.payload.chat_id
+            });
+            break;
+            
+        case 'message.reaction':
+            console.log('Reaction:', {
+                reaction: data.payload.reaction,
+                reacted_message_id: data.payload.reacted_message_id
+            });
+            break;
+            
+        case 'message.revoked':
+            console.log('Message revoked:', data.payload.revoked_message_id);
+            break;
+            
+        case 'message.edited':
+            console.log('Message edited:', {
+                original_id: data.payload.original_message_id,
+                new_body: data.payload.body
+            });
+            break;
+            
+        case 'message.ack':
+            console.log(`Message ${data.payload.receipt_type}:`, {
+                chat_id: data.payload.chat_id,
+                message_ids: data.payload.ids,
+                description: data.payload.receipt_type_description
+            });
+            break;
+            
+        case 'group.participants':
+            console.log(`Group ${data.payload.type} event:`, {
+                chat_id: data.payload.chat_id,
+                affected_users: data.payload.jids
+            });
+            break;
     }
 
     res.status(200).send('OK');

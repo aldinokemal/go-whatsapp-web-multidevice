@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -72,12 +72,13 @@ This is a Go-based WhatsApp Web API server supporting both REST API and MCP (Mod
 ### WhatsApp Integration
 
 - Uses whatsmeow library for WhatsApp Web protocol
-- Supports multi-device WhatsApp accounts
-- Auto-reconnection and connection monitoring
+- **Multi-device login support**: Can connect and manage multiple WhatsApp accounts simultaneously
+- Auto-reconnection and connection monitoring per device
 - Media compression and webhook support
 
 ## Important Notes
 
+- Supports multiple WhatsApp device connections in a single server instance
 - The application cannot run both REST and MCP modes simultaneously (limitation from whatsmeow library)
 - All source code must be in the `src/` directory
 - Media files are stored in `src/statics/media/` and `src/storages/`

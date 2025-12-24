@@ -8,6 +8,7 @@ import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 
 	// Create filter from request
 	filter := &domainChatStorage.ChatFilter{
+		DeviceID:   deviceIDFromContext(ctx),
 		Limit:      request.Limit,
 		Offset:     request.Offset,
 		SearchName: request.Search,
@@ -203,13 +205,28 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	return response, nil
 }
 
+func deviceIDFromContext(ctx context.Context) string {
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		if jid := inst.JID(); jid != "" {
+			return jid
+		}
+		return inst.ID()
+	}
+	return ""
+}
+
 func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinChatRequest) (response domainChat.PinChatResponse, err error) {
 	if err = validations.ValidatePinChat(ctx, &request); err != nil {
 		return response, err
 	}
 
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
 	// Validate JID and ensure connection
-	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
 	if err != nil {
 		return response, err
 	}
@@ -218,7 +235,7 @@ func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinCh
 	patchInfo := appstate.BuildPin(targetJID, request.Pinned)
 
 	// Send app state update
-	if err = whatsapp.GetClient().SendAppState(ctx, patchInfo); err != nil {
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid": request.ChatJID,
 			"pinned":   request.Pinned,
@@ -250,14 +267,19 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 		return response, err
 	}
 
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
 	// Validate JID and ensure connection
-	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
 	if err != nil {
 		return response, err
 	}
 
 	// Set disappearing timer using whatsmeow
-	if err = whatsapp.GetClient().SetDisappearingTimer(ctx, targetJID, time.Duration(request.TimerSeconds)*time.Second, time.Now()); err != nil {
+	if err = client.SetDisappearingTimer(ctx, targetJID, time.Duration(request.TimerSeconds)*time.Second, time.Now()); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid":      request.ChatJID,
 			"timer_seconds": request.TimerSeconds,

@@ -30,24 +30,29 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 	now := time.Now()
 	chat.UpdatedAt = now
 
-	query := `
-		INSERT INTO chats (jid, name, last_message_time, ephemeral_expiration, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(jid) DO UPDATE SET
-			name = excluded.name,
-			last_message_time = excluded.last_message_time,
-			ephemeral_expiration = excluded.ephemeral_expiration,
-			updated_at = excluded.updated_at
-	`
+	// Try update first, then insert if no rows affected (cross-db compatible)
+	result, err := r.db.Exec(`
+		UPDATE chats SET name = ?, last_message_time = ?, ephemeral_expiration = ?, updated_at = ?
+		WHERE jid = ? AND device_id = ?
+	`, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, chat.UpdatedAt, chat.JID, chat.DeviceID)
+	if err != nil {
+		return err
+	}
 
-	_, err := r.db.Exec(query, chat.JID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, chat.UpdatedAt)
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO chats (jid, device_id, name, last_message_time, ephemeral_expiration, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, chat.UpdatedAt)
+	}
 	return err
 }
 
 // GetChat retrieves a chat by JID
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT jid, name, last_message_time, ephemeral_expiration, created_at, updated_at
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at
 		FROM chats
 		WHERE jid = ?
 	`
@@ -64,7 +69,7 @@ func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) 
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
 	query := `
-		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
@@ -86,7 +91,7 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 	var args []any
 
 	query := `
-		SELECT c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at
+		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at
 		FROM chats c
 	`
 
@@ -96,8 +101,13 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 	}
 
 	if filter.HasMedia {
-		query += " INNER JOIN messages m ON c.jid = m.chat_jid"
+		query += " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
 		conditions = append(conditions, "m.media_type != ''")
+	}
+
+	if filter.DeviceID != "" {
+		conditions = append(conditions, "c.device_id = ?")
+		args = append(args, filter.DeviceID)
 	}
 
 	if len(conditions) > 0 {
@@ -170,38 +180,36 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 
 	// Skip empty messages
 	if message.Content == "" && message.MediaType == "" {
-		// This is not an error, just skip storing empty messages
 		return nil
 	}
 
-	query := `
-		INSERT INTO messages (
-			id, chat_jid, sender, content, timestamp, is_from_me, 
-			media_type, filename, url, media_key, file_sha256, 
-			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, chat_jid) DO UPDATE SET
-			sender = excluded.sender,
-			content = excluded.content,
-			timestamp = excluded.timestamp,
-			is_from_me = excluded.is_from_me,
-			media_type = excluded.media_type,
-			filename = excluded.filename,
-			url = excluded.url,
-			media_key = excluded.media_key,
-			file_sha256 = excluded.file_sha256,
-			file_enc_sha256 = excluded.file_enc_sha256,
-			file_length = excluded.file_length,
-			updated_at = excluded.updated_at
-	`
+	// Try update first, then insert if no rows affected (cross-db compatible)
+	result, err := r.db.Exec(`
+		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
+			media_type = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
+			file_enc_sha256 = ?, file_length = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`, message.Sender, message.Content, message.Timestamp, message.IsFromMe,
+		message.MediaType, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
+		message.FileEncSHA256, message.FileLength, message.UpdatedAt,
+		message.ID, message.ChatJID, message.DeviceID)
+	if err != nil {
+		return err
+	}
 
-	_, err := r.db.Exec(query,
-		message.ID, message.ChatJID, message.Sender, message.Content,
-		message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
-		message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-		message.FileLength, message.CreatedAt, message.UpdatedAt,
-	)
-
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO messages (
+				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+				media_type, filename, url, media_key, file_sha256,
+				file_enc_sha256, file_length, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
+			message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
+			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+			message.FileLength, message.CreatedAt, message.UpdatedAt)
+	}
 	return err
 }
 
@@ -217,35 +225,32 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	}
 	defer tx.Rollback()
 
-	// Prepare the statement once for better performance
-	stmt, err := tx.Prepare(`
-		INSERT INTO messages (
-			id, chat_jid, sender, content, timestamp, is_from_me, 
-			media_type, filename, url, media_key, file_sha256, 
-			file_enc_sha256, file_length, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, chat_jid) DO UPDATE SET
-			sender = excluded.sender,
-			content = excluded.content,
-			timestamp = excluded.timestamp,
-			is_from_me = excluded.is_from_me,
-			media_type = excluded.media_type,
-			filename = excluded.filename,
-			url = excluded.url,
-			media_key = excluded.media_key,
-			file_sha256 = excluded.file_sha256,
-			file_enc_sha256 = excluded.file_enc_sha256,
-			file_length = excluded.file_length,
-			updated_at = excluded.updated_at
+	// Prepare statements for update and insert
+	updateStmt, err := tx.Prepare(`
+		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
+			media_type = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
+			file_enc_sha256 = ?, file_length = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
-	defer stmt.Close()
+	defer updateStmt.Close()
+
+	insertStmt, err := tx.Prepare(`
+		INSERT INTO messages (
+			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
+			file_enc_sha256, file_length, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert statement: %w", err)
+	}
+	defer insertStmt.Close()
 
 	now := time.Now()
 	for _, message := range messages {
-		// Skip empty messages
 		if message.Content == "" && message.MediaType == "" {
 			continue
 		}
@@ -253,14 +258,27 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		message.CreatedAt = now
 		message.UpdatedAt = now
 
-		_, err = stmt.Exec(
-			message.ID, message.ChatJID, message.Sender, message.Content,
-			message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
-			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-			message.FileLength, message.CreatedAt, message.UpdatedAt,
+		result, err := updateStmt.Exec(
+			message.Sender, message.Content, message.Timestamp, message.IsFromMe,
+			message.MediaType, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
+			message.FileEncSHA256, message.FileLength, message.UpdatedAt,
+			message.ID, message.ChatJID, message.DeviceID,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to store message %s: %w", message.ID, err)
+			return fmt.Errorf("failed to update message %s: %w", message.ID, err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			_, err = insertStmt.Exec(
+				message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
+				message.Timestamp, message.IsFromMe, message.MediaType, message.Filename,
+				message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+				message.FileLength, message.CreatedAt, message.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert message %s: %w", message.ID, err)
+			}
 		}
 	}
 
@@ -295,7 +313,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	}
 
 	query := `
-		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
@@ -355,7 +373,7 @@ func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int)
 	args = append(args, "%"+strings.ToLower(searchText)+"%")
 
 	query := `
-		SELECT id, chat_jid, sender, content, timestamp, is_from_me,
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
@@ -412,7 +430,7 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
 	message := &domainChatStorage.Message{}
 	err := scanner.Scan(
-		&message.ID, &message.ChatJID, &message.Sender, &message.Content,
+		&message.ID, &message.ChatJID, &message.DeviceID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.Filename,
 		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
 		&message.FileLength, &message.CreatedAt, &message.UpdatedAt,
@@ -424,7 +442,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*domainChatStorage.Chat, error) {
 	chat := &domainChatStorage.Chat{}
 	err := scanner.Scan(
-		&chat.JID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
+		&chat.DeviceID, &chat.JID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
 		&chat.CreatedAt, &chat.UpdatedAt,
 	)
 	return chat, err
@@ -467,6 +485,117 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	}
 
 	return tx.Commit()
+}
+
+// DeleteDeviceData deletes all chats and messages for a specific device_id.
+// Messages are deleted via foreign key cascade from chats.
+func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
+	if deviceID == "" {
+		return fmt.Errorf("device id is required")
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete messages first via direct device_id filter
+	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device messages: %w", err)
+	}
+
+	if _, err := tx.Exec("DELETE FROM chats WHERE device_id = ?", deviceID); err != nil {
+		return fmt.Errorf("failed to delete device chats: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// SaveDeviceRecord upserts a device registration for persistence across restarts.
+func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceRecord) error {
+	if record == nil || strings.TrimSpace(record.DeviceID) == "" {
+		return fmt.Errorf("device record with id is required")
+	}
+
+	now := time.Now()
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+
+	// Try update first, then insert if no rows affected (cross-db compatible)
+	result, err := r.db.Exec(`
+		UPDATE devices SET display_name = ?, jid = ?, updated_at = ?
+		WHERE device_id = ?
+	`, record.DisplayName, record.JID, record.UpdatedAt, record.DeviceID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO devices (device_id, display_name, jid, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, record.DeviceID, record.DisplayName, record.JID, record.CreatedAt, record.UpdatedAt)
+	}
+	return err
+}
+
+// ListDeviceRecords returns all registered devices.
+func (r *SQLiteRepository) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
+	rows, err := r.db.Query(`
+		SELECT device_id, display_name, jid, created_at, updated_at
+		FROM devices
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []*domainChatStorage.DeviceRecord
+	for rows.Next() {
+		var rec domainChatStorage.DeviceRecord
+		if err := rows.Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+			return nil, err
+		}
+		records = append(records, &rec)
+	}
+
+	return records, rows.Err()
+}
+
+// GetDeviceRecord fetches a device registration by id.
+func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.DeviceRecord, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+
+	rec := &domainChatStorage.DeviceRecord{}
+	err := r.db.QueryRow(`
+		SELECT device_id, display_name, jid, created_at, updated_at
+		FROM devices
+		WHERE device_id = ?
+		LIMIT 1
+	`, deviceID).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+// DeleteDeviceRecord removes a device registration entry.
+func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	_, err := r.db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID)
+	return err
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -512,8 +641,18 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return nil
 	}
 
-	// Get WhatsApp client for LID resolution
-	client := whatsapp.GetClient()
+	// Get WhatsApp client for LID resolution (device-scoped if present in context)
+	client := whatsapp.ClientFromContext(ctx)
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
 
 	// Normalize chat and sender JIDs (convert @lid to @s.whatsapp.net)
 	normalizedChatJID := whatsapp.NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
@@ -521,7 +660,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	chatJID := normalizedChatJID.String()
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
-	sender := normalizedSender.String()
+	sender := normalizedSender.ToNonAD().String()
 
 	// Get appropriate chat name using pushname if available
 	chatName := r.GetChatNameWithPushName(normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
@@ -537,6 +676,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Create or update chat
 	chat := &domainChatStorage.Chat{
+		DeviceID:        deviceID,
 		JID:             chatJID,
 		Name:            chatName,
 		LastMessageTime: evt.Info.Timestamp,
@@ -569,6 +709,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	message := &domainChatStorage.Message{
 		ID:            evt.Info.ID,
 		ChatJID:       chatJID,
+		DeviceID:      deviceID,
 		Sender:        sender,
 		Content:       content,
 		Timestamp:     evt.Info.Timestamp,
@@ -649,8 +790,18 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		return fmt.Errorf("invalid JID format: %w", err)
 	}
 
-	// Get WhatsApp client for LID resolution
-	client := whatsapp.GetClient()
+	// Get WhatsApp client for LID resolution (device-scoped if present in context)
+	client := whatsapp.ClientFromContext(ctx)
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
 
 	// Normalize recipient JID (convert @lid to @s.whatsapp.net)
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
@@ -674,6 +825,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 
 	// Store or update chat, preserving existing ephemeral_expiration
 	chat := &domainChatStorage.Chat{
+		DeviceID:        deviceID,
 		JID:             chatJID,
 		Name:            chatName,
 		LastMessageTime: timestamp,
@@ -699,6 +851,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	message := &domainChatStorage.Message{
 		ID:        messageID,
 		ChatJID:   chatJID,
+		DeviceID:  deviceID,
 		Sender:    senderJID,
 		Content:   content,
 		Timestamp: timestamp,
@@ -734,7 +887,7 @@ func (r *SQLiteRepository) getSchemaVersion() (int, error) {
 	// Create schema_info table if it doesn't exist
 	_, err := r.db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_info (
-			version INTEGER PRIMARY KEY DEFAULT 0,
+			version INTEGER PRIMARY KEY,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -754,50 +907,47 @@ func (r *SQLiteRepository) getSchemaVersion() (int, error) {
 
 // runMigration executes a migration
 func (r *SQLiteRepository) runMigration(migration string, version int) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Execute migration
-	if _, err := tx.Exec(migration); err != nil {
+	// Execute migration (single statement)
+	if _, err := r.db.Exec(migration); err != nil {
 		return err
 	}
 
-	// Update schema version
-	if _, err := tx.Exec("INSERT OR REPLACE INTO schema_info (version) VALUES (?)", version); err != nil {
+	// Update schema version - delete then insert for cross-db compatibility
+	_, _ = r.db.Exec("DELETE FROM schema_info WHERE version = ?", version)
+	if _, err := r.db.Exec("INSERT INTO schema_info (version) VALUES (?)", version); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // getMigrations returns all database migrations
+// Compatible with SQLite, MySQL, and PostgreSQL
 func (r *SQLiteRepository) getMigrations() []string {
 	return []string{
-		// Migration 1: Initial schema with only chats and messages tables
-		`
-		-- Create chats table
-		CREATE TABLE IF NOT EXISTS chats (
-			jid TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
+		// Migration 1: Create chats table
+		`CREATE TABLE IF NOT EXISTS chats (
+			jid VARCHAR(255) NOT NULL,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			name VARCHAR(255) NOT NULL,
 			last_message_time TIMESTAMP NOT NULL,
 			ephemeral_expiration INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (jid, device_id)
+		)`,
 
-		-- Create messages table
-		CREATE TABLE IF NOT EXISTS messages (
-			id TEXT NOT NULL,
-			chat_jid TEXT NOT NULL,
-			sender TEXT NOT NULL,
+		// Migration 2: Create messages table
+		`CREATE TABLE IF NOT EXISTS messages (
+			id VARCHAR(255) NOT NULL,
+			chat_jid VARCHAR(255) NOT NULL,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			sender VARCHAR(255) NOT NULL,
 			content TEXT,
 			timestamp TIMESTAMP NOT NULL,
 			is_from_me BOOLEAN DEFAULT FALSE,
-			media_type TEXT,
-			filename TEXT,
+			media_type VARCHAR(50),
+			filename VARCHAR(255),
 			url TEXT,
 			media_key BLOB,
 			file_sha256 BLOB,
@@ -805,22 +955,43 @@ func (r *SQLiteRepository) getMigrations() []string {
 			file_length INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id, chat_jid),
-			FOREIGN KEY (chat_jid) REFERENCES chats(jid) ON DELETE CASCADE
-		);
+			PRIMARY KEY (id, chat_jid, device_id)
+		)`,
 
-		-- Create indexes for performance
-		CREATE INDEX IF NOT EXISTS idx_messages_chat_jid ON messages(chat_jid);
-		CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_messages_media_type ON messages(media_type);
-		CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
-		CREATE INDEX IF NOT EXISTS idx_chats_last_message ON chats(last_message_time);
-		CREATE INDEX IF NOT EXISTS idx_chats_name ON chats(name);
-		`,
+		// Migration 3: Create devices table
+		`CREATE TABLE IF NOT EXISTS devices (
+			device_id VARCHAR(255) PRIMARY KEY,
+			display_name VARCHAR(255) DEFAULT '',
+			jid VARCHAR(255) DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 
-		// Migration 2: Add index for message ID lookups (performance optimization)
-		`
-		CREATE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
-		`,
+		// Migration 4: Create indexes for messages
+		`CREATE INDEX IF NOT EXISTS idx_messages_chat_jid ON messages(chat_jid)`,
+
+		// Migration 5
+		`CREATE INDEX IF NOT EXISTS idx_messages_device ON messages(device_id)`,
+
+		// Migration 6
+		`CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)`,
+
+		// Migration 7
+		`CREATE INDEX IF NOT EXISTS idx_messages_media_type ON messages(media_type)`,
+
+		// Migration 8
+		`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender)`,
+
+		// Migration 9: Create indexes for chats
+		`CREATE INDEX IF NOT EXISTS idx_chats_last_message ON chats(last_message_time)`,
+
+		// Migration 10
+		`CREATE INDEX IF NOT EXISTS idx_chats_name ON chats(name)`,
+
+		// Migration 11
+		`CREATE INDEX IF NOT EXISTS idx_chats_device ON chats(device_id)`,
+
+		// Migration 12: Create index for devices
+		`CREATE INDEX IF NOT EXISTS idx_devices_created_at ON devices(created_at)`,
 	}
 }

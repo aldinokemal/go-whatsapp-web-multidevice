@@ -1,13 +1,20 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 6.13.1
-  description: This API is used for sending whatsapp via API
+  version: 8.0.0
+  description: |
+    This API is used for sending whatsapp via API.
+
+    Device scoping:
+    - Send `X-Device-Id` on all device-scoped REST calls.
+    - WebSocket: connect to `/ws?device_id=<id>`.
 servers:
   - url: http://localhost:3000
 tags:
   - name: app
     description: Initial Connection to Whatsapp server
+  - name: device
+    description: Device management for multi-device support
   - name: user
     description: Getting information
   - name: send
@@ -30,6 +37,8 @@ paths:
       tags:
         - app
       summary: Login to whatsapp server
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -50,6 +59,7 @@ paths:
         - app
       summary: Login with pairing code
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: phone
           in: query
           schema:
@@ -75,6 +85,8 @@ paths:
       tags:
         - app
       summary: Remove database and logout
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -94,6 +106,8 @@ paths:
       tags:
         - app
       summary: Reconnecting to whatsapp server
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -113,6 +127,10 @@ paths:
       tags:
         - app
       summary: Get list connected devices
+      description: >
+        Returns all device IDs known to the server, including placeholders
+        created via the device API. Devices are now persisted in the storage
+        registry so IDs remain stable after application restarts.
       responses:
         '200':
           description: OK
@@ -126,6 +144,358 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/status:
+    get:
+      operationId: appStatus
+      tags:
+        - app
+      summary: Get connection status
+      description: Check whether the WhatsApp client is connected and logged in
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Connection status retrieved
+                  results:
+                    type: object
+                    properties:
+                      is_connected:
+                        type: boolean
+                        description: Whether the device is connected to WhatsApp servers
+                      is_logged_in:
+                        type: boolean
+                        description: Whether the device is logged in to WhatsApp
+                      device_id:
+                        type: string
+                        description: The device ID
+                        example: '6289685028129@s.whatsapp.net'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  # Device Management API (v8)
+  /devices:
+    get:
+      operationId: listDevices
+      tags:
+        - device
+      summary: List all devices
+      description: Returns all registered devices with their connection status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    post:
+      operationId: addDevice
+      tags:
+        - device
+      summary: Add a new device
+      description: Create a new device slot for multi-device management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_id:
+                  type: string
+                  description: Optional custom device ID. If not provided, one will be generated.
+                  example: 'my-custom-device-id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAddResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}:
+    get:
+      operationId: getDevice
+      tags:
+        - device
+      summary: Get device info
+      description: Get detailed information about a specific device
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInfoResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    delete:
+      operationId: removeDevice
+      tags:
+        - device
+      summary: Remove a device
+      description: Remove a device from the server (does not logout from WhatsApp)
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}/login:
+    get:
+      operationId: loginDevice
+      tags:
+        - device
+      summary: Login device with QR code
+      description: Initiate QR code login for a specific device
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}/login/code:
+    post:
+      operationId: loginDeviceWithCode
+      tags:
+        - device
+      summary: Login device with pairing code
+      description: Initiate pairing code login for a specific device
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+        - name: phone
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '628912344551'
+          description: Phone number to pair with
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginWithCodeResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}/logout:
+    post:
+      operationId: logoutDevice
+      tags:
+        - device
+      summary: Logout device
+      description: Logout a specific device from WhatsApp and remove its session
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}/reconnect:
+    post:
+      operationId: reconnectDevice
+      tags:
+        - device
+      summary: Reconnect device
+      description: Reconnect a specific device to WhatsApp
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /devices/{device_id}/status:
+    get:
+      operationId: getDeviceStatus
+      tags:
+        - device
+      summary: Get device connection status
+      description: Get the current connection status of a specific device
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStatusResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /user/info:
     get:
       operationId: userInfo
@@ -133,6 +503,7 @@ paths:
         - user
       summary: User Info
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: phone
           in: query
           schema:
@@ -165,6 +536,7 @@ paths:
         - user
       summary: User Avatar
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: phone
           in: query
           schema:
@@ -207,6 +579,8 @@ paths:
       tags:
         - user
       summary: User Change Avatar
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -243,6 +617,8 @@ paths:
         - user
       summary: User Change Push Name
       description: Update the display name (push name) shown to others in WhatsApp
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -280,6 +656,8 @@ paths:
       tags:
         - user
       summary: User My Privacy Setting
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -299,6 +677,8 @@ paths:
       tags:
         - user
       summary: User My List Groups
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -319,6 +699,8 @@ paths:
       tags:
         - user
       summary: User My List Groups
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -338,6 +720,8 @@ paths:
       tags:
         - user
       summary: Get list of user contacts
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
         '200':
           description: OK
@@ -358,6 +742,7 @@ paths:
         - user
       summary: Check if user is on WhatsApp
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: phone
           in: query
           schema:
@@ -391,6 +776,7 @@ paths:
       summary: Get Business Profile Information
       description: Retrieve detailed business profile information for a WhatsApp business account
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: phone
           in: query
           required: true
@@ -424,6 +810,8 @@ paths:
       tags:
         - send
       summary: Send Message
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -475,6 +863,8 @@ paths:
       tags:
         - send
       summary: Send Image
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -538,6 +928,8 @@ paths:
       tags:
         - send
       summary: Send Audio
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -589,6 +981,8 @@ paths:
       tags:
         - send
       summary: Send File
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -641,6 +1035,8 @@ paths:
         - send
       summary: Send Sticker
       description: Send sticker with automatic conversion to WebP format
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -692,6 +1088,8 @@ paths:
       tags:
         - send
       summary: Send Video
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -755,6 +1153,8 @@ paths:
       tags:
         - send
       summary: Send Contact
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -806,6 +1206,8 @@ paths:
       tags:
         - send
       summary: Send Link
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -857,6 +1259,8 @@ paths:
       tags:
         - send
       summary: Send Location
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -908,6 +1312,8 @@ paths:
       tags:
         - send
       summary: Send Poll / Vote
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         required: true
         content:
@@ -967,6 +1373,8 @@ paths:
       tags:
         - send
       summary: Send presence status
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         required: true
         content:
@@ -1011,6 +1419,8 @@ paths:
         - send
       summary: Send chat presence (typing indicator)
       description: Send typing indicator to start or stop showing that you are composing a message
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         required: true
         content:
@@ -1056,6 +1466,7 @@ paths:
         - message
       summary: Revoke Message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1098,6 +1509,7 @@ paths:
         - message
       summary: Delete Message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1140,6 +1552,7 @@ paths:
         - message
       summary: Send reaction to message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1186,6 +1599,7 @@ paths:
         - message
       summary: Edit message by message ID before 15 minutes
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1235,6 +1649,7 @@ paths:
         - message
       summary: Mark as read message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1279,6 +1694,7 @@ paths:
         - message
       summary: Star message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1323,6 +1739,7 @@ paths:
         - message
       summary: Unstar message
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: message_id
           schema:
@@ -1360,7 +1777,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  
+  /message/{message_id}/download:
+    get:
+      operationId: downloadMessageMedia
+      tags:
+        - message
+      summary: Download media from message
+      description: Download media content (image, video, audio, document) from a message
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+          example: '3EB0123456789ABCDEF'
+        - in: query
+          name: phone
+          schema:
+            type: string
+          required: true
+          description: Phone number with country code
+          example: '6289685028129@s.whatsapp.net'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Media downloaded successfully
+                  results:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: Media downloaded successfully
+                      mime_type:
+                        type: string
+                        example: image/jpeg
+                      file_size:
+                        type: integer
+                        example: 524288
+                      file_name:
+                        type: string
+                        example: image.jpg
+                      data:
+                        type: string
+                        format: byte
+                        description: Base64 encoded media data
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Message or media not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /chats:
     get:
       operationId: listChats
@@ -1369,6 +1863,7 @@ paths:
       summary: Get list of chats
       description: Retrieve a list of chat conversations with their basic information
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: limit
           in: query
           schema:
@@ -1426,6 +1921,7 @@ paths:
       summary: Get messages from a specific chat
       description: Retrieve messages from a specific chat conversation with filtering options
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: chat_jid
           schema:
@@ -1513,6 +2009,7 @@ paths:
       summary: Label or unlabel a chat
       description: Apply or remove a label from a chat conversation
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: chat_jid
           schema:
@@ -1581,6 +2078,7 @@ paths:
       summary: Pin or unpin a chat
       description: Pin or unpin a chat conversation to the top of the chat list
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: chat_jid
           schema:
@@ -1640,6 +2138,7 @@ paths:
       summary: Set disappearing messages timer
       description: Set or disable disappearing messages for a chat. Valid timer values are 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d).
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
           name: chat_jid
           schema:
@@ -1686,6 +2185,7 @@ paths:
         - group
       summary: Group Info
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: group_id
           in: query
           schema:
@@ -1717,6 +2217,8 @@ paths:
       tags:
         - group
       summary: Create group and add participant
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1764,6 +2266,7 @@ paths:
         - group
       summary: Get list of participants in a group
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: group_id
           in: query
           required: true
@@ -1795,6 +2298,8 @@ paths:
       tags:
         - group
       summary: Adding more participants to group
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1826,6 +2331,7 @@ paths:
         - group
       summary: Export group participants as CSV
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: group_id
           in: query
           required: true
@@ -1859,6 +2365,8 @@ paths:
       tags:
         - group
       summary: Remove participants from group
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1889,6 +2397,8 @@ paths:
       tags:
         - group
       summary: Promote participants to admin
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1919,6 +2429,8 @@ paths:
       tags:
         - group
       summary: Demote participants to member
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1949,6 +2461,8 @@ paths:
       tags:
         - group
       summary: Join group with link
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -1985,6 +2499,7 @@ paths:
       summary: Get group information from invitation link
       description: Retrieve group information without joining the group using its invitation link
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: link
           in: query
           required: true
@@ -2018,6 +2533,7 @@ paths:
         - group
       summary: Get list of participant requests to join group
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: group_id
           in: query
           required: true
@@ -2050,6 +2566,8 @@ paths:
       tags:
         - group
       summary: Approve participant request to join group
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2094,6 +2612,8 @@ paths:
       tags:
         - group
       summary: Reject participant request to join group
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2138,6 +2658,8 @@ paths:
       tags:
         - group
       summary: Leave group
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2172,6 +2694,8 @@ paths:
       tags:
         - group
       summary: Set group photo
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           multipart/form-data:
@@ -2213,6 +2737,8 @@ paths:
       tags:
         - group
       summary: Set group name
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2257,6 +2783,8 @@ paths:
         - group
       summary: Set group locked status
       description: Lock/unlock group so only admins can modify group info
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2300,6 +2828,8 @@ paths:
         - group
       summary: Set group announce mode
       description: Enable/disable announce mode so only admins can send messages
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2343,6 +2873,8 @@ paths:
         - group
       summary: Set group topic
       description: Set or remove group topic/description
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2385,6 +2917,7 @@ paths:
         - group
       summary: Group Invite Link
       parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
         - name: group_id
           in: query
           schema:
@@ -2423,6 +2956,8 @@ paths:
       tags:
         - newsletter
       summary: Unfollow newsletter
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
         content:
           application/json:
@@ -2453,6 +2988,19 @@ paths:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
 components:
+  parameters:
+    DeviceIdHeader:
+      name: X-Device-Id
+      in: header
+      required: false
+      description: |
+        Device identifier for multi-device support. Required when multiple devices are registered.
+        If only one device is registered, it will be used as the default.
+        Can also be provided as `device_id` query parameter.
+      schema:
+        type: string
+        example: 'my-device-id'
+
   securitySchemes:
     basicAuth:
       type: http
@@ -2807,6 +3355,100 @@ components:
               device:
                 type: string
                 example: '628960561XXX.0:64@s.whatsapp.net'
+
+    # Device Management Schemas (v8)
+    DeviceListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: List devices
+        status:
+          type: integer
+          example: 200
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceInfo'
+    DeviceAddResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Device added
+        status:
+          type: integer
+          example: 200
+        results:
+          $ref: '#/components/schemas/DeviceInfo'
+    DeviceInfoResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Device info
+        status:
+          type: integer
+          example: 200
+        results:
+          $ref: '#/components/schemas/DeviceInfo'
+    DeviceStatusResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Device status
+        status:
+          type: integer
+          example: 200
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: 'my-device-id'
+            is_connected:
+              type: boolean
+              example: true
+            is_logged_in:
+              type: boolean
+              example: true
+    DeviceInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'my-device-id'
+        phone_number:
+          type: string
+          example: '628123456789'
+        display_name:
+          type: string
+          example: 'John Doe'
+        state:
+          type: string
+          enum: [disconnected, connected, logged_in]
+          example: 'logged_in'
+        jid:
+          type: string
+          example: '628123456789@s.whatsapp.net'
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-01T00:00:00Z'
+
     LoginWithCodeResponse:
       type: object
       properties:

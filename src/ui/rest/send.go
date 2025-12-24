@@ -2,6 +2,7 @@ package rest
 
 import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -34,7 +35,7 @@ func (controller *Send) SendText(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendText(c.UserContext(), request)
+	response, err := controller.Service.SendText(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -59,7 +60,7 @@ func (controller *Send) SendImage(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendImage(c.UserContext(), request)
+	response, err := controller.Service.SendImage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -81,7 +82,7 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	request.File = file
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendFile(c.UserContext(), request)
+	response, err := controller.Service.SendFile(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -104,7 +105,7 @@ func (controller *Send) SendVideo(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendVideo(c.UserContext(), request)
+	response, err := controller.Service.SendVideo(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -127,7 +128,7 @@ func (controller *Send) SendSticker(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendSticker(c.UserContext(), request)
+	response, err := controller.Service.SendSticker(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -145,7 +146,7 @@ func (controller *Send) SendContact(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendContact(c.UserContext(), request)
+	response, err := controller.Service.SendContact(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -163,7 +164,7 @@ func (controller *Send) SendLink(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendLink(c.UserContext(), request)
+	response, err := controller.Service.SendLink(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -181,7 +182,7 @@ func (controller *Send) SendLocation(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendLocation(c.UserContext(), request)
+	response, err := controller.Service.SendLocation(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -204,7 +205,7 @@ func (controller *Send) SendAudio(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendAudio(c.UserContext(), request)
+	response, err := controller.Service.SendAudio(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -222,7 +223,7 @@ func (controller *Send) SendPoll(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendPoll(c.UserContext(), request)
+	response, err := controller.Service.SendPoll(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -238,7 +239,7 @@ func (controller *Send) SendPresence(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	response, err := controller.Service.SendPresence(c.UserContext(), request)
+	response, err := controller.Service.SendPresence(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -256,7 +257,7 @@ func (controller *Send) SendChatPresence(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.SendChatPresence(c.UserContext(), request)
+	response, err := controller.Service.SendChatPresence(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

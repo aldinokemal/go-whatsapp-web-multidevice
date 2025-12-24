@@ -2,6 +2,7 @@ package rest
 
 import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -31,7 +32,7 @@ func (controller *Chat) ListChats(c *fiber.Ctx) error {
 	request.Search = c.Query("search", "")
 	request.HasMedia = c.QueryBool("has_media", false)
 
-	response, err := controller.Service.ListChats(c.UserContext(), request)
+	response, err := controller.Service.ListChats(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -68,7 +69,7 @@ func (controller *Chat) GetChatMessages(c *fiber.Ctx) error {
 		request.IsFromMe = &isFromMe
 	}
 
-	response, err := controller.Service.GetChatMessages(c.UserContext(), request)
+	response, err := controller.Service.GetChatMessages(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -95,7 +96,7 @@ func (controller *Chat) PinChat(c *fiber.Ctx) error {
 		})
 	}
 
-	response, err := controller.Service.PinChat(c.UserContext(), request)
+	response, err := controller.Service.PinChat(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -122,7 +123,7 @@ func (controller *Chat) SetDisappearingTimer(c *fiber.Ctx) error {
 		})
 	}
 
-	response, err := controller.Service.SetDisappearingTimer(c.UserContext(), request)
+	response, err := controller.Service.SetDisappearingTimer(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
