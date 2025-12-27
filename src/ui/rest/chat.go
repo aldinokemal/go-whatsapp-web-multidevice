@@ -19,6 +19,7 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Get("/chat/:chat_jid/messages", rest.GetChatMessages)
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
 	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
+	app.Post("/chat/:chat_jid/archive", rest.ArchiveChat)
 
 	return rest
 }
@@ -124,6 +125,33 @@ func (controller *Chat) SetDisappearingTimer(c *fiber.Ctx) error {
 	}
 
 	response, err := controller.Service.SetDisappearingTimer(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
+		Results: response,
+	})
+}
+
+func (controller *Chat) ArchiveChat(c *fiber.Ctx) error {
+	var request domainChat.ArchiveChatRequest
+
+	// Parse path parameter
+	request.ChatJID = c.Params("chat_jid")
+
+	// Parse JSON body
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	response, err := controller.Service.ArchiveChat(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

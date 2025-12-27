@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.0.0
+  version: 8.1.0
   description: |
     This API is used for sending whatsapp via API.
 
@@ -2178,6 +2178,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
   
+  /chat/{chat_jid}/archive:
+    post:
+      operationId: archiveChat
+      tags:
+        - chat
+      summary: Archive or unarchive a chat
+      description: Archive or unarchive a chat conversation. Archived chats are hidden from the main chat list.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                archived:
+                  type: boolean
+                  example: true
+                  description: Whether to archive (true) or unarchive (false) the chat
+              required:
+                - archived
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveChatResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '404':
+          description: Chat Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  
   /group/info:
     get:
       operationId: groupInfo
@@ -4157,6 +4217,33 @@ components:
             timer_seconds:
               type: integer
               example: 86400
+    ArchiveChatResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat archived successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat archived successfully
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            archived:
+              type: boolean
+              example: true
     GroupInfoResponse:
       type: object
       properties:

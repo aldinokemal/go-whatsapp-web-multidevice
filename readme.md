@@ -267,6 +267,7 @@ The WhatsApp MCP server provides comprehensive tools for AI agents to interact w
 - `whatsapp_list_chats` - Get recent chats with pagination and search filters
 - `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
 - `whatsapp_download_message_media` - Download images/videos from messages
+- `whatsapp_archive_chat` - Archive or unarchive a chat conversation
 
 ##### **👥 Group Management**
 
@@ -511,6 +512,7 @@ You can fork or edit this source code !
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Label Chat                             | POST   | /chat/:chat_jid/label               |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
+| ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 
 ```txt

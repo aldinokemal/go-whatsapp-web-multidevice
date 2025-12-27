@@ -311,3 +311,50 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 
 	return response, nil
 }
+
+func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.ArchiveChatRequest) (response domainChat.ArchiveChatResponse, err error) {
+	if err = validations.ValidateArchiveChat(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Build archive patch using whatsmeow's BuildArchive
+	patchInfo := appstate.BuildArchive(targetJID, request.Archived, time.Now(), nil)
+
+	// Send app state update
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"archived": request.Archived,
+		}).Error("Failed to send archive chat app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Archived = request.Archived
+
+	if request.Archived {
+		response.Message = "Chat archived successfully"
+	} else {
+		response.Message = "Chat unarchived successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"archived": request.Archived,
+	}).Info("Chat archive operation completed successfully")
+
+	return response, nil
+}
