@@ -41,22 +41,24 @@ Download:
   - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
       from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
 - `v8`
-  - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single server instance
+  - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single
+      server instance
   - **New Device Management API**: New endpoints under `/devices` for managing multiple devices
   - **Device scoping required**: All device-scoped REST API calls now require either:
     - `X-Device-Id` header, or
     - `device_id` query parameter
     - If only one device is registered, it will be used as the default
   - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
-  - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which device received the event:
+  - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
+      device received the event:
 
-    ```json
-    {
-      "event": "message",
-      "device_id": "628123456789@s.whatsapp.net",
-      "payload": { ... }
-    }
-    ```
+        ```json
+        {
+          "event": "message",
+          "device_id": "628123456789@s.whatsapp.net",
+          "payload": { ... }
+        }
+        ```
 
 ## Feature
 
@@ -100,9 +102,27 @@ Download:
 - **Webhook Payload Documentation**
   For detailed webhook payload schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- **Webhook Event Filtering**
+  You can filter which events are forwarded to your webhook using:
+  - `--webhook-events="message,message.ack"` (comma-separated list)
+  - Or environment variable: `WHATSAPP_WEBHOOK_EVENTS=message,message.ack`
+
+  **Available Webhook Events:**
+
+  | Event                | Description                                   |
+  |----------------------|-----------------------------------------------|
+  | `message`            | Text, media, contact, location messages       |
+  | `message.reaction`   | Emoji reactions to messages                   |
+  | `message.revoked`    | Deleted/revoked messages                      |
+  | `message.edited`     | Edited messages                               |
+  | `message.ack`        | Delivery and read receipts                    |
+  | `group.participants` | Group member join/leave/promote/demote events |
+
+  If not configured (empty), all events will be forwarded.
 - **Webhook TLS Configuration**
 
-  If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed certificates):
+  If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed
+  certificates):
 
   ```
   tls: failed to verify certificate: x509: certificate signed by unknown authority
@@ -117,7 +137,8 @@ Download:
   - Cloudflare tunnels (which provide their own security layer)
   - Internal networks with self-signed certificates
 
-  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt) instead of disabling verification.
+  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt)
+  instead of disabling verification.
 
 ## Configuration
 
@@ -145,23 +166,24 @@ To use environment variables:
 
 #### Available Environment Variables
 
-| Variable                      | Description                                 | Default                                      | Example                                     |
-|-------------------------------|---------------------------------------------|----------------------------------------------|---------------------------------------------|
-| `APP_PORT`                    | Application port                            | `3000`                                       | `APP_PORT=8080`                             |
-| `APP_HOST`                    | Host address to bind the server             | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                        |
-| `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
-| `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
-| `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
-| `APP_BASE_PATH`               | Base path for subpath deployment            | -                                            | `APP_BASE_PATH=/gowa`                       |
-| `APP_TRUSTED_PROXIES`         | Trusted proxy IP ranges for reverse proxy   | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`             |
-| `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
-| `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
-| `WHATSAPP_AUTO_MARK_READ`     | Auto-mark incoming messages as read         | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`              |
-| `WHATSAPP_AUTO_DOWNLOAD_MEDIA`| Auto-download media from incoming messages  | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`        |
-| `WHATSAPP_WEBHOOK`            | Webhook URL(s) for events (comma-separated) | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
-| `WHATSAPP_WEBHOOK_SECRET`     | Webhook secret for validation               | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`  |
-| `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure) | `false` | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true` |
-| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation                   | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`         |
+| Variable                                | Description                                                   | Default                                      | Example                                       |
+|-----------------------------------------|---------------------------------------------------------------|----------------------------------------------|-----------------------------------------------|
+| `APP_PORT`                              | Application port                                              | `3000`                                       | `APP_PORT=8080`                               |
+| `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
+| `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
+| `APP_OS`                                | OS name (device name in WhatsApp)                             | `Chrome`                                     | `APP_OS=MyApp`                                |
+| `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
+| `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
+| `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`         |
+| `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
+| `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
+| `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
+| `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
+| `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
+| `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
+| `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
@@ -242,7 +264,8 @@ standardized protocol.
 
 #### Available MCP Tools
 
-The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized protocol. Below is the complete list of available tools:
+The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized
+protocol. Below is the complete list of available tools:
 
 ##### **📱 Connection Management**
 
@@ -440,8 +463,8 @@ You can fork or edit this source code !
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
-| Feature | Menu                                   | Method | URL                                 |
-|---------|----------------------------------------|--------|-------------------------------------|
+| Feature  | Menu                                   | Method | URL                                 |
+|----------|----------------------------------------|--------|-------------------------------------|
 | ✅       | List Devices                           | GET    | /devices                            |
 | ✅       | Add Device                             | POST   | /devices                            |
 | ✅       | Get Device Info                        | GET    | /devices/:device_id                 |
@@ -515,7 +538,7 @@ You can fork or edit this source code !
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 
-```txt
+```
 ✅ = Available
 ❌ = Not Available Yet
 ```

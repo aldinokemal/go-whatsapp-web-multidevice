@@ -16,6 +16,14 @@ var submitWebhookFn = submitWebhook
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
+	// Check if event is whitelisted (if whitelist is configured)
+	if len(config.WhatsappWebhookEvents) > 0 {
+		if !isEventWhitelisted(eventName) {
+			logrus.Debugf("Skipping event %s - not in webhook events whitelist", eventName)
+			return nil
+		}
+	}
+
 	total := len(config.WhatsappWebhook)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
 
@@ -48,4 +56,14 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	return nil
+}
+
+// isEventWhitelisted checks if the given event name is in the configured whitelist
+func isEventWhitelisted(eventName string) bool {
+	for _, allowed := range config.WhatsappWebhookEvents {
+		if strings.EqualFold(strings.TrimSpace(allowed), eventName) {
+			return true
+		}
+	}
+	return false
 }

@@ -133,6 +133,10 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_webhook_insecure_skip_verify") {
 		config.WhatsappWebhookInsecureSkipVerify = viper.GetBool("whatsapp_webhook_insecure_skip_verify")
 	}
+	if envWebhookEvents := viper.GetString("whatsapp_webhook_events"); envWebhookEvents != "" {
+		events := strings.Split(envWebhookEvents, ",")
+		config.WhatsappWebhookEvents = events
+	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -235,6 +239,12 @@ func initFlags() {
 		"webhook-insecure-skip-verify", "",
 		config.WhatsappWebhookInsecureSkipVerify,
 		`skip TLS certificate verification for webhooks (INSECURE - use only for development/self-signed certs) --webhook-insecure-skip-verify <true/false> | example: --webhook-insecure-skip-verify=true`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.WhatsappWebhookEvents,
+		"webhook-events", "",
+		config.WhatsappWebhookEvents,
+		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,

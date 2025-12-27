@@ -8,6 +8,55 @@ Multidevice application.
 The webhook system sends HTTP POST requests to configured URLs whenever WhatsApp events occur. Each webhook request
 includes event data in JSON format and security headers for verification.
 
+## Available Webhook Events
+
+The following events can be received via webhook:
+
+| Event                | Description                                             |
+|----------------------|---------------------------------------------------------|
+| `message`            | Text, media, contact, location, and other message types |
+| `message.reaction`   | Emoji reactions to messages                             |
+| `message.revoked`    | Deleted/revoked messages                                |
+| `message.edited`     | Edited messages                                         |
+| `message.ack`        | Delivery and read receipts                              |
+| `group.participants` | Group member join/leave/promote/demote events           |
+
+## Event Filtering
+
+You can configure which events are forwarded to your webhook using the `WHATSAPP_WEBHOOK_EVENTS` environment variable or
+`--webhook-events` CLI flag.
+
+### Configuration Examples
+
+**Environment Variable:**
+
+```bash
+# Only receive message and read receipt events
+WHATSAPP_WEBHOOK_EVENTS=message,message.ack
+
+# Receive all message-related events
+WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,message.ack
+
+# Receive only group events
+WHATSAPP_WEBHOOK_EVENTS=group.participants
+```
+
+**CLI Flag:**
+
+```bash
+# Only receive message events
+./whatsapp rest --webhook="https://yourapp.com/webhook" --webhook-events="message"
+
+# Receive message and group events
+./whatsapp rest --webhook="https://yourapp.com/webhook" --webhook-events="message,group.participants"
+```
+
+**Behavior:**
+
+- If `WHATSAPP_WEBHOOK_EVENTS` is empty or not set, **all events** are forwarded (default behavior)
+- If configured, only the specified events are forwarded to webhooks
+- Event names are case-insensitive
+
 ## Security
 
 ### HMAC Signature Verification
@@ -71,24 +120,24 @@ All webhook payloads follow a consistent top-level structure:
 
 ### Top-Level Fields
 
-| **Field**   | **Type** | **Description**                                                                 |
-|-------------|----------|---------------------------------------------------------------------------------|
+| **Field**   | **Type** | **Description**                                                                                                     |
+|-------------|----------|---------------------------------------------------------------------------------------------------------------------|
 | `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `group.participants` |
-| `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`) |
-| `payload`   | object   | Event-specific payload data                                                     |
+| `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
+| `payload`   | object   | Event-specific payload data                                                                                         |
 
 ### Common Payload Fields
 
 Fields commonly found inside the `payload` object:
 
-| **Field**     | **Type** | **Description**                                                   |
-|---------------|----------|-------------------------------------------------------------------|
-| `id`          | string   | Message ID                                                        |
-| `chat_id`     | string   | Chat JID (e.g., `628987654321@s.whatsapp.net` or `120363...@g.us` for groups) |
-| `from`        | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)      |
-| `from_lid`    | string   | LID (Linked ID) of the sender if available                        |
-| `from_name`   | string   | Display name (pushname) of the sender                             |
-| `timestamp`   | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)        |
+| **Field**   | **Type** | **Description**                                                               |
+|-------------|----------|-------------------------------------------------------------------------------|
+| `id`        | string   | Message ID                                                                    |
+| `chat_id`   | string   | Chat JID (e.g., `628987654321@s.whatsapp.net` or `120363...@g.us` for groups) |
+| `from`      | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)                  |
+| `from_lid`  | string   | LID (Linked ID) of the sender if available                                    |
+| `from_name` | string   | Display name (pushname) of the sender                                         |
+| `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
 
 ## Message Events
 
@@ -162,7 +211,9 @@ Triggered when a message is successfully delivered to the recipient's device.
   "device_id": "628123456789@s.whatsapp.net",
   "timestamp": "2025-07-18T22:44:20Z",
   "payload": {
-    "ids": ["3EB00106E8BE0F407E88EC"],
+    "ids": [
+      "3EB00106E8BE0F407E88EC"
+    ],
     "chat_id": "120363402106XXXXX@g.us",
     "from": "6289685XXXXXX@s.whatsapp.net",
     "from_lid": "251556368777322@lid",
@@ -182,7 +233,9 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
   "device_id": "628123456789@s.whatsapp.net",
   "timestamp": "2025-07-18T22:44:44Z",
   "payload": {
-    "ids": ["3EB00106E8BE0F407E88EC"],
+    "ids": [
+      "3EB00106E8BE0F407E88EC"
+    ],
     "chat_id": "120363402106XXXXX@g.us",
     "from": "6289685XXXXXX@s.whatsapp.net",
     "receipt_type": "read",
@@ -207,7 +260,9 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 
 ## Group Events
 
-Group events are triggered when group metadata changes, including member join/leave events, admin promotions/demotions, and group settings updates. These events use the `group.participants` event type and provide comprehensive information about group changes.
+Group events are triggered when group metadata changes, including member join/leave events, admin promotions/demotions,
+and group settings updates. These events use the `group.participants` event type and provide comprehensive information
+about group changes.
 
 ### Group Member Join
 
@@ -648,25 +703,25 @@ app.post('/webhook', (req, res) => {
                 chat_id: data.payload.chat_id
             });
             break;
-            
+
         case 'message.reaction':
             console.log('Reaction:', {
                 reaction: data.payload.reaction,
                 reacted_message_id: data.payload.reacted_message_id
             });
             break;
-            
+
         case 'message.revoked':
             console.log('Message revoked:', data.payload.revoked_message_id);
             break;
-            
+
         case 'message.edited':
             console.log('Message edited:', {
                 original_id: data.payload.original_message_id,
                 new_body: data.payload.body
             });
             break;
-            
+
         case 'message.ack':
             console.log(`Message ${data.payload.receipt_type}:`, {
                 chat_id: data.payload.chat_id,
@@ -674,7 +729,7 @@ app.post('/webhook', (req, res) => {
                 description: data.payload.receipt_type_description
             });
             break;
-            
+
         case 'group.participants':
             console.log(`Group ${data.payload.type} event:`, {
                 chat_id: data.payload.chat_id,
