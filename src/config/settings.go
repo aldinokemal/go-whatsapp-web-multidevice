@@ -30,17 +30,17 @@ var (
 	WhatsappAutoMarkRead              = false // Auto-mark incoming messages as read
 	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
 	WhatsappWebhook                   []string
-	WhatsappWebhookSecret                   = "secret"
-	WhatsappWebhookInsecureSkipVerify       = false // Skip TLS certificate verification for webhooks (insecure)
-	WhatsappWebhookEvents             []string      // Whitelist of events to forward to webhook (empty = all events)
-	WhatsappLogLevel                        = "ERROR"
-	WhatsappSettingMaxImageSize       int64 = 20000000  // 20MB
-	WhatsappSettingMaxFileSize        int64 = 50000000  // 50MB
-	WhatsappSettingMaxVideoSize       int64 = 100000000 // 100MB
-	WhatsappSettingMaxDownloadSize    int64 = 500000000 // 500MB
-	WhatsappTypeUser                        = "@s.whatsapp.net"
-	WhatsappTypeGroup                       = "@g.us"
-	WhatsappAccountValidation               = true
+	WhatsappWebhookSecret             = "secret"
+	WhatsappWebhookInsecureSkipVerify = false  // Skip TLS certificate verification for webhooks (insecure)
+	WhatsappWebhookEvents             []string // Whitelist of events to forward to webhook (empty = all events)
+	WhatsappLogLevel                           = "ERROR"
+	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB
+	WhatsappSettingMaxFileSize        int64    = 50000000  // 50MB
+	WhatsappSettingMaxVideoSize       int64    = 100000000 // 100MB
+	WhatsappSettingMaxDownloadSize    int64    = 500000000 // 500MB
+	WhatsappTypeUser                           = "@s.whatsapp.net"
+	WhatsappTypeGroup                          = "@g.us"
+	WhatsappAccountValidation                  = true
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
