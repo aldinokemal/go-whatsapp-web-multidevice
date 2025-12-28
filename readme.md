@@ -228,7 +228,7 @@ Note: Command-line flags will override any values set in environment variables o
 
 1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
 2. Open the folder that was cloned via cmd/terminal.
-3. run `docker-compose up -d --build`
+3. run `docker-compose --env-file src/.env up -d --build`
 4. open `http://localhost:3000`
 
 ### Build your own binary
