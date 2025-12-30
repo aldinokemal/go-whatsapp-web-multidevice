@@ -130,10 +130,14 @@ func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageR
 		}
 	}
 
+	deviceID := instance.ID()
+
+	instance.TriggerLoggedOut()
+
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "LOGOUT_COMPLETE",
-		Message: "Remote logout cleanup completed - ready for new login",
-		Result:  map[string]string{"device_id": instance.ID()},
+		Message: "Remote logout cleanup completed - device removed from server",
+		Result:  map[string]string{"device_id": deviceID},
 	}
 }
 

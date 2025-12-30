@@ -471,6 +471,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		handler(ctx, inst, rawEvt)
 	})
 
+	inst.SetOnLoggedOut(func(deviceID string) {
+		m.RemoveDevice(deviceID)
+	})
+
 	inst.SetClient(client)
 	inst.UpdateStateFromClient()
 

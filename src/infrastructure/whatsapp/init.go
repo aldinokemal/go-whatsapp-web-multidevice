@@ -122,6 +122,9 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	dm := InitializeDeviceManager(storeContainer, keysStoreContainer, deviceRepo)
 	if dm != nil && instanceID != "" {
 		dm.EnsureDefault(instance)
+		instance.SetOnLoggedOut(func(deviceID string) {
+			dm.RemoveDevice(deviceID)
+		})
 	}
 
 	globalStateMu.Lock()

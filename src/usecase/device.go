@@ -111,6 +111,11 @@ func (s *serviceDevice) ReconnectDevice(_ context.Context, deviceID string) erro
 		if client == nil {
 			return fmt.Errorf("device %s client not initialized", deviceID)
 		}
+
+		if client.Store == nil || client.Store.ID == nil {
+			return fmt.Errorf("device %s is not logged in (session deleted)", deviceID)
+		}
+
 		client.Disconnect()
 		return client.Connect()
 	}
@@ -127,6 +132,11 @@ func (s *serviceDevice) GetStatus(_ context.Context, deviceID string) (bool, boo
 		if client == nil {
 			return false, false, nil
 		}
+
+		if client.Store == nil || client.Store.ID == nil {
+			return false, false, nil
+		}
+
 		// Update state snapshot based on live client flags
 		state := deriveState(inst)
 		_ = state

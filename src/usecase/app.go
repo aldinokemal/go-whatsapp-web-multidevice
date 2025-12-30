@@ -187,6 +187,10 @@ func (service *serviceApp) Reconnect(_ context.Context, deviceID string) (err er
 		return err
 	}
 
+	if client.Store == nil || client.Store.ID == nil {
+		return fmt.Errorf("device %s is not logged in (session deleted)", deviceID)
+	}
+
 	client.Disconnect()
 	err = client.Connect()
 	instance.UpdateStateFromClient()
@@ -211,6 +215,11 @@ func (service *serviceApp) Status(_ context.Context, deviceID string) (bool, boo
 	if client == nil {
 		return false, false, nil
 	}
+
+	if client.Store == nil || client.Store.ID == nil {
+		return false, false, nil
+	}
+
 	return client.IsConnected(), client.IsLoggedIn(), nil
 }
 

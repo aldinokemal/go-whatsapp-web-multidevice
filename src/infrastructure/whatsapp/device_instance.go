@@ -20,6 +20,7 @@ type DeviceInstance struct {
 	phoneNumber     string
 	jid             string
 	createdAt       time.Time
+	onLoggedOut     func(deviceID string) // Callback for remote logout cleanup
 }
 
 func NewDeviceInstance(deviceID string, client *whatsmeow.Client, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceInstance {
@@ -151,5 +152,22 @@ func (d *DeviceInstance) refreshIdentityLocked() {
 	if d.client != nil && d.client.Store != nil && d.client.Store.ID != nil {
 		d.jid = d.client.Store.ID.ToNonAD().String()
 		d.displayName = d.client.Store.PushName
+	}
+}
+
+func (d *DeviceInstance) SetOnLoggedOut(callback func(deviceID string)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.onLoggedOut = callback
+}
+
+func (d *DeviceInstance) TriggerLoggedOut() {
+	d.mu.RLock()
+	callback := d.onLoggedOut
+	deviceID := d.id
+	d.mu.RUnlock()
+
+	if callback != nil {
+		callback(deviceID)
 	}
 }
