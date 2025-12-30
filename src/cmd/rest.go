@@ -66,6 +66,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	}))
 
 	app.Use(middleware.Recovery())
+	app.Use(middleware.RequestTimeout(middleware.DefaultRequestTimeout))
 	app.Use(middleware.BasicAuth())
 	if config.AppDebug {
 		app.Use(logger.New())

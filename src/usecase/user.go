@@ -82,49 +82,38 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 		return response, pkgError.ErrWaCLI
 	}
 
-	chanResp := make(chan domainUser.AvatarResponse)
-	chanErr := make(chan error)
-	waktu := time.Now()
-
-	go func() {
-		err = validations.ValidateUserAvatar(ctx, request)
-		if err != nil {
-			chanErr <- err
-		}
-		dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
-		if err != nil {
-			chanErr <- err
-		}
-		pic, err := client.GetProfilePictureInfo(ctx, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
-			Preview:     request.IsPreview,
-			IsCommunity: request.IsCommunity,
-		})
-		if err != nil {
-			chanErr <- err
-		} else if pic == nil {
-			chanErr <- errors.New("no avatar found")
-		} else {
-			response.URL = pic.URL
-			response.ID = pic.ID
-			response.Type = pic.Type
-
-			chanResp <- response
-		}
-	}()
-
-	for {
-		select {
-		case err := <-chanErr:
-			return response, err
-		case response := <-chanResp:
-			return response, nil
-		default:
-			if waktu.Add(2 * time.Second).Before(time.Now()) {
-				return response, pkgError.ContextError("Error timeout get avatar !")
-			}
-		}
+	err = validations.ValidateUserAvatar(ctx, request)
+	if err != nil {
+		return response, err
 	}
 
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	avatarCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	pic, err := client.GetProfilePictureInfo(avatarCtx, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
+		Preview:     request.IsPreview,
+		IsCommunity: request.IsCommunity,
+	})
+	if err != nil {
+		if avatarCtx.Err() == context.DeadlineExceeded {
+			return response, pkgError.ContextError("Error timeout get avatar!")
+		}
+		return response, err
+	}
+
+	if pic == nil {
+		return response, errors.New("no avatar found")
+	}
+
+	response.URL = pic.URL
+	response.ID = pic.ID
+	response.Type = pic.Type
+	return response, nil
 }
 
 func (service serviceUser) MyListGroups(ctx context.Context) (response domainUser.MyListGroupsResponse, err error) {

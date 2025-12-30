@@ -42,3 +42,28 @@ func (e ContextError) ErrCode() string {
 func (e ContextError) StatusCode() int {
 	return http.StatusRequestTimeout
 }
+
+// TimeoutError represents a request timeout error
+type TimeoutError string
+
+func (e TimeoutError) Error() string {
+	return string(e)
+}
+
+func (e TimeoutError) ErrCode() string {
+	return "REQUEST_TIMEOUT"
+}
+
+func (e TimeoutError) StatusCode() int {
+	return http.StatusGatewayTimeout // 504
+}
+
+// RequestTimeout creates a timeout error with a custom message
+func RequestTimeout(text string) GenericError {
+	return TimeoutError(text)
+}
+
+var (
+	ErrInternalServerError = InternalServerError("internal server error")
+	ErrRequestTimeout      = TimeoutError("request timed out waiting for WhatsApp server response")
+)

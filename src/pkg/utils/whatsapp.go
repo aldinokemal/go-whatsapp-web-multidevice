@@ -622,7 +622,11 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
 			phone = "+" + phone
 		}
 
-		data, err := client.IsOnWhatsApp(context.Background(), []string{phone})
+		// Add timeout to prevent indefinite blocking
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		data, err := client.IsOnWhatsApp(ctx, []string{phone})
 		if err != nil {
 			logrus.Error("Failed to check if user is on whatsapp: ", err)
 			return false
