@@ -65,6 +65,22 @@ func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) 
 	return chat, err
 }
 
+// GetChatByDevice retrieves a chat by JID for a specific device
+func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatStorage.Chat, error) {
+	query := `
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at
+		FROM chats
+		WHERE jid = ? AND device_id = ?
+	`
+
+	chat, err := r.scanChat(r.db.QueryRow(query, jid, deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	return chat, err
+}
+
 // GetMessageByID retrieves a message by its ID from any chat
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
@@ -165,6 +181,29 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 
 	// Delete chat
 	_, err = tx.Exec("DELETE FROM chats WHERE jid = ?", jid)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// DeleteChatByDevice deletes a chat and all its messages for a specific device
+func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
+	if err != nil {
+		return err
+	}
+
+	// Delete chat
+	_, err = tx.Exec("DELETE FROM chats WHERE jid = ? AND device_id = ?", jid, deviceID)
 	if err != nil {
 		return err
 	}
@@ -419,6 +458,12 @@ func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
 	return err
 }
 
+// DeleteMessageByDevice deletes a specific message for a specific device
+func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) error {
+	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
+	return err
+}
+
 // getCount is a private helper for count queries
 func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 	var count int64
@@ -451,6 +496,11 @@ func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*d
 // GetChatMessageCount returns the number of messages in a chat
 func (r *SQLiteRepository) GetChatMessageCount(chatJID string) (int64, error) {
 	return r.getCount("SELECT COUNT(*) FROM messages WHERE chat_jid = ?", chatJID)
+}
+
+// GetChatMessageCountByDevice returns the number of messages in a chat for a specific device
+func (r *SQLiteRepository) GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error) {
+	return r.getCount("SELECT COUNT(*) FROM messages WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID)
 }
 
 // GetTotalMessageCount returns the total number of messages
@@ -602,6 +652,49 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	// First, check if chat already exists with a name
 	existingChat, err := r.GetChat(chatJID)
+	if err == nil && existingChat != nil && existingChat.Name != "" {
+		// If we have a pushname and the existing name is just a phone number/JID user, update it
+		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {
+			return pushName
+		}
+		return existingChat.Name
+	}
+
+	// Determine chat type and name
+	var name string
+
+	switch jid.Server {
+	case "g.us":
+		// This is a group chat
+		// For now, use a generic name - this can be enhanced later with group info
+		name = fmt.Sprintf("Group %s", jid.User)
+	case "newsletter":
+		// This is a newsletter/channel
+		name = fmt.Sprintf("Newsletter %s", jid.User)
+	default:
+		// This is an individual contact
+		// Priority: pushName > senderUser > JID user
+		if pushName != "" && pushName != senderUser && pushName != jid.User {
+			name = pushName
+		} else if senderUser != "" {
+			name = senderUser
+		} else {
+			name = jid.User
+		}
+	}
+
+	return name
+}
+
+// GetChatNameWithPushNameByDevice determines the appropriate name for a chat with pushname support (device-scoped)
+func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid types.JID, chatJID string, senderUser string, pushName string) string {
+	// Special handling for status@broadcast - always return "Status"
+	if chatJID == "status@broadcast" || jid.String() == "status@broadcast" {
+		return "Status"
+	}
+
+	// First, check if chat already exists with a name (device-scoped!)
+	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err == nil && existingChat != nil && existingChat.Name != "" {
 		// If we have a pushname and the existing name is just a phone number/JID user, update it
 		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {

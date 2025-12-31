@@ -255,6 +255,18 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 	pushnames := data.GetPushnames()
 	log.Infof("Processing %d push names from history sync", len(pushnames))
 
+	// Extract device ID from context (same pattern as processConversationMessages)
+	deviceID := ""
+	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+
 	for _, pushname := range pushnames {
 		rawJIDStr := pushname.GetID()
 		name := pushname.GetPushname()
@@ -272,8 +284,8 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 		jid = NormalizeJIDFromLID(ctx, jid, client)
 		jidStr := jid.String()
 
-		// Check if chat exists
-		existingChat, err := chatStorageRepo.GetChat(jidStr)
+		// Check if chat exists (device-scoped to avoid cross-device data leak)
+		existingChat, err := chatStorageRepo.GetChatByDevice(deviceID, jidStr)
 		if err != nil || existingChat == nil {
 			// Chat doesn't exist yet, skip
 			continue

@@ -61,7 +61,11 @@ func (r *deviceChatStorage) StoreChat(chat *domainChatStorage.Chat) error {
 }
 
 func (r *deviceChatStorage) GetChat(jid string) (*domainChatStorage.Chat, error) {
-	return r.base.GetChat(jid)
+	return r.base.GetChatByDevice(r.deviceID, jid)
+}
+
+func (r *deviceChatStorage) GetChatByDevice(deviceID, jid string) (*domainChatStorage.Chat, error) {
+	return r.base.GetChatByDevice(deviceID, jid)
 }
 
 func (r *deviceChatStorage) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
@@ -81,7 +85,11 @@ func (r *deviceChatStorage) GetChats(filter *domainChatStorage.ChatFilter) ([]*d
 }
 
 func (r *deviceChatStorage) DeleteChat(jid string) error {
-	return r.base.DeleteChat(jid)
+	return r.base.DeleteChatByDevice(r.deviceID, jid)
+}
+
+func (r *deviceChatStorage) DeleteChatByDevice(deviceID, jid string) error {
+	return r.base.DeleteChatByDevice(deviceID, jid)
 }
 
 func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) error {
@@ -105,7 +113,11 @@ func (r *deviceChatStorage) SearchMessages(chatJID, searchText string, limit int
 }
 
 func (r *deviceChatStorage) DeleteMessage(id, chatJID string) error {
-	return r.base.DeleteMessage(id, chatJID)
+	return r.base.DeleteMessageByDevice(r.deviceID, id, chatJID)
+}
+
+func (r *deviceChatStorage) DeleteMessageByDevice(deviceID, id, chatJID string) error {
+	return r.base.DeleteMessageByDevice(deviceID, id, chatJID)
 }
 
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
@@ -113,7 +125,11 @@ func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, mes
 }
 
 func (r *deviceChatStorage) GetChatMessageCount(chatJID string) (int64, error) {
-	return r.base.GetChatMessageCount(chatJID)
+	return r.base.GetChatMessageCountByDevice(r.deviceID, chatJID)
+}
+
+func (r *deviceChatStorage) GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error) {
+	return r.base.GetChatMessageCountByDevice(deviceID, chatJID)
 }
 
 func (r *deviceChatStorage) GetTotalMessageCount() (int64, error) {
@@ -125,7 +141,11 @@ func (r *deviceChatStorage) GetTotalChatCount() (int64, error) {
 }
 
 func (r *deviceChatStorage) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
-	return r.base.GetChatNameWithPushName(jid, chatJID, senderUser, pushName)
+	return r.base.GetChatNameWithPushNameByDevice(r.deviceID, jid, chatJID, senderUser, pushName)
+}
+
+func (r *deviceChatStorage) GetChatNameWithPushNameByDevice(deviceID string, jid types.JID, chatJID string, senderUser string, pushName string) string {
+	return r.base.GetChatNameWithPushNameByDevice(deviceID, jid, chatJID, senderUser, pushName)
 }
 
 func (r *deviceChatStorage) GetStorageStatistics() (chatCount int64, messageCount int64, err error) {

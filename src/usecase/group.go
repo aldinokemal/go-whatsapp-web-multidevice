@@ -189,12 +189,43 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 	if groupInfo != nil {
 		response.Name = groupInfo.GroupName.Name
 		response.Participants = make([]domainGroup.GroupParticipant, 0, len(groupInfo.Participants))
+
+		// Collect JIDs for batch GetUserInfo call
+		jids := make([]types.JID, 0, len(groupInfo.Participants))
+		for _, p := range groupInfo.Participants {
+			jids = append(jids, p.JID)
+		}
+
+		// Fetch user info for verified business names (ignore errors)
+		userInfoMap := make(map[types.JID]types.UserInfo)
+		if len(jids) > 0 {
+			userInfoMap, _ = client.GetUserInfo(ctx, jids)
+		}
+
 		for _, participant := range groupInfo.Participants {
+			displayName := participant.DisplayName
+
+			// Try contact store first (for known contacts)
+			if displayName == "" {
+				if contact, err := client.Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
+					displayName = contact.FullName
+				} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
+					// Fall back to verified business name
+					displayName = info.VerifiedName.Details.GetVerifiedName()
+				}
+			}
+
+			// Use JID.User for clean phone number, fallback to PhoneNumber.String()
+			phoneNumber := participant.JID.User
+			if phoneNumber == "" {
+				phoneNumber = participant.PhoneNumber.String()
+			}
+
 			participantData := domainGroup.GroupParticipant{
 				JID:          participant.JID.String(),
-				PhoneNumber:  participant.PhoneNumber.String(),
+				PhoneNumber:  phoneNumber,
 				LID:          participant.LID.String(),
-				DisplayName:  participant.DisplayName,
+				DisplayName:  displayName,
 				IsAdmin:      participant.IsAdmin,
 				IsSuperAdmin: participant.IsSuperAdmin,
 			}

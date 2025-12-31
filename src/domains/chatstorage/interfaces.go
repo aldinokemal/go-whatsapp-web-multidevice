@@ -13,8 +13,10 @@ type IChatStorageRepository interface {
 	CreateMessage(ctx context.Context, evt *events.Message) error
 	StoreChat(chat *Chat) error
 	GetChat(jid string) (*Chat, error)
+	GetChatByDevice(deviceID, jid string) (*Chat, error)
 	GetChats(filter *ChatFilter) ([]*Chat, error)
 	DeleteChat(jid string) error
+	DeleteChatByDevice(deviceID, jid string) error
 
 	// Message operations
 	StoreMessage(message *Message) error
@@ -23,13 +25,16 @@ type IChatStorageRepository interface {
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
 	DeleteMessage(id, chatJID string) error
+	DeleteMessageByDevice(deviceID, id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
+	GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error)
 	GetTotalMessageCount() (int64, error)
 	GetTotalChatCount() (int64, error)
 	GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string
+	GetChatNameWithPushNameByDevice(deviceID string, jid types.JID, chatJID string, senderUser string, pushName string) string
 	GetStorageStatistics() (chatCount int64, messageCount int64, err error)
 
 	// Cleanup operations
