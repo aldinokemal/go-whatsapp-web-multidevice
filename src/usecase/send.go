@@ -117,7 +117,17 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
 	}
 
+	// Get mentions from text (existing behavior - parses @phone from message text)
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
+
+	// Add explicit mentions from request.Mentions (ghost mentions - no @ required in text)
+	if len(request.Mentions) > 0 {
+		explicitMentions := service.getMentionsFromList(ctx, request.Mentions, dataWaRecipient)
+		parsedMentions = append(parsedMentions, explicitMentions...)
+		// Deduplicate to avoid mentioning the same person twice
+		parsedMentions = utils.UniqueStrings(parsedMentions)
+	}
+
 	if len(parsedMentions) > 0 {
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 	}
@@ -982,6 +992,36 @@ func (service serviceSend) getMentionFromText(ctx context.Context, messages stri
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
 		// Get JID from phone number
+		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
+			result = append(result, dataWaRecipient.String())
+		}
+	}
+	return result
+}
+
+// getMentionsFromList converts a list of phone numbers to JIDs for ghost mentions
+// Special keyword "@everyone" will fetch all group participants
+func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []string, recipientJID types.JID) (result []string) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result
+	}
+
+	for _, mention := range mentions {
+		// Handle @everyone keyword - fetch all group participants
+		if mention == "@everyone" {
+			if recipientJID.Server == types.GroupServer {
+				groupInfo, err := client.GetGroupInfo(ctx, recipientJID)
+				if err == nil && groupInfo != nil {
+					for _, participant := range groupInfo.Participants {
+						result = append(result, participant.JID.String())
+					}
+				}
+			}
+			continue
+		}
+
+		// Regular phone number mention
 		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}

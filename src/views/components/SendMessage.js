@@ -12,6 +12,7 @@ export default {
             text: '',
             reply_message_id: '',
             is_forwarded: false,
+            mention_everyone: false,
             duration: 0,
             loading: false,
         }
@@ -31,6 +32,9 @@ export default {
         },
         isShowReplyId() {
             return this.type !== window.TYPESTATUS;
+        },
+        isGroup() {
+            return this.type === window.TYPEGROUP;
         },
         isValidForm() {
             // Validate phone number is not empty except for status type
@@ -70,6 +74,11 @@ export default {
                     payload.duration = this.duration;
                 }
 
+                // Add mentions if mention_everyone is checked (only for groups)
+                if (this.mention_everyone && this.type === window.TYPEGROUP) {
+                    payload.mentions = ["@everyone"];
+                }
+
                 const response = await window.http.post('/send/message', payload);
                 this.handleReset();
                 return response.data.message;
@@ -87,6 +96,7 @@ export default {
             this.text = '';
             this.reply_message_id = '';
             this.is_forwarded = false;
+            this.mention_everyone = false;
             this.duration = 0;
         },
     },
@@ -126,6 +136,13 @@ export default {
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark message as forwarded</label>
+                    </div>
+                </div>
+                <div class="field" v-if="isGroup()">
+                    <label>Mention Everyone</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="mention everyone" v-model="mention_everyone">
+                        <label>Mention all group participants (@everyone)</label>
                     </div>
                 </div>
                 <div class="field">

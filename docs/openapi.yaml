@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.1.0
+  version: 8.2.0
   description: |
     This API is used for sending whatsapp via API.
 
@@ -838,6 +838,14 @@ paths:
                   type: integer
                   example: 3600
                   description: Disappearing message duration in seconds (optional)
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                  example: ["628123456789", "@everyone"]
+                  description: |
+                    List of phone numbers to mention (ghost mentions - no @ required in message text).
+                    Use special keyword "@everyone" to mention all group participants.
       responses:
         '200':
           description: OK

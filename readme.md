@@ -67,6 +67,10 @@ Download:
 - Mention someone
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
+- **Ghost Mentions (Mention All)** - Mention group participants without showing `@phone` in message text
+  - Pass phone numbers in `mentions` field to mention users without visible `@` in message
+  - Use special keyword `@everyone` to automatically mention ALL group participants
+  - UI checkbox available in Send Message modal for groups
 - Post Whatsapp Status
 - **Send Stickers** - Automatically converts images to WebP sticker format
   - Supports JPG, JPEG, PNG, WebP, and GIF formats
