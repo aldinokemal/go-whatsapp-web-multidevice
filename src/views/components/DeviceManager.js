@@ -100,7 +100,7 @@ export default {
                 
                 // Logout first (fire and forget), then delete
                 window.http.get(`/app/logout`, {
-                    headers: { 'X-Device-Id': deviceId }
+                    headers: { 'X-Device-Id': encodeURIComponent(deviceId) }
                 }).catch(() => {});
                 
                 await window.http.delete(`/devices/${encodeURIComponent(deviceId)}`);

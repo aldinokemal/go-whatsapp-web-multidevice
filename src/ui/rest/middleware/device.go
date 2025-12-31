@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -29,6 +30,10 @@ func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 		}
 
 		deviceID := strings.TrimSpace(c.Get(DeviceIDHeader))
+		// URL-decode the header value to support non-ASCII characters
+		if decoded, err := url.QueryUnescape(deviceID); err == nil {
+			deviceID = decoded
+		}
 		if deviceID == "" {
 			deviceID = strings.TrimSpace(c.Query("device_id"))
 		}
