@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,9 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
+
+// webpCanvasSizeRegex is compiled once at package level for efficiency
+var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
 
 type serviceSend struct {
 	appService      app.IAppUsecase
@@ -1059,10 +1064,141 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		deletedItems = append(deletedItems, stickerPath)
 	}
 
+	// Check if input is animated WebP - if so, handle it specially
+	infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer infoCancel()
+	isAnimatedSticker, webpWidth, webpHeight := getWebPInfo(infoCtx, stickerPath)
+	if isAnimatedSticker {
+		logrus.Info("Detected animated WebP sticker")
+
+		// Validate dimensions - must be exactly 512x512 for animated stickers
+		if webpWidth != 512 || webpHeight != 512 {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("animated WebP stickers must be exactly 512x512 pixels (got %dx%d). Please resize your sticker before uploading.", webpWidth, webpHeight))
+		}
+
+		// Validate file size - must be under 500KB
+		fileInfo, statErr := os.Stat(stickerPath)
+		if statErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to stat sticker file: %v", statErr))
+		}
+		if fileInfo.Size() > 500*1024 {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("animated WebP stickers must be under 500KB (got %d KB). Please reduce the file size.", fileInfo.Size()/1024))
+		}
+
+		// Use the animated WebP file directly
+		stickerBytes, err = os.ReadFile(stickerPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read animated sticker: %v", err))
+		}
+
+		logrus.Infof("Using animated WebP sticker directly: %dx%d, %d bytes", webpWidth, webpHeight, len(stickerBytes))
+
+		// Upload sticker to WhatsApp servers
+		stickerUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
+		if err != nil {
+			return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
+		}
+
+		// Create animated sticker message
+		msg := &waE2E.Message{
+			StickerMessage: &waE2E.StickerMessage{
+				URL:           proto.String(stickerUploaded.URL),
+				DirectPath:    proto.String(stickerUploaded.DirectPath),
+				Mimetype:      proto.String("image/webp"),
+				FileLength:    proto.Uint64(stickerUploaded.FileLength),
+				FileSHA256:    stickerUploaded.FileSHA256,
+				FileEncSHA256: stickerUploaded.FileEncSHA256,
+				MediaKey:      stickerUploaded.MediaKey,
+				Width:         proto.Uint32(uint32(webpWidth)),
+				Height:        proto.Uint32(uint32(webpHeight)),
+				IsAnimated:    proto.Bool(true),
+			},
+		}
+
+		if request.BaseRequest.IsForwarded {
+			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
+				IsForwarded:     proto.Bool(true),
+				ForwardingScore: proto.Uint32(100),
+			}
+		}
+
+		if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+			if msg.StickerMessage.ContextInfo == nil {
+				msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{}
+			}
+			msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+		}
+
+		content := "🎨 Animated Sticker"
+
+		// Send the animated sticker message
+		ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
+		if err != nil {
+			return response, err
+		}
+
+		response.MessageID = ts.ID
+		response.Status = fmt.Sprintf("Animated sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+		return response, nil
+	}
+
 	// Convert image to WebP format for sticker (512x512 max size)
 	srcImage, err := imaging.Open(stickerPath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
+		// Fallback for animated WebP (imaging.Open doesn't support animated WebP)
+		logrus.Warnf("imaging.Open failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
+
+		fallbackPngPath := filepath.Join(absBaseDir, fmt.Sprintf("fallback_%s.png", fiberUtils.UUIDv4()))
+		deletedItems = append(deletedItems, fallbackPngPath)
+
+		convertCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		// Check if context was already cancelled before starting conversion
+		if convertCtx.Err() != nil {
+			return response, pkgError.InternalServerError("request cancelled during sticker processing")
+		}
+
+		conversionSuccess := false
+
+		// Try webpmux + dwebp for animated WebP (extract first frame)
+		if _, lookErr := exec.LookPath("webpmux"); lookErr == nil {
+			if _, lookErr := exec.LookPath("dwebp"); lookErr == nil {
+				logrus.Info("Trying webpmux to extract first frame from animated WebP...")
+				extractedFramePath := filepath.Join(absBaseDir, fmt.Sprintf("frame_%s.webp", fiberUtils.UUIDv4()))
+				deletedItems = append(deletedItems, extractedFramePath)
+
+				cmdWebpmux := exec.CommandContext(convertCtx, "webpmux", "-get", "frame", "1", stickerPath, "-o", extractedFramePath)
+				var stderrWebpmux bytes.Buffer
+				cmdWebpmux.Stderr = &stderrWebpmux
+				if errWebpmux := cmdWebpmux.Run(); errWebpmux == nil {
+					// Now decode the extracted frame with dwebp
+					cmdDwebp := exec.CommandContext(convertCtx, "dwebp", extractedFramePath, "-o", fallbackPngPath)
+					var stderrDwebp bytes.Buffer
+					cmdDwebp.Stderr = &stderrDwebp
+					if errDwebp := cmdDwebp.Run(); errDwebp == nil {
+						conversionSuccess = true
+						logrus.Info("webpmux + dwebp conversion successful for animated WebP")
+					} else {
+						logrus.Errorf("dwebp failed on extracted frame: %v, stderr: %s", errDwebp, stderrDwebp.String())
+					}
+				} else {
+					logrus.Errorf("webpmux frame extraction failed: %v, stderr: %s", errWebpmux, stderrWebpmux.String())
+				}
+			}
+		}
+
+		if !conversionSuccess {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v (animated WebP requires webpmux and dwebp tools)", err))
+		}
+
+		srcImage, err = imaging.Open(fallbackPngPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open fallback PNG image: %v", err))
+		}
+		logrus.Info("Fallback conversion successful")
 	}
 
 	// Resize image to max 512x512 maintaining aspect ratio
@@ -1179,6 +1315,42 @@ func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Cl
 		uploaded, err = client.Upload(ctx, media, mediaType)
 	}
 	return uploaded, err
+}
+
+// getWebPInfo returns whether the file is animated WebP and its dimensions.
+// It validates the file exists and is a regular file before executing webpmux.
+func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width int, height int) {
+	// Validate file exists and is a regular file (prevents command injection)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil || !fileInfo.Mode().IsRegular() {
+		return false, 0, 0
+	}
+
+	// Clean path to prevent path traversal
+	cleanPath := filepath.Clean(filePath)
+
+	cmd := exec.CommandContext(ctx, "webpmux", "-info", cleanPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, 0, 0
+	}
+
+	outputStr := string(output)
+	isAnimated = strings.Contains(strings.ToLower(outputStr), "animation")
+
+	// Parse "Canvas size: 512 x 512"
+	matches := webpCanvasSizeRegex.FindStringSubmatch(outputStr)
+	if len(matches) == 3 {
+		var errW, errH error
+		width, errW = strconv.Atoi(matches[1])
+		height, errH = strconv.Atoi(matches[2])
+		if errW != nil || errH != nil {
+			logrus.Warnf("Failed to parse WebP dimensions from '%s': width=%v, height=%v", outputStr, errW, errH)
+			return isAnimated, 0, 0
+		}
+	}
+
+	return isAnimated, width, height
 }
 
 func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {

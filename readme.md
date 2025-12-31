@@ -72,6 +72,11 @@ Download:
   - Supports JPG, JPEG, PNG, WebP, and GIF formats
   - Automatic resizing to 512x512 pixels
   - Preserves transparency for PNG images
+  - **Animated WebP stickers** are supported but must meet WhatsApp requirements:
+    - Must be exactly **512x512 pixels**
+    - Must be under **500KB** file size
+    - Maximum **10 seconds** duration
+    - If your animated sticker doesn't meet these requirements, please resize it before uploading using tools like [ezgif.com](https://ezgif.com/resize)
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -205,14 +210,18 @@ Note: Command-line flags will override any values set in environment variables o
 ### Dependencies (without docker)
 
 - Mac OS:
-  - `brew install ffmpeg`
+  - `brew install ffmpeg webp`
   - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
   - `sudo apt update`
-  - `sudo apt install ffmpeg`
-- Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
-  - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+  - `sudo apt install ffmpeg webp`
+- Windows (not recommended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
+  - Install ffmpeg: [download here](https://www.ffmpeg.org/download.html#build-windows)
+  - Install libwebp: [download here](https://developers.google.com/speed/webp/download) (extract and add `bin` folder to PATH)
+  - Add both to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+
+> **Note**: The `webp` package provides `cwebp` (encoder), `dwebp` (decoder), and `webpmux` (frame extractor) tools.
+> FFmpeg is required for media processing. The libwebp tools (`webpmux` + `dwebp`) are used for animated WebP sticker support.
 
 ## How to use
 
