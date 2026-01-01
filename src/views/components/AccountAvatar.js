@@ -18,6 +18,17 @@ export default {
     computed: {
         phone_id() {
             return this.phone + this.type;
+        },
+        isGroupType() {
+            return this.type === window.TYPEGROUP;
+        }
+    },
+    watch: {
+        type(newType) {
+            // Reset is_community when switching to user type (only valid for groups)
+            if (newType !== window.TYPEGROUP) {
+                this.is_community = false;
+            }
         }
     },
     methods: {
@@ -93,11 +104,11 @@ export default {
                     </div>
                 </div>
 
-                <div class="field">
+                <div class="field" v-if="isGroupType">
                     <label>Community</label>
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="is_community">
-                        <label>Check is it's community image</label>
+                        <label>Check if it's a community group</label>
                     </div>
                 </div>
 

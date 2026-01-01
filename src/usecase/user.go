@@ -92,18 +92,42 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 		return response, err
 	}
 
+	// IsCommunity should only be true for group JIDs (communities)
+	// For regular user JIDs (@s.whatsapp.net), force IsCommunity to false to prevent timeout
+	isCommunity := request.IsCommunity
+	if dataWaRecipient.Server == types.DefaultUserServer {
+		isCommunity = false
+	}
+
 	avatarCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	pic, err := client.GetProfilePictureInfo(avatarCtx, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
 		Preview:     request.IsPreview,
-		IsCommunity: request.IsCommunity,
+		IsCommunity: isCommunity,
 	})
 	if err != nil {
 		if avatarCtx.Err() == context.DeadlineExceeded {
 			return response, pkgError.ContextError("Error timeout get avatar!")
 		}
-		return response, err
+		// If is_community=true failed, retry with is_community=false as fallback
+		if isCommunity {
+			avatarCtx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel2()
+
+			pic, err = client.GetProfilePictureInfo(avatarCtx2, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
+				Preview:     request.IsPreview,
+				IsCommunity: false,
+			})
+			if err != nil {
+				if avatarCtx2.Err() == context.DeadlineExceeded {
+					return response, pkgError.ContextError("Error timeout get avatar!")
+				}
+				return response, err
+			}
+		} else {
+			return response, err
+		}
 	}
 
 	if pic == nil {
