@@ -16,7 +16,7 @@ func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, messag
 		return err
 	}
 
-	return forwardPayloadToConfiguredWebhooks(ctx, payload, "delete event")
+	return BroadcastWebhookEvent(ctx, "message.delete", payload)
 }
 
 // createDeletePayload creates a webhook payload for delete events

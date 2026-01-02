@@ -12,45 +12,57 @@ import (
 
 var submitWebhookFn = submitWebhook
 
-// forwardPayloadToConfiguredWebhooks attempts to deliver the provided payload to every configured webhook URL.
-// It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
-// successful targets still receive the event.
-func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	// Check if event is whitelisted (if whitelist is configured)
-	if len(config.WhatsappWebhookEvents) > 0 {
-		if !isEventWhitelisted(eventName) {
-			logrus.Debugf("Skipping event %s - not in webhook events whitelist", eventName)
-			return nil
-		}
-	}
-
-	total := len(config.WhatsappWebhook)
-	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
-
-	if total == 0 {
-		logrus.Infof("No webhook configured for %s; skipping dispatch", eventName)
+// BroadcastWebhookEvent is the standard method for broadcasting events to all configured webhooks.
+func BroadcastWebhookEvent(ctx context.Context, eventName string, payload map[string]any) error {
+	if !shouldForwardEvent(eventName) {
 		return nil
 	}
 
-	var (
-		failed    []string
-		successes int
-	)
-	for _, url := range config.WhatsappWebhook {
+	webhooks := config.WhatsappWebhook
+	if len(webhooks) == 0 {
+		logrus.Debugf("No webhook configured for %s; skipping dispatch", eventName)
+		return nil
+	}
+
+	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, len(webhooks))
+
+	failedErrors, successCount := dispatchToWebhooks(ctx, webhooks, payload, eventName)
+
+	return handleBroadcastResults(eventName, len(webhooks), successCount, failedErrors)
+}
+
+func shouldForwardEvent(eventName string) bool {
+	if len(config.WhatsappWebhookEvents) > 0 {
+		if !isEventWhitelisted(eventName) {
+			logrus.Debugf("Skipping event %s - not in webhook events whitelist", eventName)
+			return false
+		}
+	}
+	return true
+}
+
+func dispatchToWebhooks(ctx context.Context, webhooks []string, payload map[string]any, eventName string) ([]string, int) {
+	var failedErrors []string
+	var successCount int
+
+	for _, url := range webhooks {
 		if err := submitWebhookFn(ctx, payload, url); err != nil {
-			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
+			failedErrors = append(failedErrors, fmt.Sprintf("%s: %v", url, err))
 			logrus.Warnf("Failed forwarding %s to %s: %v", eventName, url, err)
 			continue
 		}
-		successes++
+		successCount++
 	}
+	return failedErrors, successCount
+}
 
+func handleBroadcastResults(eventName string, total int, success int, failed []string) error {
 	if len(failed) == total {
 		return pkgError.WebhookError(fmt.Sprintf("all webhook URLs failed for %s: %s", eventName, strings.Join(failed, "; ")))
 	}
 
 	if len(failed) > 0 {
-		logrus.Warnf("Some webhook URLs failed for %s (succeeded: %d/%d): %s", eventName, successes, total, strings.Join(failed, "; "))
+		logrus.Warnf("Some webhook URLs failed for %s (succeeded: %d/%d): %s", eventName, success, total, strings.Join(failed, "; "))
 	} else {
 		logrus.Infof("%s forwarded to all webhook(s)", eventName)
 	}
