@@ -440,6 +440,64 @@ func resolveDocumentMIME(filename string, fileBytes []byte) string {
 	return http.DetectContentType(fileBytes)
 }
 
+// resolveAudioMIME determines the correct MIME type for audio files.
+// It prioritizes file extension-based detection over content sniffing because
+// Go's http.DetectContentType returns "application/ogg" for OGG files instead
+// of "audio/ogg", which WhatsApp doesn't recognize as a valid audio format.
+func resolveAudioMIME(filename string, audioBytes []byte) string {
+	extension := strings.ToLower(filepath.Ext(filename))
+	if extension != "" {
+		if mimeType := mime.TypeByExtension(extension); mimeType != "" {
+			return mimeType
+		}
+	}
+
+	// Fall back to content detection
+	detectedMime := http.DetectContentType(audioBytes)
+
+	// Fix known issue: Go's DetectContentType returns "application/ogg" for OGG files
+	// but WhatsApp requires "audio/ogg" to recognize it as audio
+	if detectedMime == "application/ogg" {
+		return "audio/ogg"
+	}
+
+	return detectedMime
+}
+
+// getAudioDuration returns the duration of an audio file in seconds using ffprobe.
+// If ffprobe is not available or fails, it returns 0.
+func getAudioDuration(audioPath string) uint32 {
+	// Check if ffprobe is available
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		logrus.Warn("ffprobe not found, audio duration will not be set")
+		return 0
+	}
+
+	// Run ffprobe to get duration
+	cmd := exec.Command("ffprobe",
+		"-hide_banner",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		audioPath,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		logrus.Warnf("Failed to get audio duration: %v", err)
+		return 0
+	}
+
+	// Parse duration string (e.g., "36.266500")
+	durationStr := strings.TrimSpace(string(output))
+	duration, err := strconv.ParseFloat(durationStr, 64)
+	if err != nil {
+		logrus.Warnf("Failed to parse audio duration '%s': %v", durationStr, err)
+		return 0
+	}
+
+	return uint32(duration)
+}
+
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendVideo(ctx, request)
 	if err != nil {
@@ -820,20 +878,49 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	var (
-		audioBytes    []byte
-		audioMimeType string
+		audioBytes      []byte
+		audioMimeType   string
+		audioFilename   string
+		audioDuration   uint32
+		tempAudioPath   string
+		deleteTempFile  bool
 	)
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
-		audioBytes, _, err = utils.DownloadAudioFromURL(*request.AudioURL)
+		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(*request.AudioURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
 		}
-		audioMimeType = http.DetectContentType(audioBytes)
+		audioMimeType = resolveAudioMIME(audioFilename, audioBytes)
+
+		// Save to temp file to get duration
+		tempAudioPath = fmt.Sprintf("%s/temp_audio_%s", config.PathSendItems, fiberUtils.UUIDv4()+filepath.Ext(audioFilename))
+		if err = os.WriteFile(tempAudioPath, audioBytes, 0644); err == nil {
+			deleteTempFile = true
+			audioDuration = getAudioDuration(tempAudioPath)
+		}
 	} else if request.Audio != nil {
 		audioBytes = helpers.MultipartFormFileHeaderToBytes(request.Audio)
-		audioMimeType = http.DetectContentType(audioBytes)
+		audioMimeType = resolveAudioMIME(request.Audio.Filename, audioBytes)
+
+		// Save to temp file to get duration
+		tempAudioPath = fmt.Sprintf("%s/temp_audio_%s", config.PathSendItems, fiberUtils.UUIDv4()+filepath.Ext(request.Audio.Filename))
+		if err = os.WriteFile(tempAudioPath, audioBytes, 0644); err == nil {
+			deleteTempFile = true
+			audioDuration = getAudioDuration(tempAudioPath)
+		}
+	}
+
+	// Clean up temp file
+	if deleteTempFile {
+		defer os.Remove(tempAudioPath)
+	}
+
+	// For PTT (voice notes), WhatsApp requires "audio/ogg; codecs=opus"
+	// Check if it's an OGG file and add codec info for PTT
+	if request.PTT && strings.HasPrefix(audioMimeType, "audio/ogg") {
+		audioMimeType = "audio/ogg; codecs=opus"
 	}
 
 	// upload to WhatsApp servers
@@ -853,6 +940,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 			FileEncSHA256: audioUploaded.FileEncSHA256,
 			MediaKey:      audioUploaded.MediaKey,
 			PTT:           proto.Bool(request.PTT),
+			Seconds:       proto.Uint32(audioDuration),
 		},
 	}
 
