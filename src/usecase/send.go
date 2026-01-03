@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -464,24 +465,33 @@ func resolveAudioMIME(filename string, audioBytes []byte) string {
 	return detectedMime
 }
 
+// runFFProbe executes ffprobe with the given arguments and returns the output.
+// Returns empty output and error if ffprobe is not available or fails.
+func runFFProbe(args ...string) ([]byte, error) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return nil, fmt.Errorf("ffprobe not found: %w", err)
+	}
+	return exec.Command("ffprobe", args...).Output()
+}
+
+// runFFMpeg executes ffmpeg with the given arguments and returns the output.
+// Returns empty output and error if ffmpeg is not available or fails.
+func runFFMpeg(args ...string) ([]byte, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return nil, fmt.Errorf("ffmpeg not found: %w", err)
+	}
+	return exec.Command("ffmpeg", args...).Output()
+}
+
 // getAudioDuration returns the duration of an audio file in seconds using ffprobe.
 // If ffprobe is not available or fails, it returns 0.
 func getAudioDuration(audioPath string) uint32 {
-	// Check if ffprobe is available
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		logrus.Warn("ffprobe not found, audio duration will not be set")
-		return 0
-	}
-
-	// Run ffprobe to get duration
-	cmd := exec.Command("ffprobe",
+	output, err := runFFProbe(
 		"-hide_banner",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		audioPath,
 	)
-
-	output, err := cmd.Output()
 	if err != nil {
 		logrus.Warnf("Failed to get audio duration: %v", err)
 		return 0
@@ -496,6 +506,92 @@ func getAudioDuration(audioPath string) uint32 {
 	}
 
 	return uint32(duration)
+}
+
+// generateWaveform generates a waveform visualization for voice notes using ffmpeg.
+// Returns a []byte with 64 amplitude samples (0-100) for WhatsApp UI visualization.
+func generateWaveform(audioPath string) []byte {
+	// Extract audio samples as signed 8-bit PCM
+	// -ac 1: mono, -ar 8000: 8kHz sample rate, -f s8: signed 8-bit output
+	output, err := runFFMpeg(
+		"-i", audioPath,
+		"-ac", "1",
+		"-ar", "8000",
+		"-f", "s8",
+		"-acodec", "pcm_s8",
+		"pipe:1",
+	)
+	if err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+
+	return downsampleToWaveform(output, 64)
+}
+
+// downsampleToWaveform converts raw PCM samples to a fixed number of amplitude peaks.
+// WhatsApp expects 64 bytes with values 0-100 (percentage of max amplitude).
+// Uses RMS (Root Mean Square) for better dynamic range representation.
+func downsampleToWaveform(samples []byte, numPoints int) []byte {
+	if len(samples) == 0 {
+		return generateDefaultWaveform()
+	}
+
+	waveform := make([]byte, numPoints)
+	samplesPerPoint := len(samples) / numPoints
+	if samplesPerPoint == 0 {
+		samplesPerPoint = 1
+	}
+
+	// Calculate RMS for each segment
+	rmsValues := make([]float64, numPoints)
+	var maxRMS float64 = 0
+
+	for i := 0; i < numPoints; i++ {
+		start := i * samplesPerPoint
+		end := start + samplesPerPoint
+		if end > len(samples) {
+			end = len(samples)
+		}
+
+		// Calculate RMS (Root Mean Square) for this segment
+		var sumSquares float64
+		for j := start; j < end; j++ {
+			amp := float64(int8(samples[j]))
+			sumSquares += amp * amp
+		}
+		rms := math.Sqrt(sumSquares / float64(end-start))
+		rmsValues[i] = rms
+
+		if rms > maxRMS {
+			maxRMS = rms
+		}
+	}
+
+	if maxRMS == 0 {
+		maxRMS = 1 // Avoid division by zero
+	}
+
+	// Normalize to 0-100 scale with slight boost for visibility
+	for i := 0; i < numPoints; i++ {
+		// Apply slight curve to enhance dynamic range visibility
+		normalized := rmsValues[i] / maxRMS
+		// Use power curve to make quieter parts more visible while preserving peaks
+		waveform[i] = byte(math.Pow(normalized, 0.7) * 100)
+	}
+
+	return waveform
+}
+
+// generateDefaultWaveform returns a simple waveform when ffmpeg is unavailable.
+// Values are 0-100 as expected by WhatsApp.
+func generateDefaultWaveform() []byte {
+	waveform := make([]byte, 64)
+	for i := range waveform {
+		// Create a simple sine-like pattern with values 0-100
+		waveform[i] = byte(50 + 30*math.Sin(float64(i)*0.3))
+	}
+	return waveform
 }
 
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
@@ -923,6 +1019,12 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		audioMimeType = "audio/ogg; codecs=opus"
 	}
 
+	// Generate waveform for PTT voice notes
+	var waveformData []byte
+	if request.PTT && tempAudioPath != "" {
+		waveformData = generateWaveform(tempAudioPath)
+	}
+
 	// upload to WhatsApp servers
 	audioUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
@@ -941,6 +1043,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 			MediaKey:      audioUploaded.MediaKey,
 			PTT:           proto.Bool(request.PTT),
 			Seconds:       proto.Uint32(audioDuration),
+			Waveform:      waveformData,
 		},
 	}
 
