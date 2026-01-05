@@ -90,3 +90,15 @@ func validateTimerValue(value interface{}) error {
 	}
 	return pkgError.ValidationError("timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)")
 }
+
+func ValidateArchiveChat(ctx context.Context, request *domainChat.ArchiveChatRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

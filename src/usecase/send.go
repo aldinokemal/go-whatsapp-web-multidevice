@@ -5,11 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +35,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// webpCanvasSizeRegex is compiled once at package level for efficiency
+var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
+
 type serviceSend struct {
 	appService      app.IAppUsecase
 	chatStorageRepo domainChatStorage.IChatStorageRepository
@@ -45,16 +51,16 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 }
 
 // wrapSendMessage wraps the message sending process with message ID saving
-func (service serviceSend) wrapSendMessage(ctx context.Context, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := whatsapp.GetClient().SendMessage(ctx, recipient, msg)
+func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
+	ts, err := client.SendMessage(ctx, recipient, msg)
 	if err != nil {
 		return whatsmeow.SendResponse{}, err
 	}
 
 	// Store the sent message using chatstorage
 	senderJID := ""
-	if whatsapp.GetClient().Store.ID != nil {
-		senderJID = whatsapp.GetClient().Store.ID.String()
+	if client.Store.ID != nil {
+		senderJID = client.Store.ID.String()
 	}
 
 	// Store message asynchronously with timeout
@@ -80,7 +86,13 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -106,7 +118,17 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
 	}
 
+	// Get mentions from text (existing behavior - parses @phone from message text)
 	parsedMentions := service.getMentionFromText(ctx, request.Message)
+
+	// Add explicit mentions from request.Mentions (ghost mentions - no @ required in text)
+	if len(request.Mentions) > 0 {
+		explicitMentions := service.getMentionsFromList(ctx, request.Mentions, dataWaRecipient)
+		parsedMentions = append(parsedMentions, explicitMentions...)
+		// Deduplicate to avoid mentioning the same person twice
+		parsedMentions = utils.UniqueStrings(parsedMentions)
+	}
+
 	if len(parsedMentions) > 0 {
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 	}
@@ -159,7 +181,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		}
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, request.Message)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
 		return response, err
 	}
@@ -174,7 +196,13 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -273,7 +301,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
-	uploadedImage, err := service.uploadMedia(ctx, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
+	uploadedImage, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("failed to upload file: %v", err)
 		return response, err
@@ -315,7 +343,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if request.Caption != "" {
 		caption = "🖼️ " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -336,7 +364,13 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -351,7 +385,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	// Send to WA server
-	uploadedFile, err := service.uploadMedia(ctx, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
+	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("Failed to upload file: %v", err)
 		return response, err
@@ -388,7 +422,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	if request.Caption != "" {
 		caption = "📄 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {
 		return response, err
 	}
@@ -413,12 +447,171 @@ func resolveDocumentMIME(filename string, fileBytes []byte) string {
 	return http.DetectContentType(fileBytes)
 }
 
+// resolveAudioMIME determines the correct MIME type for audio files.
+// It prioritizes file extension-based detection over content sniffing because
+// Go's http.DetectContentType returns "application/ogg" for OGG files instead
+// of "audio/ogg", which WhatsApp doesn't recognize as a valid audio format.
+func resolveAudioMIME(filename string, audioBytes []byte) string {
+	extension := strings.ToLower(filepath.Ext(filename))
+	if extension != "" {
+		if mimeType := mime.TypeByExtension(extension); mimeType != "" {
+			return mimeType
+		}
+	}
+
+	// Fall back to content detection
+	detectedMime := http.DetectContentType(audioBytes)
+
+	// Fix known issue: Go's DetectContentType returns "application/ogg" for OGG files
+	// but WhatsApp requires "audio/ogg" to recognize it as audio
+	if detectedMime == "application/ogg" {
+		return "audio/ogg"
+	}
+
+	return detectedMime
+}
+
+// runFFProbe executes ffprobe with the given arguments and returns the output.
+// Returns empty output and error if ffprobe is not available or fails.
+func runFFProbe(args ...string) ([]byte, error) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return nil, fmt.Errorf("ffprobe not found: %w", err)
+	}
+	return exec.Command("ffprobe", args...).Output()
+}
+
+// runFFMpeg executes ffmpeg with the given arguments and returns the output.
+// Returns empty output and error if ffmpeg is not available or fails.
+func runFFMpeg(args ...string) ([]byte, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return nil, fmt.Errorf("ffmpeg not found: %w", err)
+	}
+	return exec.Command("ffmpeg", args...).Output()
+}
+
+// getAudioDuration returns the duration of an audio file in seconds using ffprobe.
+// If ffprobe is not available or fails, it returns 0.
+func getAudioDuration(audioPath string) uint32 {
+	output, err := runFFProbe(
+		"-hide_banner",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		audioPath,
+	)
+	if err != nil {
+		logrus.Warnf("Failed to get audio duration: %v", err)
+		return 0
+	}
+
+	// Parse duration string (e.g., "36.266500")
+	durationStr := strings.TrimSpace(string(output))
+	duration, err := strconv.ParseFloat(durationStr, 64)
+	if err != nil {
+		logrus.Warnf("Failed to parse audio duration '%s': %v", durationStr, err)
+		return 0
+	}
+
+	return uint32(duration)
+}
+
+// generateWaveform generates a waveform visualization for voice notes using ffmpeg.
+// Returns a []byte with 64 amplitude samples (0-100) for WhatsApp UI visualization.
+func generateWaveform(audioPath string) []byte {
+	// Extract audio samples as signed 8-bit PCM
+	// -ac 1: mono, -ar 8000: 8kHz sample rate, -f s8: signed 8-bit output
+	output, err := runFFMpeg(
+		"-i", audioPath,
+		"-ac", "1",
+		"-ar", "8000",
+		"-f", "s8",
+		"-acodec", "pcm_s8",
+		"pipe:1",
+	)
+	if err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+
+	return downsampleToWaveform(output, 64)
+}
+
+// downsampleToWaveform converts raw PCM samples to a fixed number of amplitude peaks.
+// WhatsApp expects 64 bytes with values 0-100 (percentage of max amplitude).
+// Uses RMS (Root Mean Square) for better dynamic range representation.
+func downsampleToWaveform(samples []byte, numPoints int) []byte {
+	if len(samples) == 0 {
+		return generateDefaultWaveform()
+	}
+
+	waveform := make([]byte, numPoints)
+	samplesPerPoint := len(samples) / numPoints
+	if samplesPerPoint == 0 {
+		samplesPerPoint = 1
+	}
+
+	// Calculate RMS for each segment
+	rmsValues := make([]float64, numPoints)
+	var maxRMS float64 = 0
+
+	for i := 0; i < numPoints; i++ {
+		start := i * samplesPerPoint
+		end := start + samplesPerPoint
+		if end > len(samples) {
+			end = len(samples)
+		}
+
+		// Calculate RMS (Root Mean Square) for this segment
+		var sumSquares float64
+		for j := start; j < end; j++ {
+			amp := float64(int8(samples[j]))
+			sumSquares += amp * amp
+		}
+		rms := math.Sqrt(sumSquares / float64(end-start))
+		rmsValues[i] = rms
+
+		if rms > maxRMS {
+			maxRMS = rms
+		}
+	}
+
+	if maxRMS == 0 {
+		maxRMS = 1 // Avoid division by zero
+	}
+
+	// Normalize to 0-100 scale with slight boost for visibility
+	for i := 0; i < numPoints; i++ {
+		// Apply slight curve to enhance dynamic range visibility
+		normalized := rmsValues[i] / maxRMS
+		// Use power curve to make quieter parts more visible while preserving peaks
+		waveform[i] = byte(math.Pow(normalized, 0.7) * 100)
+	}
+
+	return waveform
+}
+
+// generateDefaultWaveform returns a simple waveform when ffmpeg is unavailable.
+// Values are 0-100 as expected by WhatsApp.
+func generateDefaultWaveform() []byte {
+	waveform := make([]byte, 64)
+	for i := range waveform {
+		// Create a simple sine-like pattern with values 0-100
+		waveform[i] = byte(50 + 30*math.Sin(float64(i)*0.3))
+	}
+	return waveform
+}
+
 func (service serviceSend) SendVideo(ctx context.Context, request domainSend.VideoRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendVideo(ctx, request)
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -535,7 +728,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
-	uploaded, err := service.uploadMedia(ctx, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
+	uploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
 	}
@@ -578,7 +771,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if request.Caption != "" {
 		caption = "🎥 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {
 		return response, err
 	}
@@ -593,7 +786,13 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -621,7 +820,7 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 
 	content := "👤 " + request.ContactName
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -636,7 +835,13 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -678,7 +883,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
-		uploadedThumb, err := service.uploadMedia(ctx, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
+		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
 		if err == nil {
 			// Update the message with the uploaded thumbnail information
 			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
@@ -696,7 +901,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	if request.Caption != "" {
 		content = "🔗 " + request.Caption
 	}
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -711,7 +916,13 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -741,7 +952,7 @@ func (service serviceSend) SendLocation(ctx context.Context, request domainSend.
 	content := "📍 " + request.Latitude + ", " + request.Longitude
 
 	// Send WhatsApp Message Proto
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -758,44 +969,73 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	var (
-		audioBytes    []byte
-		audioMimeType string
+		audioBytes     []byte
+		audioMimeType  string
+		audioFilename  string
+		audioDuration  uint32
+		tempAudioPath  string
+		deleteTempFile bool
 	)
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
-		audioBytes, _, err = utils.DownloadAudioFromURL(*request.AudioURL)
+		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(*request.AudioURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
 		}
+		audioMimeType = resolveAudioMIME(audioFilename, audioBytes)
+
+		// Save to temp file to get duration
+		tempAudioPath = fmt.Sprintf("%s/temp_audio_%s", config.PathSendItems, fiberUtils.UUIDv4()+filepath.Ext(audioFilename))
+		if err = os.WriteFile(tempAudioPath, audioBytes, 0644); err == nil {
+			deleteTempFile = true
+			audioDuration = getAudioDuration(tempAudioPath)
+		}
 	} else if request.Audio != nil {
 		audioBytes = helpers.MultipartFormFileHeaderToBytes(request.Audio)
+		audioMimeType = resolveAudioMIME(request.Audio.Filename, audioBytes)
+
+		// Save to temp file to get duration
+		tempAudioPath = fmt.Sprintf("%s/temp_audio_%s", config.PathSendItems, fiberUtils.UUIDv4()+filepath.Ext(request.Audio.Filename))
+		if err = os.WriteFile(tempAudioPath, audioBytes, 0644); err == nil {
+			deleteTempFile = true
+			audioDuration = getAudioDuration(tempAudioPath)
+		}
+	}
+
+	// Clean up temp file
+	if deleteTempFile {
+		defer os.Remove(tempAudioPath)
+	}
+
+	// For PTT (voice notes), WhatsApp requires "audio/ogg; codecs=opus"
+	// Check if it's an OGG file and add codec info for PTT
+	if request.PTT && strings.HasPrefix(audioMimeType, "audio/ogg") {
+		audioMimeType = "audio/ogg; codecs=opus"
+	}
+
+	// Generate waveform for PTT voice notes
+	var waveformData []byte
+	if request.PTT && tempAudioPath != "" {
+		waveformData = generateWaveform(tempAudioPath)
 	}
 
 	// upload to WhatsApp servers
-	audioUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
+	audioUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaAudio, audioBytes, dataWaRecipient)
 	if err != nil {
 		err = pkgError.WaUploadMediaError(fmt.Sprintf("Failed to upload audio: %v", err))
 		return response, err
-	}
-
-	if request.Mimetype != nil {
-		audioMimeType = *request.Mimetype
-	} else {
-		audioMimeType = http.DetectContentType(audioBytes)
-	}
-
-	ptt := true
-
-	var audioDuration uint32
-	if request.AudioDuration != nil {
-		audioDuration = uint32(*request.AudioDuration)
 	}
 
 	msg := &waE2E.Message{
@@ -807,8 +1047,9 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 			FileSHA256:    audioUploaded.FileSHA256,
 			FileEncSHA256: audioUploaded.FileEncSHA256,
 			MediaKey:      audioUploaded.MediaKey,
+			PTT:           proto.Bool(request.PTT),
 			Seconds:       proto.Uint32(audioDuration),
-			PTT:           &ptt,
+			Waveform:      waveformData,
 		},
 	}
 
@@ -828,7 +1069,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	content := "🎵 Audio"
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -843,14 +1084,20 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	if err != nil {
 		return response, err
 	}
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.BaseRequest.Phone)
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	content := "📊 " + request.Question
 
-	msg := whatsapp.GetClient().BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.PollCreationMessage.ContextInfo == nil {
@@ -859,7 +1106,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 		msg.PollCreationMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -875,7 +1122,12 @@ func (service serviceSend) SendPresence(ctx context.Context, request domainSend.
 		return response, err
 	}
 
-	err = whatsapp.GetClient().SendPresence(ctx, types.Presence(request.Type))
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	err = client.SendPresence(ctx, types.Presence(request.Type))
 	if err != nil {
 		return response, err
 	}
@@ -891,7 +1143,12 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 		return response, err
 	}
 
-	userJid, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	userJid, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -913,7 +1170,7 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 		return response, fmt.Errorf("invalid action: %s. Must be 'start' or 'stop'", request.Action)
 	}
 
-	err = whatsapp.GetClient().SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))
+	err = client.SendChatPresence(ctx, userJid, presenceType, types.ChatPresenceMedia(""))
 	if err != nil {
 		return response, err
 	}
@@ -924,10 +1181,45 @@ func (service serviceSend) SendChatPresence(ctx context.Context, request domainS
 }
 
 func (service serviceSend) getMentionFromText(ctx context.Context, messages string) (result []string) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result
+	}
+
 	mentions := utils.ContainsMention(messages)
 	for _, mention := range mentions {
 		// Get JID from phone number
-		if dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), mention); err == nil {
+		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
+			result = append(result, dataWaRecipient.String())
+		}
+	}
+	return result
+}
+
+// getMentionsFromList converts a list of phone numbers to JIDs for ghost mentions
+// Special keyword "@everyone" will fetch all group participants
+func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []string, recipientJID types.JID) (result []string) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result
+	}
+
+	for _, mention := range mentions {
+		// Handle @everyone keyword - fetch all group participants
+		if mention == "@everyone" {
+			if recipientJID.Server == types.GroupServer {
+				groupInfo, err := client.GetGroupInfo(ctx, recipientJID)
+				if err == nil && groupInfo != nil {
+					for _, participant := range groupInfo.Participants {
+						result = append(result, participant.JID.String())
+					}
+				}
+			}
+			continue
+		}
+
+		// Regular phone number mention
+		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
 	}
@@ -941,7 +1233,12 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(ctx, whatsapp.GetClient(), request.Phone)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -1004,10 +1301,141 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		deletedItems = append(deletedItems, stickerPath)
 	}
 
+	// Check if input is animated WebP - if so, handle it specially
+	infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer infoCancel()
+	isAnimatedSticker, webpWidth, webpHeight := getWebPInfo(infoCtx, stickerPath)
+	if isAnimatedSticker {
+		logrus.Info("Detected animated WebP sticker")
+
+		// Validate dimensions - must be exactly 512x512 for animated stickers
+		if webpWidth != 512 || webpHeight != 512 {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("animated WebP stickers must be exactly 512x512 pixels (got %dx%d). Please resize your sticker before uploading.", webpWidth, webpHeight))
+		}
+
+		// Validate file size - must be under 500KB
+		fileInfo, statErr := os.Stat(stickerPath)
+		if statErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to stat sticker file: %v", statErr))
+		}
+		if fileInfo.Size() > 500*1024 {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("animated WebP stickers must be under 500KB (got %d KB). Please reduce the file size.", fileInfo.Size()/1024))
+		}
+
+		// Use the animated WebP file directly
+		stickerBytes, err = os.ReadFile(stickerPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read animated sticker: %v", err))
+		}
+
+		logrus.Infof("Using animated WebP sticker directly: %dx%d, %d bytes", webpWidth, webpHeight, len(stickerBytes))
+
+		// Upload sticker to WhatsApp servers
+		stickerUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
+		if err != nil {
+			return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
+		}
+
+		// Create animated sticker message
+		msg := &waE2E.Message{
+			StickerMessage: &waE2E.StickerMessage{
+				URL:           proto.String(stickerUploaded.URL),
+				DirectPath:    proto.String(stickerUploaded.DirectPath),
+				Mimetype:      proto.String("image/webp"),
+				FileLength:    proto.Uint64(stickerUploaded.FileLength),
+				FileSHA256:    stickerUploaded.FileSHA256,
+				FileEncSHA256: stickerUploaded.FileEncSHA256,
+				MediaKey:      stickerUploaded.MediaKey,
+				Width:         proto.Uint32(uint32(webpWidth)),
+				Height:        proto.Uint32(uint32(webpHeight)),
+				IsAnimated:    proto.Bool(true),
+			},
+		}
+
+		if request.BaseRequest.IsForwarded {
+			msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{
+				IsForwarded:     proto.Bool(true),
+				ForwardingScore: proto.Uint32(100),
+			}
+		}
+
+		if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+			if msg.StickerMessage.ContextInfo == nil {
+				msg.StickerMessage.ContextInfo = &waE2E.ContextInfo{}
+			}
+			msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+		}
+
+		content := "🎨 Animated Sticker"
+
+		// Send the animated sticker message
+		ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
+		if err != nil {
+			return response, err
+		}
+
+		response.MessageID = ts.ID
+		response.Status = fmt.Sprintf("Animated sticker sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
+		return response, nil
+	}
+
 	// Convert image to WebP format for sticker (512x512 max size)
 	srcImage, err := imaging.Open(stickerPath)
 	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v", err))
+		// Fallback for animated WebP (imaging.Open doesn't support animated WebP)
+		logrus.Warnf("imaging.Open failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
+
+		fallbackPngPath := filepath.Join(absBaseDir, fmt.Sprintf("fallback_%s.png", fiberUtils.UUIDv4()))
+		deletedItems = append(deletedItems, fallbackPngPath)
+
+		convertCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		// Check if context was already cancelled before starting conversion
+		if convertCtx.Err() != nil {
+			return response, pkgError.InternalServerError("request cancelled during sticker processing")
+		}
+
+		conversionSuccess := false
+
+		// Try webpmux + dwebp for animated WebP (extract first frame)
+		if _, lookErr := exec.LookPath("webpmux"); lookErr == nil {
+			if _, lookErr := exec.LookPath("dwebp"); lookErr == nil {
+				logrus.Info("Trying webpmux to extract first frame from animated WebP...")
+				extractedFramePath := filepath.Join(absBaseDir, fmt.Sprintf("frame_%s.webp", fiberUtils.UUIDv4()))
+				deletedItems = append(deletedItems, extractedFramePath)
+
+				cmdWebpmux := exec.CommandContext(convertCtx, "webpmux", "-get", "frame", "1", stickerPath, "-o", extractedFramePath)
+				var stderrWebpmux bytes.Buffer
+				cmdWebpmux.Stderr = &stderrWebpmux
+				if errWebpmux := cmdWebpmux.Run(); errWebpmux == nil {
+					// Now decode the extracted frame with dwebp
+					cmdDwebp := exec.CommandContext(convertCtx, "dwebp", extractedFramePath, "-o", fallbackPngPath)
+					var stderrDwebp bytes.Buffer
+					cmdDwebp.Stderr = &stderrDwebp
+					if errDwebp := cmdDwebp.Run(); errDwebp == nil {
+						conversionSuccess = true
+						logrus.Info("webpmux + dwebp conversion successful for animated WebP")
+					} else {
+						logrus.Errorf("dwebp failed on extracted frame: %v, stderr: %s", errDwebp, stderrDwebp.String())
+					}
+				} else {
+					logrus.Errorf("webpmux frame extraction failed: %v, stderr: %s", errWebpmux, stderrWebpmux.String())
+				}
+			}
+		}
+
+		if !conversionSuccess {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v (animated WebP requires webpmux and dwebp tools)", err))
+		}
+
+		srcImage, err = imaging.Open(fallbackPngPath)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open fallback PNG image: %v", err))
+		}
+		logrus.Info("Fallback conversion successful")
 	}
 
 	// Resize image to max 512x512 maintaining aspect ratio
@@ -1069,7 +1497,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	// Upload sticker to WhatsApp servers
-	stickerUploaded, err := service.uploadMedia(ctx, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
+	stickerUploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, stickerBytes, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.WaUploadMediaError(fmt.Sprintf("failed to upload sticker: %v", err))
 	}
@@ -1107,7 +1535,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	content := "🎨 Sticker"
 
 	// Send the sticker message
-	ts, err := service.wrapSendMessage(ctx, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
 		return response, err
 	}
@@ -1117,13 +1545,49 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	return response, nil
 }
 
-func (service serviceSend) uploadMedia(ctx context.Context, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if recipient.Server == types.NewsletterServer {
-		uploaded, err = whatsapp.GetClient().UploadNewsletter(ctx, media, mediaType)
+		uploaded, err = client.UploadNewsletter(ctx, media, mediaType)
 	} else {
-		uploaded, err = whatsapp.GetClient().Upload(ctx, media, mediaType)
+		uploaded, err = client.Upload(ctx, media, mediaType)
 	}
 	return uploaded, err
+}
+
+// getWebPInfo returns whether the file is animated WebP and its dimensions.
+// It validates the file exists and is a regular file before executing webpmux.
+func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width int, height int) {
+	// Validate file exists and is a regular file (prevents command injection)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil || !fileInfo.Mode().IsRegular() {
+		return false, 0, 0
+	}
+
+	// Clean path to prevent path traversal
+	cleanPath := filepath.Clean(filePath)
+
+	cmd := exec.CommandContext(ctx, "webpmux", "-info", cleanPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, 0, 0
+	}
+
+	outputStr := string(output)
+	isAnimated = strings.Contains(strings.ToLower(outputStr), "animation")
+
+	// Parse "Canvas size: 512 x 512"
+	matches := webpCanvasSizeRegex.FindStringSubmatch(outputStr)
+	if len(matches) == 3 {
+		var errW, errH error
+		width, errW = strconv.Atoi(matches[1])
+		height, errH = strconv.Atoi(matches[2])
+		if errW != nil || errH != nil {
+			logrus.Warnf("Failed to parse WebP dimensions from '%s': width=%v, height=%v", outputStr, errW, errH)
+			return isAnimated, 0, 0
+		}
+	}
+
+	return isAnimated, width, height
 }
 
 func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {

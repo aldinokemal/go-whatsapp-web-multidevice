@@ -40,6 +40,25 @@ Download:
 - `v7`
   - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
       from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+- `v8`
+  - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single
+      server instance
+  - **New Device Management API**: New endpoints under `/devices` for managing multiple devices
+  - **Device scoping required**: All device-scoped REST API calls now require either:
+    - `X-Device-Id` header, or
+    - `device_id` query parameter
+    - If only one device is registered, it will be used as the default
+  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
+  - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
+      device received the event:
+
+        ```json
+        {
+          "event": "message",
+          "device_id": "628123456789@s.whatsapp.net",
+          "payload": { ... }
+        }
+        ```
 
 ## Feature
 
@@ -48,11 +67,20 @@ Download:
 - Mention someone
   - `@phoneNumber`
   - example: `Hello @628974812XXXX, @628974812XXXX`
+- **Ghost Mentions (Mention All)** - Mention group participants without showing `@phone` in message text
+  - Pass phone numbers in `mentions` field to mention users without visible `@` in message
+  - Use special keyword `@everyone` to automatically mention ALL group participants
+  - UI checkbox available in Send Message modal for groups
 - Post Whatsapp Status
 - **Send Stickers** - Automatically converts images to WebP sticker format
   - Supports JPG, JPEG, PNG, WebP, and GIF formats
   - Automatic resizing to 512x512 pixels
   - Preserves transparency for PNG images
+  - **Animated WebP stickers** are supported but must meet WhatsApp requirements:
+    - Must be exactly **512x512 pixels**
+    - Must be under **500KB** file size
+    - Maximum **10 seconds** duration
+    - If your animated sticker doesn't meet these requirements, please resize it before uploading using tools like [ezgif.com](https://ezgif.com/resize)
 - Compress image before send
 - Compress video before send
 - Change OS name become your app (it's the device name when connect via mobile)
@@ -83,9 +111,28 @@ Download:
 - **Webhook Payload Documentation**
   For detailed webhook payload schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- **Webhook Event Filtering**
+  You can filter which events are forwarded to your webhook using:
+  - `--webhook-events="message,message.ack"` (comma-separated list)
+  - Or environment variable: `WHATSAPP_WEBHOOK_EVENTS=message,message.ack`
+
+  **Available Webhook Events:**
+
+  | Event                | Description                                   |
+  |----------------------|-----------------------------------------------|
+  | `message`            | Text, media, contact, location messages       |
+  | `message.reaction`   | Emoji reactions to messages                   |
+  | `message.revoked`    | Deleted/revoked messages                      |
+  | `message.edited`     | Edited messages                               |
+  | `message.ack`        | Delivery and read receipts                    |
+  | `group.participants` | Group member join/leave/promote/demote events |
+
+  If not configured (empty), all events will be forwarded.
 - **Webhook TLS Configuration**
 
-  If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed certificates):
+  If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed
+  certificates):
+
   ```
   tls: failed to verify certificate: x509: certificate signed by unknown authority
   ```
@@ -99,7 +146,8 @@ Download:
   - Cloudflare tunnels (which provide their own security layer)
   - Internal networks with self-signed certificates
 
-  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt) instead of disabling verification.
+  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt)
+  instead of disabling verification.
 
 ## Configuration
 
@@ -127,22 +175,24 @@ To use environment variables:
 
 #### Available Environment Variables
 
-| Variable                      | Description                                 | Default                                      | Example                                     |
-|-------------------------------|---------------------------------------------|----------------------------------------------|---------------------------------------------|
-| `APP_PORT`                    | Application port                            | `3000`                                       | `APP_PORT=8080`                             |
-| `APP_DEBUG`                   | Enable debug logging                        | `false`                                      | `APP_DEBUG=true`                            |
-| `APP_OS`                      | OS name (device name in WhatsApp)           | `Chrome`                                     | `APP_OS=MyApp`                              |
-| `APP_BASIC_AUTH`              | Basic authentication credentials            | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`    |
-| `APP_BASE_PATH`               | Base path for subpath deployment            | -                                            | `APP_BASE_PATH=/gowa`                       |
-| `APP_TRUSTED_PROXIES`         | Trusted proxy IP ranges for reverse proxy   | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`             |
-| `DB_URI`                      | Database connection URI                     | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`       |
-| `WHATSAPP_AUTO_REPLY`         | Auto-reply message                          | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`  |
-| `WHATSAPP_AUTO_MARK_READ`     | Auto-mark incoming messages as read         | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`              |
-| `WHATSAPP_AUTO_DOWNLOAD_MEDIA`| Auto-download media from incoming messages  | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`        |
-| `WHATSAPP_WEBHOOK`            | Webhook URL(s) for events (comma-separated) | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx` |
-| `WHATSAPP_WEBHOOK_SECRET`     | Webhook secret for validation               | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`  |
-| `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure) | `false` | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true` |
-| `WHATSAPP_ACCOUNT_VALIDATION` | Enable account validation                   | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`         |
+| Variable                                | Description                                                   | Default                                      | Example                                       |
+|-----------------------------------------|---------------------------------------------------------------|----------------------------------------------|-----------------------------------------------|
+| `APP_PORT`                              | Application port                                              | `3000`                                       | `APP_PORT=8080`                               |
+| `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
+| `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
+| `APP_OS`                                | OS name (device name in WhatsApp)                             | `Chrome`                                     | `APP_OS=MyApp`                                |
+| `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
+| `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
+| `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`         |
+| `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
+| `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
+| `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
+| `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
+| `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
+| `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
+| `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
@@ -164,14 +214,18 @@ Note: Command-line flags will override any values set in environment variables o
 ### Dependencies (without docker)
 
 - Mac OS:
-  - `brew install ffmpeg`
+  - `brew install ffmpeg webp`
   - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
   - `sudo apt update`
-  - `sudo apt install ffmpeg`
-- Windows (not recomended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - install ffmpeg, [download here](https://www.ffmpeg.org/download.html#build-windows)
-  - add to ffmpeg to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+  - `sudo apt install ffmpeg webp`
+- Windows (not recommended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
+  - Install ffmpeg: [download here](https://www.ffmpeg.org/download.html#build-windows)
+  - Install libwebp: [download here](https://developers.google.com/speed/webp/download) (extract and add `bin` folder to PATH)
+  - Add both to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+
+> **Note**: The `webp` package provides `cwebp` (encoder), `dwebp` (decoder), and `webpmux` (frame extractor) tools.
+> FFmpeg is required for media processing. The libwebp tools (`webpmux` + `dwebp`) are used for animated WebP sticker support.
 
 ## How to use
 
@@ -223,7 +277,8 @@ standardized protocol.
 
 #### Available MCP Tools
 
-The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized protocol. Below is the complete list of available tools:
+The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized
+protocol. Below is the complete list of available tools:
 
 ##### **📱 Connection Management**
 
@@ -248,6 +303,7 @@ The WhatsApp MCP server provides comprehensive tools for AI agents to interact w
 - `whatsapp_list_chats` - Get recent chats with pagination and search filters
 - `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
 - `whatsapp_download_message_media` - Download images/videos from messages
+- `whatsapp_archive_chat` - Archive or unarchive a chat conversation
 
 ##### **👥 Group Management**
 
@@ -420,13 +476,23 @@ You can fork or edit this source code !
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
-| Feature | Menu                                   | Method | URL                                 |
-|---------|----------------------------------------|--------|-------------------------------------|
+| Feature  | Menu                                   | Method | URL                                 |
+|----------|----------------------------------------|--------|-------------------------------------|
+| ✅       | List Devices                           | GET    | /devices                            |
+| ✅       | Add Device                             | POST   | /devices                            |
+| ✅       | Get Device Info                        | GET    | /devices/:device_id                 |
+| ✅       | Remove Device                          | DELETE | /devices/:device_id                 |
+| ✅       | Login Device (QR)                      | GET    | /devices/:device_id/login           |
+| ✅       | Login Device (Code)                    | POST   | /devices/:device_id/login/code      |
+| ✅       | Logout Device                          | POST   | /devices/:device_id/logout          |
+| ✅       | Reconnect Device                       | POST   | /devices/:device_id/reconnect       |
+| ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
 | ✅       | Login with Scan QR                     | GET    | /app/login                          |
 | ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
-| ✅       | Logout                                 | GET    | /app/logout                         |  
+| ✅       | Logout                                 | GET    | /app/logout                         |
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |
+| ✅       | Connection Status                      | GET    | /app/status                         |
 | ✅       | User Info                              | GET    | /user/info                          |
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
@@ -456,6 +522,7 @@ You can fork or edit this source code !
 | ✅       | Read Message (DM)                      | POST   | /message/:message_id/read           |
 | ✅       | Star Message                           | POST   | /message/:message_id/star           |
 | ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
+| ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Join Group With Link                   | POST   | /group/join-with-link               |
 | ✅       | Group Info From Link                   | GET    | /group/info-from-link               |
 | ✅       | Group Info                             | GET    | /group/info                         |
@@ -481,9 +548,10 @@ You can fork or edit this source code !
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Label Chat                             | POST   | /chat/:chat_jid/label               |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
+| ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 
-```txt
+```
 ✅ = Available
 ❌ = Not Available Yet
 ```
@@ -503,7 +571,7 @@ You can fork or edit this source code !
 
 | Description          | Image                                                         |
 |----------------------|---------------------------------------------------------------|
-| Homepage             | ![Homepage](./gallery/homepage.png)                           |
+| Homepage             | ![Homepage](./gallery/homepage.png?v=1)                       |
 | Login                | ![Login](./gallery/login.png)                                 |
 | Login With Code      | ![Login With Code](./gallery/login-with-code.png)             |
 | Send Message         | ![Send Message](./gallery/send-message.png)                   |

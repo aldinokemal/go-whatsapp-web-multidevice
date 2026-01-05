@@ -76,6 +76,18 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 	if err := validateDuration(request.Duration); err != nil {
 		return err
 	}
+
+	// Validate mentions if provided
+	for _, mention := range request.Mentions {
+		// Skip validation for special @everyone keyword
+		if mention == "@everyone" {
+			continue
+		}
+		if err := validatePhoneNumber(mention); err != nil {
+			return pkgError.ValidationError(fmt.Sprintf("mention %s: phone number must be in international format", mention))
+		}
+	}
+
 	return nil
 }
 

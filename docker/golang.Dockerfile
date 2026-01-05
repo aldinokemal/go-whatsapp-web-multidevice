@@ -15,7 +15,7 @@ RUN go build -a -ldflags="-w -s" -o /app/whatsapp
 ## STEP 2 build a smaller image
 #############################
 FROM alpine:3.20
-RUN apk add --no-cache ffmpeg tzdata
+RUN apk add --no-cache ffmpeg libwebp-tools tzdata
 ENV TZ=UTC
 WORKDIR /app
 # Copy compiled from builder.

@@ -10,6 +10,10 @@ src/pkged.go
 storages
 .env
 bin
-distplan.md
+.playwright-mcp
+.cursor/mcp.json
+.factory
+.vscode/settings.json
+src/whatsapp
 build-publish.sh
 src/build-run.sh

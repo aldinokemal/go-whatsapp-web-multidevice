@@ -611,15 +611,36 @@ func SanitizePhone(phone *string) {
 }
 
 // IsOnWhatsapp checks if a number is registered on WhatsApp
-func IsOnWhatsapp(ctx context.Context, client *whatsmeow.Client, jid string) (bool, string) {
-	// only check if the jid a user with @s.whatsapp.net
+func IsOnWhatsapp(client *whatsmeow.Client, jid string) (bool, string) {
+	// only check if the jid is a user with @s.whatsapp.net
 	if strings.Contains(jid, "@s.whatsapp.net") {
-		data, err := client.IsOnWhatsApp(context.Background(), []string{jid})
+		// Extract phone number from JID and add + prefix for international format
+		phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
+		if phone == "" {
+			return false, ""
+		}
+
+		// whatsmeow expects international format with + prefix
+		if !strings.HasPrefix(phone, "+") {
+			phone = "+" + phone
+		}
+
+		// Add timeout to prevent indefinite blocking
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		data, err := client.IsOnWhatsApp(ctx, []string{phone})
 		if err != nil {
 			logrus.Error("Failed to check if user is on whatsapp: ", err)
 			return false, jid
 		}
 
+		// Empty response means number not found/invalid
+		if len(data) == 0 {
+			return false, jid
+		}
+
+		// Check if any result indicates the number is NOT on WhatsApp
 		for _, v := range data {
 			if !v.IsIn {
 				return false, jid
@@ -636,7 +657,7 @@ func IsOnWhatsapp(ctx context.Context, client *whatsmeow.Client, jid string) (bo
 func ValidateJidWithLogin(ctx context.Context, client *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(client)
 
-	exists, jid := IsOnWhatsapp(ctx, client, jid)
+	exists, jid := IsOnWhatsapp(client, jid)
 	if config.WhatsappAccountValidation && !exists {
 		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
 	}

@@ -86,3 +86,16 @@ type SetDisappearingTimerResponse struct {
 	ChatJID      string `json:"chat_jid"`
 	TimerSeconds uint32 `json:"timer_seconds"`
 }
+
+// Archive Chat operations
+type ArchiveChatRequest struct {
+	ChatJID  string `json:"chat_jid" uri:"chat_jid"`
+	Archived bool   `json:"archived"`
+}
+
+type ArchiveChatResponse struct {
+	Status   string `json:"status"`
+	Message  string `json:"message"`
+	ChatJID  string `json:"chat_jid"`
+	Archived bool   `json:"archived"`
+}
