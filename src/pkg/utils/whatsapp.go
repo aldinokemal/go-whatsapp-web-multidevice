@@ -654,7 +654,7 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) (bool, string) {
 }
 
 // ValidateJidWithLogin validates JID with login check
-func ValidateJidWithLogin(ctx context.Context, client *whatsmeow.Client, jid string) (types.JID, error) {
+func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(client)
 
 	exists, jid := IsOnWhatsapp(client, jid)
