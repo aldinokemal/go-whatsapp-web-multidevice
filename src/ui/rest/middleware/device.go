@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -16,7 +17,8 @@ const DeviceIDHeader = "X-Device-Id"
 func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Allow non-device-scoped public endpoints (e.g., landing page) to pass through.
-		if path := strings.TrimSpace(c.Path()); path == "/" || path == "" {
+		path := strings.TrimSpace(c.Path())
+		if path == "/" || path == "" || path == config.AppBasePath || path == config.AppBasePath+"/" {
 			return c.Next()
 		}
 
