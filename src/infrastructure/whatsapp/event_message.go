@@ -242,6 +242,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 			payload["document"] = map[string]any{
 				"url":      documentMedia.GetURL(),
 				"filename": documentMedia.GetFileName(),
+				"caption":  documentMedia.GetCaption(),
 			}
 		}
 	}
@@ -317,6 +318,10 @@ func buildOtherMessageTypes(evt *events.Message, payload map[string]any) {
 		payload["contact"] = contactMessage
 	}
 
+	if contactsMessage := evt.Message.GetContactsArrayMessage(); contactsMessage != nil {
+		payload["contact_list"] = contactsMessage
+	}
+
 	if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		payload["list"] = listMessage
 	}
@@ -331,5 +336,25 @@ func buildOtherMessageTypes(evt *events.Message, payload map[string]any) {
 
 	if orderMessage := evt.Message.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessage(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV2(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV3(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV4(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := evt.Message.GetPollCreationMessageV5(); pollMessage != nil {
+		payload["poll"] = pollMessage
 	}
 }
