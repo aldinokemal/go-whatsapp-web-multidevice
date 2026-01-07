@@ -68,6 +68,16 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 	return instance, ok
 }
 
+// IsHealthy returns true if the device manager is initialized and has a valid store connection.
+func (m *DeviceManager) IsHealthy() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.store != nil
+}
+
 // DefaultDevice returns the only registered device when running in single-device mode.
 func (m *DeviceManager) DefaultDevice() *DeviceInstance {
 	if m == nil {
