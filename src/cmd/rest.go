@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/swagger"
 	"github.com/gofiber/template/html/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -96,6 +97,15 @@ func restServer(_ *cobra.Command, _ []string) {
 	if config.AppBasePath != "" {
 		apiGroup = app.Group(config.AppBasePath)
 	}
+
+	// Swagger UI documentation
+	app.Static(config.AppBasePath+"/openapi.yaml", "../docs/openapi.yaml")
+	app.Get(config.AppBasePath+"/docs/*", swagger.New(swagger.Config{
+		URL:          config.AppBasePath + "/openapi.yaml",
+		Title:        "WhatsApp API MultiDevice",
+		DeepLinking:  true,
+		DocExpansion: "list",
+	}))
 
 	// Device manager aware routing
 	dm := whatsapp.GetDeviceManager()
