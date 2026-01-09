@@ -291,8 +291,9 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 		return response, err
 	}
 
-	// Update local storage immediately for consistency
-	if existingChat, _ := service.chatStorageRepo.GetChat(request.ChatJID); existingChat != nil {
+	// Update local storage immediately for consistency (device-scoped)
+	deviceID := deviceIDFromContext(ctx)
+	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceID, request.ChatJID); existingChat != nil {
 		existingChat.EphemeralExpiration = request.TimerSeconds
 		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}

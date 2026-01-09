@@ -57,21 +57,23 @@ type DeviceRecord struct {
 
 // MessageFilter represents query filters for messages
 type MessageFilter struct {
-	DeviceID  string
-	ChatJID   string
-	Limit     int
-	Offset    int
-	StartTime *time.Time
-	EndTime   *time.Time
-	MediaOnly bool
-	IsFromMe  *bool
+	DeviceID         string
+	ChatJID          string
+	Limit            int
+	Offset           int
+	StartTime        *time.Time
+	EndTime          *time.Time
+	MediaOnly        bool
+	IsFromMe         *bool
+	AllowCrossDevice bool // Set to true to explicitly allow cross-device queries (admin use only)
 }
 
 // ChatFilter represents query filters for chats
 type ChatFilter struct {
-	DeviceID   string
-	Limit      int
-	Offset     int
-	SearchName string
-	HasMedia   bool
+	DeviceID         string
+	Limit            int
+	Offset           int
+	SearchName       string
+	HasMedia         bool
+	AllowCrossDevice bool // Set to true to explicitly allow cross-device queries (admin use only)
 }

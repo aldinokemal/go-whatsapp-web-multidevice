@@ -63,20 +63,21 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
-	// Find the message to get its chat JID
-	message, err := chatStorageRepo.GetMessageByID(evt.MessageID)
+	// Get the message using the chat JID from the event
+	chatJID := evt.ChatJID.String()
+	message, err := chatStorageRepo.GetMessageByID(chatJID, evt.MessageID)
 	if err != nil {
 		log.Errorf("Failed to find message %s for deletion: %v", evt.MessageID, err)
 		return
 	}
 
 	if message == nil {
-		log.Warnf("Message %s not found in database, skipping deletion", evt.MessageID)
+		log.Warnf("Message %s not found in chat %s, skipping deletion", evt.MessageID, chatJID)
 		return
 	}
 
 	// Delete the message from database
-	if err := chatStorageRepo.DeleteMessage(evt.MessageID, message.ChatJID); err != nil {
+	if err := chatStorageRepo.DeleteMessage(evt.MessageID, chatJID); err != nil {
 		log.Errorf("Failed to delete message %s from database: %v", evt.MessageID, err)
 	} else {
 		log.Infof("Successfully deleted message %s from database", evt.MessageID)

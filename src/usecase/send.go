@@ -135,7 +135,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 
 	// Reply message
 	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		message, err := service.chatStorageRepo.GetMessageByID(*request.ReplyMessageID)
+		message, err := service.chatStorageRepo.GetMessageByID(dataWaRecipient.String(), *request.ReplyMessageID)
 		if err != nil {
 			logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *request.ReplyMessageID, err)
 		} else if message != nil { // Only set reply context if we found the message

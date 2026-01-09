@@ -100,13 +100,13 @@ func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Mes
 	return r.base.StoreMessagesBatch(messages)
 }
 
-func (r *deviceChatStorage) GetMessageByID(id string) (*domainChatStorage.Message, error) {
+func (r *deviceChatStorage) GetMessageByID(chatJID, id string) (*domainChatStorage.Message, error) {
 	// Use device-scoped lookup to prevent cross-device data leaks
-	return r.base.GetMessageByIDByDevice(r.deviceID, id)
+	return r.base.GetMessageByIDByDevice(r.deviceID, chatJID, id)
 }
 
-func (r *deviceChatStorage) GetMessageByIDByDevice(deviceID, id string) (*domainChatStorage.Message, error) {
-	return r.base.GetMessageByIDByDevice(deviceID, id)
+func (r *deviceChatStorage) GetMessageByIDByDevice(deviceID, chatJID, id string) (*domainChatStorage.Message, error) {
+	return r.base.GetMessageByIDByDevice(deviceID, chatJID, id)
 }
 
 func (r *deviceChatStorage) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {

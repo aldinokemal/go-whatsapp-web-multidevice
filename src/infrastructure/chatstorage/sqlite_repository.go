@@ -50,19 +50,9 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 }
 
 // GetChat retrieves a chat by JID
+// DEPRECATED: Use GetChatByDevice instead to ensure device isolation and prevent cross-device data leaks
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
-	query := `
-		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at
-		FROM chats
-		WHERE jid = ?
-	`
-
-	chat, err := r.scanChat(r.db.QueryRow(query, jid))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-
-	return chat, err
+	return nil, fmt.Errorf("GetChat is deprecated: use GetChatByDevice instead for device-scoped access")
 }
 
 // GetChatByDevice retrieves a chat by JID for a specific device
@@ -81,39 +71,25 @@ func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 	return chat, err
 }
 
-// GetMessageByID retrieves a message by its ID from any chat
-// This is more efficient than searching through all chats
-func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, created_at, updated_at
-		FROM messages
-		WHERE id = ?
-		LIMIT 1
-	`
-
-	message, err := r.scanMessage(r.db.QueryRow(query, id))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-
-	return message, err
+// GetMessageByID retrieves a message by its ID and chat JID
+// DEPRECATED: Use GetMessageByIDByDevice instead to ensure device isolation and prevent cross-device data leaks
+func (r *SQLiteRepository) GetMessageByID(chatJID, id string) (*domainChatStorage.Message, error) {
+	return nil, fmt.Errorf("GetMessageByID is deprecated: use GetMessageByIDByDevice instead for device-scoped access")
 }
 
-// GetMessageByIDByDevice retrieves a message by its ID for a specific device
+// GetMessageByIDByDevice retrieves a message by its ID for a specific device and chat
 // This prevents cross-device data leaks by ensuring only messages belonging to the device are returned
-func (r *SQLiteRepository) GetMessageByIDByDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+func (r *SQLiteRepository) GetMessageByIDByDevice(deviceID, chatJID, id string) (*domainChatStorage.Message, error) {
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, filename, url, media_key, file_sha256,
 			file_enc_sha256, file_length, created_at, updated_at
 		FROM messages
-		WHERE id = ? AND device_id = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
 	`
 
-	message, err := r.scanMessage(r.db.QueryRow(query, id, deviceID))
+	message, err := r.scanMessage(r.db.QueryRow(query, id, chatJID, deviceID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -122,7 +98,16 @@ func (r *SQLiteRepository) GetMessageByIDByDevice(deviceID, id string) (*domainC
 }
 
 // GetChats retrieves chats with filtering
+// SECURITY: Requires DeviceID unless AllowCrossDevice is explicitly set to prevent cross-device data leaks
 func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	// SECURITY: Fail-closed - require DeviceID unless explicitly opted out
+	if filter == nil {
+		return nil, fmt.Errorf("filter is required")
+	}
+	if filter.DeviceID == "" && !filter.AllowCrossDevice {
+		return nil, fmt.Errorf("device_id is required in ChatFilter for device-scoped queries")
+	}
+
 	var conditions []string
 	var args []any
 
@@ -186,26 +171,9 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 }
 
 // DeleteChat deletes a chat and all its messages
+// DEPRECATED: Use DeleteChatByDevice instead to ensure device isolation and prevent cross-device data leaks
 func (r *SQLiteRepository) DeleteChat(jid string) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Delete messages first (foreign key constraint)
-	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
-	if err != nil {
-		return err
-	}
-
-	// Delete chat
-	_, err = tx.Exec("DELETE FROM chats WHERE jid = ?", jid)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return fmt.Errorf("DeleteChat is deprecated: use DeleteChatByDevice instead for device-scoped access")
 }
 
 // DeleteChatByDevice deletes a chat and all its messages for a specific device
@@ -345,7 +313,16 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 }
 
 // GetMessages retrieves messages with filtering
+// SECURITY: Requires DeviceID unless AllowCrossDevice is explicitly set to prevent cross-device data leaks
 func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	// SECURITY: Fail-closed - require DeviceID unless explicitly opted out
+	if filter == nil {
+		return nil, fmt.Errorf("filter is required")
+	}
+	if filter.DeviceID == "" && !filter.AllowCrossDevice {
+		return nil, fmt.Errorf("device_id is required in MessageFilter for device-scoped queries")
+	}
+
 	var conditions []string
 	var args []any
 
@@ -420,7 +397,13 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 }
 
 // SearchMessages performs database-level search for messages containing specific text
+// SECURITY: Requires deviceID parameter to prevent cross-device data leaks
 func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+	// SECURITY: Fail-closed - require deviceID
+	if deviceID == "" {
+		return nil, fmt.Errorf("device_id is required for SearchMessages")
+	}
+
 	// Return empty results for empty search text
 	if strings.TrimSpace(searchText) == "" {
 		return []*domainChatStorage.Message{}, nil
@@ -434,10 +417,8 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 	args = append(args, chatJID)
 
 	// Filter by device_id to prevent cross-device data leaks
-	if deviceID != "" {
-		conditions = append(conditions, "device_id = ?")
-		args = append(args, deviceID)
-	}
+	conditions = append(conditions, "device_id = ?")
+	args = append(args, deviceID)
 
 	// Add search condition using LIKE operator for case-insensitive search
 	conditions = append(conditions, "LOWER(content) LIKE ?")
@@ -485,9 +466,9 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 }
 
 // DeleteMessage deletes a specific message
+// DEPRECATED: Use DeleteMessageByDevice instead to ensure device isolation and prevent cross-device data leaks
 func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
-	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
-	return err
+	return fmt.Errorf("DeleteMessage is deprecated: use DeleteMessageByDevice instead for device-scoped access")
 }
 
 // DeleteMessageByDevice deletes a specific message for a specific device
@@ -681,31 +662,18 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
+// DEPRECATED: Use GetChatNameWithPushNameByDevice instead to ensure device isolation
 func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
-	// First, check if chat already exists with a name
-	existingChat, err := r.GetChat(chatJID)
-	if err == nil && existingChat != nil && existingChat.Name != "" {
-		// If we have a pushname and the existing name is just a phone number/JID user, update it
-		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {
-			return pushName
-		}
-		return existingChat.Name
-	}
-
-	// Determine chat type and name
+	// This method cannot properly enforce device isolation, return best-effort name
+	// Determine chat type and name without database lookup
 	var name string
 
 	switch jid.Server {
 	case "g.us":
-		// This is a group chat
-		// For now, use a generic name - this can be enhanced later with group info
 		name = fmt.Sprintf("Group %s", jid.User)
 	case "newsletter":
-		// This is a newsletter/channel
 		name = fmt.Sprintf("Newsletter %s", jid.User)
 	default:
-		// This is an individual contact
-		// Priority: pushName > senderUser > JID user
 		if pushName != "" && pushName != senderUser && pushName != jid.User {
 			name = pushName
 		} else if senderUser != "" {
@@ -787,11 +755,11 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
 	sender := normalizedSender.ToNonAD().String()
 
-	// Get appropriate chat name using pushname if available
-	chatName := r.GetChatNameWithPushName(normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
+	// Get appropriate chat name using pushname if available (device-scoped)
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
 
-	// Get existing chat to preserve ephemeral_expiration if needed
-	existingChat, err := r.GetChat(chatJID)
+	// Get existing chat to preserve ephemeral_expiration if needed (device-scoped)
+	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
@@ -932,8 +900,8 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
 	chatJID := normalizedJID.String()
 
-	// Get chat name (no pushname available for sent messages)
-	chatName := r.GetChatNameWithPushName(normalizedJID, chatJID, normalizedJID.User, "")
+	// Get chat name (no pushname available for sent messages, device-scoped)
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 
 	// Check context again before database operations
 	select {
@@ -942,8 +910,8 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
-	// Get existing chat to preserve ephemeral_expiration
-	existingChat, err := r.GetChat(chatJID)
+	// Get existing chat to preserve ephemeral_expiration (device-scoped)
+	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
