@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -235,10 +236,16 @@ func (m *DeviceManager) ListDevices() []*DeviceInstance {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var result []*DeviceInstance
+	result := make([]*DeviceInstance, 0, len(m.devices))
 	for _, instance := range m.devices {
 		result = append(result, instance)
 	}
+
+	// Sort by CreatedAt ascending (oldest first) for stable UI ordering
+	slices.SortFunc(result, func(a, b *DeviceInstance) int {
+		return a.CreatedAt().Compare(b.CreatedAt())
+	})
+
 	return result
 }
 
