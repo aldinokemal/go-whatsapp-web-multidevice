@@ -734,11 +734,6 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return nil
 	}
 
-	if evt.Info.IsFromMe {
-		logrus.Debugf("Skipping storage of echo message %s (IsFromMe=true) - already stored by sender", evt.Info.ID)
-		return nil
-	}
-
 	// Get WhatsApp client for LID resolution (device-scoped if present in context)
 	client := whatsapp.ClientFromContext(ctx)
 	deviceID := ""
