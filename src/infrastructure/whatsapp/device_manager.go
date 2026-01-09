@@ -241,9 +241,13 @@ func (m *DeviceManager) ListDevices() []*DeviceInstance {
 		result = append(result, instance)
 	}
 
-	// Sort by CreatedAt ascending (oldest first) for stable UI ordering
+	// Sort by CreatedAt ascending (oldest first) for stable UI ordering.
+	// Use ID as tie-breaker when CreatedAt is equal.
 	slices.SortFunc(result, func(a, b *DeviceInstance) int {
-		return a.CreatedAt().Compare(b.CreatedAt())
+		if cmp := a.CreatedAt().Compare(b.CreatedAt()); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID(), b.ID())
 	})
 
 	return result

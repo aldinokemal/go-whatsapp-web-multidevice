@@ -78,30 +78,34 @@ func TestListDevices_SameCreatedAt(t *testing.T) {
 		devices: make(map[string]*DeviceInstance),
 	}
 
-	// Devices with same creation time should still produce stable order
+	// Devices with same creation time should be sorted by ID as tie-breaker
 	sameTime := time.Now()
 	devices := []*DeviceInstance{
+		{id: "device-3", createdAt: sameTime},
 		{id: "device-1", createdAt: sameTime},
 		{id: "device-2", createdAt: sameTime},
-		{id: "device-3", createdAt: sameTime},
 	}
 
 	for _, d := range devices {
 		manager.devices[d.id] = d
 	}
 
-	// Get list multiple times - order may vary but should be stable within a run
-	firstResult := manager.ListDevices()
-	if len(firstResult) != 3 {
-		t.Fatalf("expected 3 devices, got %d", len(firstResult))
-	}
+	expectedOrder := []string{"device-1", "device-2", "device-3"}
 
-	// All devices should be present
-	ids := make(map[string]bool)
-	for _, d := range firstResult {
-		ids[d.ID()] = true
-	}
-	if !ids["device-1"] || !ids["device-2"] || !ids["device-3"] {
-		t.Errorf("not all devices present in result")
+	// Call ListDevices multiple times to verify consistent ordering
+	for i := 0; i < 10; i++ {
+		result := manager.ListDevices()
+
+		if len(result) != 3 {
+			t.Fatalf("iteration %d: expected 3 devices, got %d", i, len(result))
+		}
+
+		// Verify order: devices should be sorted by ID when createdAt is equal
+		for j, expected := range expectedOrder {
+			if result[j].ID() != expected {
+				t.Errorf("iteration %d: expected device at index %d to be %s, got %s",
+					i, j, expected, result[j].ID())
+			}
+		}
 	}
 }
