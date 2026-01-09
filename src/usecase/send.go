@@ -974,12 +974,12 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	var (
-		audioBytes      []byte
-		audioMimeType   string
-		audioFilename   string
-		audioDuration   uint32
-		tempAudioPath   string
-		deleteTempFile  bool
+		audioBytes     []byte
+		audioMimeType  string
+		audioFilename  string
+		audioDuration  uint32
+		tempAudioPath  string
+		deleteTempFile bool
 	)
 
 	// Handle audio from URL or file

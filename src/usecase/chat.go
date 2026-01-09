@@ -92,8 +92,11 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 
-	// Get chat info first
-	chat, err := service.chatStorageRepo.GetChat(request.ChatJID)
+	// Get device ID from context for device-scoped queries
+	deviceID := deviceIDFromContext(ctx)
+
+	// Get chat info first (device-scoped to prevent cross-device data leaks)
+	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get chat info")
 		return response, err
@@ -102,8 +105,9 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, fmt.Errorf("chat with JID %s not found", request.ChatJID)
 	}
 
-	// Create message filter from request
+	// Create message filter from request with device isolation
 	filter := &domainChatStorage.MessageFilter{
+		DeviceID:  deviceID,
 		ChatJID:   request.ChatJID,
 		Limit:     request.Limit,
 		Offset:    request.Offset,
@@ -131,8 +135,8 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	// Get messages from storage
 	var messages []*domainChatStorage.Message
 	if request.Search != "" {
-		// Use search functionality if search query is provided
-		messages, err = service.chatStorageRepo.SearchMessages(request.ChatJID, request.Search, request.Limit)
+		// Use search functionality if search query is provided (device-scoped)
+		messages, err = service.chatStorageRepo.SearchMessages(deviceID, request.ChatJID, request.Search, request.Limit)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to search messages")
 			return response, err

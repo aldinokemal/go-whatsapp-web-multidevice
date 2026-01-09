@@ -96,15 +96,38 @@ func (r *DeviceRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 }
 
 func (r *DeviceRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
-	return r.base.GetMessageByID(id)
+	// Use device-scoped lookup to prevent cross-device data leaks
+	return r.base.GetMessageByIDByDevice(r.deviceID, id)
+}
+
+func (r *DeviceRepository) GetMessageByIDByDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+	return r.base.GetMessageByIDByDevice(deviceID, id)
 }
 
 func (r *DeviceRepository) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	// Inject deviceID to prevent cross-device data leaks
+	if filter != nil {
+		switch {
+		case filter.DeviceID != "" && strings.Contains(filter.DeviceID, "@"):
+			// Respect caller-provided JID and upgrade wrapper for future calls.
+			r.deviceID = filter.DeviceID
+		case strings.Contains(r.deviceID, "@"):
+			filter.DeviceID = r.deviceID
+		case filter.DeviceID == "":
+			// Fall back to wrapper device ID if caller didn't set one.
+			filter.DeviceID = r.deviceID
+		}
+	}
 	return r.base.GetMessages(filter)
 }
 
-func (r *DeviceRepository) SearchMessages(chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
-	return r.base.SearchMessages(chatJID, searchText, limit)
+func (r *DeviceRepository) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+	// Use wrapper's deviceID if caller didn't provide one
+	effectiveDeviceID := deviceID
+	if effectiveDeviceID == "" {
+		effectiveDeviceID = r.deviceID
+	}
+	return r.base.SearchMessages(effectiveDeviceID, chatJID, searchText, limit)
 }
 
 func (r *DeviceRepository) DeleteMessage(id, chatJID string) error {

@@ -101,6 +101,26 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	return message, err
 }
 
+// GetMessageByIDByDevice retrieves a message by its ID for a specific device
+// This prevents cross-device data leaks by ensuring only messages belonging to the device are returned
+func (r *SQLiteRepository) GetMessageByIDByDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, filename, url, media_key, file_sha256,
+			file_enc_sha256, file_length, created_at, updated_at
+		FROM messages
+		WHERE id = ? AND device_id = ?
+		LIMIT 1
+	`
+
+	message, err := r.scanMessage(r.db.QueryRow(query, id, deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	return message, err
+}
+
 // GetChats retrieves chats with filtering
 func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
 	var conditions []string
@@ -332,6 +352,12 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	conditions = append(conditions, "chat_jid = ?")
 	args = append(args, filter.ChatJID)
 
+	// Filter by device_id to prevent cross-device data leaks
+	if filter.DeviceID != "" {
+		conditions = append(conditions, "device_id = ?")
+		args = append(args, filter.DeviceID)
+	}
+
 	if filter.StartTime != nil {
 		conditions = append(conditions, "timestamp >= ?")
 		args = append(args, *filter.StartTime)
@@ -394,7 +420,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 }
 
 // SearchMessages performs database-level search for messages containing specific text
-func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
 	// Return empty results for empty search text
 	if strings.TrimSpace(searchText) == "" {
 		return []*domainChatStorage.Message{}, nil
@@ -406,6 +432,12 @@ func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int)
 	// Always filter by chat JID
 	conditions = append(conditions, "chat_jid = ?")
 	args = append(args, chatJID)
+
+	// Filter by device_id to prevent cross-device data leaks
+	if deviceID != "" {
+		conditions = append(conditions, "device_id = ?")
+		args = append(args, deviceID)
+	}
 
 	// Add search condition using LIKE operator for case-insensitive search
 	conditions = append(conditions, "LOWER(content) LIKE ?")
