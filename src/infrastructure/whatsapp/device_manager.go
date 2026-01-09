@@ -299,7 +299,10 @@ func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
 				matchedDevice = inst
 				break
 			}
-			if inst.JID() == "" && orphanDevice == nil {
+			// Only consider auto-created devices (device_id contains @) as orphan candidates.
+			// Manual devices (UUID format, no @) should not be matched as orphans
+			// because they were explicitly created via API and are waiting for their own login.
+			if inst.JID() == "" && orphanDevice == nil && strings.Contains(inst.ID(), "@") {
 				orphanDevice = inst
 			}
 		}
