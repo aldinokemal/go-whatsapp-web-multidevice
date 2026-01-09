@@ -15,3 +15,4 @@ bin
 .factory
 .vscode/settings.json
 src/whatsapp
+.worktrees/
