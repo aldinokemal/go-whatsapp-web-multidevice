@@ -238,24 +238,22 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, err
 	}
 
-	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// Get device ID from context for device-scoped queries
+	deviceID := messageDeviceIDFromContext(ctx)
+
+	// Query the message from chat storage (device-scoped to prevent cross-device data leaks)
+	message, err := service.chatStorageRepo.GetMessageByIDByDevice(deviceID, dataWaRecipient.String(), request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
 
 	if message == nil {
-		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+		return response, fmt.Errorf("message with ID %s not found in chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
 	// Check if message has media
 	if message.MediaType == "" || message.URL == "" {
 		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
-	}
-
-	// Verify the message is from the specified chat
-	if message.ChatJID != dataWaRecipient.String() {
-		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
 	// Create directory structure for organized storage
@@ -348,4 +346,15 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	})
 
 	return response, nil
+}
+
+// messageDeviceIDFromContext extracts the device ID from context for device-scoped operations
+func messageDeviceIDFromContext(ctx context.Context) string {
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		if jid := inst.JID(); jid != "" {
+			return jid
+		}
+		return inst.ID()
+	}
+	return ""
 }
