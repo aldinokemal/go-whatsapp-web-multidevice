@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -55,8 +54,6 @@ func jidsToStrings(ctx context.Context, jids []types.JID, client *whatsmeow.Clie
 
 // forwardGroupInfoToWebhook forwards group information events to the configured webhook URLs
 func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) error {
-	logrus.Infof("Forwarding group info event to %d configured webhook(s)", len(config.WhatsappWebhook))
-
 	// Send separate webhook events for each action type
 	actions := []struct {
 		actionType string
@@ -72,11 +69,8 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 		if len(action.jids) > 0 {
 			payload := createGroupInfoPayload(ctx, evt, action.actionType, action.jids, deviceID, client)
 
-			// Use forwardPayloadToConfiguredWebhooks for proper whitelist filtering
 			if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "group.participants"); err != nil {
 				logrus.Warnf("Failed to forward group %s event to webhook: %v", action.actionType, err)
-			} else {
-				logrus.Infof("Group %s event forwarded to webhook: %d users %s", action.actionType, len(action.jids), action.actionType)
 			}
 		}
 	}
