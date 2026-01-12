@@ -92,7 +92,11 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 
-	// Get chat info first
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return response, fmt.Errorf("device identification required")
+	}
+
 	chat, err := service.chatStorageRepo.GetChat(request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get chat info")
@@ -132,13 +136,14 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	var messages []*domainChatStorage.Message
 	if request.Search != "" {
 		// Use search functionality if search query is provided
-		messages, err = service.chatStorageRepo.SearchMessages(request.ChatJID, request.Search, request.Limit)
+		messages, err = service.chatStorageRepo.SearchMessages(deviceID, request.ChatJID, request.Search, request.Limit)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to search messages")
 			return response, err
 		}
 	} else {
-		// Use regular filter
+		// Use regular filter with device_id for data isolation
+		filter.DeviceID = deviceID
 		messages, err = service.chatStorageRepo.GetMessages(filter)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get messages")

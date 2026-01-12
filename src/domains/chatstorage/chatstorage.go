@@ -57,6 +57,7 @@ type DeviceRecord struct {
 
 // MessageFilter represents query filters for messages
 type MessageFilter struct {
+	DeviceID  string
 	ChatJID   string
 	Limit     int
 	Offset    int

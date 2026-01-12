@@ -23,7 +23,7 @@ type IChatStorageRepository interface {
 	StoreMessagesBatch(messages []*Message) error
 	GetMessageByID(id string) (*Message, error) // New method for efficient ID-only search
 	GetMessages(filter *MessageFilter) ([]*Message, error)
-	SearchMessages(chatJID, searchText string, limit int) ([]*Message, error) // Database-level search
+	SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*Message, error) // Database-level search with device isolation
 	DeleteMessage(id, chatJID string) error
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error

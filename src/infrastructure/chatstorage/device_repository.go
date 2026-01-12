@@ -2,7 +2,6 @@ package chatstorage
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -28,20 +27,6 @@ func (r *DeviceRepository) withDeviceChat(chat *domainChatStorage.Chat) *domainC
 	if chat == nil {
 		return nil
 	}
-
-	// Prefer a JID already set on the chat.
-	if chat.DeviceID != "" && strings.Contains(chat.DeviceID, "@") {
-		r.deviceID = chat.DeviceID
-		return chat
-	}
-
-	// Apply wrapper JID if already known.
-	if strings.Contains(r.deviceID, "@") {
-		chat.DeviceID = r.deviceID
-		return chat
-	}
-
-	// Fallback to wrapper device ID when chat is empty.
 	if chat.DeviceID == "" {
 		chat.DeviceID = r.deviceID
 	}
@@ -66,15 +51,8 @@ func (r *DeviceRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 }
 
 func (r *DeviceRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
-	if filter != nil {
-		switch {
-		case filter.DeviceID != "" && strings.Contains(filter.DeviceID, "@"):
-			r.deviceID = filter.DeviceID
-		case strings.Contains(r.deviceID, "@"):
-			filter.DeviceID = r.deviceID
-		case filter.DeviceID == "":
-			filter.DeviceID = r.deviceID
-		}
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
 	}
 	return r.base.GetChats(filter)
 }
@@ -100,11 +78,18 @@ func (r *DeviceRepository) GetMessageByID(id string) (*domainChatStorage.Message
 }
 
 func (r *DeviceRepository) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
 	return r.base.GetMessages(filter)
 }
 
-func (r *DeviceRepository) SearchMessages(chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
-	return r.base.SearchMessages(chatJID, searchText, limit)
+func (r *DeviceRepository) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.SearchMessages(targetDeviceID, chatJID, searchText, limit)
 }
 
 func (r *DeviceRepository) DeleteMessage(id, chatJID string) error {

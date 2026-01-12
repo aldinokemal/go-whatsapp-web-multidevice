@@ -326,11 +326,20 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 
 // GetMessages retrieves messages with filtering
 func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	// Require device_id for data isolation - fail fast if missing
+	if filter.DeviceID == "" {
+		return nil, fmt.Errorf("device_id is required for message queries (data isolation)")
+	}
+
 	var conditions []string
 	var args []any
 
 	conditions = append(conditions, "chat_jid = ?")
 	args = append(args, filter.ChatJID)
+
+	// Filter by device_id to ensure data isolation between devices
+	conditions = append(conditions, "device_id = ?")
+	args = append(args, filter.DeviceID)
 
 	if filter.StartTime != nil {
 		conditions = append(conditions, "timestamp >= ?")
@@ -394,8 +403,12 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 }
 
 // SearchMessages performs database-level search for messages containing specific text
-func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
-	// Return empty results for empty search text
+func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+	// Require device_id for data isolation - fail fast if missing
+	if deviceID == "" {
+		return nil, fmt.Errorf("device_id is required for message search (data isolation)")
+	}
+
 	if strings.TrimSpace(searchText) == "" {
 		return []*domainChatStorage.Message{}, nil
 	}
@@ -403,9 +416,11 @@ func (r *SQLiteRepository) SearchMessages(chatJID, searchText string, limit int)
 	var conditions []string
 	var args []any
 
-	// Always filter by chat JID
 	conditions = append(conditions, "chat_jid = ?")
 	args = append(args, chatJID)
+
+	conditions = append(conditions, "device_id = ?")
+	args = append(args, deviceID)
 
 	// Add search condition using LIKE operator for case-insensitive search
 	conditions = append(conditions, "LOWER(content) LIKE ?")
