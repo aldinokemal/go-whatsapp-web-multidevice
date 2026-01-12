@@ -19,6 +19,7 @@ The following events can be received via webhook:
 | `message.revoked`    | Deleted/revoked messages                                |
 | `message.edited`     | Edited messages                                         |
 | `message.ack`        | Delivery and read receipts                              |
+| `message.deleted`    | Messages deleted for the user                           |
 | `group.participants` | Group member join/leave/promote/demote events           |
 
 ## Event Filtering
@@ -35,7 +36,7 @@ You can configure which events are forwarded to your webhook using the `WHATSAPP
 WHATSAPP_WEBHOOK_EVENTS=message,message.ack
 
 # Receive all message-related events
-WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,message.ack
+WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,message.ack,message.deleted
 
 # Receive only group events
 WHATSAPP_WEBHOOK_EVENTS=group.participants
@@ -122,7 +123,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**   | **Type** | **Description**                                                                                                     |
 |-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `group.participants` |
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants` |
 | `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `payload`   | object   | Event-specific payload data                                                                                         |
 
