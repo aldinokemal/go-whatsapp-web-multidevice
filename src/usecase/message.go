@@ -81,10 +81,23 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, err
 	}
 
+	// FromMe in reaction refers to whether the ORIGINAL message (being reacted to) was sent by us
+	isFromMe := true
+	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if err != nil {
+		logrus.Warnf("Failed to lookup message %s for reaction: %v, using fallback heuristic", request.MessageID, err)
+		isFromMe = len(request.MessageID) <= 22
+	} else if message != nil {
+		isFromMe = message.IsFromMe
+	} else {
+		logrus.Debugf("Message %s not found in database, using ID length heuristic for FromMe", request.MessageID)
+		isFromMe = len(request.MessageID) <= 22
+	}
+
 	msg := &waE2E.Message{
 		ReactionMessage: &waE2E.ReactionMessage{
 			Key: &waCommon.MessageKey{
-				FromMe:    proto.Bool(true),
+				FromMe:    proto.Bool(isFromMe),
 				ID:        proto.String(request.MessageID),
 				RemoteJID: proto.String(dataWaRecipient.String()),
 			},
