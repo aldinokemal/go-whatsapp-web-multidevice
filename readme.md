@@ -125,6 +125,7 @@ Download:
   | `message.revoked`    | Deleted/revoked messages                      |
   | `message.edited`     | Edited messages                               |
   | `message.ack`        | Delivery and read receipts                    |
+  | `message.deleted`    | Messages deleted for the user                 |
   | `group.participants` | Group member join/leave/promote/demote events |
 
   If not configured (empty), all events will be forwarded.

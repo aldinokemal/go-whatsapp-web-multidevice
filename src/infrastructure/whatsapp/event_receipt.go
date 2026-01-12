@@ -95,5 +95,5 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 	}
 
 	payload := createReceiptPayload(ctx, evt, deviceID, client)
-	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message ack event")
+	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
 }

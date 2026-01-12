@@ -19,6 +19,7 @@ The following events can be received via webhook:
 | `message.revoked`    | Deleted/revoked messages                                |
 | `message.edited`     | Edited messages                                         |
 | `message.ack`        | Delivery and read receipts                              |
+| `message.deleted`    | Messages deleted for the user                           |
 | `group.participants` | Group member join/leave/promote/demote events           |
 
 ## Event Filtering
@@ -35,7 +36,7 @@ You can configure which events are forwarded to your webhook using the `WHATSAPP
 WHATSAPP_WEBHOOK_EVENTS=message,message.ack
 
 # Receive all message-related events
-WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,message.ack
+WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,message.ack,message.deleted
 
 # Receive only group events
 WHATSAPP_WEBHOOK_EVENTS=group.participants
@@ -122,7 +123,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**   | **Type** | **Description**                                                                                                     |
 |-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `group.participants` |
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants` |
 | `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `payload`   | object   | Event-specific payload data                                                                                         |
 
@@ -564,6 +565,42 @@ With auto-download disabled:
 ```
 
 ## Protocol Messages
+
+### Message Deleted
+
+Triggered when a message is deleted for the current user (DeleteForMe event).
+
+```json
+{
+  "event": "message.deleted",
+  "device_id": "628123456789@s.whatsapp.net",
+  "payload": {
+    "deleted_message_id": "3EB0C127D7BACC83D6A1",
+    "timestamp": "2025-07-13T11:12:00Z",
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "original_content": "Hello, how are you?",
+    "original_sender": "628987654321@s.whatsapp.net",
+    "original_timestamp": "2025-07-13T10:30:00Z",
+    "was_from_me": false
+  }
+}
+```
+
+**Fields:**
+
+| **Field**                      | **Type** | **Description**                                       |
+|--------------------------------|----------|-------------------------------------------------------|
+| `payload.deleted_message_id`   | string   | ID of the deleted message                             |
+| `payload.timestamp`            | string   | RFC3339 timestamp when the delete event occurred      |
+| `payload.from`                 | string   | JID of the user who deleted the message               |
+| `payload.chat_id`              | string   | Chat identifier where the message was deleted         |
+| `payload.original_content`     | string   | Original message content (if available from storage)  |
+| `payload.original_sender`      | string   | Original sender of the deleted message                |
+| `payload.original_timestamp`   | string   | Original message timestamp                            |
+| `payload.was_from_me`          | boolean  | Whether the deleted message was sent by current user  |
+| `payload.original_media_type`  | string   | Media type if the message contained media (optional)  |
+| `payload.original_filename`    | string   | Filename if the message contained media (optional)    |
 
 ### Message Revoked
 
