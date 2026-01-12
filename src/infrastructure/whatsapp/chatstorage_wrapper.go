@@ -2,7 +2,6 @@ package whatsapp
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -31,21 +30,6 @@ func (r *deviceChatStorage) withDeviceChat(chat *domainChatStorage.Chat) *domain
 	if chat == nil {
 		return nil
 	}
-
-	// Prefer an explicit JID already set on the chat.
-	if chat.DeviceID != "" && strings.Contains(chat.DeviceID, "@") {
-		// Upgrade the wrapper device ID so future filters use the JID as well.
-		r.deviceID = chat.DeviceID
-		return chat
-	}
-
-	// If wrapper already holds a JID, apply it.
-	if strings.Contains(r.deviceID, "@") {
-		chat.DeviceID = r.deviceID
-		return chat
-	}
-
-	// Fallback to existing value or wrapper device ID (likely a placeholder).
 	if chat.DeviceID == "" {
 		chat.DeviceID = r.deviceID
 	}
@@ -69,17 +53,8 @@ func (r *deviceChatStorage) GetChatByDevice(deviceID, jid string) (*domainChatSt
 }
 
 func (r *deviceChatStorage) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
-	if filter != nil {
-		switch {
-		case filter.DeviceID != "" && strings.Contains(filter.DeviceID, "@"):
-			// Respect caller-provided JID and upgrade wrapper for future calls.
-			r.deviceID = filter.DeviceID
-		case strings.Contains(r.deviceID, "@"):
-			filter.DeviceID = r.deviceID
-		case filter.DeviceID == "":
-			// Fall back to wrapper device ID (likely placeholder) if caller didn't set one.
-			filter.DeviceID = r.deviceID
-		}
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
 	}
 	return r.base.GetChats(filter)
 }
@@ -105,11 +80,18 @@ func (r *deviceChatStorage) GetMessageByID(id string) (*domainChatStorage.Messag
 }
 
 func (r *deviceChatStorage) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
 	return r.base.GetMessages(filter)
 }
 
-func (r *deviceChatStorage) SearchMessages(chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
-	return r.base.SearchMessages(chatJID, searchText, limit)
+func (r *deviceChatStorage) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.SearchMessages(targetDeviceID, chatJID, searchText, limit)
 }
 
 func (r *deviceChatStorage) DeleteMessage(id, chatJID string) error {
