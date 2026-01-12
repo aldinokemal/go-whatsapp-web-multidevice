@@ -12,3 +12,6 @@ storages
 bin
 .playwright-mcp
 .cursor/mcp.json
+src/whatsapp
+.factory
+.vscode
