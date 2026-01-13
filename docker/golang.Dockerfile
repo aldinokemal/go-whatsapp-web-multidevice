@@ -1,7 +1,7 @@
 ############################
 # STEP 1 build executable binary
 ############################
-FROM golang:1.24-alpine3.20 AS builder
+FROM golang:1.25-alpine3.22 AS builder
 RUN apk update && apk add --no-cache gcc musl-dev gcompat
 WORKDIR /whatsapp
 COPY ./src .
@@ -20,6 +20,9 @@ ENV TZ=UTC
 WORKDIR /app
 # Copy compiled from builder.
 COPY --from=builder /app/whatsapp /app/whatsapp
+# Copy script to auto delete media downloaded
+COPY --from=builder /whatsapp/cronScripts /etc/periodic
+RUN chmod +x /etc/periodic/*
 # Run the binary.
 ENTRYPOINT ["/app/whatsapp"]
 

@@ -376,7 +376,13 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
-	fileMimeType := resolveDocumentMIME(request.File.Filename, fileBytes)
+	var fileMimeType string
+
+	if request.Mimetype != nil {
+		fileMimeType = *request.Mimetype
+	} else {
+		fileMimeType = resolveDocumentMIME(request.File.Filename, fileBytes)
+	}
 
 	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
@@ -974,12 +980,12 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	var (
-		audioBytes      []byte
-		audioMimeType   string
-		audioFilename   string
-		audioDuration   uint32
-		tempAudioPath   string
-		deleteTempFile  bool
+		audioBytes     []byte
+		audioMimeType  string
+		audioFilename  string
+		audioDuration  uint32
+		tempAudioPath  string
+		deleteTempFile bool
 	)
 
 	// Handle audio from URL or file

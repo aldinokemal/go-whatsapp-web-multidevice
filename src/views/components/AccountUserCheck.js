@@ -42,6 +42,7 @@ export default {
             try {
                 let response = await window.http.get(`/user/check?phone=${this.phone_id}`)
                 this.isOnWhatsApp = response.data.results.is_on_whatsapp;
+                this.originalPhone = response.data.results.phone;
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
@@ -85,9 +86,9 @@ export default {
             <div v-if="isOnWhatsApp !== null" class="ui message" :class="isOnWhatsApp ? 'positive' : 'negative'">
                 <div class="header">
                     <i :class="isOnWhatsApp ? 'check circle icon' : 'times circle icon'"></i>
-                    {{ isOnWhatsApp ? 'User is on WhatsApp' : 'User is not on WhatsApp' }}
+                    {{ isOnWhatsApp ? 'User is on WhatsApp: ' + originalPhone : 'User is not on WhatsApp' }}
                 </div>
-                <p>Phone: {{ phone_id }}</p>
+                <p>Phone: {{ originalPhone }}</p>
             </div>
         </div>
     </div>
