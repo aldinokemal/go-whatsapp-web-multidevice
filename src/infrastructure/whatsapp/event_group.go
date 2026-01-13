@@ -2,11 +2,8 @@ package whatsapp
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -57,8 +54,6 @@ func jidsToStrings(ctx context.Context, jids []types.JID, client *whatsmeow.Clie
 
 // forwardGroupInfoToWebhook forwards group information events to the configured webhook URLs
 func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) error {
-	logrus.Infof("Forwarding group info event to %d configured webhook(s)", len(config.WhatsappWebhook))
-
 	// Send separate webhook events for each action type
 	actions := []struct {
 		actionType string
@@ -74,29 +69,9 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 		if len(action.jids) > 0 {
 			payload := createGroupInfoPayload(ctx, evt, action.actionType, action.jids, deviceID, client)
 
-			// Collect errors from all webhook URLs instead of failing fast
-			var errors []error
-			for _, url := range config.WhatsappWebhook {
-				if err := submitWebhook(ctx, payload, url); err != nil {
-					errors = append(errors, fmt.Errorf("webhook %s failed: %w", url, err))
-				}
+			if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "group.participants"); err != nil {
+				logrus.Warnf("Failed to forward group %s event to webhook: %v", action.actionType, err)
 			}
-
-			// If all webhooks failed, return combined error
-			if len(errors) == len(config.WhatsappWebhook) && len(errors) > 0 {
-				var errMessages []string
-				for _, err := range errors {
-					errMessages = append(errMessages, err.Error())
-				}
-				return fmt.Errorf("all webhook URLs failed: %s", strings.Join(errMessages, "; "))
-			}
-
-			// Log partial failures
-			if len(errors) > 0 {
-				logrus.Warnf("Some webhook URLs failed for group %s event: %v", action.actionType, errors)
-			}
-
-			logrus.Infof("Group %s event forwarded to webhook: %d users %s", action.actionType, len(action.jids), action.actionType)
 		}
 	}
 
