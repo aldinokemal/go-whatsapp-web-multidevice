@@ -77,6 +77,8 @@ func restServer(_ *cobra.Command, _ []string) {
 	}))
 
 	// Health check endpoint (public, no auth)
+	// Registered at root path (ignoring AppBasePath) to ensure fixed availability
+	// for infrastructure health probes (Kubernetes liveness/readiness, Docker healthcheck, etc.)
 	app.Get("/health", func(c *fiber.Ctx) error {
 		if dm := whatsapp.GetDeviceManager(); dm != nil && dm.IsHealthy() {
 			return c.SendString("OK")

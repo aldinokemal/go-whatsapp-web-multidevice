@@ -70,6 +70,9 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 }
 
 // IsHealthy returns true if the device manager is initialized and has a valid store connection.
+// Note: This is a service initialization check, not a live connectivity check.
+// Returning true indicates the internal store is ready, but does not guarantee
+// that any WhatsApp device connections are currently active or authenticated.
 func (m *DeviceManager) IsHealthy() bool {
 	if m == nil {
 		return false
