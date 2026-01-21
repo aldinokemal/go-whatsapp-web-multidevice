@@ -2,7 +2,9 @@ package usecase
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -335,27 +337,31 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("failed to download media: %v", err)
 	}
 
-	// Get file size
-	fileInfo, err := os.Stat(extractedMedia.MediaPath)
+	// Read file content and encode as base64
+	fileContent, err := os.ReadFile(extractedMedia.MediaPath)
 	if err != nil {
-		logrus.Warnf("Could not get file size for %s: %v", extractedMedia.MediaPath, err)
+		return response, fmt.Errorf("failed to read downloaded media file: %v", err)
 	}
+
+	// Detect MIME type from file content
+	mimeType := http.DetectContentType(fileContent)
 
 	// Build response
 	response.MessageID = request.MessageID
 	response.Status = fmt.Sprintf("Media downloaded successfully to %s", extractedMedia.MediaPath)
 	response.MediaType = message.MediaType
+	response.MimeType = mimeType
 	response.Filename = filepath.Base(extractedMedia.MediaPath)
 	response.FilePath = extractedMedia.MediaPath
-	if fileInfo != nil {
-		response.FileSize = fileInfo.Size()
-	}
+	response.FileSize = int64(len(fileContent))
+	response.Data = base64.StdEncoding.EncodeToString(fileContent)
 
 	logrus.Info(map[string]any{
 		"message_id": request.MessageID,
 		"phone":      request.Phone,
 		"chat":       dataWaRecipient.String(),
 		"media_type": response.MediaType,
+		"mime_type":  response.MimeType,
 		"file_path":  response.FilePath,
 		"file_size":  response.FileSize,
 	})

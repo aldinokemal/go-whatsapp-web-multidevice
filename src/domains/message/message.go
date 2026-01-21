@@ -47,7 +47,9 @@ type DownloadMediaResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
 	MediaType string `json:"media_type"`
+	MimeType  string `json:"mime_type"`
 	Filename  string `json:"filename"`
 	FilePath  string `json:"file_path"`
 	FileSize  int64  `json:"file_size"`
+	Data      string `json:"data"`
 }
