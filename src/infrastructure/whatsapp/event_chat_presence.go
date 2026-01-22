@@ -15,9 +15,6 @@ import (
 // These events are emitted when a user starts or stops typing in a chat.
 // Note: WhatsApp only sends these updates when the client is marked as online.
 func handleChatPresence(ctx context.Context, evt *events.ChatPresence, deviceID string, client *whatsmeow.Client) {
-	state := string(evt.State)
-	media := string(evt.Media)
-
 	if evt.State == types.ChatPresenceComposing {
 		if evt.Media == types.ChatPresenceMediaAudio {
 			log.Infof("%s is recording audio in %s", evt.Sender.ToNonAD(), evt.Chat.ToNonAD())
@@ -30,18 +27,18 @@ func handleChatPresence(ctx context.Context, evt *events.ChatPresence, deviceID 
 
 	// Forward chat presence event to webhook if configured
 	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.ChatPresence, s string, m string, c *whatsmeow.Client) {
+		go func(e *events.ChatPresence, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardChatPresenceToWebhook(webhookCtx, e, s, m, deviceID, c); err != nil {
+			if err := forwardChatPresenceToWebhook(webhookCtx, e, deviceID, c); err != nil {
 				logrus.Errorf("Failed to forward chat_presence event to webhook: %v", err)
 			}
-		}(evt, state, media, client)
+		}(evt, client)
 	}
 }
 
 // createChatPresencePayload creates a webhook payload for chat presence (typing) events.
-func createChatPresencePayload(ctx context.Context, evt *events.ChatPresence, state string, media string, deviceID string, client *whatsmeow.Client) map[string]any {
+func createChatPresencePayload(ctx context.Context, evt *events.ChatPresence, deviceID string, client *whatsmeow.Client) map[string]any {
 	body := make(map[string]any)
 	payload := make(map[string]any)
 
@@ -57,10 +54,10 @@ func createChatPresencePayload(ctx context.Context, evt *events.ChatPresence, st
 	payload["chat_id"] = evt.Chat.ToNonAD().String()
 
 	// Typing state: "composing" or "paused"
-	payload["state"] = state
+	payload["state"] = string(evt.State)
 
 	// Media type: "" (text) or "audio" (recording voice message)
-	payload["media"] = media
+	payload["media"] = string(evt.Media)
 
 	// Whether this is a group chat
 	payload["is_group"] = evt.IsGroup
@@ -77,7 +74,7 @@ func createChatPresencePayload(ctx context.Context, evt *events.ChatPresence, st
 }
 
 // forwardChatPresenceToWebhook forwards chat presence events to the configured webhook URLs.
-func forwardChatPresenceToWebhook(ctx context.Context, evt *events.ChatPresence, state string, media string, deviceID string, client *whatsmeow.Client) error {
-	payload := createChatPresencePayload(ctx, evt, state, media, deviceID, client)
+func forwardChatPresenceToWebhook(ctx context.Context, evt *events.ChatPresence, deviceID string, client *whatsmeow.Client) error {
+	payload := createChatPresencePayload(ctx, evt, deviceID, client)
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "chat_presence")
 }
