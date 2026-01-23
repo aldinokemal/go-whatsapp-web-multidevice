@@ -2,6 +2,7 @@ package rest
 
 import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -17,6 +18,8 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Get("/chats", rest.ListChats)
 	app.Get("/chat/:chat_jid/messages", rest.GetChatMessages)
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
+	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
+	app.Post("/chat/:chat_jid/archive", rest.ArchiveChat)
 
 	return rest
 }
@@ -30,7 +33,7 @@ func (controller *Chat) ListChats(c *fiber.Ctx) error {
 	request.Search = c.Query("search", "")
 	request.HasMedia = c.QueryBool("has_media", false)
 
-	response, err := controller.Service.ListChats(c.UserContext(), request)
+	response, err := controller.Service.ListChats(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -67,7 +70,7 @@ func (controller *Chat) GetChatMessages(c *fiber.Ctx) error {
 		request.IsFromMe = &isFromMe
 	}
 
-	response, err := controller.Service.GetChatMessages(c.UserContext(), request)
+	response, err := controller.Service.GetChatMessages(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -94,7 +97,61 @@ func (controller *Chat) PinChat(c *fiber.Ctx) error {
 		})
 	}
 
-	response, err := controller.Service.PinChat(c.UserContext(), request)
+	response, err := controller.Service.PinChat(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
+		Results: response,
+	})
+}
+
+func (controller *Chat) SetDisappearingTimer(c *fiber.Ctx) error {
+	var request domainChat.SetDisappearingTimerRequest
+
+	// Parse path parameter
+	request.ChatJID = c.Params("chat_jid")
+
+	// Parse JSON body
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	response, err := controller.Service.SetDisappearingTimer(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
+		Results: response,
+	})
+}
+
+func (controller *Chat) ArchiveChat(c *fiber.Ctx) error {
+	var request domainChat.ArchiveChatRequest
+
+	// Parse path parameter
+	request.ChatJID = c.Params("chat_jid")
+
+	// Parse JSON body
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	response, err := controller.Service.ArchiveChat(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

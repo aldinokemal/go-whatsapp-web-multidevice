@@ -1,21 +1,10 @@
 export default {
     name: 'AppLoginWithCode',
     props: {
-        connected: {
-            type: Array,
-            default: [],
+        loggedIn: {
+            type: Boolean,
+            default: false,
         }
-    },
-    watch: {
-        connected: function(val) {
-            if (val) {
-                // reset form
-                this.phone = '';
-                this.pair_code = null;
-
-                $('#modalLoginWithCode').modal('hide');
-            }
-        },
     },
     data: () => {
         return {
@@ -27,7 +16,7 @@ export default {
     methods: {
         async openModal() {
             try {
-                if (this.connected) throw Error('You are already logged in.');
+                if (this.loggedIn) throw Error('You are already logged in.');
 
                 $('#modalLoginWithCode').modal({
                     onApprove: function() {

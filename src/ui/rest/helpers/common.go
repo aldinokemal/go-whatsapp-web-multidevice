@@ -6,15 +6,31 @@ import (
 	"time"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 )
 
 func SetAutoConnectAfterBooting(service domainApp.IAppUsecase) {
 	time.Sleep(2 * time.Second)
-	_ = service.Reconnect(context.Background())
+	devices, err := service.FetchDevices(context.Background())
+	if err != nil || len(devices) == 0 {
+		logrus.Warn("auto-connect skipped: no devices available")
+		return
+	}
+	for _, device := range devices {
+		if err := service.Reconnect(context.Background(), device.Device); err != nil {
+			logrus.Warnf("auto-connect failed for device %s: %v", device.Device, err)
+		} else {
+			logrus.Infof("auto-connected device %s", device.Device)
+		}
+	}
 }
 
 func SetAutoReconnectChecking(cli *whatsmeow.Client) {
+	if cli == nil {
+		logrus.Warn("SetAutoReconnectChecking was called with a nil WhatsApp client; skipping auto-reconnect loop")
+		return
+	}
 	// Run every 5 minutes to check if the connection is still alive, if not, reconnect
 	go func() {
 		for {

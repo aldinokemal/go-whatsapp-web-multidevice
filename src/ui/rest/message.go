@@ -2,6 +2,7 @@ package rest
 
 import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -33,7 +34,7 @@ func (controller *Message) RevokeMessage(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.RevokeMessage(c.UserContext(), request)
+	response, err := controller.Service.RevokeMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -52,7 +53,7 @@ func (controller *Message) DeleteMessage(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	err = controller.Service.DeleteMessage(c.UserContext(), request)
+	err = controller.Service.DeleteMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -71,7 +72,7 @@ func (controller *Message) UpdateMessage(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.UpdateMessage(c.UserContext(), request)
+	response, err := controller.Service.UpdateMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -90,7 +91,7 @@ func (controller *Message) ReactMessage(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.ReactMessage(c.UserContext(), request)
+	response, err := controller.Service.ReactMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -109,7 +110,7 @@ func (controller *Message) MarkAsRead(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.MarkAsRead(c.UserContext(), request)
+	response, err := controller.Service.MarkAsRead(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -129,7 +130,7 @@ func (controller *Message) StarMessage(c *fiber.Ctx) error {
 	utils.SanitizePhone(&request.Phone)
 	request.IsStarred = true
 
-	err = controller.Service.StarMessage(c.UserContext(), request)
+	err = controller.Service.StarMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -148,7 +149,7 @@ func (controller *Message) UnstarMessage(c *fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 	request.IsStarred = false
-	err = controller.Service.StarMessage(c.UserContext(), request)
+	err = controller.Service.StarMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -166,7 +167,12 @@ func (controller *Message) DownloadMedia(c *fiber.Ctx) error {
 	request.Phone = c.Query("phone")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.Service.DownloadMedia(c.UserContext(), request)
+	ctx := c.UserContext()
+	if device, ok := c.Locals("device").(*whatsapp.DeviceInstance); ok {
+		ctx = whatsapp.ContextWithDevice(ctx, device)
+	}
+
+	response, err := controller.Service.DownloadMedia(ctx, request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

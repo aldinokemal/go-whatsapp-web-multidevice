@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -41,14 +40,20 @@ func (h *AppHandler) toolConnectionStatus() mcp.Tool {
 }
 
 func (h *AppHandler) handleConnectionStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	isConnected, isLoggedIn, deviceID := whatsapp.GetConnectionStatus()
+	deviceID, err := h.defaultDeviceID()
+	if err != nil {
+		return nil, err
+	}
+
+	isConnected, isLoggedIn, err := h.appService.Status(context.Background(), deviceID)
+	if err != nil {
+		return nil, err
+	}
 
 	structured := map[string]any{
 		"is_connected": isConnected,
 		"is_logged_in": isLoggedIn,
-	}
-	if deviceID != "" {
-		structured["device_id"] = deviceID
+		"device_id":    deviceID,
 	}
 
 	fallback := fmt.Sprintf("connected=%t logged_in=%t", isConnected, isLoggedIn)
@@ -67,13 +72,19 @@ func (h *AppHandler) toolLoginWithQR() mcp.Tool {
 }
 
 func (h *AppHandler) handleLoginWithQR(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resp, err := h.appService.Login(ctx)
+	deviceID, err := h.defaultDeviceID()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := h.appService.Login(ctx, deviceID)
 	if err != nil {
 		return nil, err
 	}
 
 	fallback := fmt.Sprintf("Scan the QR image to log in (expires in ~%d seconds)", int(resp.Duration.Seconds()))
 	structured := map[string]any{
+		"device_id":     deviceID,
 		"qr_image_path": resp.ImagePath,
 		"qr_code":       resp.Code,
 		"expires_in":    int(resp.Duration.Seconds()),
@@ -112,12 +123,18 @@ func (h *AppHandler) handleLoginWithCode(ctx context.Context, request mcp.CallTo
 	}
 
 	trimmedPhone := strings.TrimSpace(phone)
-	pairCode, err := h.appService.LoginWithCode(ctx, trimmedPhone)
+	deviceID, err := h.defaultDeviceID()
+	if err != nil {
+		return nil, err
+	}
+
+	pairCode, err := h.appService.LoginWithCode(ctx, deviceID, trimmedPhone)
 	if err != nil {
 		return nil, err
 	}
 
 	structured := map[string]any{
+		"device_id": deviceID,
 		"phone":     trimmedPhone,
 		"pair_code": pairCode,
 	}
@@ -138,11 +155,16 @@ func (h *AppHandler) toolLogout() mcp.Tool {
 }
 
 func (h *AppHandler) handleLogout(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := h.appService.Logout(ctx); err != nil {
+	deviceID, err := h.defaultDeviceID()
+	if err != nil {
 		return nil, err
 	}
 
-	return mcp.NewToolResultText("Logged out successfully"), nil
+	if err := h.appService.Logout(ctx, deviceID); err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Logged out device %s successfully", deviceID)), nil
 }
 
 func (h *AppHandler) toolReconnect() mcp.Tool {
@@ -157,9 +179,25 @@ func (h *AppHandler) toolReconnect() mcp.Tool {
 }
 
 func (h *AppHandler) handleReconnect(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := h.appService.Reconnect(ctx); err != nil {
+	deviceID, err := h.defaultDeviceID()
+	if err != nil {
 		return nil, err
 	}
 
-	return mcp.NewToolResultText("Reconnect initiated"), nil
+	if err := h.appService.Reconnect(ctx, deviceID); err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Reconnect initiated for %s", deviceID)), nil
+}
+
+func (h *AppHandler) defaultDeviceID() (string, error) {
+	devices, err := h.appService.FetchDevices(context.Background())
+	if err != nil {
+		return "", err
+	}
+	if len(devices) == 0 {
+		return "", fmt.Errorf("no devices registered")
+	}
+	return devices[0].Device, nil
 }

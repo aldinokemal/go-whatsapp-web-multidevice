@@ -472,3 +472,16 @@ func FormatBusinessHourTime(timeValue any) string {
 
 	return fmt.Sprintf("%02d:%02d", hours, minutes)
 }
+
+// UniqueStrings removes duplicate strings from a slice while preserving order
+func UniqueStrings(input []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+	for _, s := range input {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}

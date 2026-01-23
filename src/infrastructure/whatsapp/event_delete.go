@@ -5,47 +5,51 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 // forwardDeleteToWebhook sends a delete event to webhook
-func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) error {
-	payload, err := createDeletePayload(ctx, evt, message)
+func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) error {
+	payload, err := createDeletePayload(ctx, evt, message, deviceID, client)
 	if err != nil {
 		return err
 	}
 
-	return forwardPayloadToConfiguredWebhooks(ctx, payload, "delete event")
+	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.deleted")
 }
 
 // createDeletePayload creates a webhook payload for delete events
-func createDeletePayload(_ context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message) (map[string]any, error) {
+func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) (map[string]any, error) {
 	body := make(map[string]any)
+	payload := make(map[string]any)
 
-	// Basic delete event information
-	body["action"] = "event.delete_for_me"
-	body["deleted_message_id"] = evt.MessageID
-	body["sender_id"] = evt.SenderJID.User
-	body["timestamp"] = time.Now().Format(time.RFC3339)
+	payload["deleted_message_id"] = evt.MessageID
+	payload["timestamp"] = time.Now().Format(time.RFC3339)
+
+	// Resolve sender JID (convert LID to phone number if needed)
+	normalizedSenderJID := NormalizeJIDFromLID(ctx, evt.SenderJID, client)
+	payload["from"] = normalizedSenderJID.ToNonAD().String()
 
 	// Include original message information if available
 	if message != nil {
-		body["chat_id"] = message.ChatJID
-		body["original_content"] = message.Content
-		body["original_sender"] = message.Sender
-		body["original_timestamp"] = message.Timestamp.Format(time.RFC3339)
-		body["was_from_me"] = message.IsFromMe
+		payload["chat_id"] = message.ChatJID
+		payload["original_content"] = message.Content
+		payload["original_sender"] = message.Sender
+		payload["original_timestamp"] = message.Timestamp.Format(time.RFC3339)
+		payload["was_from_me"] = message.IsFromMe
 
 		if message.MediaType != "" {
-			body["original_media_type"] = message.MediaType
-			body["original_filename"] = message.Filename
+			payload["original_media_type"] = message.MediaType
+			payload["original_filename"] = message.Filename
 		}
 	}
 
-	// Parse sender JID for proper formatting
-	if evt.SenderJID.Server != "" {
-		body["from"] = evt.SenderJID.String()
+	body["event"] = "message.deleted"
+	if deviceID != "" {
+		body["device_id"] = deviceID
 	}
+	body["payload"] = payload
 
 	return body, nil
 }

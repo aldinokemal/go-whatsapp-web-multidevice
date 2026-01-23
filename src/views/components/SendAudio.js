@@ -14,6 +14,7 @@ export default {
             is_forwarded: false,
             audio_url: null,
             duration: 0,
+            ptt: false,
         }
     },
     computed: {
@@ -59,6 +60,7 @@ export default {
                 let payload = new FormData();
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
+                payload.append("ptt", this.ptt)
                 if (this.duration && this.duration > 0) {
                     payload.append("duration", this.duration)
                 }
@@ -89,6 +91,7 @@ export default {
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
             this.duration = 0;
+            this.ptt = false;
             $("#file_audio").val('');
             this.selectedFileName = null;
             this.audio_url = null;
@@ -125,6 +128,13 @@ export default {
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="is forwarded" v-model="is_forwarded">
                         <label>Mark audio as forwarded</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Voice Note (PTT)</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="ptt" v-model="ptt">
+                        <label>Send as voice note (required for OGG/Opus files)</label>
                     </div>
                 </div>
                 <div class="field">

@@ -183,3 +183,70 @@ func TestValidatePinChat(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSetDisappearingTimer(t *testing.T) {
+	type args struct {
+		request domainChat.SetDisappearingTimerRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with timer disabled (0)",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "6289685028129@s.whatsapp.net",
+				TimerSeconds: 0,
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with 24 hours timer",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "6289685028129@s.whatsapp.net",
+				TimerSeconds: 86400,
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with 7 days timer",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "6289685028129@s.whatsapp.net",
+				TimerSeconds: 604800,
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with 90 days timer",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "6289685028129@s.whatsapp.net",
+				TimerSeconds: 7776000,
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty chat_jid",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "",
+				TimerSeconds: 86400,
+			}},
+			err: pkgError.ValidationError("chat_jid: cannot be blank."),
+		},
+		{
+			name: "should error with invalid timer value",
+			args: args{request: domainChat.SetDisappearingTimerRequest{
+				ChatJID:      "6289685028129@s.whatsapp.net",
+				TimerSeconds: 12345,
+			}},
+			err: pkgError.ValidationError("timer_seconds: timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSetDisappearingTimer(context.Background(), &tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

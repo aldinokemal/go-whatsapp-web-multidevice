@@ -4,6 +4,7 @@ import "time"
 
 // Chat represents a WhatsApp chat/conversation
 type Chat struct {
+	DeviceID            string    `db:"device_id"`
 	JID                 string    `db:"jid"`
 	Name                string    `db:"name"`
 	LastMessageTime     time.Time `db:"last_message_time"`
@@ -16,6 +17,7 @@ type Chat struct {
 type Message struct {
 	ID            string    `db:"id"`
 	ChatJID       string    `db:"chat_jid"`
+	DeviceID      string    `db:"device_id"`
 	Sender        string    `db:"sender"`
 	Content       string    `db:"content"`
 	Timestamp     time.Time `db:"timestamp"`
@@ -44,8 +46,18 @@ type MediaInfo struct {
 	FileLength    uint64
 }
 
+// DeviceRecord tracks a registered device for persistence purposes.
+type DeviceRecord struct {
+	DeviceID    string    `db:"device_id"`
+	DisplayName string    `db:"display_name"`
+	JID         string    `db:"jid"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+}
+
 // MessageFilter represents query filters for messages
 type MessageFilter struct {
+	DeviceID  string
 	ChatJID   string
 	Limit     int
 	Offset    int
@@ -57,6 +69,7 @@ type MessageFilter struct {
 
 // ChatFilter represents query filters for chats
 type ChatFilter struct {
+	DeviceID   string
 	Limit      int
 	Offset     int
 	SearchName string

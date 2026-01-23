@@ -8,6 +8,7 @@ import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 
 	// Create filter from request
 	filter := &domainChatStorage.ChatFilter{
+		DeviceID:   deviceIDFromContext(ctx),
 		Limit:      request.Limit,
 		Offset:     request.Offset,
 		SearchName: request.Search,
@@ -90,7 +92,11 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 
-	// Get chat info first
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return response, fmt.Errorf("device identification required")
+	}
+
 	chat, err := service.chatStorageRepo.GetChat(request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get chat info")
@@ -130,13 +136,14 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	var messages []*domainChatStorage.Message
 	if request.Search != "" {
 		// Use search functionality if search query is provided
-		messages, err = service.chatStorageRepo.SearchMessages(request.ChatJID, request.Search, request.Limit)
+		messages, err = service.chatStorageRepo.SearchMessages(deviceID, request.ChatJID, request.Search, request.Limit)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to search messages")
 			return response, err
 		}
 	} else {
-		// Use regular filter
+		// Use regular filter with device_id for data isolation
+		filter.DeviceID = deviceID
 		messages, err = service.chatStorageRepo.GetMessages(filter)
 		if err != nil {
 			logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get messages")
@@ -203,13 +210,28 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	return response, nil
 }
 
+func deviceIDFromContext(ctx context.Context) string {
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		if jid := inst.JID(); jid != "" {
+			return jid
+		}
+		return inst.ID()
+	}
+	return ""
+}
+
 func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinChatRequest) (response domainChat.PinChatResponse, err error) {
 	if err = validations.ValidatePinChat(ctx, &request); err != nil {
 		return response, err
 	}
 
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
 	// Validate JID and ensure connection
-	targetJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.ChatJID)
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
 	if err != nil {
 		return response, err
 	}
@@ -218,7 +240,7 @@ func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinCh
 	patchInfo := appstate.BuildPin(targetJID, request.Pinned)
 
 	// Send app state update
-	if err = whatsapp.GetClient().SendAppState(ctx, patchInfo); err != nil {
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid": request.ChatJID,
 			"pinned":   request.Pinned,
@@ -241,6 +263,103 @@ func (service serviceChat) PinChat(ctx context.Context, request domainChat.PinCh
 		"chat_jid": request.ChatJID,
 		"pinned":   request.Pinned,
 	}).Info("Chat pin operation completed successfully")
+
+	return response, nil
+}
+
+func (service serviceChat) SetDisappearingTimer(ctx context.Context, request domainChat.SetDisappearingTimerRequest) (response domainChat.SetDisappearingTimerResponse, err error) {
+	if err = validations.ValidateSetDisappearingTimer(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Set disappearing timer using whatsmeow
+	if err = client.SetDisappearingTimer(ctx, targetJID, time.Duration(request.TimerSeconds)*time.Second, time.Now()); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid":      request.ChatJID,
+			"timer_seconds": request.TimerSeconds,
+		}).Error("Failed to set disappearing timer")
+		return response, err
+	}
+
+	// Update local storage immediately for consistency
+	if existingChat, _ := service.chatStorageRepo.GetChat(request.ChatJID); existingChat != nil {
+		existingChat.EphemeralExpiration = request.TimerSeconds
+		_ = service.chatStorageRepo.StoreChat(existingChat)
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.TimerSeconds = request.TimerSeconds
+
+	if request.TimerSeconds == 0 {
+		response.Message = "Disappearing messages disabled"
+	} else {
+		response.Message = fmt.Sprintf("Disappearing messages set to %d seconds", request.TimerSeconds)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid":      request.ChatJID,
+		"timer_seconds": request.TimerSeconds,
+	}).Info("Disappearing timer set successfully")
+
+	return response, nil
+}
+
+func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.ArchiveChatRequest) (response domainChat.ArchiveChatResponse, err error) {
+	if err = validations.ValidateArchiveChat(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// Build archive patch using whatsmeow's BuildArchive
+	patchInfo := appstate.BuildArchive(targetJID, request.Archived, time.Now(), nil)
+
+	// Send app state update
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"archived": request.Archived,
+		}).Error("Failed to send archive chat app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Archived = request.Archived
+
+	if request.Archived {
+		response.Message = "Chat archived successfully"
+	} else {
+		response.Message = "Chat unarchived successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"archived": request.Archived,
+	}).Info("Chat archive operation completed successfully")
 
 	return response, nil
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
@@ -12,8 +14,6 @@ import (
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types"
 )
 
 type serviceGroup struct{}
@@ -26,9 +26,14 @@ func (service serviceGroup) JoinGroupWithLink(ctx context.Context, request domai
 	if err = validations.ValidateJoinGroupWithLink(ctx, request); err != nil {
 		return groupID, err
 	}
-	utils.MustLogin(whatsapp.GetClient())
 
-	jid, err := whatsapp.GetClient().JoinGroupWithLink(request.Link)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return groupID, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	jid, err := client.JoinGroupWithLink(ctx, request.Link)
 	if err != nil {
 		return
 	}
@@ -40,21 +45,31 @@ func (service serviceGroup) LeaveGroup(ctx context.Context, request domainGroup.
 		return err
 	}
 
-	JID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	JID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return err
 	}
 
-	return whatsapp.GetClient().LeaveGroup(JID)
+	return client.LeaveGroup(ctx, JID)
 }
 
 func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup.CreateGroupRequest) (groupID string, err error) {
 	if err = validations.ValidateCreateGroup(ctx, request); err != nil {
 		return groupID, err
 	}
-	utils.MustLogin(whatsapp.GetClient())
 
-	participantsJID, err := service.participantToJID(request.Participants)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return groupID, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	participantsJID, err := service.participantToJID(ctx, request.Participants)
 	if err != nil {
 		return
 	}
@@ -66,7 +81,7 @@ func (service serviceGroup) CreateGroup(ctx context.Context, request domainGroup
 		GroupLinkedParent: types.GroupLinkedParent{},
 	}
 
-	groupInfo, err := whatsapp.GetClient().CreateGroup(ctx, groupConfig)
+	groupInfo, err := client.CreateGroup(ctx, groupConfig)
 	if err != nil {
 		return
 	}
@@ -78,9 +93,14 @@ func (service serviceGroup) GetGroupInfoFromLink(ctx context.Context, request do
 	if err = validations.ValidateGetGroupInfoFromLink(ctx, request); err != nil {
 		return response, err
 	}
-	utils.MustLogin(whatsapp.GetClient())
 
-	groupInfo, err := whatsapp.GetClient().GetGroupInfoFromLink(request.Link)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	groupInfo, err := client.GetGroupInfoFromLink(ctx, request.Link)
 	if err != nil {
 		return response, err
 	}
@@ -104,19 +124,24 @@ func (service serviceGroup) ManageParticipant(ctx context.Context, request domai
 	if err = validations.ValidateParticipant(ctx, request); err != nil {
 		return result, err
 	}
-	utils.MustLogin(whatsapp.GetClient())
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return result, err
 	}
 
-	participantsJID, err := service.participantToJID(request.Participants)
+	participantsJID, err := service.participantToJID(ctx, request.Participants)
 	if err != nil {
 		return result, err
 	}
 
-	participants, err := whatsapp.GetClient().UpdateGroupParticipants(groupJID, participantsJID, request.Action)
+	participants, err := client.UpdateGroupParticipants(ctx, groupJID, participantsJID, request.Action)
 	if err != nil {
 		return result, err
 	}
@@ -145,12 +170,17 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 		return response, err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return response, err
 	}
 
-	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	groupInfo, err := client.GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return response, err
 	}
@@ -159,12 +189,43 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 	if groupInfo != nil {
 		response.Name = groupInfo.GroupName.Name
 		response.Participants = make([]domainGroup.GroupParticipant, 0, len(groupInfo.Participants))
+
+		// Collect JIDs for batch GetUserInfo call
+		jids := make([]types.JID, 0, len(groupInfo.Participants))
+		for _, p := range groupInfo.Participants {
+			jids = append(jids, p.JID)
+		}
+
+		// Fetch user info for verified business names (ignore errors)
+		userInfoMap := make(map[types.JID]types.UserInfo)
+		if len(jids) > 0 {
+			userInfoMap, _ = client.GetUserInfo(ctx, jids)
+		}
+
 		for _, participant := range groupInfo.Participants {
+			displayName := participant.DisplayName
+
+			// Try contact store first (for known contacts)
+			if displayName == "" {
+				if contact, err := client.Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
+					displayName = contact.FullName
+				} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
+					// Fall back to verified business name
+					displayName = info.VerifiedName.Details.GetVerifiedName()
+				}
+			}
+
+			// Use JID.User for clean phone number, fallback to PhoneNumber.String()
+			phoneNumber := participant.JID.User
+			if phoneNumber == "" {
+				phoneNumber = participant.PhoneNumber.String()
+			}
+
 			participantData := domainGroup.GroupParticipant{
 				JID:          participant.JID.String(),
-				PhoneNumber:  participant.PhoneNumber.String(),
+				PhoneNumber:  phoneNumber,
 				LID:          participant.LID.String(),
-				DisplayName:  participant.DisplayName,
+				DisplayName:  displayName,
 				IsAdmin:      participant.IsAdmin,
 				IsSuperAdmin: participant.IsSuperAdmin,
 			}
@@ -181,19 +242,48 @@ func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, req
 		return result, err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result, pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return result, err
 	}
 
-	participants, err := whatsapp.GetClient().GetGroupRequestParticipants(groupJID)
+	participants, err := client.GetGroupRequestParticipants(ctx, groupJID)
 	if err != nil {
 		return result, err
+	}
+
+	// Collect JIDs for batch GetUserInfo call
+	jids := make([]types.JID, 0, len(participants))
+	for _, p := range participants {
+		jids = append(jids, p.JID)
+	}
+
+	// Fetch user info for verified business names (ignore errors)
+	userInfoMap := make(map[types.JID]types.UserInfo)
+	if len(jids) > 0 {
+		userInfoMap, _ = client.GetUserInfo(ctx, jids)
 	}
 
 	for _, participant := range participants {
+		displayName := ""
+
+		// Try contact store first (for known contacts)
+		if contact, err := client.Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
+			displayName = contact.FullName
+		} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
+			// Fall back to verified business name
+			displayName = info.VerifiedName.Details.GetVerifiedName()
+		}
+
 		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
 			JID:         participant.JID.String(),
+			PhoneNumber: participant.JID.User,
+			DisplayName: displayName,
 			RequestedAt: participant.RequestedAt,
 		})
 	}
@@ -206,17 +296,22 @@ func (service serviceGroup) ManageGroupRequestParticipants(ctx context.Context, 
 		return result, err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return result, pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return result, err
 	}
 
-	participantsJID, err := service.participantToJID(request.Participants)
+	participantsJID, err := service.participantToJID(ctx, request.Participants)
 	if err != nil {
 		return result, err
 	}
 
-	participants, err := whatsapp.GetClient().UpdateGroupRequestParticipants(groupJID, participantsJID, request.Action)
+	participants, err := client.UpdateGroupRequestParticipants(ctx, groupJID, participantsJID, request.Action)
 	if err != nil {
 		return result, err
 	}
@@ -240,12 +335,17 @@ func (service serviceGroup) ManageGroupRequestParticipants(ctx context.Context, 
 	return result, nil
 }
 
-func (service serviceGroup) participantToJID(participants []string) ([]types.JID, error) {
+func (service serviceGroup) participantToJID(ctx context.Context, participants []string) ([]types.JID, error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return nil, pkgError.ErrWaCLI
+	}
+
 	var participantsJID []types.JID
 	for _, participant := range participants {
 		formattedParticipant := participant + config.WhatsappTypeUser
 
-		if !utils.IsOnWhatsapp(whatsapp.GetClient(), formattedParticipant) {
+		if !utils.IsOnWhatsapp(client, formattedParticipant) {
 			return nil, pkgError.ErrUserNotRegistered
 		}
 
@@ -261,7 +361,12 @@ func (service serviceGroup) SetGroupPhoto(ctx context.Context, request domainGro
 		return pictureID, err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pictureID, pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return pictureID, err
 	}
@@ -284,7 +389,7 @@ func (service serviceGroup) SetGroupPhoto(ctx context.Context, request domainGro
 		photoBytes = processedImageBuffer.Bytes()
 	}
 
-	pictureID, err = whatsapp.GetClient().SetGroupPhoto(groupJID, photoBytes)
+	pictureID, err = client.SetGroupPhoto(ctx, groupJID, photoBytes)
 	if err != nil {
 		logrus.Printf("Failed to set group photo: %v", err)
 		return pictureID, err
@@ -298,12 +403,17 @@ func (service serviceGroup) SetGroupName(ctx context.Context, request domainGrou
 		return err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return err
 	}
 
-	return whatsapp.GetClient().SetGroupName(groupJID, request.Name)
+	return client.SetGroupName(ctx, groupJID, request.Name)
 }
 
 func (service serviceGroup) SetGroupLocked(ctx context.Context, request domainGroup.SetGroupLockedRequest) (err error) {
@@ -311,12 +421,17 @@ func (service serviceGroup) SetGroupLocked(ctx context.Context, request domainGr
 		return err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return err
 	}
 
-	return whatsapp.GetClient().SetGroupLocked(groupJID, request.Locked)
+	return client.SetGroupLocked(ctx, groupJID, request.Locked)
 }
 
 func (service serviceGroup) SetGroupAnnounce(ctx context.Context, request domainGroup.SetGroupAnnounceRequest) (err error) {
@@ -324,12 +439,17 @@ func (service serviceGroup) SetGroupAnnounce(ctx context.Context, request domain
 		return err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return err
 	}
 
-	return whatsapp.GetClient().SetGroupAnnounce(groupJID, request.Announce)
+	return client.SetGroupAnnounce(ctx, groupJID, request.Announce)
 }
 
 func (service serviceGroup) SetGroupTopic(ctx context.Context, request domainGroup.SetGroupTopicRequest) (err error) {
@@ -337,13 +457,18 @@ func (service serviceGroup) SetGroupTopic(ctx context.Context, request domainGro
 		return err
 	}
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return err
 	}
 
 	// SetGroupTopic with auto-generated IDs (previousID and newID will be handled automatically)
-	return whatsapp.GetClient().SetGroupTopic(groupJID, "", "", request.Topic)
+	return client.SetGroupTopic(ctx, groupJID, "", "", request.Topic)
 }
 
 // GroupInfo retrieves detailed information about a WhatsApp group
@@ -353,17 +478,22 @@ func (service serviceGroup) GroupInfo(ctx context.Context, request domainGroup.G
 		return response, err
 	}
 
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
 	// Ensure we are logged in
-	utils.MustLogin(whatsapp.GetClient())
+	utils.MustLogin(client)
 
 	// Validate and parse the provided group JID / ID
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return response, err
 	}
 
 	// Fetch group information from WhatsApp
-	groupInfo, err := whatsapp.GetClient().GetGroupInfo(groupJID)
+	groupInfo, err := client.GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return response, err
 	}
@@ -380,14 +510,19 @@ func (service serviceGroup) GetGroupInviteLink(ctx context.Context, request doma
 	if err = validations.ValidateGetGroupInviteLink(ctx, request); err != nil {
 		return response, err
 	}
-	utils.MustLogin(whatsapp.GetClient())
 
-	groupJID, err := utils.ValidateJidWithLogin(whatsapp.GetClient(), request.GroupID)
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	groupJID, err := utils.ValidateJidWithLogin(client, request.GroupID)
 	if err != nil {
 		return response, err
 	}
 
-	inviteLink, err := whatsapp.GetClient().GetGroupInviteLink(groupJID, request.Reset)
+	inviteLink, err := client.GetGroupInviteLink(ctx, groupJID, request.Reset)
 	if err != nil {
 		return response, err
 	}

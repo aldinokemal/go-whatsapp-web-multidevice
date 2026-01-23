@@ -6,10 +6,11 @@ import (
 )
 
 type IAppUsecase interface {
-	Login(ctx context.Context) (response LoginResponse, err error)
-	LoginWithCode(ctx context.Context, phoneNumber string) (loginCode string, err error)
-	Logout(ctx context.Context) (err error)
-	Reconnect(ctx context.Context) (err error)
+	Login(ctx context.Context, deviceID string) (response LoginResponse, err error)
+	LoginWithCode(ctx context.Context, deviceID string, phoneNumber string) (loginCode string, err error)
+	Logout(ctx context.Context, deviceID string) (err error)
+	Reconnect(ctx context.Context, deviceID string) (err error)
+	Status(ctx context.Context, deviceID string) (isConnected bool, isLoggedIn bool, err error)
 	FirstDevice(ctx context.Context) (response DevicesResponse, err error)
 	FetchDevices(ctx context.Context) (response []DevicesResponse, err error)
 }

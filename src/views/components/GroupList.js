@@ -15,31 +15,48 @@ export default {
     },
     computed: {
         currentUserId() {
+            // connected can be array of objects with device/id or may be undefined
             if (!this.connected || this.connected.length === 0) return null;
-            const device = this.connected[0].device;
-            return device.split('@')[0].split(':')[0];
+            const entry = this.connected[0];
+            const raw = entry.device || entry.id || '';
+            if (!raw || typeof raw !== 'string') return null;
+            return raw.split('@')[0].split(':')[0];
         }
     },
     methods: {
         async openModal() {
             try {
-                this.dtClear()
+                this.dtClear();
+                // Reset groups before fetching new data
+                this.groups = [];
                 await this.submitApi();
                 $('#modalGroupList').modal('show');
-                this.dtRebuild()
+                // Wait a bit for modal animation to complete before initializing DataTable
+                await new Promise(resolve => setTimeout(resolve, 100));
+                await this.dtRebuild();
                 showSuccessInfo("Groups fetched")
             } catch (err) {
                 showErrorInfo(err)
             }
         },
         dtClear() {
-            $('#account_groups_table').DataTable().destroy();
+            const table = $('#account_groups_table');
+            if ($.fn.DataTable.isDataTable(table)) {
+                table.DataTable().clear().destroy();
+            }
         },
-        dtRebuild() {
-            $('#account_groups_table').DataTable({
-                "pageLength": 100,
-                "reloadData": true,
-            }).draw();
+        async dtRebuild() {
+            // Wait for Vue to render the new data
+            await this.$nextTick();
+            // Additional delay to ensure DOM is fully updated after Vue render
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const table = $('#account_groups_table');
+            if ($.fn.DataTable.isDataTable(table)) {
+                table.DataTable().destroy();
+            }
+            table.DataTable({
+                pageLength: 100,
+            });
         },
         async handleLeaveGroup(group_id) {
             try {
@@ -71,7 +88,8 @@ export default {
         async submitApi() {
             try {
                 let response = await window.http.get(`/user/my/groups`)
-                this.groups = response.data.results.data;
+                // Ensure groups is always an array, even if null/undefined
+                this.groups = response.data.results.data || [];
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
@@ -207,8 +225,8 @@ export default {
                     <th>Action</th>
                 </tr>
                 </thead>
-                <tbody v-if="groups != null">
-                <tr v-for="g in groups">
+                <tbody>
+                <tr v-for="g in groups" :key="g.JID">
                     <td>{{ g.JID.split('@')[0] }}</td>
                     <td>{{ g.Name }}</td>
                     <td>{{ g.Participants.length }}</td>
@@ -246,14 +264,19 @@ export default {
             <table v-else class="ui celled table">
                 <thead>
                     <tr>
-                        <th>User ID</th>
+                        <th>User</th>
+                        <th>Phone Number</th>
                         <th>Request Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-for="member in requestedMembers" :key="member.jid">
-                        <td>{{ formatJID(member.jid) }}</td>
+                        <td>
+                            <div class="header">{{ formatJID(member.jid) }}</div>
+                            <div v-if="member.display_name" class="description">{{ member.display_name }}</div>
+                        </td>
+                        <td>{{ member.phone_number || formatJID(member.jid) }}</td>
                         <td>{{ formatDate(member.requested_at) }}</td>
                         <td>
                             <div class="ui mini buttons">

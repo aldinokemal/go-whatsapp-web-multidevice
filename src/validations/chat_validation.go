@@ -56,3 +56,49 @@ func ValidatePinChat(ctx context.Context, request *domainChat.PinChatRequest) er
 
 	return nil
 }
+
+// ValidTimerValues contains WhatsApp's allowed disappearing message durations in seconds
+var ValidTimerValues = []uint32{
+	0,       // Disabled
+	86400,   // 24 hours
+	604800,  // 7 days
+	7776000, // 90 days
+}
+
+func ValidateSetDisappearingTimer(ctx context.Context, request *domainChat.SetDisappearingTimerRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+		validation.Field(&request.TimerSeconds, validation.By(validateTimerValue)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func validateTimerValue(value interface{}) error {
+	timer, ok := value.(uint32)
+	if !ok {
+		return pkgError.ValidationError("timer_seconds must be a valid number")
+	}
+	for _, valid := range ValidTimerValues {
+		if timer == valid {
+			return nil
+		}
+	}
+	return pkgError.ValidationError("timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)")
+}
+
+func ValidateArchiveChat(ctx context.Context, request *domainChat.ArchiveChatRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}

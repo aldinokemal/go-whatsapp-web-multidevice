@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"os"
 	"strings"
 	"time"
+
+	"go.mau.fi/whatsmeow/store/sqlstore"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
@@ -50,6 +52,7 @@ var (
 	messageUsecase    domainMessage.IMessageUsecase
 	groupUsecase      domainGroup.IGroupUsecase
 	newsletterUsecase domainNewsletter.INewsletterUsecase
+	deviceUsecase     domainDevice.IDeviceUsecase
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -81,6 +84,9 @@ func initEnvConfig() {
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
 	}
+	if envHost := viper.GetString("app_host"); envHost != "" {
+		config.AppHost = envHost
+	}
 	if envDebug := viper.GetBool("app_debug"); envDebug {
 		config.AppDebug = envDebug
 	}
@@ -93,6 +99,10 @@ func initEnvConfig() {
 	}
 	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
 		config.AppBasePath = envBasePath
+	}
+	if envTrustedProxies := viper.GetString("app_trusted_proxies"); envTrustedProxies != "" {
+		proxies := strings.Split(envTrustedProxies, ",")
+		config.AppTrustedProxies = proxies
 	}
 
 	// Database settings
@@ -110,12 +120,22 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_auto_mark_read") {
 		config.WhatsappAutoMarkRead = viper.GetBool("whatsapp_auto_mark_read")
 	}
+	if viper.IsSet("whatsapp_auto_download_media") {
+		config.WhatsappAutoDownloadMedia = viper.GetBool("whatsapp_auto_download_media")
+	}
 	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
 		webhook := strings.Split(envWebhook, ",")
 		config.WhatsappWebhook = webhook
 	}
 	if envWebhookSecret := viper.GetString("whatsapp_webhook_secret"); envWebhookSecret != "" {
 		config.WhatsappWebhookSecret = envWebhookSecret
+	}
+	if viper.IsSet("whatsapp_webhook_insecure_skip_verify") {
+		config.WhatsappWebhookInsecureSkipVerify = viper.GetBool("whatsapp_webhook_insecure_skip_verify")
+	}
+	if envWebhookEvents := viper.GetString("whatsapp_webhook_events"); envWebhookEvents != "" {
+		events := strings.Split(envWebhookEvents, ",")
+		config.WhatsappWebhookEvents = events
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
@@ -129,6 +149,13 @@ func initFlags() {
 		"port", "p",
 		config.AppPort,
 		"change port number with --port <number> | example: --port=8080",
+	)
+
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppHost,
+		"host", "H",
+		config.AppHost,
+		`host to bind the server --host <string> | example: --host="127.0.0.1"`,
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(
@@ -154,6 +181,12 @@ func initFlags() {
 		"base-path", "",
 		config.AppBasePath,
 		`base path for subpath deployment --base-path <string> | example: --base-path="/gowa"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.AppTrustedProxies,
+		"trusted-proxies", "",
+		config.AppTrustedProxies,
+		`trusted proxy IP ranges for reverse proxy deployments --trusted-proxies <string> | example: --trusted-proxies="0.0.0.0/0" or --trusted-proxies="10.0.0.0/8,172.16.0.0/12"`,
 	)
 
 	// Database flags
@@ -183,6 +216,12 @@ func initFlags() {
 		config.WhatsappAutoMarkRead,
 		`auto mark incoming messages as read --auto-mark-read <true/false> | example: --auto-mark-read=true`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAutoDownloadMedia,
+		"auto-download-media", "",
+		config.WhatsappAutoDownloadMedia,
+		`auto download media from incoming messages --auto-download-media <true/false> | example: --auto-download-media=false`,
+	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.WhatsappWebhook,
 		"webhook", "w",
@@ -194,6 +233,18 @@ func initFlags() {
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
 		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookInsecureSkipVerify,
+		"webhook-insecure-skip-verify", "",
+		config.WhatsappWebhookInsecureSkipVerify,
+		`skip TLS certificate verification for webhooks (INSECURE - use only for development/self-signed certs) --webhook-insecure-skip-verify <true/false> | example: --webhook-insecure-skip-verify=true`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.WhatsappWebhookEvents,
+		"webhook-events", "",
+		config.WhatsappWebhookEvents,
+		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
@@ -256,16 +307,23 @@ func initApp() {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
 
-	whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
+
+	// Initialize device manager and usecase for multi-device support
+	dm := whatsapp.GetDeviceManager()
+	if dm != nil {
+		_ = dm.LoadExistingDevices(ctx)
+	}
 
 	// Usecase
-	appUsecase = usecase.NewAppService(chatStorageRepo)
+	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService()
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
+	deviceUsecase = usecase.NewDeviceService(dm)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
