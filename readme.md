@@ -431,7 +431,7 @@ You can fork or edit this source code !
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
 | ✅       | User Change PushName                   | POST   | /user/pushname                      |
-| ✅       | User My Groups                         | GET    | /user/my/groups                     |
+| ✅       | User My Groups*                        | GET    | /user/my/groups                     |
 | ✅       | User My Newsletter                     | GET    | /user/my/newsletters                |
 | ✅       | User My Privacy Setting                | GET    | /user/my/privacy                    |
 | ✅       | User My Contacts                       | GET    | /user/my/contacts                   |
@@ -486,7 +486,11 @@ You can fork or edit this source code !
 ```txt
 ✅ = Available
 ❌ = Not Available Yet
+* = Has known limitations (see notes below)
 ```
+
+**Notes:**
+- `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
 
 ## User Interface
 
