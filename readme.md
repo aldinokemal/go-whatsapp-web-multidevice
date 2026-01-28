@@ -194,6 +194,11 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
+| `CHATWOOT_ENABLED`                      | Enable Chatwoot integration                                   | `false`                                      | `CHATWOOT_ENABLED=true`                       |
+| `CHATWOOT_URL`                          | Chatwoot instance URL                                         | -                                            | `CHATWOOT_URL=https://app.chatwoot.com`       |
+| `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
+| `CHATWOOT_ACCOUNT_ID`                   | Chatwoot account ID                                           | -                                            | `CHATWOOT_ACCOUNT_ID=12345`                   |
+| `CHATWOOT_INBOX_ID`                     | Chatwoot inbox ID                                             | -                                            | `CHATWOOT_INBOX_ID=67890`                     |
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 

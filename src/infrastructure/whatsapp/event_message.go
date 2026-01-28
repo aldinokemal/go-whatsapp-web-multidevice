@@ -217,12 +217,12 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) error {
 	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, audioMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, audioMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 			}
-			payload["audio"] = path
+			payload["audio"] = extracted.MediaPath
 		} else {
 			payload["audio"] = map[string]any{
 				"url": audioMedia.GetURL(),
@@ -232,12 +232,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	if documentMedia := evt.Message.GetDocumentMessage(); documentMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 			}
-			payload["document"] = path
+			payload["document"] = extracted.MediaPath
 		} else {
 			payload["document"] = map[string]any{
 				"url":      documentMedia.GetURL(),
@@ -248,12 +248,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	if imageMedia := evt.Message.GetImageMessage(); imageMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 			}
-			payload["image"] = path
+			payload["image"] = extracted.MediaPath
 		} else {
 			payload["image"] = map[string]any{
 				"url":     imageMedia.GetURL(),
@@ -264,12 +264,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	if stickerMedia := evt.Message.GetStickerMessage(); stickerMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, stickerMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, stickerMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 			}
-			payload["sticker"] = path
+			payload["sticker"] = extracted.MediaPath
 		} else {
 			payload["sticker"] = map[string]any{
 				"url": stickerMedia.GetURL(),
@@ -279,12 +279,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	if videoMedia := evt.Message.GetVideoMessage(); videoMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 			}
-			payload["video"] = path
+			payload["video"] = extracted.MediaPath
 		} else {
 			payload["video"] = map[string]any{
 				"url":     videoMedia.GetURL(),
@@ -295,12 +295,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	if ptvMedia := evt.Message.GetPtvMessage(); ptvMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
-			path, err := utils.ExtractMedia(ctx, client, config.PathMedia, ptvMedia)
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, ptvMedia)
 			if err != nil {
 				logrus.Errorf("Failed to download video note from %s: %v", evt.Info.SourceString(), err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video note: %v", err))
 			}
-			payload["video_note"] = path
+			payload["video_note"] = extracted.MediaPath
 		} else {
 			payload["video_note"] = map[string]any{
 				"url":     ptvMedia.GetURL(),

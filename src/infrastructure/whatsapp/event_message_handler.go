@@ -68,10 +68,10 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 		return
 	}
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
-			log.Infof("Image downloaded to %s", path)
+			log.Infof("Image downloaded to %s", extracted.MediaPath)
 		}
 	}
 }
@@ -123,7 +123,7 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 		return
 	}
 
-	if len(config.WhatsappWebhook) > 0 &&
+	if (len(config.WhatsappWebhook) > 0 || config.ChatwootEnabled) &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(e *events.Message, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
