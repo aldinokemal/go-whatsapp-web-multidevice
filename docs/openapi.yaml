@@ -677,6 +677,18 @@ paths:
       tags:
         - user
       summary: User My List Groups
+      description: |
+        Get all groups that the authenticated user has joined.
+        
+        ⚠️ **Known Limitation**: This endpoint returns a maximum of 500 groups due to a WhatsApp protocol limitation.
+        The underlying whatsmeow library's `GetJoinedGroups()` function sends a single query to WhatsApp servers,
+        which enforces this limit. This is not a bug in this API - it's a constraint imposed by WhatsApp's
+        multi-device protocol. Users with more than 500 groups will only receive the first 500 groups.
+        
+        For more details, see: https://github.com/tulir/whatsmeow/blob/main/group.go
+      externalDocs:
+        description: WhatsApp protocol limitation reference (whatsmeow source)
+        url: https://github.com/tulir/whatsmeow/blob/main/group.go
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
