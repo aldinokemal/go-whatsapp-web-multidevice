@@ -20,6 +20,7 @@ The following events can be received via webhook:
 | `message.edited`     | Edited messages                                         |
 | `message.ack`        | Delivery and read receipts                              |
 | `message.deleted`    | Messages deleted for the user                           |
+| `chat_presence`      | Typing and recording indicators from contacts           |
 | `group.participants` | Group member join/leave/promote/demote events           |
 | `group.joined`       | You were added to a group                               |
 | `newsletter.joined`  | You subscribed to a newsletter/channel                  |
@@ -134,7 +135,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**   | **Type** | **Description**                                                                                                     |
 |-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute` |
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute` |
 | `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `payload`   | object   | Event-specific payload data                                                                                         |
 
@@ -269,6 +270,105 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 | `payload.from_lid`                 | string   | LID of the user (if available)                            |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
+
+## Chat Presence Events
+
+Chat presence events are triggered when a contact starts or stops typing (or recording audio) in a chat.
+These events use the `chat_presence` event type and are useful for implementing message batching strategies.
+
+**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA automatically marks
+itself as online upon connection, so no additional configuration is needed.
+
+### User Typing
+
+Triggered when a user starts typing a text message.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "composing",
+    "media": "",
+    "is_group": false
+  }
+}
+```
+
+### User Stopped Typing
+
+Triggered when a user stops typing (pauses or clears the input field).
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:05Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "paused",
+    "media": "",
+    "is_group": false
+  }
+}
+```
+
+### User Recording Audio
+
+Triggered when a user starts recording a voice message.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:01:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "composing",
+    "media": "audio",
+    "is_group": false
+  }
+}
+```
+
+### Group Typing
+
+Triggered when a user starts typing in a group chat.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:02:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "from_lid": "251556368777322@lid",
+    "chat_id": "120363402106XXXXX@g.us",
+    "state": "composing",
+    "media": "",
+    "is_group": true
+  }
+}
+```
+
+### Chat Presence Event Fields
+
+| **Field**          | **Type** | **Description**                                                    |
+|--------------------|----------|--------------------------------------------------------------------|
+| `event`            | string   | Always `"chat_presence"` for typing events                         |
+| `device_id`        | string   | JID of the device that received this event                         |
+| `timestamp`        | string   | RFC3339 formatted timestamp when the event was processed           |
+| `payload.from`     | string   | JID of the user who is typing (e.g., `628987654321@s.whatsapp.net`)|
+| `payload.from_lid` | string   | LID of the user (if available, typically in group chats)           |
+| `payload.chat_id`  | string   | Chat identifier (individual or group)                              |
+| `payload.state`    | string   | Typing state: `"composing"` (typing) or `"paused"` (stopped)      |
+| `payload.media`    | string   | Media type: `""` (text message) or `"audio"` (voice recording)    |
+| `payload.is_group` | boolean  | Whether this is a group chat                                       |
 
 ## Group Events
 
