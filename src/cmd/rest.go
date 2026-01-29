@@ -109,6 +109,11 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestGroup(r, groupUsecase)
 		rest.InitRestNewsletter(r, newsletterUsecase)
 		websocket.RegisterRoutes(r, appUsecase)
+
+		if config.ChatwootEnabled {
+			chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase)
+			r.Post("/chatwoot/webhook", chatwootHandler.HandleWebhook)
+		}
 	}
 
 	// Device management routes (no device_id required)

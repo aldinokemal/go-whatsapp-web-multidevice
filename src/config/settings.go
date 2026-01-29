@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion             = "v8.1.2"
+	AppVersion             = "v8.2.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -45,4 +45,10 @@ var (
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
 	ChatStorageEnableWAL         = true
+
+	ChatwootEnabled   = false
+	ChatwootURL       = ""
+	ChatwootAPIToken  = ""
+	ChatwootAccountID = 0
+	ChatwootInboxID   = 0
 )

@@ -140,6 +140,23 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
+
+	// Chatwoot settings
+	if viper.IsSet("chatwoot_enabled") {
+		config.ChatwootEnabled = viper.GetBool("chatwoot_enabled")
+	}
+	if envChatwootURL := viper.GetString("chatwoot_url"); envChatwootURL != "" {
+		config.ChatwootURL = envChatwootURL
+	}
+	if envChatwootAPIToken := viper.GetString("chatwoot_api_token"); envChatwootAPIToken != "" {
+		config.ChatwootAPIToken = envChatwootAPIToken
+	}
+	if viper.IsSet("chatwoot_account_id") {
+		config.ChatwootAccountID = viper.GetInt("chatwoot_account_id")
+	}
+	if viper.IsSet("chatwoot_inbox_id") {
+		config.ChatwootInboxID = viper.GetInt("chatwoot_inbox_id")
+	}
 }
 
 func initFlags() {
@@ -251,6 +268,14 @@ func initFlags() {
 		"account-validation", "",
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
+	)
+
+	// Chatwoot flags
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootEnabled,
+		"chatwoot-enabled", "",
+		config.ChatwootEnabled,
+		`enable Chatwoot integration --chatwoot-enabled <true/false> | example: --chatwoot-enabled=true`,
 	)
 }
 
