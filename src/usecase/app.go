@@ -48,8 +48,12 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	// Disconnect first to ensure QR flow starts cleanly.
 	client.Disconnect()
 
+	// Use a background context for the QR channel so it stays alive after the HTTP response is sent.
+	// The QR channel needs to remain open for the user to scan the code and complete pairing.
+	qrCtx := context.Background()
+
 	chImage := make(chan string, 1) // Buffered to prevent goroutine leak
-	ch, err := client.GetQRChannel(ctx)
+	ch, err := client.GetQRChannel(qrCtx)
 	if err != nil {
 		logrus.Errorf("[LOGIN][%s] GetQRChannel failed: %v", deviceID, err)
 		if errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
