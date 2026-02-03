@@ -48,9 +48,11 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	// Disconnect first to ensure QR flow starts cleanly.
 	client.Disconnect()
 
-	// Use a background context for the QR channel so it stays alive after the HTTP response is sent.
+	// Use a background context with timeout for the QR channel so it stays alive after the HTTP response is sent.
 	// The QR channel needs to remain open for the user to scan the code and complete pairing.
-	qrCtx := context.Background()
+	// The timeout prevents goroutine leaks if the user never scans the QR code.
+	qrCtx, qrCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer qrCancel()
 
 	chImage := make(chan string, 1) // Buffered to prevent goroutine leak
 	ch, err := client.GetQRChannel(qrCtx)
@@ -69,30 +71,39 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 
 	go func() {
 		defer close(chImage) // Ensure channel is closed when done
-		for evt := range ch {
-			response.Code = evt.Code
-			response.Duration = evt.Timeout / time.Second / 2
-			if evt.Event == "code" {
-				qrPath := fmt.Sprintf("%s/scan-qr-%s.png", config.PathQrCode, fiberUtils.UUIDv4())
-				if err := qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath); err != nil {
-					logrus.Errorf("[LOGIN][%s] Error when write qr code to file: %v", deviceID, err)
-					continue // Skip sending if QR generation failed
+		for {
+			select {
+			case <-qrCtx.Done():
+				logrus.Warnf("[LOGIN][%s] QR context canceled, stopping QR channel listener", deviceID)
+				return
+			case evt, ok := <-ch:
+				if !ok {
+					return // Channel closed
 				}
-				go func(path string, duration time.Duration) {
-					time.Sleep(duration * time.Second)
-					if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-						logrus.Errorf("[LOGIN][%s] error when remove qrImage file: %v", deviceID, err)
+				response.Code = evt.Code
+				response.Duration = evt.Timeout / time.Second / 2
+				if evt.Event == "code" {
+					qrPath := fmt.Sprintf("%s/scan-qr-%s.png", config.PathQrCode, fiberUtils.UUIDv4())
+					if err := qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath); err != nil {
+						logrus.Errorf("[LOGIN][%s] Error when write qr code to file: %v", deviceID, err)
+						continue // Skip sending if QR generation failed
 					}
-				}(qrPath, response.Duration)
-				// Use select to avoid blocking if context is canceled
-				select {
-				case chImage <- qrPath:
-				case <-ctx.Done():
-					logrus.Warnf("[LOGIN][%s] Context canceled while sending QR path", deviceID)
-					return
+					go func(path string, duration time.Duration) {
+						time.Sleep(duration * time.Second)
+						if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+							logrus.Errorf("[LOGIN][%s] error when remove qrImage file: %v", deviceID, err)
+						}
+					}(qrPath, response.Duration)
+					// Use select to avoid blocking if context is canceled
+					select {
+					case chImage <- qrPath:
+					case <-qrCtx.Done():
+						logrus.Warnf("[LOGIN][%s] QR context canceled while sending QR path", deviceID)
+						return
+					}
+				} else {
+					logrus.Errorf("[LOGIN][%s] error when get qrCode %s %v", deviceID, evt.Event, evt.Error)
 				}
-			} else {
-				logrus.Errorf("[LOGIN][%s] error when get qrCode %s %v", deviceID, evt.Event, evt.Error)
 			}
 		}
 	}()
