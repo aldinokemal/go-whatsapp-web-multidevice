@@ -37,7 +37,8 @@ func (handler *App) Login(c *fiber.Ctx) error {
 	// Use a background context with timeout instead of request context
 	// The request context gets canceled when the HTTP response is sent,
 	// which would kill the WhatsApp WebSocket connection prematurely
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+const LoginTimeout = 2 * time.Minute
+ctx, cancel := context.WithTimeout(context.Background(), LoginTimeout)
 	defer cancel()
 
 	response, err := handler.Service.Login(ctx, device.ID())
