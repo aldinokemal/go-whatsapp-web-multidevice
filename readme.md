@@ -199,6 +199,13 @@ To use environment variables:
 | `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
 | `CHATWOOT_ACCOUNT_ID`                   | Chatwoot account ID                                           | -                                            | `CHATWOOT_ACCOUNT_ID=12345`                   |
 | `CHATWOOT_INBOX_ID`                     | Chatwoot inbox ID                                             | -                                            | `CHATWOOT_INBOX_ID=67890`                     |
+| `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (multi-device setup)          | -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
+| `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING`     | Include outgoing messages in webhook notifications            | `false`                                      | `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING=true`      |
+
+**Documentation:**
+
+- For detailed webhook payload schemas, security implementation, and integration examples, see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- For comprehensive Chatwoot integration guide, see [Chatwoot Integration Documentation](./docs/chatwoot.md)
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
@@ -564,6 +571,7 @@ You can fork or edit this source code !
 ```
 
 **Notes:**
+
 - `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
 
 ## User Interface
