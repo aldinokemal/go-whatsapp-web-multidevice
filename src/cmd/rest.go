@@ -109,11 +109,6 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestGroup(r, groupUsecase)
 		rest.InitRestNewsletter(r, newsletterUsecase)
 		websocket.RegisterRoutes(r, appUsecase)
-
-		if config.ChatwootEnabled {
-			chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase)
-			r.Post("/chatwoot/webhook", chatwootHandler.HandleWebhook)
-		}
 	}
 
 	// Device management routes (no device_id required)
@@ -122,6 +117,12 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
+
+	// Chatwoot webhook - handles device resolution internally (not device-scoped)
+	if config.ChatwootEnabled {
+		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm)
+		apiGroup.Post("/chatwoot/webhook", chatwootHandler.HandleWebhook)
+	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{

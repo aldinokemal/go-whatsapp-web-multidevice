@@ -137,6 +137,9 @@ func initEnvConfig() {
 		events := strings.Split(envWebhookEvents, ",")
 		config.WhatsappWebhookEvents = events
 	}
+	if viper.IsSet("whatsapp_webhook_include_outgoing") {
+		config.WhatsappWebhookIncludeOutgoing = viper.GetBool("whatsapp_webhook_include_outgoing")
+	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -156,6 +159,9 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("chatwoot_inbox_id") {
 		config.ChatwootInboxID = viper.GetInt("chatwoot_inbox_id")
+	}
+	if envChatwootDeviceID := viper.GetString("chatwoot_device_id"); envChatwootDeviceID != "" {
+		config.ChatwootDeviceID = envChatwootDeviceID
 	}
 }
 
@@ -264,6 +270,12 @@ func initFlags() {
 		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookIncludeOutgoing,
+		"webhook-include-outgoing", "",
+		config.WhatsappWebhookIncludeOutgoing,
+		`include outgoing messages (sent from phone) in webhook notifications --webhook-include-outgoing <true/false> | example: --webhook-include-outgoing=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
 		"account-validation", "",
 		config.WhatsappAccountValidation,
@@ -276,6 +288,12 @@ func initFlags() {
 		"chatwoot-enabled", "",
 		config.ChatwootEnabled,
 		`enable Chatwoot integration --chatwoot-enabled <true/false> | example: --chatwoot-enabled=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootDeviceID,
+		"chatwoot-device-id", "",
+		config.ChatwootDeviceID,
+		`device ID for Chatwoot outbound messages --chatwoot-device-id <string> | example: --chatwoot-device-id="my-device"`,
 	)
 }
 

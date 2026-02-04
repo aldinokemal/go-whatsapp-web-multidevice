@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion             = "v8.2.0"
+	AppVersion             = "v8.2.1"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -31,8 +31,9 @@ var (
 	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
 	WhatsappWebhook                   []string
 	WhatsappWebhookSecret             = "secret"
-	WhatsappWebhookInsecureSkipVerify = false  // Skip TLS certificate verification for webhooks (insecure)
-	WhatsappWebhookEvents             []string // Whitelist of events to forward to webhook (empty = all events)
+	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
+	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
+	WhatsappWebhookIncludeOutgoing             = false // Include outgoing messages (sent from phone) in webhook notifications
 	WhatsappLogLevel                           = "ERROR"
 	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB
 	WhatsappSettingMaxFileSize        int64    = 50000000  // 50MB
@@ -51,4 +52,5 @@ var (
 	ChatwootAPIToken  = ""
 	ChatwootAccountID = 0
 	ChatwootInboxID   = 0
+	ChatwootDeviceID  = "" // Device ID for outbound messages (required for multi-device)
 )

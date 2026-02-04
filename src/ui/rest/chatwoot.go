@@ -1,28 +1,49 @@
 package rest
 
 import (
+	"fmt"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 )
 
 type ChatwootHandler struct {
-	AppUsecase  domainApp.IAppUsecase
-	SendUsecase domainSend.ISendUsecase
+	AppUsecase    domainApp.IAppUsecase
+	SendUsecase   domainSend.ISendUsecase
+	DeviceManager *whatsapp.DeviceManager
 }
 
-func NewChatwootHandler(appUsecase domainApp.IAppUsecase, sendUsecase domainSend.ISendUsecase) *ChatwootHandler {
+func NewChatwootHandler(appUsecase domainApp.IAppUsecase, sendUsecase domainSend.ISendUsecase, dm *whatsapp.DeviceManager) *ChatwootHandler {
 	return &ChatwootHandler{
-		AppUsecase:  appUsecase,
-		SendUsecase: sendUsecase,
+		AppUsecase:    appUsecase,
+		SendUsecase:   sendUsecase,
+		DeviceManager: dm,
 	}
 }
 
 func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	logrus.Debugf("Chatwoot Webhook raw body: %s", string(c.Body()))
+
+	// Resolve device for outbound messages
+	instance, resolvedID, err := h.DeviceManager.ResolveDevice(config.ChatwootDeviceID)
+	if err != nil {
+		logrus.Errorf("Chatwoot Webhook: Failed to resolve device: %v", err)
+		return c.Status(fiber.StatusServiceUnavailable).JSON(utils.ResponseData{
+			Status:  fiber.StatusServiceUnavailable,
+			Code:    "DEVICE_NOT_AVAILABLE",
+			Message: fmt.Sprintf("No device available for Chatwoot: %v. Configure CHATWOOT_DEVICE_ID or ensure one device is registered.", err),
+		})
+	}
+	logrus.Debugf("Chatwoot Webhook: Using device %s", resolvedID)
+
+	// Set device context for send operations
+	c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
 
 	var payload chatwoot.WebhookPayload
 	if err := c.BodyParser(&payload); err != nil {
