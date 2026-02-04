@@ -1,0 +1,33 @@
+{
+  "name": "@gowa/mcp-stdio",
+  "version": "1.0.0",
+  "description": "MCP server for GoWA WhatsApp API - stdio and HTTP transports",
+  "main": "dist/index.js",
+  "bin": {
+    "gowa-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "dev": "npx tsx src/index.ts"
+  },
+  "keywords": ["mcp", "whatsapp", "gowa", "whatsmeow", "ai", "claude", "windsurf", "cursor"],
+  "author": "GoWA Contributors",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aldinokemal/go-whatsapp-web-multidevice"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest"
+  }
+}
