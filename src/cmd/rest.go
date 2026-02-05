@@ -76,6 +76,16 @@ func restServer(_ *cobra.Command, _ []string) {
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
+	// Health check endpoint (public, no auth)
+	// Registered at root path (ignoring AppBasePath) to ensure fixed availability
+	// for infrastructure health probes (Kubernetes liveness/readiness, Docker healthcheck, etc.)
+	app.Get("/health", func(c *fiber.Ctx) error {
+		if dm := whatsapp.GetDeviceManager(); dm != nil && dm.IsHealthy() {
+			return c.SendString("OK")
+		}
+		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
+	})
+
 	if len(config.AppBasicAuthCredential) > 0 {
 		account := make(map[string]string)
 		for _, basicAuth := range config.AppBasicAuthCredential {
