@@ -12,7 +12,7 @@ import (
 
 // handleCallOffer handles incoming call events and optionally auto-rejects them
 func handleCallOffer(ctx context.Context, evt *events.CallOffer, deviceID string, client *whatsmeow.Client) {
-	log.Infof("Incoming call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
+	logrus.Infof("Incoming call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
 
 	// Auto-reject call if configured
 	autoRejected := false
@@ -24,7 +24,7 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, deviceID string
 			logrus.Errorf("Failed to reject call from %s: %v", evt.CallCreator.String(), err)
 		} else {
 			autoRejected = true
-			log.Infof("Auto-rejected call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
+			logrus.Infof("Auto-rejected call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
 		}
 	}
 
