@@ -143,6 +143,9 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
+	if viper.IsSet("whatsapp_auto_reject_call") {
+		config.WhatsappAutoRejectCall = viper.GetBool("whatsapp_auto_reject_call")
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
@@ -280,6 +283,12 @@ func initFlags() {
 		"account-validation", "",
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAutoRejectCall,
+		"auto-reject-call", "",
+		config.WhatsappAutoRejectCall,
+		`auto reject incoming calls --auto-reject-call <true/false> | example: --auto-reject-call=true`,
 	)
 
 	// Chatwoot flags
