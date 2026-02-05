@@ -127,6 +127,12 @@ Download:
   | `message.ack`        | Delivery and read receipts                    |
   | `message.deleted`    | Messages deleted for the user                 |
   | `group.participants` | Group member join/leave/promote/demote events |
+  | `group.joined`       | You were added to a group                     |
+  | `newsletter.joined`  | You subscribed to a newsletter/channel        |
+  | `newsletter.left`    | You unsubscribed from a newsletter            |
+  | `newsletter.message` | New message(s) posted in a newsletter         |
+  | `newsletter.mute`    | Newsletter mute setting changed               |
+  | `call.offer`         | Incoming call received                        |
 
   If not configured (empty), all events will be forwarded.
 - **Webhook TLS Configuration**

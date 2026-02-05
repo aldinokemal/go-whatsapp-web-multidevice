@@ -26,6 +26,7 @@ The following events can be received via webhook:
 | `newsletter.left`    | You unsubscribed from a newsletter                      |
 | `newsletter.message` | New message(s) posted in a newsletter                   |
 | `newsletter.mute`    | Newsletter mute setting changed                         |
+| `call.offer`         | Incoming call received                                  |
 
 ## Event Filtering
 
@@ -48,6 +49,9 @@ WHATSAPP_WEBHOOK_EVENTS=group.participants
 
 # Receive newsletter events
 WHATSAPP_WEBHOOK_EVENTS=newsletter.joined,newsletter.left,newsletter.message,newsletter.mute
+
+# Receive call events
+WHATSAPP_WEBHOOK_EVENTS=call.offer
 
 # Receive all group and newsletter events
 WHATSAPP_WEBHOOK_EVENTS=group.participants,group.joined,newsletter.joined,newsletter.left,newsletter.message
@@ -134,7 +138,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**   | **Type** | **Description**                                                                                                     |
 |-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute` |
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
 | `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `payload`   | object   | Event-specific payload data                                                                                         |
 
@@ -462,6 +466,80 @@ Triggered when you mute or unmute a newsletter.
 | `payload.messages[].timestamp` | string   | Message timestamp                                       |
 | `payload.messages[].views_count`| number  | Number of views (if available)                          |
 | `payload.messages[].reaction_counts`| object | Reaction emoji counts (if available)                 |
+
+## Call Events
+
+Call events are triggered when you receive an incoming WhatsApp call. You can optionally auto-reject calls using the
+`WHATSAPP_AUTO_REJECT_CALL` environment variable or `--auto-reject-call` CLI flag.
+
+### Call Offer
+
+Triggered when an incoming call is received.
+
+```json
+{
+  "event": "call.offer",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-02-05T12:00:00Z",
+  "payload": {
+    "call_id": "ABC123DEF456",
+    "from": "628987654321@s.whatsapp.net",
+    "auto_rejected": false,
+    "remote_platform": "android",
+    "remote_version": "2.24.1.5"
+  }
+}
+```
+
+### Call Offer with Auto-Reject Enabled
+
+When `WHATSAPP_AUTO_REJECT_CALL=true`, calls are automatically rejected and the webhook includes this status:
+
+```json
+{
+  "event": "call.offer",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-02-05T12:00:00Z",
+  "payload": {
+    "call_id": "ABC123DEF456",
+    "from": "628987654321@s.whatsapp.net",
+    "auto_rejected": true,
+    "remote_platform": "android",
+    "remote_version": "2.24.1.5",
+    "group_jid": "120363402106XXXXX@g.us"
+  }
+}
+```
+
+### Call Event Fields
+
+| **Field**                 | **Type** | **Description**                                            |
+|---------------------------|----------|------------------------------------------------------------|
+| `event`                   | string   | Always `"call.offer"` for call events                      |
+| `device_id`               | string   | JID of the device that received this event                 |
+| `timestamp`               | string   | RFC3339 formatted timestamp when the call was received     |
+| `payload.call_id`         | string   | Unique identifier for the call                             |
+| `payload.from`            | string   | JID of the caller                                          |
+| `payload.auto_rejected`   | boolean  | Whether the call was auto-rejected                         |
+| `payload.remote_platform` | string   | Platform of the caller (e.g., `"android"`, `"ios"`)        |
+| `payload.remote_version`  | string   | WhatsApp version of the caller                             |
+| `payload.group_jid`       | string   | Group JID if this is a group call (optional)               |
+
+### Configuration
+
+**Environment Variable:**
+
+```bash
+# Auto-reject all incoming calls
+WHATSAPP_AUTO_REJECT_CALL=true
+```
+
+**CLI Flag:**
+
+```bash
+# Auto-reject all incoming calls
+./whatsapp rest --auto-reject-call=true
+```
 
 ## Media Messages
 
@@ -909,6 +987,15 @@ app.post('/webhook', (req, res) => {
             console.log('Newsletter mute changed:', {
                 newsletter_id: data.payload.newsletter_id,
                 mute: data.payload.mute
+            });
+            break;
+
+        case 'call.offer':
+            console.log('Incoming call:', {
+                call_id: data.payload.call_id,
+                from: data.payload.from,
+                auto_rejected: data.payload.auto_rejected,
+                platform: data.payload.remote_platform
             });
             break;
     }
