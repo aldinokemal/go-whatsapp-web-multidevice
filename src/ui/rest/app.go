@@ -1,7 +1,9 @@
 package rest
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -32,7 +34,14 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		return err
 	}
 
-	response, err := handler.Service.Login(c.UserContext(), device.ID())
+	// Use a background context with timeout instead of request context
+	// The request context gets canceled when the HTTP response is sent,
+	// which would kill the WhatsApp WebSocket connection prematurely
+const LoginTimeout = 2 * time.Minute
+ctx, cancel := context.WithTimeout(context.Background(), LoginTimeout)
+	defer cancel()
+
+	response, err := handler.Service.Login(ctx, device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
