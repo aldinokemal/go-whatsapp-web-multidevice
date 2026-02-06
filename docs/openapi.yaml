@@ -27,6 +27,8 @@ tags:
     description: Group setting
   - name: newsletter
     description: newsletter setting
+  - name: chatwoot
+    description: Chatwoot integration for customer support
 security:
   - basicAuth: []
 
@@ -3067,6 +3069,124 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /chatwoot/sync:
+    post:
+      operationId: chatwootSyncHistory
+      tags:
+        - chatwoot
+      summary: Sync message history to Chatwoot
+      description: |
+        Initiates a background sync of WhatsApp message history to Chatwoot.
+        Messages from the configured number of days will be imported.
+        This endpoint requires CHATWOOT_ENABLED=true in configuration.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device_id:
+                  type: string
+                  description: Device ID to sync (uses CHATWOOT_DEVICE_ID if not specified)
+                days_limit:
+                  type: integer
+                  default: 3
+                  description: Number of days of history to sync
+                include_media:
+                  type: boolean
+                  default: true
+                  description: Include media attachments in sync
+                include_groups:
+                  type: boolean
+                  default: true
+                  description: Include group chats in sync
+      responses:
+        '200':
+          description: Sync initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatwootSyncResponse'
+        '400':
+          description: Bad Request (device not found or Chatwoot not configured)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '409':
+          description: Sync already in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 409
+                  code:
+                    type: string
+                    example: SYNC_ALREADY_RUNNING
+                  message:
+                    type: string
+                    example: A sync is already in progress for this device
+                  results:
+                    type: object
+                    properties:
+                      progress:
+                        $ref: '#/components/schemas/ChatwootSyncStatusResponse/properties/results'
+
+  /chatwoot/sync/status:
+    get:
+      operationId: chatwootSyncStatus
+      tags:
+        - chatwoot
+      summary: Get Chatwoot sync progress
+      description: Returns the current sync progress for a device
+      parameters:
+        - name: device_id
+          in: query
+          description: Device ID to check sync status for
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatwootSyncStatusResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+
+  /chatwoot/webhook:
+    post:
+      operationId: chatwootWebhook
+      tags:
+        - chatwoot
+      summary: Chatwoot webhook endpoint
+      description: |
+        Receives webhook events from Chatwoot and sends messages to WhatsApp.
+        Configure this URL in your Chatwoot inbox webhook settings.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Chatwoot webhook payload (see Chatwoot documentation)
+      responses:
+        '200':
+          description: Webhook processed
+        '503':
+          description: Device not available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+
 components:
   parameters:
     DeviceIdHeader:
@@ -4316,3 +4436,79 @@ components:
               type: string
               example: '120363025982934543@g.us'
               description: The group ID
+
+    ChatwootSyncResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SYNC_STARTED
+        message:
+          type: string
+          example: History sync initiated in background
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: my-device-id
+            days_limit:
+              type: integer
+              example: 3
+            include_media:
+              type: boolean
+              example: true
+            include_groups:
+              type: boolean
+              example: true
+    ChatwootSyncStatusResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Sync status retrieved
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: my-device-id
+            status:
+              type: string
+              enum: [idle, running, completed, failed]
+              example: running
+            total_chats:
+              type: integer
+              example: 10
+            synced_chats:
+              type: integer
+              example: 5
+            total_messages:
+              type: integer
+              example: 100
+            synced_messages:
+              type: integer
+              example: 50
+            failed_messages:
+              type: integer
+              example: 2
+            current_chat:
+              type: string
+              example: "628123456789@s.whatsapp.net"
+            started_at:
+              type: string
+              format: date-time
+            completed_at:
+              type: string
+              format: date-time
+            error:
+              type: string
