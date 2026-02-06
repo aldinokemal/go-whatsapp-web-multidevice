@@ -247,7 +247,8 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	}
 
 	// Get or create sync service
-	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo, instance.GetClient())
+	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo)
+	waClient := instance.GetClient()
 
 	// Check if already running
 	if syncService.IsRunning(resolvedID) {
@@ -271,7 +272,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	// Start async sync
 	go func() {
 		ctx := context.Background()
-		progress, err := syncService.SyncHistory(ctx, resolvedID, opts)
+		progress, err := syncService.SyncHistory(ctx, resolvedID, waClient, opts)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed for device %s: %v", resolvedID, err)
 		} else {

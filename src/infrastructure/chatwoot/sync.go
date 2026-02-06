@@ -23,7 +23,6 @@ import (
 type SyncService struct {
 	client          *Client
 	chatStorageRepo domainChatStorage.IChatStorageRepository
-	waClient        *whatsmeow.Client
 	
 	// Track sync progress per device
 	progressMap map[string]*SyncProgress
@@ -34,12 +33,10 @@ type SyncService struct {
 func NewSyncService(
 	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
-	waClient *whatsmeow.Client,
 ) *SyncService {
 	return &SyncService{
 		client:          client,
 		chatStorageRepo: chatStorageRepo,
-		waClient:        waClient,
 		progressMap:     make(map[string]*SyncProgress),
 	}
 }
@@ -68,7 +65,7 @@ func (s *SyncService) IsRunning(deviceID string) bool {
 }
 
 // SyncHistory performs the initial message history sync to Chatwoot
-func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, opts SyncOptions) (*SyncProgress, error) {
+func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
 	// Check if sync is already running
 	if s.IsRunning(deviceID) {
 		return s.GetProgress(deviceID), fmt.Errorf("sync already in progress for device %s", deviceID)
@@ -109,7 +106,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, opts Syn
 
 		progress.UpdateChat(chat.JID)
 		
-		err := s.syncChat(ctx, deviceID, chat, sinceTime, opts, progress)
+		err := s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
 			// Continue with other chats
@@ -130,6 +127,7 @@ func (s *SyncService) syncChat(
 	deviceID string,
 	chat *domainChatStorage.Chat,
 	sinceTime time.Time,
+	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	progress *SyncProgress,
 ) error {
@@ -192,7 +190,7 @@ func (s *SyncService) syncChat(
 			return err
 		}
 
-		err := s.syncMessage(ctx, conversation.ID, msg, opts, isGroup)
+		err := s.syncMessage(ctx, conversation.ID, msg, waClient, opts, isGroup)
 		if err != nil {
 			logrus.Warnf("Chatwoot Sync: Failed to sync message %s: %v", msg.ID, err)
 			progress.IncrementFailedMessages()
@@ -215,6 +213,7 @@ func (s *SyncService) syncMessage(
 	ctx context.Context,
 	conversationID int,
 	msg *domainChatStorage.Message,
+	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	isGroup bool,
 ) error {
@@ -245,7 +244,7 @@ func (s *SyncService) syncMessage(
 
 	// Handle media if enabled and present
 	if opts.IncludeMedia && msg.MediaType != "" && msg.URL != "" && len(msg.MediaKey) > 0 {
-		filePath, err := s.downloadMedia(ctx, msg)
+		filePath, err := s.downloadMedia(ctx, msg, waClient)
 		if err != nil {
 			logrus.Debugf("Chatwoot Sync: Failed to download media for message %s: %v", msg.ID, err)
 			// Continue without media - it might be expired
@@ -269,12 +268,12 @@ func (s *SyncService) syncMessage(
 }
 
 // downloadMedia downloads media for a message and returns the temp file path
-func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message) (string, error) {
+func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client) (string, error) {
 	if msg.URL == "" || len(msg.MediaKey) == 0 {
 		return "", fmt.Errorf("missing media URL or key")
 	}
 
-	if s.waClient == nil {
+	if waClient == nil {
 		return "", fmt.Errorf("WhatsApp client not available")
 	}
 
@@ -327,7 +326,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	}
 
 	// Download
-	data, err := s.waClient.Download(ctx, downloadable)
+	data, err := waClient.Download(ctx, downloadable)
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
@@ -381,10 +380,9 @@ var (
 func GetSyncService(
 	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
-	waClient *whatsmeow.Client,
 ) *SyncService {
 	globalSyncServiceOnce.Do(func() {
-		globalSyncService = NewSyncService(client, chatStorageRepo, waClient)
+		globalSyncService = NewSyncService(client, chatStorageRepo)
 	})
 	return globalSyncService
 }
@@ -406,7 +404,7 @@ func TriggerAutoSync(deviceID string, chatStorageRepo domainChatStorage.IChatSto
 		return
 	}
 
-	syncService := GetSyncService(client, chatStorageRepo, waClient)
+	syncService := GetSyncService(client, chatStorageRepo)
 	
 	go func() {
 		opts := DefaultSyncOptions()
@@ -414,7 +412,7 @@ func TriggerAutoSync(deviceID string, chatStorageRepo domainChatStorage.IChatSto
 		
 		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", deviceID)
 		
-		_, err := syncService.SyncHistory(context.Background(), deviceID, opts)
+		_, err := syncService.SyncHistory(context.Background(), deviceID, waClient, opts)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Auto-sync failed for device %s: %v", deviceID, err)
 		}
