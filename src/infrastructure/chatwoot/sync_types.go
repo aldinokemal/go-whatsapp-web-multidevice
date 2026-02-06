@@ -24,6 +24,7 @@ type SyncProgress struct {
 	Status         string     `json:"status"` // idle, running, completed, failed
 	TotalChats     int        `json:"total_chats"`
 	SyncedChats    int        `json:"synced_chats"`
+	FailedChats    int        `json:"failed_chats"`
 	TotalMessages  int        `json:"total_messages"`
 	SyncedMessages int        `json:"synced_messages"`
 	FailedMessages int        `json:"failed_messages"`
@@ -123,6 +124,13 @@ func (p *SyncProgress) IncrementSyncedChats() {
 	p.SyncedChats++
 }
 
+// IncrementFailedChats increments the failed chats counter
+func (p *SyncProgress) IncrementFailedChats() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.FailedChats++
+}
+
 // IncrementSyncedMessages increments the synced messages counter
 func (p *SyncProgress) IncrementSyncedMessages() {
 	p.mu.Lock()
@@ -161,6 +169,7 @@ func (p *SyncProgress) Clone() SyncProgress {
 		Status:         p.Status,
 		TotalChats:     p.TotalChats,
 		SyncedChats:    p.SyncedChats,
+		FailedChats:    p.FailedChats,
 		TotalMessages:  p.TotalMessages,
 		SyncedMessages: p.SyncedMessages,
 		FailedMessages: p.FailedMessages,

@@ -109,14 +109,16 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 		err := s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
+			progress.IncrementFailedChats()
 			// Continue with other chats
+		} else {
+			progress.IncrementSyncedChats()
 		}
-		progress.IncrementSyncedChats()
 	}
 
 	progress.SetCompleted()
-	logrus.Infof("Chatwoot Sync: Completed for device %s. Chats: %d, Messages: %d (failed: %d)",
-		deviceID, progress.SyncedChats, progress.SyncedMessages, progress.FailedMessages)
+	logrus.Infof("Chatwoot Sync: Completed for device %s. Chats: %d (failed: %d), Messages: %d (failed: %d)",
+		deviceID, progress.SyncedChats, progress.FailedChats, progress.SyncedMessages, progress.FailedMessages)
 	
 	return progress, nil
 }
