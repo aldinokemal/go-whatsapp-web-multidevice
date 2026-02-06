@@ -392,6 +392,7 @@ Expected response: `200 OK` or error with details
 - Consider network-level restrictions on the webhook endpoint
 - Monitor for unusual activity in Chatwoot logs
 - Use strong authentication for the WhatsApp API (`APP_BASIC_AUTH`)
+- **Note:** The `/chatwoot/webhook` endpoint is excluded from basic auth to allow Chatwoot to send webhooks without credentials. The `/chatwoot/sync` endpoints require authentication.
 
 ## API Reference
 
