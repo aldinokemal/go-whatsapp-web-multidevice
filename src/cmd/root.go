@@ -173,9 +173,6 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_days_limit_import_messages") {
 		config.ChatwootDaysLimitImportMessages = viper.GetInt("chatwoot_days_limit_import_messages")
 	}
-	if viper.IsSet("chatwoot_import_contacts") {
-		config.ChatwootImportContacts = viper.GetBool("chatwoot_import_contacts")
-	}
 }
 
 func initFlags() {
@@ -325,12 +322,6 @@ func initFlags() {
 		"chatwoot-days-limit-import-messages", "",
 		config.ChatwootDaysLimitImportMessages,
 		`days of message history to import to Chatwoot --chatwoot-days-limit-import-messages <int> | example: --chatwoot-days-limit-import-messages=7`,
-	)
-	rootCmd.PersistentFlags().BoolVarP(
-		&config.ChatwootImportContacts,
-		"chatwoot-import-contacts", "",
-		config.ChatwootImportContacts,
-		`import contacts to Chatwoot --chatwoot-import-contacts <true/false> | example: --chatwoot-import-contacts=true`,
 	)
 }
 

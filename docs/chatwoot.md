@@ -33,7 +33,6 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_DEVICE_ID` | No | - | Specific device ID for outbound messages (required for multi-device setups) |
 | `CHATWOOT_IMPORT_MESSAGES` | No | `false` | Enable message history sync to Chatwoot |
 | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES` | No | `3` | Number of days of history to import |
-| `CHATWOOT_IMPORT_CONTACTS` | No | `false` | Import contacts to Chatwoot |
 
 ### Configuration Examples
 

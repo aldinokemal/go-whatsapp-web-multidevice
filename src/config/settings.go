@@ -56,7 +56,6 @@ var (
 	ChatwootDeviceID  = "" // Device ID for outbound messages (required for multi-device)
 
 	// Chatwoot History Sync settings
-	ChatwootImportMessages         = false // Enable message history import to Chatwoot
-	ChatwootDaysLimitImportMessages = 3    // Days of history to import (default: 3)
-	ChatwootImportContacts         = false // Import contacts to Chatwoot
+	ChatwootImportMessages          = false // Enable message history import to Chatwoot
+	ChatwootDaysLimitImportMessages = 3     // Days of history to import (default: 3)
 )
