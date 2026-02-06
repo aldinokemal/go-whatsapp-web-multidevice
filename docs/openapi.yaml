@@ -3118,7 +3118,22 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 409
+                  code:
+                    type: string
+                    example: SYNC_ALREADY_RUNNING
+                  message:
+                    type: string
+                    example: A sync is already in progress for this device
+                  results:
+                    type: object
+                    properties:
+                      progress:
+                        $ref: '#/components/schemas/ChatwootSyncStatusResponse/properties/results'
 
   /chatwoot/sync/status:
     get:
