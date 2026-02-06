@@ -251,16 +251,20 @@ func (s *SyncService) syncMessage(
 			content += " [media unavailable]"
 		} else if filePath != "" {
 			attachments = append(attachments, filePath)
-			// Defer cleanup - but since we're in a loop, use a goroutine with delay
-			go func(fp string) {
-				time.Sleep(30 * time.Second) // Give Chatwoot time to process
-				os.Remove(fp)
-			}(filePath)
 		}
 	}
 
 	// Send to Chatwoot
-	if err := s.client.CreateMessage(conversationID, content, messageType, attachments); err != nil {
+	err := s.client.CreateMessage(conversationID, content, messageType, attachments)
+	
+	// Clean up temp files immediately after sending
+	for _, fp := range attachments {
+		if err := os.Remove(fp); err != nil {
+			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", fp, err)
+		}
+	}
+	
+	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 
