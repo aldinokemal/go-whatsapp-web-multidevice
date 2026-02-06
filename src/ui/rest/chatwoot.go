@@ -1,10 +1,12 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -14,16 +16,23 @@ import (
 )
 
 type ChatwootHandler struct {
-	AppUsecase    domainApp.IAppUsecase
-	SendUsecase   domainSend.ISendUsecase
-	DeviceManager *whatsapp.DeviceManager
+	AppUsecase      domainApp.IAppUsecase
+	SendUsecase     domainSend.ISendUsecase
+	DeviceManager   *whatsapp.DeviceManager
+	ChatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewChatwootHandler(appUsecase domainApp.IAppUsecase, sendUsecase domainSend.ISendUsecase, dm *whatsapp.DeviceManager) *ChatwootHandler {
+func NewChatwootHandler(
+	appUsecase domainApp.IAppUsecase,
+	sendUsecase domainSend.ISendUsecase,
+	dm *whatsapp.DeviceManager,
+	chatStorageRepo domainChatStorage.IChatStorageRepository,
+) *ChatwootHandler {
 	return &ChatwootHandler{
-		AppUsecase:    appUsecase,
-		SendUsecase:   sendUsecase,
-		DeviceManager: dm,
+		AppUsecase:      appUsecase,
+		SendUsecase:     sendUsecase,
+		DeviceManager:   dm,
+		ChatStorageRepo: chatStorageRepo,
 	}
 }
 
@@ -194,4 +203,141 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 		}
 		return err
 	}
+}
+
+// SyncHistory triggers a message history sync to Chatwoot
+// POST /chatwoot/sync
+func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
+	// Parse request body
+	var req chatwoot.SyncRequest
+	if err := c.BodyParser(&req); err != nil {
+		// Try query parameters as fallback
+		req.DeviceID = c.Query("device_id", config.ChatwootDeviceID)
+		req.DaysLimit = c.QueryInt("days", config.ChatwootDaysLimitImportMessages)
+		req.IncludeMedia = c.QueryBool("media", true)
+		req.IncludeGroups = c.QueryBool("groups", true)
+	}
+
+	// Default values
+	if req.DeviceID == "" {
+		req.DeviceID = config.ChatwootDeviceID
+	}
+	if req.DaysLimit <= 0 {
+		req.DaysLimit = config.ChatwootDaysLimitImportMessages
+	}
+
+	// Resolve device
+	instance, resolvedID, err := h.DeviceManager.ResolveDevice(req.DeviceID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  fiber.StatusBadRequest,
+			Code:    "DEVICE_NOT_FOUND",
+			Message: fmt.Sprintf("Failed to resolve device: %v", err),
+		})
+	}
+
+	// Get Chatwoot client
+	cwClient := chatwoot.GetDefaultClient()
+	if !cwClient.IsConfigured() {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  fiber.StatusBadRequest,
+			Code:    "CHATWOOT_NOT_CONFIGURED",
+			Message: "Chatwoot is not configured. Set CHATWOOT_URL, CHATWOOT_API_TOKEN, CHATWOOT_ACCOUNT_ID, and CHATWOOT_INBOX_ID.",
+		})
+	}
+
+	// Get or create sync service
+	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo, instance.GetClient())
+
+	// Check if already running
+	if syncService.IsRunning(resolvedID) {
+		progress := syncService.GetProgress(resolvedID)
+		return c.Status(fiber.StatusConflict).JSON(utils.ResponseData{
+			Status:  fiber.StatusConflict,
+			Code:    "SYNC_ALREADY_RUNNING",
+			Message: "A sync is already in progress for this device",
+			Results: map[string]interface{}{
+				"progress": progress,
+			},
+		})
+	}
+
+	// Build sync options
+	opts := chatwoot.DefaultSyncOptions()
+	opts.DaysLimit = req.DaysLimit
+	opts.IncludeMedia = req.IncludeMedia
+	opts.IncludeGroups = req.IncludeGroups
+
+	// Start async sync
+	go func() {
+		ctx := context.Background()
+		progress, err := syncService.SyncHistory(ctx, resolvedID, opts)
+		if err != nil {
+			logrus.Errorf("Chatwoot Sync: Failed for device %s: %v", resolvedID, err)
+		} else {
+			logrus.Infof("Chatwoot Sync: Completed for device %s - %d/%d messages synced",
+				resolvedID, progress.SyncedMessages, progress.TotalMessages)
+		}
+	}()
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SYNC_STARTED",
+		Message: "History sync initiated in background",
+		Results: map[string]interface{}{
+			"device_id":      resolvedID,
+			"days_limit":     opts.DaysLimit,
+			"include_media":  opts.IncludeMedia,
+			"include_groups": opts.IncludeGroups,
+		},
+	})
+}
+
+// SyncStatus returns the current sync progress
+// GET /chatwoot/sync/status
+func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
+	deviceID := c.Query("device_id", config.ChatwootDeviceID)
+
+	// Resolve device to get the actual ID
+	_, resolvedID, err := h.DeviceManager.ResolveDevice(deviceID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  fiber.StatusBadRequest,
+			Code:    "DEVICE_NOT_FOUND",
+			Message: fmt.Sprintf("Failed to resolve device: %v", err),
+		})
+	}
+
+	syncService := chatwoot.GetDefaultSyncService()
+	if syncService == nil {
+		return c.JSON(utils.ResponseData{
+			Status:  200,
+			Code:    "SUCCESS",
+			Message: "No sync has been initiated yet",
+			Results: map[string]interface{}{
+				"device_id": resolvedID,
+				"status":    "idle",
+			},
+		})
+	}
+
+	progress := syncService.GetProgress(resolvedID)
+	if progress == nil {
+		return c.JSON(utils.ResponseData{
+			Status:  200,
+			Code:    "SUCCESS",
+			Message: "No sync progress found for this device",
+			Results: map[string]interface{}{
+				"device_id": resolvedID,
+				"status":    "idle",
+			},
+		})
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Sync status retrieved",
+		Results: progress,
+	})
 }

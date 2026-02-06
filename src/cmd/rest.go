@@ -120,8 +120,10 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Chatwoot webhook - handles device resolution internally (not device-scoped)
 	if config.ChatwootEnabled {
-		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm)
+		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm, chatStorageRepo)
 		apiGroup.Post("/chatwoot/webhook", chatwootHandler.HandleWebhook)
+		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
+		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
 	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {

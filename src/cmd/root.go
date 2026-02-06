@@ -166,6 +166,16 @@ func initEnvConfig() {
 	if envChatwootDeviceID := viper.GetString("chatwoot_device_id"); envChatwootDeviceID != "" {
 		config.ChatwootDeviceID = envChatwootDeviceID
 	}
+	// Chatwoot History Sync settings
+	if viper.IsSet("chatwoot_import_messages") {
+		config.ChatwootImportMessages = viper.GetBool("chatwoot_import_messages")
+	}
+	if viper.IsSet("chatwoot_days_limit_import_messages") {
+		config.ChatwootDaysLimitImportMessages = viper.GetInt("chatwoot_days_limit_import_messages")
+	}
+	if viper.IsSet("chatwoot_import_contacts") {
+		config.ChatwootImportContacts = viper.GetBool("chatwoot_import_contacts")
+	}
 }
 
 func initFlags() {
@@ -303,6 +313,24 @@ func initFlags() {
 		"chatwoot-device-id", "",
 		config.ChatwootDeviceID,
 		`device ID for Chatwoot outbound messages --chatwoot-device-id <string> | example: --chatwoot-device-id="my-device"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportMessages,
+		"chatwoot-import-messages", "",
+		config.ChatwootImportMessages,
+		`enable message history import to Chatwoot --chatwoot-import-messages <true/false> | example: --chatwoot-import-messages=true`,
+	)
+	rootCmd.PersistentFlags().IntVarP(
+		&config.ChatwootDaysLimitImportMessages,
+		"chatwoot-days-limit-import-messages", "",
+		config.ChatwootDaysLimitImportMessages,
+		`days of message history to import to Chatwoot --chatwoot-days-limit-import-messages <int> | example: --chatwoot-days-limit-import-messages=7`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportContacts,
+		"chatwoot-import-contacts", "",
+		config.ChatwootImportContacts,
+		`import contacts to Chatwoot --chatwoot-import-contacts <true/false> | example: --chatwoot-import-contacts=true`,
 	)
 }
 
