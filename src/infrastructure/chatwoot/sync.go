@@ -66,14 +66,14 @@ func (s *SyncService) IsRunning(deviceID string) bool {
 
 // SyncHistory performs the initial message history sync to Chatwoot
 func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
-	// Check if sync is already running
-	if s.IsRunning(deviceID) {
-		return s.GetProgress(deviceID), fmt.Errorf("sync already in progress for device %s", deviceID)
-	}
-
-	// Create progress tracker
+	// Atomic check-and-set to prevent race condition
 	progress := NewSyncProgress(deviceID)
 	s.progressMu.Lock()
+	if existing, ok := s.progressMap[deviceID]; ok && existing.IsRunning() {
+		s.progressMu.Unlock()
+		cloned := existing.Clone()
+		return &cloned, fmt.Errorf("sync already in progress for device %s", deviceID)
+	}
 	s.progressMap[deviceID] = progress
 	s.progressMu.Unlock()
 
