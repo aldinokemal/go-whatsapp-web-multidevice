@@ -697,16 +697,49 @@ func GetMessageDigestOrSignature(msg, key []byte) (string, error) {
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
+// UnwrapMessage unwraps FutureProof wrappers (ephemeral, view-once, etc.)
+// to access the inner message content. WhatsApp wraps messages in these
+// containers when disappearing messages or view-once is enabled.
+// The original message is not modified; the unwrapped inner message is returned.
+func UnwrapMessage(msg *waE2E.Message) *waE2E.Message {
+	if msg == nil {
+		return msg
+	}
+	inner := msg
+	for i := 0; i < 3; i++ { // safeguard against excessively nested wrappers
+		if vm := inner.GetViewOnceMessage(); vm != nil && vm.GetMessage() != nil {
+			inner = vm.GetMessage()
+			continue
+		}
+		if em := inner.GetEphemeralMessage(); em != nil && em.GetMessage() != nil {
+			inner = em.GetMessage()
+			continue
+		}
+		if vm2 := inner.GetViewOnceMessageV2(); vm2 != nil && vm2.GetMessage() != nil {
+			inner = vm2.GetMessage()
+			continue
+		}
+		if vm2e := inner.GetViewOnceMessageV2Extension(); vm2e != nil && vm2e.GetMessage() != nil {
+			inner = vm2e.GetMessage()
+			continue
+		}
+		break
+	}
+	return inner
+}
+
 // BuildEventMessage builds event message structure
 func BuildEventMessage(evt *events.Message) (message EvtMessage) {
-	message.Text = evt.Message.GetConversation()
+	msg := UnwrapMessage(evt.Message)
+
+	message.Text = msg.GetConversation()
 	message.ID = evt.Info.ID
 
-	if extendedMessage := evt.Message.GetExtendedTextMessage(); extendedMessage != nil {
+	if extendedMessage := msg.GetExtendedTextMessage(); extendedMessage != nil {
 		message.Text = extendedMessage.GetText()
 		message.RepliedId = extendedMessage.ContextInfo.GetStanzaID()
 		message.QuotedMessage = extendedMessage.ContextInfo.GetQuotedMessage().GetConversation()
-	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
 				message.Text = extendedText.GetText()
@@ -719,20 +752,20 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 	return message
 }
 
-// BuildEventReaction builds event reaction structure
 func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
-	if reactionMessage := evt.Message.GetReactionMessage(); reactionMessage != nil {
+	msg := UnwrapMessage(evt.Message)
+	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		waReaction.Message = reactionMessage.GetText()
 		waReaction.ID = reactionMessage.GetKey().GetID()
 	}
 	return waReaction
 }
 
-// BuildForwarded checks if message is forwarded
 func BuildForwarded(evt *events.Message) bool {
-	if extendedText := evt.Message.GetExtendedTextMessage(); extendedText != nil {
+	msg := UnwrapMessage(evt.Message)
+	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
 		return extendedText.ContextInfo.GetIsForwarded()
-	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
 				return extendedText.ContextInfo.GetIsForwarded()

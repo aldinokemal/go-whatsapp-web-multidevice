@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -75,9 +76,12 @@ func createWebhookEvent(ctx context.Context, client *whatsmeow.Client, evt *even
 func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *events.Message) (string, map[string]any, error) {
 	payload := make(map[string]any)
 
+	msg := utils.UnwrapMessage(evt.Message)
+
 	// Common fields for all message types
 	payload["id"] = evt.Info.ID
 	payload["timestamp"] = evt.Info.Timestamp.Format(time.RFC3339)
+	payload["is_from_me"] = evt.Info.IsFromMe
 
 	// Build from/from_lid fields
 	buildFromFields(ctx, client, evt, payload)
@@ -88,7 +92,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	}
 
 	// Check for protocol messages (revoke, edit)
-	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+	if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		protocolType := protocolMessage.GetType().String()
 
 		switch protocolType {
@@ -118,7 +122,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	}
 
 	// Check for reaction message
-	if reactionMessage := evt.Message.GetReactionMessage(); reactionMessage != nil {
+	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		payload["reaction"] = reactionMessage.GetText()
 		if key := reactionMessage.GetKey(); key != nil {
 			payload["reacted_message_id"] = key.GetID()
@@ -132,7 +136,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	}
 
 	// Add optional fields
-	if err := buildOptionalFields(ctx, client, evt, payload); err != nil {
+	if err := buildOptionalFields(ctx, client, evt, msg, payload); err != nil {
 		return "", nil, err
 	}
 
@@ -140,16 +144,18 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 }
 
 func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
-	// Always set chat_id from evt.Info.Chat (works for both private and group)
-	payload["chat_id"] = evt.Info.Chat.ToNonAD().String()
+	chatJID := evt.Info.Chat.ToNonAD()
+	if chatJID.Server == "lid" {
+		payload["chat_lid"] = chatJID.String()
+		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
+	}
+	payload["chat_id"] = chatJID.String()
 
-	// Try to get from_lid from sender
 	senderJID := evt.Info.Sender
 	if senderJID.Server == "lid" {
 		payload["from_lid"] = senderJID.ToNonAD().String()
 	}
 
-	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
 }
@@ -194,7 +200,7 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 	return nil
 }
 
-func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) error {
+func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, msg *waE2E.Message, payload map[string]any) error {
 	if evt.IsViewOnce {
 		payload["view_once"] = true
 	}
@@ -203,23 +209,21 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 		payload["forwarded"] = true
 	}
 
-	// Handle media types
-	if err := buildMediaFields(ctx, client, evt, payload); err != nil {
+	if err := buildMediaFields(ctx, client, msg, payload); err != nil {
 		return err
 	}
 
-	// Handle other message types
-	buildOtherMessageTypes(evt, payload)
+	buildOtherMessageTypes(msg, payload)
 
 	return nil
 }
 
-func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) error {
-	if audioMedia := evt.Message.GetAudioMessage(); audioMedia != nil {
+func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any) error {
+	if audioMedia := msg.GetAudioMessage(); audioMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, audioMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download audio from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download audio: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download audio: %v", err))
 			}
 			payload["audio"] = extracted.MediaPath
@@ -230,11 +234,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 		}
 	}
 
-	if documentMedia := evt.Message.GetDocumentMessage(); documentMedia != nil {
+	if documentMedia := msg.GetDocumentMessage(); documentMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download document from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download document: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 			}
 			payload["document"] = extracted.MediaPath
@@ -246,11 +250,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 		}
 	}
 
-	if imageMedia := evt.Message.GetImageMessage(); imageMedia != nil {
+	if imageMedia := msg.GetImageMessage(); imageMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download image from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download image: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 			}
 			payload["image"] = extracted.MediaPath
@@ -262,11 +266,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 		}
 	}
 
-	if stickerMedia := evt.Message.GetStickerMessage(); stickerMedia != nil {
+	if stickerMedia := msg.GetStickerMessage(); stickerMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, stickerMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download sticker from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download sticker: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download sticker: %v", err))
 			}
 			payload["sticker"] = extracted.MediaPath
@@ -277,11 +281,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 		}
 	}
 
-	if videoMedia := evt.Message.GetVideoMessage(); videoMedia != nil {
+	if videoMedia := msg.GetVideoMessage(); videoMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download video from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download video: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 			}
 			payload["video"] = extracted.MediaPath
@@ -293,11 +297,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 		}
 	}
 
-	if ptvMedia := evt.Message.GetPtvMessage(); ptvMedia != nil {
+	if ptvMedia := msg.GetPtvMessage(); ptvMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, ptvMedia)
 			if err != nil {
-				logrus.Errorf("Failed to download video note from %s: %v", evt.Info.SourceString(), err)
+				logrus.Errorf("Failed to download video note: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video note: %v", err))
 			}
 			payload["video_note"] = extracted.MediaPath
@@ -312,24 +316,24 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, evt *events
 	return nil
 }
 
-func buildOtherMessageTypes(evt *events.Message, payload map[string]any) {
-	if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
+func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
+	if contactMessage := msg.GetContactMessage(); contactMessage != nil {
 		payload["contact"] = contactMessage
 	}
 
-	if listMessage := evt.Message.GetListMessage(); listMessage != nil {
+	if listMessage := msg.GetListMessage(); listMessage != nil {
 		payload["list"] = listMessage
 	}
 
-	if liveLocationMessage := evt.Message.GetLiveLocationMessage(); liveLocationMessage != nil {
+	if liveLocationMessage := msg.GetLiveLocationMessage(); liveLocationMessage != nil {
 		payload["live_location"] = liveLocationMessage
 	}
 
-	if locationMessage := evt.Message.GetLocationMessage(); locationMessage != nil {
+	if locationMessage := msg.GetLocationMessage(); locationMessage != nil {
 		payload["location"] = locationMessage
 	}
 
-	if orderMessage := evt.Message.GetOrderMessage(); orderMessage != nil {
+	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
 	}
 }
