@@ -176,6 +176,10 @@ func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, from
 		content = body
 	}
 
+	if content == "" {
+		content = extractStructuredMessageContent(data)
+	}
+
 	// For group messages, prepend sender name to content
 	if isGroup && fromName != "" && content != "" {
 		content = fromName + ": " + content
@@ -204,6 +208,86 @@ func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, from
 	}
 
 	return content, attachments
+}
+
+func extractStructuredMessageContent(data map[string]interface{}) string {
+	if contact, ok := data["contact"]; ok && contact != nil {
+		if cm, ok := contact.(interface {
+			GetDisplayName() string
+			GetVcard() string
+		}); ok {
+			name := cm.GetDisplayName()
+			phone := extractPhoneFromVCard(cm.GetVcard())
+			switch {
+			case name != "" && phone != "":
+				return fmt.Sprintf("Contact: %s (%s)", name, phone)
+			case name != "":
+				return "Contact: " + name
+			case phone != "":
+				return "Contact: " + phone
+			}
+		}
+		return "Contact shared"
+	}
+
+	if location, ok := data["location"]; ok && location != nil {
+		if lm, ok := location.(interface {
+			GetDegreesLatitude() float64
+			GetDegreesLongitude() float64
+			GetName() string
+		}); ok {
+			name := lm.GetName()
+			if name != "" {
+				return fmt.Sprintf("Location: %s (%.6f, %.6f)", name, lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+			}
+			return fmt.Sprintf("Location: %.6f, %.6f", lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+		}
+		return "Location shared"
+	}
+
+	if liveLocation, ok := data["live_location"]; ok && liveLocation != nil {
+		if lm, ok := liveLocation.(interface {
+			GetDegreesLatitude() float64
+			GetDegreesLongitude() float64
+		}); ok {
+			return fmt.Sprintf("Live Location: %.6f, %.6f", lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+		}
+		return "Live location shared"
+	}
+
+	if list, ok := data["list"]; ok && list != nil {
+		if lm, ok := list.(interface{ GetTitle() string }); ok {
+			title := lm.GetTitle()
+			if title != "" {
+				return "List: " + title
+			}
+		}
+		return "List message"
+	}
+
+	if order, ok := data["order"]; ok && order != nil {
+		if om, ok := order.(interface{ GetOrderTitle() string }); ok {
+			title := om.GetOrderTitle()
+			if title != "" {
+				return "Order: " + title
+			}
+		}
+		return "Order message"
+	}
+
+	return ""
+}
+
+func extractPhoneFromVCard(vcard string) string {
+	for _, line := range strings.Split(vcard, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.

@@ -3,10 +3,15 @@ package utils
 import "strings"
 
 // NormalizePhoneE164 ensures phone has + prefix for E.164 format.
+// Strips WhatsApp JID suffixes (@s.whatsapp.net, @lid, etc.) before formatting.
 // Returns empty string if input is empty.
 func NormalizePhoneE164(phone string) string {
 	phone = strings.TrimSpace(phone)
-	if phone != "" && !strings.HasPrefix(phone, "+") {
+	if phone == "" {
+		return phone
+	}
+	phone = ExtractPhoneFromJID(phone)
+	if !strings.HasPrefix(phone, "+") {
 		return "+" + phone
 	}
 	return phone

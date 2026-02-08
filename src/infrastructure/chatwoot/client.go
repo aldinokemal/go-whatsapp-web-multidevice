@@ -107,15 +107,15 @@ func (c *Client) doRequest(method, endpoint string, payload interface{}, result 
 
 func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Contact, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/search", c.BaseURL, c.AccountID)
+	logrus.Debugf("Chatwoot: Finding contact by identifier endpoint=%s identifier=%s isGroup=%v", endpoint, identifier, isGroup)
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// For groups, search by the identifier directly
-	// For private chats, add + prefix for E.164 format
 	searchTerm := identifier
-	if !isGroup {
+	isIdentifierBased := isGroup || strings.HasSuffix(identifier, "@lid")
+	if !isIdentifierBased {
 		searchTerm = utils.NormalizePhoneE164(identifier)
 	}
 
@@ -131,7 +131,8 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to search contact: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to search contact: status %d body %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -144,12 +145,10 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	// For groups, match by Identifier field or custom attribute waha_whatsapp_jid
 	// For private chats, match by phone number
 	for _, contact := range result.Payload {
-		if isGroup {
-			// Check Identifier field first
+		if isIdentifierBased {
 			if contact.Identifier == identifier {
 				return &contact, nil
 			}
-			// Fallback: check custom attributes for group JID
 			if jid, ok := contact.CustomAttributes["waha_whatsapp_jid"].(string); ok && jid == identifier {
 				return &contact, nil
 			}
@@ -168,9 +167,9 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 
 	// For groups, use Identifier field
 	// For private chats, use E.164 phone format
+	// For @lid JIDs (non-phone WhatsApp IDs), use Identifier field
 	var phoneNumber, contactIdentifier string
-	if isGroup {
-		// Use the group JID as the identifier
+	if isGroup || strings.HasSuffix(identifier, "@lid") {
 		contactIdentifier = identifier
 	} else {
 		phoneNumber = utils.NormalizePhoneE164(identifier)
@@ -213,21 +212,31 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 		return nil, fmt.Errorf("failed to create contact: status %d body %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Try to decode with payload wrapper first
-	var result struct {
+	// Chatwoot API returns: {"payload": {"contact": {...}, "contact_inbox": {...}}}
+	var nestedResult struct {
+		Payload struct {
+			Contact Contact `json:"contact"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(bodyBytes, &nestedResult); err == nil && nestedResult.Payload.Contact.ID != 0 {
+		return &nestedResult.Payload.Contact, nil
+	}
+
+	// Fallback: some Chatwoot versions return {"payload": Contact{...}} directly
+	var flatResult struct {
 		Payload Contact `json:"payload"`
 	}
-	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.Payload.ID != 0 {
-		return &result.Payload, nil
+	if err := json.Unmarshal(bodyBytes, &flatResult); err == nil && flatResult.Payload.ID != 0 {
+		return &flatResult.Payload, nil
 	}
 
-	// Try direct decode (some Chatwoot versions return contact directly)
+	// Last resort: try direct decode (contact at root level)
 	var contact Contact
-	if err := json.Unmarshal(bodyBytes, &contact); err != nil {
-		return nil, fmt.Errorf("failed to decode contact response: %v", err)
+	if err := json.Unmarshal(bodyBytes, &contact); err == nil && contact.ID != 0 {
+		return &contact, nil
 	}
 
-	return &contact, nil
+	return nil, fmt.Errorf("failed to decode contact response (no valid ID found): %s", string(bodyBytes))
 }
 
 func (c *Client) FindOrCreateContact(name, identifier string, isGroup bool) (*Contact, error) {
@@ -364,25 +373,22 @@ func (c *Client) CreateConversation(contactID int) (*Conversation, error) {
 		return nil, fmt.Errorf("failed to create conversation: status %d body %s", resp.StatusCode, string(body))
 	}
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	logrus.Debugf("Chatwoot CreateConversation: Response body=%s", string(bodyBytes))
+
 	var result struct {
 		Payload Conversation `json:"payload"`
 	}
-	// Try to decode into wrapper first
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	// Reset body for decoder
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && result.Payload.ID != 0 {
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.Payload.ID != 0 {
 		return &result.Payload, nil
 	}
 
-	// If wrapper failed, try direct decode
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	var conversation Conversation
-	if err := json.NewDecoder(resp.Body).Decode(&conversation); err != nil {
-		return nil, err
+	if err := json.Unmarshal(bodyBytes, &conversation); err == nil && conversation.ID != 0 {
+		return &conversation, nil
 	}
-	return &conversation, nil
+
+	return nil, fmt.Errorf("failed to decode conversation response (no valid ID found): %s", string(bodyBytes))
 }
 
 func (c *Client) FindOrCreateConversation(contactID int) (*Conversation, error) {

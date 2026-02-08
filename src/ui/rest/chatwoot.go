@@ -250,9 +250,16 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo)
 	waClient := instance.GetClient()
 
+	// Use JID as the storage device ID since chats are stored with the full JID
+	// (e.g. "628xxx@s.whatsapp.net"), not the user-assigned device alias (e.g. "busine").
+	storageDeviceID := instance.JID()
+	if storageDeviceID == "" {
+		storageDeviceID = resolvedID
+	}
+
 	// Check if already running
-	if syncService.IsRunning(resolvedID) {
-		progress := syncService.GetProgress(resolvedID)
+	if syncService.IsRunning(storageDeviceID) {
+		progress := syncService.GetProgress(storageDeviceID)
 		return c.Status(fiber.StatusConflict).JSON(utils.ResponseData{
 			Status:  fiber.StatusConflict,
 			Code:    "SYNC_ALREADY_RUNNING",
@@ -272,12 +279,12 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	// Start async sync
 	go func() {
 		ctx := context.Background()
-		progress, err := syncService.SyncHistory(ctx, resolvedID, waClient, opts)
+		progress, err := syncService.SyncHistory(ctx, storageDeviceID, waClient, opts)
 		if err != nil {
-			logrus.Errorf("Chatwoot Sync: Failed for device %s: %v", resolvedID, err)
+			logrus.Errorf("Chatwoot Sync: Failed for device %s: %v", storageDeviceID, err)
 		} else {
 			logrus.Infof("Chatwoot Sync: Completed for device %s - %d/%d messages synced",
-				resolvedID, progress.SyncedMessages, progress.TotalMessages)
+				storageDeviceID, progress.SyncedMessages, progress.TotalMessages)
 		}
 	}()
 
@@ -299,14 +306,18 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
 	deviceID := c.Query("device_id", config.ChatwootDeviceID)
 
-	// Resolve device to get the actual ID
-	_, resolvedID, err := h.DeviceManager.ResolveDevice(deviceID)
+	instance, resolvedID, err := h.DeviceManager.ResolveDevice(deviceID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
 			Status:  fiber.StatusBadRequest,
 			Code:    "DEVICE_NOT_FOUND",
 			Message: fmt.Sprintf("Failed to resolve device: %v", err),
 		})
+	}
+
+	storageDeviceID := instance.JID()
+	if storageDeviceID == "" {
+		storageDeviceID = resolvedID
 	}
 
 	syncService := chatwoot.GetDefaultSyncService()
@@ -322,7 +333,7 @@ func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	progress := syncService.GetProgress(resolvedID)
+	progress := syncService.GetProgress(storageDeviceID)
 	if progress == nil {
 		return c.JSON(utils.ResponseData{
 			Status:  200,

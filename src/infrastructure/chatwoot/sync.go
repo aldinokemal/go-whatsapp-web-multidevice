@@ -23,7 +23,7 @@ import (
 type SyncService struct {
 	client          *Client
 	chatStorageRepo domainChatStorage.IChatStorageRepository
-	
+
 	// Track sync progress per device
 	progressMap map[string]*SyncProgress
 	progressMu  sync.RWMutex
@@ -45,7 +45,7 @@ func NewSyncService(
 func (s *SyncService) GetProgress(deviceID string) *SyncProgress {
 	s.progressMu.RLock()
 	defer s.progressMu.RUnlock()
-	
+
 	if progress, ok := s.progressMap[deviceID]; ok {
 		cloned := progress.Clone()
 		return &cloned
@@ -57,7 +57,7 @@ func (s *SyncService) GetProgress(deviceID string) *SyncProgress {
 func (s *SyncService) IsRunning(deviceID string) bool {
 	s.progressMu.RLock()
 	defer s.progressMu.RUnlock()
-	
+
 	if progress, ok := s.progressMap[deviceID]; ok {
 		return progress.IsRunning()
 	}
@@ -78,7 +78,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 	s.progressMu.Unlock()
 
 	progress.SetRunning()
-	
+
 	logrus.Infof("Chatwoot Sync: Starting history sync for device %s (days: %d, media: %v, groups: %v)",
 		deviceID, opts.DaysLimit, opts.IncludeMedia, opts.IncludeGroups)
 
@@ -90,7 +90,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 		progress.SetFailed(err)
 		return progress, fmt.Errorf("failed to get chats: %w", err)
 	}
-	
+
 	progress.SetTotals(len(chats), 0)
 	logrus.Infof("Chatwoot Sync: Found %d chats to sync", len(chats))
 
@@ -105,7 +105,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 		}
 
 		progress.UpdateChat(chat.JID)
-		
+
 		err := s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
@@ -119,7 +119,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 	progress.SetCompleted()
 	logrus.Infof("Chatwoot Sync: Completed for device %s. Chats: %d (failed: %d), Messages: %d (failed: %d)",
 		deviceID, progress.SyncedChats, progress.FailedChats, progress.SyncedMessages, progress.FailedMessages)
-	
+
 	return progress, nil
 }
 
@@ -134,7 +134,7 @@ func (s *SyncService) syncChat(
 	progress *SyncProgress,
 ) error {
 	isGroup := strings.HasSuffix(chat.JID, "@g.us")
-	
+
 	// Skip groups if not configured
 	if isGroup && !opts.IncludeGroups {
 		logrus.Debugf("Chatwoot Sync: Skipping group %s (groups disabled)", chat.JID)
@@ -148,7 +148,7 @@ func (s *SyncService) syncChat(
 	if contactName == "" {
 		contactName = utils.ExtractPhoneFromJID(chat.JID)
 	}
-	
+
 	contact, err := s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
 	if err != nil {
 		return fmt.Errorf("failed to create contact: %w", err)
@@ -233,7 +233,7 @@ func (s *SyncService) syncMessage(
 
 	// Add timestamp prefix for historical context
 	timePrefix := msg.Timestamp.Format("2006-01-02 15:04")
-	
+
 	// For group messages, add sender info
 	if isGroup && !msg.IsFromMe && msg.Sender != "" {
 		senderName := utils.ExtractPhoneFromJID(msg.Sender)
@@ -258,14 +258,14 @@ func (s *SyncService) syncMessage(
 
 	// Send to Chatwoot
 	err := s.client.CreateMessage(conversationID, content, messageType, attachments)
-	
+
 	// Clean up temp files immediately after sending
 	for _, fp := range attachments {
 		if err := os.Remove(fp); err != nil {
 			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", fp, err)
 		}
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
@@ -285,7 +285,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 
 	// Create downloadable message based on type
 	var downloadable whatsmeow.DownloadableMessage
-	
+
 	switch msg.MediaType {
 	case "image":
 		downloadable = &waE2E.ImageMessage{
@@ -410,17 +410,26 @@ func TriggerAutoSync(deviceID string, chatStorageRepo domainChatStorage.IChatSto
 		return
 	}
 
+	// Resolve the storage device ID (JID) from the WhatsApp client,
+	// since chats are stored under the full JID, not the user-assigned alias.
+	storageDeviceID := deviceID
+	if waClient != nil && waClient.Store != nil && waClient.Store.ID != nil {
+		if jid := waClient.Store.ID.ToNonAD().String(); jid != "" {
+			storageDeviceID = jid
+		}
+	}
+
 	syncService := GetSyncService(client, chatStorageRepo)
-	
+
 	go func() {
 		opts := DefaultSyncOptions()
 		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
-		
-		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", deviceID)
-		
-		_, err := syncService.SyncHistory(context.Background(), deviceID, waClient, opts)
+
+		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
+
+		_, err := syncService.SyncHistory(context.Background(), storageDeviceID, waClient, opts)
 		if err != nil {
-			logrus.Errorf("Chatwoot Sync: Auto-sync failed for device %s: %v", deviceID, err)
+			logrus.Errorf("Chatwoot Sync: Auto-sync failed for device %s: %v", storageDeviceID, err)
 		}
 	}()
 }

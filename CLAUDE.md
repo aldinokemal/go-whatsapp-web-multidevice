@@ -56,6 +56,15 @@ This is a Go-based WhatsApp Web API server supporting both REST API and MCP (Mod
 - **Chat Storage**: Separate SQLite database for chat history (`storages/chatstorage.db`)
 - **Database URIs**: Configurable via `DB_URI` and `DB_KEYS_URI` environment variables
 
+### Device ID vs JID (Critical)
+
+The system has two distinct identifiers for devices that must not be confused:
+
+- **Device ID** (`devices.device_id`): User-assigned alias (e.g. `"busine"`) or auto-generated UUID. Used as the key in `DeviceManager.devices` map and returned by `DeviceInstance.ID()`. This is what `ResolveDevice()` returns as `resolvedID`.
+- **JID** (`devices.jid`): Full WhatsApp JID (e.g. `"6289605618749@s.whatsapp.net"`). Derived from `client.Store.ID.ToNonAD().String()` and returned by `DeviceInstance.JID()`.
+
+**The `chats` and `messages` tables store `device_id` as the JID**, not the user-assigned alias. When querying chat storage, always use `DeviceInstance.JID()` (falling back to `ID()` if JID is empty). The `deviceChatStorage` wrapper handles this automatically via `newDeviceChatStorage(storageDeviceID, ...)` where `storageDeviceID` is resolved to the JID in `loadFromRegistry()` and `ensureInstance()`.
+
 ### Mode-Specific Architecture
 
 - **REST Mode**: Fiber web server with HTML templates, WebSocket support, middleware stack
