@@ -48,9 +48,17 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	// Disconnect first to ensure QR flow starts cleanly.
 	client.Disconnect()
 
+	// Use a detached context for the QR channel so the pairing session
+	// survives after the HTTP response is sent. The HTTP request context
+	// has a short timeout (e.g. 45s) which would cancel the QR emitter
+	// and disconnect the client before the user can scan the code.
+	// Total QR window: ~160s (first code 60s + five codes at 20s each).
+	qrCtx, qrCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+
 	chImage := make(chan string, 1) // Buffered to prevent goroutine leak
-	ch, err := client.GetQRChannel(ctx)
+	ch, err := client.GetQRChannel(qrCtx)
 	if err != nil {
+		qrCancel()
 		logrus.Errorf("[LOGIN][%s] GetQRChannel failed: %v", deviceID, err)
 		if errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
 			_ = client.Connect()
@@ -64,6 +72,7 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	}
 
 	go func() {
+		defer qrCancel()
 		defer close(chImage) // Ensure channel is closed when done
 		for evt := range ch {
 			response.Code = evt.Code
@@ -80,11 +89,10 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 						logrus.Errorf("[LOGIN][%s] error when remove qrImage file: %v", deviceID, err)
 					}
 				}(qrPath, response.Duration)
-				// Use select to avoid blocking if context is canceled
 				select {
 				case chImage <- qrPath:
-				case <-ctx.Done():
-					logrus.Warnf("[LOGIN][%s] Context canceled while sending QR path", deviceID)
+				case <-qrCtx.Done():
+					logrus.Warnf("[LOGIN][%s] QR context canceled while sending QR path", deviceID)
 					return
 				}
 			} else {
@@ -94,6 +102,7 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	}()
 
 	if err = client.Connect(); err != nil {
+		qrCancel()
 		logger.Error("Error when connect to whatsapp", err)
 		return response, pkgError.ErrReconnect
 	}
