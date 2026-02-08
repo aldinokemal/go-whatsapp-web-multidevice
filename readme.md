@@ -99,6 +99,8 @@ Download:
   - `--auto-mark-read=true` (automatically marks incoming messages as read)
 - Auto download media from incoming messages
   - `--auto-download-media=false` (disable automatic media downloads, default: `true`)
+- Auto reject incoming calls
+  - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see [Webhook Payload](./docs/webhook-payload.md#call-events) for call events)
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
@@ -206,7 +208,8 @@ To use environment variables:
 | `CHATWOOT_ACCOUNT_ID`                   | Chatwoot account ID                                           | -                                            | `CHATWOOT_ACCOUNT_ID=12345`                   |
 | `CHATWOOT_INBOX_ID`                     | Chatwoot inbox ID                                             | -                                            | `CHATWOOT_INBOX_ID=67890`                     |
 | `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (multi-device setup)          | -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
-| `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING`     | Include outgoing messages in webhook notifications            | `false`                                      | `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING=true`      |
+| `CHATWOOT_IMPORT_MESSAGES`              | Enable message history sync to Chatwoot                       | `false`                                      | `CHATWOOT_IMPORT_MESSAGES=true`               |
+| `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES`   | Days of history to import                                     | `3`                                          | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7`       |
 
 **Documentation:**
 

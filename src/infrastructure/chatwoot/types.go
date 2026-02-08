@@ -45,6 +45,7 @@ type CreateMessageRequest struct {
 }
 
 type WebhookPayload struct {
+	ID           int                 `json:"id"`
 	Event        string              `json:"event"`
 	MessageType  string              `json:"message_type"`
 	Content      string              `json:"content"`

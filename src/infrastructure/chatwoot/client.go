@@ -31,6 +31,12 @@ type Client struct {
 var (
 	defaultClient     *Client
 	defaultClientOnce sync.Once
+
+	// sentMessageIDs tracks Chatwoot message IDs created by our API to prevent
+	// echo loops: WhatsApp msg → synced to Chatwoot → Chatwoot webhook fires →
+	// would re-send to WhatsApp without this guard.
+	sentMessageIDs    sync.Map
+	sentMessageIDsTTL = 5 * time.Minute
 )
 
 // GetDefaultClient returns a shared Chatwoot client instance.
@@ -40,6 +46,47 @@ func GetDefaultClient() *Client {
 		defaultClient = NewClient()
 	})
 	return defaultClient
+}
+
+func MarkMessageAsSent(messageID int) {
+	if messageID == 0 {
+		return
+	}
+	sentMessageIDs.Store(messageID, time.Now())
+}
+
+func IsMessageSentByUs(messageID int) bool {
+	if messageID == 0 {
+		return false
+	}
+	val, ok := sentMessageIDs.Load(messageID)
+	if !ok {
+		return false
+	}
+	storedAt := val.(time.Time)
+	if time.Since(storedAt) > sentMessageIDsTTL {
+		sentMessageIDs.Delete(messageID)
+		return false
+	}
+	// Don't delete on check — Chatwoot may fire multiple webhook events
+	// (e.g. message_created + conversation_updated) for the same message.
+	// Entries are cleaned up by the background sweeper after TTL expires.
+	return true
+}
+
+func init() {
+	go func() {
+		ticker := time.NewTicker(sentMessageIDsTTL)
+		defer ticker.Stop()
+		for range ticker.C {
+			sentMessageIDs.Range(func(key, value interface{}) bool {
+				if time.Since(value.(time.Time)) > sentMessageIDsTTL {
+					sentMessageIDs.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
 }
 
 func NewClient() *Client {
@@ -107,15 +154,15 @@ func (c *Client) doRequest(method, endpoint string, payload interface{}, result 
 
 func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Contact, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/search", c.BaseURL, c.AccountID)
+	logrus.Debugf("Chatwoot: Finding contact by identifier endpoint=%s identifier=%s isGroup=%v", endpoint, identifier, isGroup)
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// For groups, search by the identifier directly
-	// For private chats, add + prefix for E.164 format
 	searchTerm := identifier
-	if !isGroup {
+	isIdentifierBased := isGroup || strings.HasSuffix(identifier, "@lid")
+	if !isIdentifierBased {
 		searchTerm = utils.NormalizePhoneE164(identifier)
 	}
 
@@ -131,7 +178,8 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to search contact: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to search contact: status %d body %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -144,12 +192,10 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	// For groups, match by Identifier field or custom attribute waha_whatsapp_jid
 	// For private chats, match by phone number
 	for _, contact := range result.Payload {
-		if isGroup {
-			// Check Identifier field first
+		if isIdentifierBased {
 			if contact.Identifier == identifier {
 				return &contact, nil
 			}
-			// Fallback: check custom attributes for group JID
 			if jid, ok := contact.CustomAttributes["waha_whatsapp_jid"].(string); ok && jid == identifier {
 				return &contact, nil
 			}
@@ -168,9 +214,9 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 
 	// For groups, use Identifier field
 	// For private chats, use E.164 phone format
+	// For @lid JIDs (non-phone WhatsApp IDs), use Identifier field
 	var phoneNumber, contactIdentifier string
-	if isGroup {
-		// Use the group JID as the identifier
+	if isGroup || strings.HasSuffix(identifier, "@lid") {
 		contactIdentifier = identifier
 	} else {
 		phoneNumber = utils.NormalizePhoneE164(identifier)
@@ -213,21 +259,31 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 		return nil, fmt.Errorf("failed to create contact: status %d body %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Try to decode with payload wrapper first
-	var result struct {
+	// Chatwoot API returns: {"payload": {"contact": {...}, "contact_inbox": {...}}}
+	var nestedResult struct {
+		Payload struct {
+			Contact Contact `json:"contact"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(bodyBytes, &nestedResult); err == nil && nestedResult.Payload.Contact.ID != 0 {
+		return &nestedResult.Payload.Contact, nil
+	}
+
+	// Fallback: some Chatwoot versions return {"payload": Contact{...}} directly
+	var flatResult struct {
 		Payload Contact `json:"payload"`
 	}
-	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.Payload.ID != 0 {
-		return &result.Payload, nil
+	if err := json.Unmarshal(bodyBytes, &flatResult); err == nil && flatResult.Payload.ID != 0 {
+		return &flatResult.Payload, nil
 	}
 
-	// Try direct decode (some Chatwoot versions return contact directly)
+	// Last resort: try direct decode (contact at root level)
 	var contact Contact
-	if err := json.Unmarshal(bodyBytes, &contact); err != nil {
-		return nil, fmt.Errorf("failed to decode contact response: %v", err)
+	if err := json.Unmarshal(bodyBytes, &contact); err == nil && contact.ID != 0 {
+		return &contact, nil
 	}
 
-	return &contact, nil
+	return nil, fmt.Errorf("failed to decode contact response (no valid ID found): %s", string(bodyBytes))
 }
 
 func (c *Client) FindOrCreateContact(name, identifier string, isGroup bool) (*Contact, error) {
@@ -364,25 +420,22 @@ func (c *Client) CreateConversation(contactID int) (*Conversation, error) {
 		return nil, fmt.Errorf("failed to create conversation: status %d body %s", resp.StatusCode, string(body))
 	}
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	logrus.Debugf("Chatwoot CreateConversation: Response body=%s", string(bodyBytes))
+
 	var result struct {
 		Payload Conversation `json:"payload"`
 	}
-	// Try to decode into wrapper first
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	// Reset body for decoder
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && result.Payload.ID != 0 {
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.Payload.ID != 0 {
 		return &result.Payload, nil
 	}
 
-	// If wrapper failed, try direct decode
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	var conversation Conversation
-	if err := json.NewDecoder(resp.Body).Decode(&conversation); err != nil {
-		return nil, err
+	if err := json.Unmarshal(bodyBytes, &conversation); err == nil && conversation.ID != 0 {
+		return &conversation, nil
 	}
-	return &conversation, nil
+
+	return nil, fmt.Errorf("failed to decode conversation response (no valid ID found): %s", string(bodyBytes))
 }
 
 func (c *Client) FindOrCreateConversation(contactID int) (*Conversation, error) {
@@ -396,7 +449,7 @@ func (c *Client) FindOrCreateConversation(contactID int) (*Conversation, error) 
 	return c.CreateConversation(contactID)
 }
 
-func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string) error {
+func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string) (int, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages", c.BaseURL, c.AccountID, conversationID)
 
 	if len(attachments) > 0 {
@@ -411,11 +464,11 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal message payload: %w", err)
+		return 0, fmt.Errorf("failed to marshal message payload: %w", err)
 	}
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -423,19 +476,27 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to create message: status %d body %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("failed to create message: status %d body %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	return nil
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.ID != 0 {
+		return result.ID, nil
+	}
+
+	return 0, nil
 }
 
-func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string) error {
+func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string) (int, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -454,17 +515,14 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 			}
 			defer file.Close()
 
-			// Get file name from path
 			fileName := filepath.Base(fp)
 
-			// Detect MIME type from file extension
 			mimeType := mime.TypeByExtension(filepath.Ext(fp))
 			if mimeType == "" {
 				mimeType = "application/octet-stream"
 			}
 
-			// Create a custom form part with correct Content-Type header
-			// This is needed for Chatwoot to render images inline instead of as file attachments
+			// Custom form part with correct Content-Type for Chatwoot to render images inline
 			h := make(textproto.MIMEHeader)
 			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, fileName))
 			h.Set("Content-Type", mimeType)
@@ -482,7 +540,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 
 	req, err := http.NewRequest("POST", endpoint, body)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -490,14 +548,22 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to create message with attachments: status %d body %s", resp.StatusCode, string(respBody))
+		return 0, fmt.Errorf("failed to create message with attachments: status %d body %s", resp.StatusCode, string(respBody))
 	}
 
-	return nil
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(respBody, &result); err == nil && result.ID != 0 {
+		return result.ID, nil
+	}
+
+	return 0, nil
 }
