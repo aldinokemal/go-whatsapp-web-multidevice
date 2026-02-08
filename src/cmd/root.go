@@ -137,9 +137,6 @@ func initEnvConfig() {
 		events := strings.Split(envWebhookEvents, ",")
 		config.WhatsappWebhookEvents = events
 	}
-	if viper.IsSet("whatsapp_webhook_include_outgoing") {
-		config.WhatsappWebhookIncludeOutgoing = viper.GetBool("whatsapp_webhook_include_outgoing")
-	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -165,6 +162,13 @@ func initEnvConfig() {
 	}
 	if envChatwootDeviceID := viper.GetString("chatwoot_device_id"); envChatwootDeviceID != "" {
 		config.ChatwootDeviceID = envChatwootDeviceID
+	}
+	// Chatwoot History Sync settings
+	if viper.IsSet("chatwoot_import_messages") {
+		config.ChatwootImportMessages = viper.GetBool("chatwoot_import_messages")
+	}
+	if viper.IsSet("chatwoot_days_limit_import_messages") {
+		config.ChatwootDaysLimitImportMessages = viper.GetInt("chatwoot_days_limit_import_messages")
 	}
 }
 
@@ -273,12 +277,6 @@ func initFlags() {
 		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
-		&config.WhatsappWebhookIncludeOutgoing,
-		"webhook-include-outgoing", "",
-		config.WhatsappWebhookIncludeOutgoing,
-		`include outgoing messages (sent from phone) in webhook notifications --webhook-include-outgoing <true/false> | example: --webhook-include-outgoing=true`,
-	)
-	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
 		"account-validation", "",
 		config.WhatsappAccountValidation,
@@ -303,6 +301,18 @@ func initFlags() {
 		"chatwoot-device-id", "",
 		config.ChatwootDeviceID,
 		`device ID for Chatwoot outbound messages --chatwoot-device-id <string> | example: --chatwoot-device-id="my-device"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportMessages,
+		"chatwoot-import-messages", "",
+		config.ChatwootImportMessages,
+		`enable message history import to Chatwoot --chatwoot-import-messages <true/false> | example: --chatwoot-import-messages=true`,
+	)
+	rootCmd.PersistentFlags().IntVarP(
+		&config.ChatwootDaysLimitImportMessages,
+		"chatwoot-days-limit-import-messages", "",
+		config.ChatwootDaysLimitImportMessages,
+		`days of message history to import to Chatwoot --chatwoot-days-limit-import-messages <int> | example: --chatwoot-days-limit-import-messages=7`,
 	)
 }
 

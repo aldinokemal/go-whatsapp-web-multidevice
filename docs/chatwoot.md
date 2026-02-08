@@ -31,6 +31,8 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_ACCOUNT_ID` | Yes | - | Your Chatwoot account ID |
 | `CHATWOOT_INBOX_ID` | Yes | - | The inbox ID for WhatsApp messages |
 | `CHATWOOT_DEVICE_ID` | No | - | Specific device ID for outbound messages (required for multi-device setups) |
+| `CHATWOOT_IMPORT_MESSAGES` | No | `false` | Enable message history sync to Chatwoot |
+| `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES` | No | `3` | Number of days of history to import |
 
 ### Configuration Examples
 
@@ -42,6 +44,10 @@ CHATWOOT_API_TOKEN=your_api_token_here
 CHATWOOT_ACCOUNT_ID=12345
 CHATWOOT_INBOX_ID=67890
 CHATWOOT_DEVICE_ID=my-whatsapp-device
+
+# Optional: History sync settings
+CHATWOOT_IMPORT_MESSAGES=true
+CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7
 ```
 
 **CLI Flags:**
@@ -135,6 +141,64 @@ CHATWOOT_DEVICE_ID=my-support-device
 - If `CHATWOOT_DEVICE_ID` is **not set** and **multiple devices** exist, outbound messages will **fail**
 - If the specified device is not found or not connected, outbound messages will fail with a `DEVICE_NOT_AVAILABLE` error
 
+## Message History Sync
+
+The history sync feature allows you to import existing WhatsApp message history into Chatwoot. This is useful when you want to have context from past conversations when starting to use Chatwoot.
+
+### Enabling Auto-Sync
+
+To automatically sync history when a device connects:
+
+```bash
+CHATWOOT_IMPORT_MESSAGES=true
+CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7  # Sync last 7 days
+```
+
+### Manual Sync via API
+
+You can trigger a sync manually using the REST API:
+
+**Start Sync:**
+```bash
+curl -X POST "http://your-api:3000/chatwoot/sync" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "my-device-id",
+    "days_limit": 7,
+    "include_media": true,
+    "include_groups": true
+  }'
+```
+
+**Check Sync Status:**
+```bash
+curl "http://your-api:3000/chatwoot/sync/status?device_id=my-device-id"
+```
+
+### Sync Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `days_limit` | 3 | Number of days of history to import |
+| `include_media` | true | Download and sync media attachments |
+| `include_groups` | true | Include group chat messages |
+
+### How It Works
+
+1. **Reads stored messages** from the local chat storage database
+2. **Creates contacts** in Chatwoot for each chat participant
+3. **Creates conversations** for each chat
+4. **Imports messages** with timestamps, preserving chronological order
+5. **Downloads and attaches media** (if enabled and media is still available)
+
+### Notes
+
+- Messages are prefixed with their original timestamp for context: `[2024-01-15 14:30] Hello!`
+- Group messages include the sender name: `[2024-01-15 14:30] John: Hello!`
+- Media older than ~2 weeks may be unavailable on WhatsApp servers
+- The sync runs in the background and can be monitored via the status endpoint
+- Only one sync can run per device at a time
+
 ## Supported Features
 
 ### Incoming Messages (WhatsApp → Chatwoot)
@@ -149,6 +213,8 @@ CHATWOOT_DEVICE_ID=my-support-device
 | Stickers | ✅ | Displayed as image attachments |
 | Location | ✅ | Shown as text with coordinates |
 | Contacts | ✅ | vCard information preserved |
+
+**Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
 
 ### Outgoing Messages (Chatwoot → WhatsApp)
 
@@ -328,6 +394,7 @@ Expected response: `200 OK` or error with details
 - Consider network-level restrictions on the webhook endpoint
 - Monitor for unusual activity in Chatwoot logs
 - Use strong authentication for the WhatsApp API (`APP_BASIC_AUTH`)
+- **Note:** The `/chatwoot/webhook` endpoint is excluded from basic auth to allow Chatwoot to send webhooks without credentials. The `/chatwoot/sync` endpoints require authentication.
 
 ## API Reference
 

@@ -154,6 +154,7 @@ Fields commonly found inside the `payload` object:
 | `from_lid`  | string   | LID (Linked ID) of the sender if available                                    |
 | `from_name` | string   | Display name (pushname) of the sender                                         |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
+| `is_from_me` | boolean | Whether the message was sent by the current user                              |
 
 ## Message Events
 
@@ -170,6 +171,7 @@ Fields commonly found inside the `payload` object:
     "from_lid": "251556368777322@lid",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:30:00Z",
+    "is_from_me": false,
     "body": "Hello, how are you?"
   }
 }
@@ -187,6 +189,7 @@ Fields commonly found inside the `payload` object:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:35:00Z",
+    "is_from_me": false,
     "body": "I'm doing great, thanks!",
     "replied_to_id": "3EB0C127D7BACC83D6A1",
     "quoted_body": "Hello, how are you?"
@@ -206,6 +209,7 @@ Fields commonly found inside the `payload` object:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:40:00Z",
+    "is_from_me": false,
     "reaction": "👍",
     "reacted_message_id": "3EB0C127D7BACC83D6A1"
   }
@@ -802,6 +806,7 @@ Triggered when a message is deleted for the current user (DeleteForMe event).
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:13:30Z",
+    "is_from_me": true,
     "revoked_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
     "revoked_from_me": true,
     "revoked_chat": "628987654321@s.whatsapp.net"
@@ -823,6 +828,7 @@ When a message is edited, the webhook includes the original message ID to track 
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:14:19Z",
+    "is_from_me": false,
     "original_message_id": "94D13237B4D7F33EE4A63228BBD79EC0",
     "body": "Updated message text"
   }

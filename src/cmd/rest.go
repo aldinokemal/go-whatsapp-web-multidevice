@@ -76,6 +76,20 @@ func restServer(_ *cobra.Command, _ []string) {
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
+	// Device manager - needed for chatwoot webhook
+	dm := whatsapp.GetDeviceManager()
+
+	// Chatwoot webhook - registered BEFORE basic auth middleware
+	// This allows Chatwoot to send webhooks without authentication
+	if config.ChatwootEnabled {
+		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm, chatStorageRepo)
+		webhookPath := "/chatwoot/webhook"
+		if config.AppBasePath != "" {
+			webhookPath = config.AppBasePath + webhookPath
+		}
+		app.Post(webhookPath, chatwootHandler.HandleWebhook)
+	}
+
 	if len(config.AppBasicAuthCredential) > 0 {
 		account := make(map[string]string)
 		for _, basicAuth := range config.AppBasicAuthCredential {
@@ -97,9 +111,6 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup = app.Group(config.AppBasePath)
 	}
 
-	// Device manager aware routing
-	dm := whatsapp.GetDeviceManager()
-
 	registerDeviceScopedRoutes := func(r fiber.Router) {
 		rest.InitRestApp(r, appUsecase)
 		rest.InitRestChat(r, chatUsecase)
@@ -118,10 +129,11 @@ func restServer(_ *cobra.Command, _ []string) {
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
 
-	// Chatwoot webhook - handles device resolution internally (not device-scoped)
+	// Chatwoot sync routes - require authentication (webhook is registered earlier without auth)
 	if config.ChatwootEnabled {
-		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm)
-		apiGroup.Post("/chatwoot/webhook", chatwootHandler.HandleWebhook)
+		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm, chatStorageRepo)
+		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
+		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
 	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
