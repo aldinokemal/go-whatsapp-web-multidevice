@@ -14,6 +14,8 @@ type Message struct {
 func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Message {
 	rest := Message{Service: service}
 
+	// Message retrieval endpoints
+	app.Get("/message/:message_id", rest.GetMessage)
 	// Message action endpoints
 	app.Post("/message/:message_id/reaction", rest.ReactMessage)
 	app.Post("/message/:message_id/revoke", rest.RevokeMessage)
@@ -24,6 +26,26 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Me
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
 	app.Get("/message/:message_id/download", rest.DownloadMedia)
 	return rest
+}
+
+func (controller *Message) GetMessage(c *fiber.Ctx) error {
+	var request domainMessage.GetMessageRequest
+
+	request.MessageID = c.Params("message_id")
+	request.Phone = c.Query("phone")
+	if request.Phone != "" {
+		utils.SanitizePhone(&request.Phone)
+	}
+
+	response, err := controller.Service.GetMessage(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get message",
+		Results: response,
+	})
 }
 
 func (controller *Message) RevokeMessage(c *fiber.Ctx) error {
