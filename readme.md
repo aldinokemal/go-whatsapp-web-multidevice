@@ -99,6 +99,8 @@ Download:
   - `--auto-mark-read=true` (automatically marks incoming messages as read)
 - Auto download media from incoming messages
   - `--auto-download-media=false` (disable automatic media downloads, default: `true`)
+- Auto reject incoming calls
+  - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see [Webhook Payload](./docs/webhook-payload.md#call-events) for call events)
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
