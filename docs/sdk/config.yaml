@@ -8,6 +8,10 @@ withInterfaces: true
 # sdk-go Configs
 packageName: "SdkWhatsappWebMultiDevice"
 
+# sdk-php Configs
+composerPackageName: "SdkWhatsappWebMultiDevice"
+invokerPackage: "SdkWhatsappWebMultiDevice"
+
 # sdk-python Configs
 pythonPackageName: "gowa"
 pythonRepository: "https://github.com/ilanbenb/gowa-python"
