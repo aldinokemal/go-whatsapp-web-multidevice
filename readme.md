@@ -208,7 +208,6 @@ To use environment variables:
 | `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (multi-device setup)          | -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
 | `CHATWOOT_IMPORT_MESSAGES`              | Enable message history sync to Chatwoot                       | `false`                                      | `CHATWOOT_IMPORT_MESSAGES=true`               |
 | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES`   | Days of history to import                                     | `3`                                          | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7`       |
-| `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING`     | Include outgoing messages in webhook notifications            | `false`                                      | `WHATSAPP_WEBHOOK_INCLUDE_OUTGOING=true`      |
 
 **Documentation:**
 

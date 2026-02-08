@@ -81,6 +81,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	// Common fields for all message types
 	payload["id"] = evt.Info.ID
 	payload["timestamp"] = evt.Info.Timestamp.Format(time.RFC3339)
+	payload["is_from_me"] = evt.Info.IsFromMe
 
 	// Build from/from_lid fields
 	buildFromFields(ctx, client, evt, payload)
@@ -143,16 +144,18 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 }
 
 func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
-	// Always set chat_id from evt.Info.Chat (works for both private and group)
-	payload["chat_id"] = evt.Info.Chat.ToNonAD().String()
+	chatJID := evt.Info.Chat.ToNonAD()
+	if chatJID.Server == "lid" {
+		payload["chat_lid"] = chatJID.String()
+		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
+	}
+	payload["chat_id"] = chatJID.String()
 
-	// Try to get from_lid from sender
 	senderJID := evt.Info.Sender
 	if senderJID.Server == "lid" {
 		payload["from_lid"] = senderJID.ToNonAD().String()
 	}
 
-	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
 }

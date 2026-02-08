@@ -31,6 +31,12 @@ type Client struct {
 var (
 	defaultClient     *Client
 	defaultClientOnce sync.Once
+
+	// sentMessageIDs tracks Chatwoot message IDs created by our API to prevent
+	// echo loops: WhatsApp msg → synced to Chatwoot → Chatwoot webhook fires →
+	// would re-send to WhatsApp without this guard.
+	sentMessageIDs    sync.Map
+	sentMessageIDsTTL = 5 * time.Minute
 )
 
 // GetDefaultClient returns a shared Chatwoot client instance.
@@ -40,6 +46,47 @@ func GetDefaultClient() *Client {
 		defaultClient = NewClient()
 	})
 	return defaultClient
+}
+
+func MarkMessageAsSent(messageID int) {
+	if messageID == 0 {
+		return
+	}
+	sentMessageIDs.Store(messageID, time.Now())
+}
+
+func IsMessageSentByUs(messageID int) bool {
+	if messageID == 0 {
+		return false
+	}
+	val, ok := sentMessageIDs.Load(messageID)
+	if !ok {
+		return false
+	}
+	storedAt := val.(time.Time)
+	if time.Since(storedAt) > sentMessageIDsTTL {
+		sentMessageIDs.Delete(messageID)
+		return false
+	}
+	// Don't delete on check — Chatwoot may fire multiple webhook events
+	// (e.g. message_created + conversation_updated) for the same message.
+	// Entries are cleaned up by the background sweeper after TTL expires.
+	return true
+}
+
+func init() {
+	go func() {
+		ticker := time.NewTicker(sentMessageIDsTTL)
+		defer ticker.Stop()
+		for range ticker.C {
+			sentMessageIDs.Range(func(key, value interface{}) bool {
+				if time.Since(value.(time.Time)) > sentMessageIDsTTL {
+					sentMessageIDs.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
 }
 
 func NewClient() *Client {
@@ -402,7 +449,7 @@ func (c *Client) FindOrCreateConversation(contactID int) (*Conversation, error) 
 	return c.CreateConversation(contactID)
 }
 
-func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string) error {
+func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string) (int, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages", c.BaseURL, c.AccountID, conversationID)
 
 	if len(attachments) > 0 {
@@ -417,11 +464,11 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal message payload: %w", err)
+		return 0, fmt.Errorf("failed to marshal message payload: %w", err)
 	}
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -429,19 +476,27 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to create message: status %d body %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("failed to create message: status %d body %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	return nil
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && result.ID != 0 {
+		return result.ID, nil
+	}
+
+	return 0, nil
 }
 
-func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string) error {
+func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string) (int, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -460,17 +515,14 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 			}
 			defer file.Close()
 
-			// Get file name from path
 			fileName := filepath.Base(fp)
 
-			// Detect MIME type from file extension
 			mimeType := mime.TypeByExtension(filepath.Ext(fp))
 			if mimeType == "" {
 				mimeType = "application/octet-stream"
 			}
 
-			// Create a custom form part with correct Content-Type header
-			// This is needed for Chatwoot to render images inline instead of as file attachments
+			// Custom form part with correct Content-Type for Chatwoot to render images inline
 			h := make(textproto.MIMEHeader)
 			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, fileName))
 			h.Set("Content-Type", mimeType)
@@ -488,7 +540,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 
 	req, err := http.NewRequest("POST", endpoint, body)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -496,14 +548,22 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to create message with attachments: status %d body %s", resp.StatusCode, string(respBody))
+		return 0, fmt.Errorf("failed to create message with attachments: status %d body %s", resp.StatusCode, string(respBody))
 	}
 
-	return nil
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(respBody, &result); err == nil && result.ID != 0 {
+		return result.ID, nil
+	}
+
+	return 0, nil
 }

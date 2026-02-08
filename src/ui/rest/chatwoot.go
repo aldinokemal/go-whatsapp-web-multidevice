@@ -75,6 +75,11 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
+	if chatwoot.IsMessageSentByUs(payload.ID) {
+		logrus.Debugf("Chatwoot Webhook: Skipping echo message %d (created by our API)", payload.ID)
+		return c.SendStatus(fiber.StatusOK)
+	}
+
 	customAttrs := contact.CustomAttributes
 	var destination string
 	if val, ok := customAttrs["waha_whatsapp_jid"]; ok {

@@ -214,6 +214,8 @@ curl "http://your-api:3000/chatwoot/sync/status?device_id=my-device-id"
 | Location | ✅ | Shown as text with coordinates |
 | Contacts | ✅ | vCard information preserved |
 
+**Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
+
 ### Outgoing Messages (Chatwoot → WhatsApp)
 
 | Message Type | Supported | Notes |

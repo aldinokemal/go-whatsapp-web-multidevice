@@ -33,7 +33,6 @@ var (
 	WhatsappWebhookSecret             = "secret"
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
-	WhatsappWebhookIncludeOutgoing             = false // Include outgoing messages (sent from phone) in webhook notifications
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
 	WhatsappLogLevel                           = "ERROR"
 	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB

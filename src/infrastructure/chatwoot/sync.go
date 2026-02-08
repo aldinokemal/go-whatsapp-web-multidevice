@@ -256,10 +256,10 @@ func (s *SyncService) syncMessage(
 		}
 	}
 
-	// Send to Chatwoot
-	err := s.client.CreateMessage(conversationID, content, messageType, attachments)
+	// Send to Chatwoot and register the returned ID in the dedup cache so the
+	// resulting webhook event is recognized as "ours" and not forwarded back to WhatsApp.
+	msgID, err := s.client.CreateMessage(conversationID, content, messageType, attachments)
 
-	// Clean up temp files immediately after sending
 	for _, fp := range attachments {
 		if err := os.Remove(fp); err != nil {
 			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", fp, err)
@@ -269,6 +269,8 @@ func (s *SyncService) syncMessage(
 	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
+
+	MarkMessageAsSent(msgID)
 
 	return nil
 }
