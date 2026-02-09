@@ -1316,7 +1316,15 @@ func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []s
 			continue
 		}
 
-		// Regular phone number mention
+		// If already a JID (contains @), parse directly without validation
+		if strings.Contains(mention, "@") {
+			if jid, err := utils.ParseJID(mention); err == nil {
+				result = append(result, jid.String())
+			}
+			continue
+		}
+
+		// Regular phone number mention - validate with WhatsApp check
 		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
