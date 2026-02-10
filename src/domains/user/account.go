@@ -26,7 +26,9 @@ type InfoResponseData struct {
 }
 
 type InfoResponse struct {
-	Data []InfoResponseData `json:"data"`
+	Data          []InfoResponseData `json:"data"`
+	ResolvedPhone string             `json:"resolved_phone,omitempty"`
+	ResolvedLID   string             `json:"resolved_lid,omitempty"`
 }
 
 type AvatarRequest struct {
