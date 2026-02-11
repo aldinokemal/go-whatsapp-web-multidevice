@@ -145,6 +145,14 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("whatsapp_presence_on_connect") {
 		config.WhatsappPresenceOnConnect = viper.GetString("whatsapp_presence_on_connect")
+		// Validate the value and warn if invalid
+		switch config.WhatsappPresenceOnConnect {
+		case "available", "unavailable", "none":
+			// valid values
+		default:
+			logrus.Warnf("Invalid whatsapp_presence_on_connect value %q, falling back to \"available\"", config.WhatsappPresenceOnConnect)
+			config.WhatsappPresenceOnConnect = "available"
+		}
 	}
 
 	// Chatwoot settings

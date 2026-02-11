@@ -193,28 +193,27 @@ func sendConfiguredPresence(client *whatsmeow.Client) {
 		return
 	}
 
-	switch config.WhatsappPresenceOnConnect {
+	presenceString := config.WhatsappPresenceOnConnect
+	var presenceType types.Presence
+
+	switch presenceString {
 	case "available":
-		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-			log.Warnf("Failed to send available presence: %v", err)
-		} else {
-			log.Infof("Marked self as available")
-		}
+		presenceType = types.PresenceAvailable
 	case "unavailable":
-		if err := client.SendPresence(context.Background(), types.PresenceUnavailable); err != nil {
-			log.Warnf("Failed to send unavailable presence: %v", err)
-		} else {
-			log.Infof("Marked self as unavailable")
-		}
+		presenceType = types.PresenceUnavailable
 	case "none":
 		log.Infof("Skipping presence send (configured as 'none')")
+		return
 	default:
 		// Fallback to available for backward compatibility
-		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-			log.Warnf("Failed to send available presence: %v", err)
-		} else {
-			log.Infof("Marked self as available")
-		}
+		presenceString = "available"
+		presenceType = types.PresenceAvailable
+	}
+
+	if err := client.SendPresence(context.Background(), presenceType); err != nil {
+		log.Warnf("Failed to send %s presence: %v", presenceString, err)
+	} else {
+		log.Infof("Marked self as %s", presenceString)
 	}
 }
 
