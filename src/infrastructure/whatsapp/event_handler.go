@@ -111,11 +111,7 @@ func handleAppStateSyncComplete(_ context.Context, client *whatsmeow.Client, evt
 		return
 	}
 	if len(client.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-			log.Warnf("Failed to send available presence: %v", err)
-		} else {
-			log.Infof("Marked self as available")
-		}
+		sendConfiguredPresence(client)
 	}
 }
 
@@ -181,17 +177,45 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 		return
 	}
 
-	// Send presence available when connecting and when the pushname is changed.
+	// Send presence based on configuration when connecting and when the pushname is changed.
 	// This makes sure that outgoing messages always have the right pushname.
-	if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-		log.Warnf("Failed to send available presence: %v", err)
-	} else {
-		log.Infof("Marked self as available")
-	}
+	sendConfiguredPresence(client)
 }
 
 func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
+}
+
+// sendConfiguredPresence sends presence based on config.WhatsappPresenceOnConnect
+// Available options: "available" (default, backward compatible), "unavailable", "none" (skip)
+func sendConfiguredPresence(client *whatsmeow.Client) {
+	if client == nil {
+		return
+	}
+
+	switch config.WhatsappPresenceOnConnect {
+	case "available":
+		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+			log.Warnf("Failed to send available presence: %v", err)
+		} else {
+			log.Infof("Marked self as available")
+		}
+	case "unavailable":
+		if err := client.SendPresence(context.Background(), types.PresenceUnavailable); err != nil {
+			log.Warnf("Failed to send unavailable presence: %v", err)
+		} else {
+			log.Infof("Marked self as unavailable")
+		}
+	case "none":
+		log.Infof("Skipping presence send (configured as 'none')")
+	default:
+		// Fallback to available for backward compatibility
+		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+			log.Warnf("Failed to send available presence: %v", err)
+		} else {
+			log.Infof("Marked self as available")
+		}
+	}
 }
 
 func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
