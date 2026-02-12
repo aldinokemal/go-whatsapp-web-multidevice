@@ -43,7 +43,7 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get user info",
-		Results: response.Data[0],
+		Results: response,
 	})
 }
 

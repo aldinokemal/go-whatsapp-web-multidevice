@@ -41,6 +41,7 @@ var (
 	WhatsappSettingMaxDownloadSize    int64    = 500000000 // 500MB
 	WhatsappTypeUser                           = "@s.whatsapp.net"
 	WhatsappTypeGroup                          = "@g.us"
+	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
