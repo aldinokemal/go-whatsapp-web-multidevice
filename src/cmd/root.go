@@ -143,6 +143,9 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_auto_reject_call") {
 		config.WhatsappAutoRejectCall = viper.GetBool("whatsapp_auto_reject_call")
 	}
+	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
+		config.WhatsappPresenceOnConnect = envPresenceOnConnect
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
@@ -287,6 +290,12 @@ func initFlags() {
 		"auto-reject-call", "",
 		config.WhatsappAutoRejectCall,
 		`auto reject incoming calls --auto-reject-call <true/false> | example: --auto-reject-call=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappPresenceOnConnect,
+		"presence-on-connect", "",
+		config.WhatsappPresenceOnConnect,
+		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
 	)
 
 	// Chatwoot flags

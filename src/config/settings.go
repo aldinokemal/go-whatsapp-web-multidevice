@@ -43,6 +43,7 @@ var (
 	WhatsappTypeGroup                          = "@g.us"
 	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
+	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
