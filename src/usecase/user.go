@@ -44,6 +44,23 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 		return response, err
 	}
 
+	// Parse original input to check if it was a LID
+	originalJID, _ := utils.ParseJID(request.Phone)
+	wasLID := originalJID.Server == "lid"
+
+	// If input was LID and resolved to phone, include resolved phone
+	if wasLID && dataWaRecipient.Server == types.DefaultUserServer {
+		response.ResolvedPhone = dataWaRecipient.User
+	}
+
+	// If input was phone number, try to get corresponding LID
+	if dataWaRecipient.Server == types.DefaultUserServer {
+		lid := utils.ResolvePhoneToLID(ctx, dataWaRecipient, client)
+		if !lid.IsEmpty() {
+			response.ResolvedLID = lid.String()
+		}
+	}
+
 	jids = append(jids, dataWaRecipient)
 	resp, err := client.GetUserInfo(ctx, jids)
 	if err != nil {

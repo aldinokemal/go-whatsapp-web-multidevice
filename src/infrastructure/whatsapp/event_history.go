@@ -169,11 +169,12 @@ func createMessagePayloadFromHistory(ctx context.Context, evt *waWeb.WebMessageI
 			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 				body["edited_id"] = protocolMessage.Key.ID
 
-				if caption := extractCaption(editedMessage); caption != "" {
-					body["edited_caption"] = caption
-				} else if text := extractText(editedMessage); text != "" {
-					body["edited_text"] = text
-				}
+				// histórico de mensagem - mensagem editada
+				// if caption := extractCaption(editedMessage); caption != "" {
+				// 	body["edited_caption"] = caption
+				// } else if text := extractText(editedMessage); text != "" {
+				// 	body["edited_text"] = text
+				// }
 			}
 		}
 	}

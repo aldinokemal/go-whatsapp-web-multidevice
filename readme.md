@@ -99,6 +99,13 @@ Download:
   - `--auto-mark-read=true` (automatically marks incoming messages as read)
 - Auto download media from incoming messages
   - `--auto-download-media=false` (disable automatic media downloads, default: `true`)
+- Auto reject incoming calls
+  - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see [Webhook Payload](./docs/webhook-payload.md#call-events) for call events)
+- Configurable presence on connect
+  - `--presence-on-connect=unavailable` or `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`
+  - `available` — mark as online (suppresses phone notifications)
+  - `unavailable` — register pushname without going online (default, preserves phone notifications)
+  - `none` — skip presence entirely (pushname won't be registered, contacts may see "-" as name)
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
@@ -127,6 +134,12 @@ Download:
   | `message.ack`        | Delivery and read receipts                    |
   | `message.deleted`    | Messages deleted for the user                 |
   | `group.participants` | Group member join/leave/promote/demote events |
+  | `group.joined`       | You were added to a group                     |
+  | `newsletter.joined`  | You subscribed to a newsletter/channel        |
+  | `newsletter.left`    | You unsubscribed from a newsletter            |
+  | `newsletter.message` | New message(s) posted in a newsletter         |
+  | `newsletter.mute`    | Newsletter mute setting changed               |
+  | `call.offer`         | Incoming call received                        |
 
   If not configured (empty), all events will be forwarded.
 - **Webhook TLS Configuration**
@@ -194,11 +207,20 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
+| `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
 | `CHATWOOT_ENABLED`                      | Enable Chatwoot integration                                   | `false`                                      | `CHATWOOT_ENABLED=true`                       |
 | `CHATWOOT_URL`                          | Chatwoot instance URL                                         | -                                            | `CHATWOOT_URL=https://app.chatwoot.com`       |
 | `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
 | `CHATWOOT_ACCOUNT_ID`                   | Chatwoot account ID                                           | -                                            | `CHATWOOT_ACCOUNT_ID=12345`                   |
 | `CHATWOOT_INBOX_ID`                     | Chatwoot inbox ID                                             | -                                            | `CHATWOOT_INBOX_ID=67890`                     |
+| `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (multi-device setup)          | -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
+| `CHATWOOT_IMPORT_MESSAGES`              | Enable message history sync to Chatwoot                       | `false`                                      | `CHATWOOT_IMPORT_MESSAGES=true`               |
+| `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES`   | Days of history to import                                     | `3`                                          | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7`       |
+
+**Documentation:**
+
+- For detailed webhook payload schemas, security implementation, and integration examples, see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- For comprehensive Chatwoot integration guide, see [Chatwoot Integration Documentation](./docs/chatwoot.md)
 
 Note: Command-line flags will override any values set in environment variables or `.env` file.
 
@@ -564,6 +586,7 @@ You can fork or edit this source code !
 ```
 
 **Notes:**
+
 - `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
 
 ## User Interface

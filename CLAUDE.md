@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -53,8 +53,23 @@ This is a Go-based WhatsApp Web API server supporting both REST API and MCP (Mod
 ### Database
 
 - **Main DB**: WhatsApp connection data (SQLite by default, supports PostgreSQL)
-- **Chat Storage**: Separate SQLite database for chat history (`storages/chatstorage.db`)
+- **Chat Storage**: Separate SQLite database for chat history (`storages/chatstorage.db`), enabled via `WHATSAPP_CHAT_STORAGE=true`
+- **Keys DB**: In-memory SQLite for encryption keys (`DB_KEYS_URI`)
 - **Database URIs**: Configurable via `DB_URI` and `DB_KEYS_URI` environment variables
+
+### Device ID vs JID (Critical)
+
+The system has two distinct identifiers for devices that must not be confused:
+
+- **Device ID** (`devices.device_id`): User-assigned alias (e.g. `"busine"`) or auto-generated UUID. Used as the key in `DeviceManager.devices` map and returned by `DeviceInstance.ID()`. This is what `ResolveDevice()` returns as `resolvedID`.
+- **JID** (`devices.jid`): Full WhatsApp JID (e.g. `"6289605618749@s.whatsapp.net"`). Derived from `client.Store.ID.ToNonAD().String()` and returned by `DeviceInstance.JID()`.
+
+**The `chats` and `messages` tables store `device_id` as the JID**, not the user-assigned alias. When querying chat storage, always use `DeviceInstance.JID()` (falling back to `ID()` if JID is empty). The `deviceChatStorage` wrapper handles this automatically via `newDeviceChatStorage(storageDeviceID, ...)` where `storageDeviceID` is resolved to the JID in `loadFromRegistry()` and `ensureInstance()`.
+
+Key files for device management:
+- `src/infrastructure/whatsapp/device_instance.go` - `DeviceInstance` struct with `ID()` and `JID()` methods
+- `src/infrastructure/whatsapp/device_manager.go` - `DeviceManager` and `ResolveDevice()` logic
+- `src/infrastructure/whatsapp/chatstorage_wrapper.go` - `deviceChatStorage` wrapper that handles JID resolution
 
 ### Mode-Specific Architecture
 
@@ -78,6 +93,7 @@ This is a Go-based WhatsApp Web API server supporting both REST API and MCP (Mod
 
 ## Important Notes
 
+- **Go 1.25.0 or higher** required (see `src/go.mod`)
 - Supports multiple WhatsApp device connections in a single server instance
 - The application cannot run both REST and MCP modes simultaneously (limitation from whatsmeow library)
 - All source code must be in the `src/` directory

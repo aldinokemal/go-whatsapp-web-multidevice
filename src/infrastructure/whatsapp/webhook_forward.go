@@ -129,6 +129,7 @@ type chatwootContactInfo struct {
 	Name       string
 	IsGroup    bool
 	FromName   string
+	IsFromMe   bool
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -138,8 +139,9 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]interface{}
 	from, _ := data["from"].(string)
 	fromName, _ := data["from_name"].(string)
 	chatID, _ := data["chat_id"].(string)
+	isFromMe, _ := data["is_from_me"].(bool)
 
-	logrus.Infof("Chatwoot: Processing message from %s (from_name: %s, chat_id: %s)", from, fromName, chatID)
+	logrus.Infof("Chatwoot: Processing message from %s (from_name: %s, chat_id: %s, is_from_me: %v)", from, fromName, chatID, isFromMe)
 
 	if from == "" {
 		return nil, fmt.Errorf("empty 'from' field")
@@ -158,6 +160,9 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]interface{}
 			info.Name = "Group: " + utils.ExtractPhoneFromJID(chatID)
 		}
 		logrus.Infof("Chatwoot: Detected group message, using group contact: %s", info.Name)
+	} else if isFromMe {
+		info.Identifier = utils.ExtractPhoneFromJID(chatID)
+		info.Name = info.Identifier
 	} else {
 		info.Identifier = utils.ExtractPhoneFromJID(from)
 		info.Name = fromName
@@ -174,6 +179,10 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]interface{}
 func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, fromName string) (content string, attachments []string) {
 	if body, ok := data["body"].(string); ok && body != "" {
 		content = body
+	}
+
+	if content == "" {
+		content = extractStructuredMessageContent(data)
 	}
 
 	// For group messages, prepend sender name to content
@@ -206,6 +215,93 @@ func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, from
 	return content, attachments
 }
 
+func chatwootMessageTypeFromPayload(data map[string]interface{}) string {
+	if isFromMe, ok := data["is_from_me"].(bool); ok && isFromMe {
+		return "outgoing"
+	}
+	return "incoming"
+}
+
+func extractStructuredMessageContent(data map[string]interface{}) string {
+	if contact, ok := data["contact"]; ok && contact != nil {
+		if cm, ok := contact.(interface {
+			GetDisplayName() string
+			GetVcard() string
+		}); ok {
+			name := cm.GetDisplayName()
+			phone := extractPhoneFromVCard(cm.GetVcard())
+			switch {
+			case name != "" && phone != "":
+				return fmt.Sprintf("Contact: %s (%s)", name, phone)
+			case name != "":
+				return "Contact: " + name
+			case phone != "":
+				return "Contact: " + phone
+			}
+		}
+		return "Contact shared"
+	}
+
+	if location, ok := data["location"]; ok && location != nil {
+		if lm, ok := location.(interface {
+			GetDegreesLatitude() float64
+			GetDegreesLongitude() float64
+			GetName() string
+		}); ok {
+			name := lm.GetName()
+			if name != "" {
+				return fmt.Sprintf("Location: %s (%.6f, %.6f)", name, lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+			}
+			return fmt.Sprintf("Location: %.6f, %.6f", lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+		}
+		return "Location shared"
+	}
+
+	if liveLocation, ok := data["live_location"]; ok && liveLocation != nil {
+		if lm, ok := liveLocation.(interface {
+			GetDegreesLatitude() float64
+			GetDegreesLongitude() float64
+		}); ok {
+			return fmt.Sprintf("Live Location: %.6f, %.6f", lm.GetDegreesLatitude(), lm.GetDegreesLongitude())
+		}
+		return "Live location shared"
+	}
+
+	if list, ok := data["list"]; ok && list != nil {
+		if lm, ok := list.(interface{ GetTitle() string }); ok {
+			title := lm.GetTitle()
+			if title != "" {
+				return "List: " + title
+			}
+		}
+		return "List message"
+	}
+
+	if order, ok := data["order"]; ok && order != nil {
+		if om, ok := order.(interface{ GetOrderTitle() string }); ok {
+			title := om.GetOrderTitle()
+			if title != "" {
+				return "Order: " + title
+			}
+		}
+		return "Order message"
+	}
+
+	return ""
+}
+
+func extractPhoneFromVCard(vcard string) string {
+	for _, line := range strings.Split(vcard, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
+}
+
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
 func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string) error {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
@@ -227,9 +323,15 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
 
 	logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(content), len(attachments))
-	if err := cw.CreateMessage(conversation.ID, content, "incoming", attachments); err != nil {
+	messageType := "incoming"
+	if info.IsFromMe {
+		messageType = "outgoing"
+	}
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments)
+	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
+	chatwoot.MarkMessageAsSent(msgID)
 
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
 	return nil
@@ -258,6 +360,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any) {
 
 	// Build message content
 	content, attachments := buildChatwootMessageContent(data, info.IsGroup, info.FromName)
+	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
