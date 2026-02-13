@@ -314,26 +314,33 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 
 	// Align audio MIME validation with the one used for uploaded files to ensure consistency with WhatsApp requirements.
 	allowedMimes := map[string]bool{
-		"audio/aac":      true,
-		"audio/amr":      true,
-		"audio/flac":     true,
-		"audio/m4a":      true,
-		"audio/m4r":      true,
-		"audio/mp3":      true,
-		"audio/mpeg":     true,
-		"audio/ogg":      true,
-		"audio/wma":      true,
-		"audio/x-ms-wma": true,
-		"audio/wav":      true,
-		"audio/vnd.wav":  true,
-		"audio/vnd.wave": true,
-		"audio/wave":     true,
-		"audio/x-pn-wav": true,
-		"audio/x-wav":    true,
+		"audio/aac":          true,
+		"audio/amr":          true,
+		"audio/flac":         true,
+		"audio/m4a":          true,
+		"audio/m4r":          true,
+		"audio/mp3":          true,
+		"audio/mpeg":         true,
+		"audio/ogg":          true,
+		"audio/wma":          true,
+		"audio/x-ms-wma":     true,
+		"audio/wav":          true,
+		"audio/vnd.wav":      true,
+		"audio/vnd.wave":     true,
+		"audio/wave":         true,
+		"audio/x-pn-wav":     true,
+		"audio/x-wav":        true,
+		"video/mp4":          true, // Sometimes audio is served as mp4
+		"application/ogg":    true, // Ogg audio
+		"application/x-mpeg": true,
+		"audio/webm":         true, // WebM audio
+		"video/webm":         true, // WebM audio/video
+		"audio/mp4":          true,
 	}
 
+	// If content type is generic or not in list, just warn but allow download (let WhatsApp reject if invalid)
 	if !allowedMimes[contentType] {
-		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
+		logrus.Warnf("DownloadAudioFromURL: unexpected content type '%s', proceeding anyway", contentType)
 	}
 
 	// Validate content length when it is provided by the server.
@@ -484,4 +491,59 @@ func UniqueStrings(input []string) []string {
 		}
 	}
 	return result
+}
+
+// DownloadFileFromURL downloads a file from the provided URL and returns the bytes and sanitized filename.
+// It enforces max file size limit.
+func DownloadFileFromURL(fileURL string) ([]byte, string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Get(fileURL)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	// Validate content length when it is provided by the server.
+	maxSize := config.WhatsappSettingMaxFileSize
+	if resp.ContentLength > 0 && resp.ContentLength > maxSize {
+		return nil, "", fmt.Errorf("file size %d exceeds maximum allowed size %d", resp.ContentLength, maxSize)
+	}
+
+	// Limit reader
+	limit := maxSize
+	if limit < math.MaxInt64 {
+		limit++
+	}
+
+	limitedReader := &io.LimitedReader{R: resp.Body, N: limit}
+	fileData, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(fileData)) > maxSize {
+		return nil, "", fmt.Errorf("downloaded file size of %d bytes exceeds the maximum allowed size of %d bytes", len(fileData), maxSize)
+	}
+
+	// Derive filename from URL path
+	segments := strings.Split(fileURL, "/")
+	fileName := segments[len(segments)-1]
+	fileName = strings.Split(fileName, "?")[0]
+	if fileName == "" {
+		fileName = fmt.Sprintf("file_%d", time.Now().Unix())
+	}
+
+	return fileData, fileName, nil
 }

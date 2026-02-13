@@ -986,7 +986,17 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		audioDuration  uint32
 		tempAudioPath  string
 		deleteTempFile bool
+		deletedItems   []string
 	)
+
+	// Cleanup temporary files on exit
+	defer func() {
+		for _, path := range deletedItems {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to cleanup temporary audio file %s: %v", path, err)
+			}
+		}
+	}()
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
@@ -1029,6 +1039,86 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	var waveformData []byte
 	if request.PTT && tempAudioPath != "" {
 		waveformData = generateWaveform(tempAudioPath)
+	}
+
+	// If PTT is requested, convert audio to OGG Opus format for WhatsApp voice note compatibility
+	// WhatsApp clients require OGG Opus format for voice notes to play correctly
+	if request.PTT {
+		// Check if already OGG format - skip conversion
+		isAlreadyOgg := strings.HasPrefix(audioMimeType, "audio/ogg") ||
+			strings.HasPrefix(audioMimeType, "application/ogg")
+
+		if !isAlreadyOgg {
+			// Check if ffmpeg is installed
+			_, err := exec.LookPath("ffmpeg")
+			if err != nil {
+				return response, pkgError.InternalServerError("ffmpeg not installed (required for PTT voice notes)")
+			}
+
+			// Get absolute base directory for temporary files
+			absBaseDir, err := filepath.Abs(config.PathSendItems)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+			}
+
+			generateUUID := fiberUtils.UUIDv4()
+
+			// Save input audio to temporary file
+			inputPath := filepath.Join(absBaseDir, fmt.Sprintf("audio_input_%s", generateUUID))
+			if err := os.WriteFile(inputPath, audioBytes, 0644); err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to save audio for conversion: %v", err))
+			}
+			deletedItems = append(deletedItems, inputPath)
+
+			// Output path for converted OGG Opus file
+			outputPath := filepath.Join(absBaseDir, fmt.Sprintf("audio_ptt_%s.ogg", generateUUID))
+			deletedItems = append(deletedItems, outputPath)
+
+			// Convert to OGG Opus using ffmpeg
+			// Opus codec is required for WhatsApp voice notes
+			// -c:a libopus: Use Opus codec
+			// -b:a 64k: Bitrate (64kbps is good quality for voice)
+			// -vbr on: Variable bitrate for better quality
+			// -application voip: Optimize for voice
+			// -ar 48000: Sample rate (Opus requires 48kHz)
+			// -ac 1: Mono (WhatsApp voice notes are mono)
+			convCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+
+			cmdConvert := exec.CommandContext(convCtx, "ffmpeg",
+				"-i", inputPath,
+				"-c:a", "libopus",
+				"-b:a", "64k",
+				"-vbr", "on",
+				"-application", "voip",
+				"-ar", "48000",
+				"-ac", "1",
+				"-y", // Overwrite output if exists
+				outputPath,
+			)
+
+			var stderr bytes.Buffer
+			cmdConvert.Stderr = &stderr
+
+			if err := cmdConvert.Run(); err != nil {
+				logrus.Errorf("ffmpeg PTT conversion failed: %v, stderr: %s", err, stderr.String())
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert audio to OGG Opus for PTT: %v", err))
+			}
+
+			// Read converted audio
+			audioBytes, err = os.ReadFile(outputPath)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to read converted audio: %v", err))
+			}
+
+			// Update MIME type to OGG Opus
+			audioMimeType = "audio/ogg; codecs=opus"
+
+			logrus.Infof("Converted audio to OGG Opus for PTT: %d bytes", len(audioBytes))
+		} else {
+			// Already OGG format, ensure MIME type is correctly set
+			audioMimeType = "audio/ogg; codecs=opus"
+		}
 	}
 
 	// upload to WhatsApp servers

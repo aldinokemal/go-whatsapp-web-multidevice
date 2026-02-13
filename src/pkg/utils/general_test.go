@@ -461,10 +461,10 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.m4a", filename)
 
-	// Test invalid content type
-	_, _, err = utils.DownloadAudioFromURL(server.URL + "/invalid.mp3")
-	assert.Error(suite.T(), err)
-	assert.Contains(suite.T(), err.Error(), "invalid content type")
+	// Test invalid content type - should now warn but still proceed (changed behavior for Chatwoot compatibility)
+	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/invalid.mp3")
+	assert.NoError(suite.T(), err) // Now proceeds with warning instead of error
+	assert.NotEmpty(suite.T(), data)
 
 	// Test file too large by content length
 	_, _, err = utils.DownloadAudioFromURL(server.URL + "/large.mp3")

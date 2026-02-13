@@ -140,6 +140,15 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 	return response, nil
 }
 
+// MyListGroups returns all groups the user has joined.
+//
+// ⚠️ KNOWN LIMITATION: This endpoint returns a maximum of 500 groups due to a WhatsApp protocol limitation.
+// The underlying whatsmeow library's GetJoinedGroups() function sends a single "participating" IQ query
+// to WhatsApp servers, which enforces this limit server-side. This is not a bug - it's a constraint
+// imposed by WhatsApp's multi-device protocol. Pagination is not supported by WhatsApp for this query.
+//
+// For more details, see: https://github.com/tulir/whatsmeow/blob/main/group.go
+// Related issue: https://github.com/aldinokemal/go-whatsapp-web-multidevice/issues/553
 func (service serviceUser) MyListGroups(ctx context.Context) (response domainUser.MyListGroupsResponse, err error) {
 	client := whatsapp.ClientFromContext(ctx)
 	if client == nil {
