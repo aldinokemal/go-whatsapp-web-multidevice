@@ -375,22 +375,14 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
-	var (
-		fileBytes []byte
-		fileName  string
-	)
+	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
+	var fileMimeType string
 
-	if request.FileURL != nil && *request.FileURL != "" {
-		fileBytes, fileName, err = utils.DownloadFileFromURL(*request.FileURL)
-		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download file from URL: %v", err))
-		}
-	} else if request.File != nil {
-		fileBytes = helpers.MultipartFormFileHeaderToBytes(request.File)
-		fileName = request.File.Filename
+	if request.Mimetype != nil {
+		fileMimeType = *request.Mimetype
+	} else {
+		fileMimeType = resolveDocumentMIME(request.File.Filename, fileBytes)
 	}
-
-	fileMimeType := resolveDocumentMIME(fileName, fileBytes)
 
 	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
@@ -402,11 +394,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
 		URL:           proto.String(uploadedFile.URL),
 		Mimetype:      proto.String(fileMimeType),
-		Title:         proto.String(fileName),
+		Title:         proto.String(request.File.Filename),
 		FileSHA256:    uploadedFile.FileSHA256,
 		FileLength:    proto.Uint64(uploadedFile.FileLength),
 		MediaKey:      uploadedFile.MediaKey,
-		FileName:      proto.String(fileName),
+		FileName:      proto.String(request.File.Filename),
 		FileEncSHA256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),

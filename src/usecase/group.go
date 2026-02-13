@@ -345,7 +345,9 @@ func (service serviceGroup) participantToJID(ctx context.Context, participants [
 	for _, participant := range participants {
 		formattedParticipant := participant + config.WhatsappTypeUser
 
-		if !utils.IsOnWhatsapp(client, formattedParticipant) {
+		onWhatsApp, _ := utils.IsOnWhatsapp(client, formattedParticipant)
+
+		if !onWhatsApp {
 			return nil, pkgError.ErrUserNotRegistered
 		}
 

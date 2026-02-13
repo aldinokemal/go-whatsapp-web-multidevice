@@ -16,3 +16,5 @@ bin
 .vscode/settings.json
 src/whatsapp
 .worktrees/
+build-publish.sh
+src/build-run.sh

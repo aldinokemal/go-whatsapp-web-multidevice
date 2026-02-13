@@ -246,6 +246,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 			payload["document"] = map[string]any{
 				"url":      documentMedia.GetURL(),
 				"filename": documentMedia.GetFileName(),
+				"caption":  documentMedia.GetCaption(),
 			}
 		}
 	}
@@ -321,6 +322,10 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 		payload["contact"] = contactMessage
 	}
 
+	if contactsMessage := msg.GetContactsArrayMessage(); contactsMessage != nil {
+		payload["contact_list"] = contactsMessage
+	}
+
 	if listMessage := msg.GetListMessage(); listMessage != nil {
 		payload["list"] = listMessage
 	}
@@ -335,5 +340,25 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 
 	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
+	}
+
+	if pollMessage := msg.GetPollCreationMessage(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := msg.GetPollCreationMessageV2(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := msg.GetPollCreationMessageV3(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := msg.GetPollCreationMessageV4(); pollMessage != nil {
+		payload["poll"] = pollMessage
+	}
+
+	if pollMessage := msg.GetPollCreationMessageV5(); pollMessage != nil {
+		payload["poll"] = pollMessage
 	}
 }

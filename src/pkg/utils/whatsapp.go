@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -545,6 +546,7 @@ type ExtractedMedia struct {
 	MediaPath string `json:"media_path"`
 	MimeType  string `json:"mime_type"`
 	Caption   string `json:"caption"`
+	Title     string `json:"title"`
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
@@ -581,6 +583,7 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		extractedMedia.Title = media.GetTitle()
 		originalFilename = media.GetFileName()
 	}
 
@@ -608,13 +611,13 @@ func SanitizePhone(phone *string) {
 }
 
 // IsOnWhatsapp checks if a number is registered on WhatsApp
-func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
+func IsOnWhatsapp(client *whatsmeow.Client, jid string) (bool, string) {
 	// only check if the jid is a user with @s.whatsapp.net
 	if strings.Contains(jid, "@s.whatsapp.net") {
 		// Extract phone number from JID and add + prefix for international format
 		phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
 		if phone == "" {
-			return false
+			return false, ""
 		}
 
 		// whatsmeow expects international format with + prefix
@@ -629,26 +632,25 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
 		data, err := client.IsOnWhatsApp(ctx, []string{phone})
 		if err != nil {
 			logrus.Error("Failed to check if user is on whatsapp: ", err)
-			return false
+			return false, jid
 		}
 
 		// Empty response means number not found/invalid
 		if len(data) == 0 {
-			return false
+			return false, jid
 		}
 
 		// Check if any result indicates the number is NOT on WhatsApp
 		for _, v := range data {
 			if !v.IsIn {
-				return false
+				return false, jid
 			}
 		}
 
-		return true
+		return true, data[0].JID.User + "@" + data[0].JID.Server
 	}
 
-	// For non-user JIDs (groups, newsletters), skip validation
-	return true
+	return true, jid
 }
 
 // ValidateJidWithLogin validates JID with login check
@@ -670,7 +672,8 @@ func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, erro
 		return parsedJID, nil
 	}
 
-	if config.WhatsappAccountValidation && !IsOnWhatsapp(client, jid) {
+	exists, jid := IsOnWhatsapp(client, jid)
+	if config.WhatsappAccountValidation && !exists {
 		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
 	}
 
@@ -842,6 +845,51 @@ func BuildForwarded(evt *events.Message) bool {
 	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
 		return extendedText.ContextInfo.GetIsForwarded()
 	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
+				return extendedText.ContextInfo.GetIsForwarded()
+			}
+		}
+	}
+	return false
+}
+
+// BuildEventHistoryMessage builds event history message structure
+func BuildEventHistoryMessage(evt *waWeb.WebMessageInfo) (message EvtMessage) {
+	message.Text = evt.Message.GetConversation()
+	message.ID = evt.GetKey().GetID()
+
+	if extendedMessage := evt.Message.GetExtendedTextMessage(); extendedMessage != nil {
+		message.Text = extendedMessage.GetText()
+		message.RepliedId = extendedMessage.ContextInfo.GetStanzaID()
+		message.QuotedMessage = extendedMessage.ContextInfo.GetQuotedMessage().GetConversation()
+	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
+				message.Text = extendedText.GetText()
+				message.RepliedId = extendedText.ContextInfo.GetStanzaID()
+				message.QuotedMessage = extendedText.ContextInfo.GetQuotedMessage().GetConversation()
+			}
+		}
+	}
+
+	return message
+}
+
+// BuildEventHistoryReaction builds event history reaction structure
+func BuildEventHistoryReaction(evt *waWeb.WebMessageInfo) (waReaction EvtReaction) {
+	if reactionMessage := evt.Message.GetReactionMessage(); reactionMessage != nil {
+		waReaction.Message = reactionMessage.GetText()
+		waReaction.ID = reactionMessage.GetKey().GetID()
+	}
+	return waReaction
+}
+
+// BuildEventHistoryForwarded checks if history message is forwarded
+func BuildEventHistoryForwarded(evt *waWeb.WebMessageInfo) bool {
+	if extendedText := evt.Message.GetExtendedTextMessage(); extendedText != nil {
+		return extendedText.ContextInfo.GetIsForwarded()
+	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
 		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
 				return extendedText.ContextInfo.GetIsForwarded()
