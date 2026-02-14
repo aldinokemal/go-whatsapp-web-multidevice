@@ -30,9 +30,12 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	chatStorageRepo := instance.GetChatStorage()
 	client := instance.GetClient()
 
+	sessionID := instance.ID()
+	deviceJID := instance.JID()
+
 	switch evt := rawEvt.(type) {
 	case *events.DeleteForMe:
-		handleDeleteForMe(ctx, evt, chatStorageRepo, instance.JID(), client)
+		handleDeleteForMe(ctx, evt, chatStorageRepo, sessionID, deviceJID, client)
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, client, evt)
 	case *events.PairSuccess:
@@ -44,9 +47,9 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.StreamReplaced:
 		handleStreamReplaced(ctx)
 	case *events.Message:
-		handleMessage(ctx, evt, chatStorageRepo, client)
+		handleMessage(ctx, evt, chatStorageRepo, sessionID, client)
 	case *events.Receipt:
-		handleReceipt(ctx, evt, instance.JID(), client)
+		handleReceipt(ctx, evt, sessionID, deviceJID, client)
 	case *events.Presence:
 		handlePresence(ctx, evt)
 	case *events.HistorySync:
@@ -54,25 +57,25 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.AppState:
 		handleAppState(ctx, evt)
 	case *events.GroupInfo:
-		handleGroupInfo(ctx, evt, instance.JID(), client)
+		handleGroupInfo(ctx, evt, sessionID, deviceJID, client)
 	case *events.JoinedGroup:
-		handleJoinedGroup(ctx, evt, instance.JID(), client)
+		handleJoinedGroup(ctx, evt, sessionID, deviceJID, client)
 	case *events.NewsletterJoin:
-		handleNewsletterJoin(ctx, evt, instance.JID(), client)
+		handleNewsletterJoin(ctx, evt, sessionID, deviceJID, client)
 	case *events.NewsletterLeave:
-		handleNewsletterLeave(ctx, evt, instance.JID(), client)
+		handleNewsletterLeave(ctx, evt, sessionID, deviceJID, client)
 	case *events.NewsletterLiveUpdate:
-		handleNewsletterLiveUpdate(ctx, evt, instance.JID(), client)
+		handleNewsletterLiveUpdate(ctx, evt, sessionID, deviceJID, client)
 	case *events.NewsletterMuteChange:
-		handleNewsletterMuteChange(ctx, evt, instance.JID(), client)
+		handleNewsletterMuteChange(ctx, evt, sessionID, deviceJID, client)
 	case *events.CallOffer:
-		handleCallOffer(ctx, evt, instance.JID(), client)
+		handleCallOffer(ctx, evt, sessionID, deviceJID, client)
 	}
 
 	instance.UpdateStateFromClient()
 }
 
-func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
+func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
 	// Find the message to get its chat JID
@@ -99,7 +102,7 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 		go func(c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardDeleteToWebhook(webhookCtx, evt, message, deviceID, c); err != nil {
+			if err := forwardDeleteToWebhook(webhookCtx, evt, message, sessionID, deviceID, c); err != nil {
 				log.Errorf("Failed to forward delete event to webhook: %v", err)
 			}
 		}(client)
@@ -210,7 +213,7 @@ func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
+func handleReceipt(ctx context.Context, evt *events.Receipt, sessionID string, deviceID string, client *whatsmeow.Client) {
 	sendReceipt := false
 	switch evt.Type {
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
@@ -227,7 +230,7 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 		go func(e *events.Receipt, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardReceiptToWebhook(webhookCtx, e, deviceID, c); err != nil {
+			if err := forwardReceiptToWebhook(webhookCtx, e, sessionID, deviceID, c); err != nil {
 				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
 			}
 		}(evt, client)
@@ -250,7 +253,7 @@ func handleAppState(_ context.Context, evt *events.AppState) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 }
 
-func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {
+func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, sessionID string, deviceID string, client *whatsmeow.Client) {
 	// Only process events that have actual changes
 	hasChanges := len(evt.Join) > 0 || len(evt.Leave) > 0 || len(evt.Promote) > 0 || len(evt.Demote) > 0 ||
 		evt.Name != nil || evt.Topic != nil || evt.Locked != nil || evt.Announce != nil
@@ -278,7 +281,7 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 		go func(e *events.GroupInfo, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardGroupInfoToWebhook(webhookCtx, e, deviceID, c); err != nil {
+			if err := forwardGroupInfoToWebhook(webhookCtx, e, sessionID, deviceID, c); err != nil {
 				logrus.Errorf("Failed to forward group info event to webhook: %v", err)
 			}
 		}(evt, client)

@@ -28,14 +28,15 @@ const (
 
 // WebhookEvent is the top-level structure for webhook payloads
 type WebhookEvent struct {
-	Event    string         `json:"event"`
-	DeviceID string         `json:"device_id"`
-	Payload  map[string]any `json:"payload"`
+	Event     string         `json:"event"`
+	DeviceID  string         `json:"device_id"`
+	SessionID string         `json:"session_id,omitempty"`
+	Payload   map[string]any `json:"payload"`
 }
 
 // forwardMessageToWebhook is a helper function to forward message event to webhook url
-func forwardMessageToWebhook(ctx context.Context, client *whatsmeow.Client, evt *events.Message) error {
-	webhookEvent, err := createWebhookEvent(ctx, client, evt)
+func forwardMessageToWebhook(ctx context.Context, client *whatsmeow.Client, evt *events.Message, sessionID string) error {
+	webhookEvent, err := createWebhookEvent(ctx, client, evt, sessionID)
 	if err != nil {
 		return err
 	}
@@ -45,14 +46,18 @@ func forwardMessageToWebhook(ctx context.Context, client *whatsmeow.Client, evt 
 		"device_id": webhookEvent.DeviceID,
 		"payload":   webhookEvent.Payload,
 	}
+	if webhookEvent.SessionID != "" {
+		payload["session_id"] = webhookEvent.SessionID
+	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, webhookEvent.Event)
 }
 
-func createWebhookEvent(ctx context.Context, client *whatsmeow.Client, evt *events.Message) (*WebhookEvent, error) {
+func createWebhookEvent(ctx context.Context, client *whatsmeow.Client, evt *events.Message, sessionID string) (*WebhookEvent, error) {
 	webhookEvent := &WebhookEvent{
-		Event:   EventTypeMessage,
-		Payload: make(map[string]any),
+		Event:     EventTypeMessage,
+		SessionID: sessionID,
+		Payload:   make(map[string]any),
 	}
 
 	// Set device_id
