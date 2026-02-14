@@ -258,6 +258,7 @@ func (service *serviceApp) FetchDevices(_ context.Context) (response []domainApp
 		response = append(response, domainApp.DevicesResponse{
 			Name:   name,
 			Device: inst.ID(),
+			JID:    inst.JID(),
 		})
 	}
 

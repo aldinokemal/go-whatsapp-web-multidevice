@@ -13,7 +13,7 @@ import (
 )
 
 // createGroupInfoPayload creates a webhook payload for group information events
-func createGroupInfoPayload(ctx context.Context, evt *events.GroupInfo, actionType string, jids []types.JID, deviceID string, client *whatsmeow.Client) map[string]any {
+func createGroupInfoPayload(ctx context.Context, evt *events.GroupInfo, actionType string, jids []types.JID, sessionID string, deviceID string, client *whatsmeow.Client) map[string]any {
 	body := make(map[string]any)
 
 	// Create payload structure matching the expected format
@@ -35,6 +35,9 @@ func createGroupInfoPayload(ctx context.Context, evt *events.GroupInfo, actionTy
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 
 	return body
 }
@@ -55,7 +58,7 @@ func jidsToStrings(ctx context.Context, jids []types.JID, client *whatsmeow.Clie
 }
 
 // forwardGroupInfoToWebhook forwards group information events to the configured webhook URLs
-func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) error {
+func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, sessionID string, deviceID string, client *whatsmeow.Client) error {
 	// Send separate webhook events for each action type
 	actions := []struct {
 		actionType string
@@ -69,7 +72,7 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 
 	for _, action := range actions {
 		if len(action.jids) > 0 {
-			payload := createGroupInfoPayload(ctx, evt, action.actionType, action.jids, deviceID, client)
+			payload := createGroupInfoPayload(ctx, evt, action.actionType, action.jids, sessionID, deviceID, client)
 
 			if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "group.participants"); err != nil {
 				logrus.Warnf("Failed to forward group %s event to webhook: %v", action.actionType, err)
@@ -81,14 +84,14 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 }
 
 // handleJoinedGroup handles the event when the connected device is added to a new group
-func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) {
+func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Joined group %s (reason: %s, type: %s)", evt.JID, evt.Reason, evt.Type)
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func(e *events.JoinedGroup, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardJoinedGroupToWebhook(webhookCtx, e, deviceID, c); err != nil {
+			if err := forwardJoinedGroupToWebhook(webhookCtx, e, sessionID, deviceID, c); err != nil {
 				logrus.Errorf("Failed to forward joined group event to webhook: %v", err)
 			}
 		}(evt, client)
@@ -96,7 +99,7 @@ func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID st
 }
 
 // forwardJoinedGroupToWebhook forwards the JoinedGroup event to configured webhooks
-func forwardJoinedGroupToWebhook(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) error {
+func forwardJoinedGroupToWebhook(ctx context.Context, evt *events.JoinedGroup, sessionID string, deviceID string, client *whatsmeow.Client) error {
 	// Get own JID to include in the payload
 	ownJID := client.Store.ID
 	if ownJID == nil {
@@ -122,6 +125,9 @@ func forwardJoinedGroupToWebhook(ctx context.Context, evt *events.JoinedGroup, d
 	}
 	if deviceID != "" {
 		body["device_id"] = deviceID
+	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
 	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, body, "group.joined")

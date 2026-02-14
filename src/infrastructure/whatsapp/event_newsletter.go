@@ -11,14 +11,14 @@ import (
 )
 
 // handleNewsletterJoin handles when you join/subscribe to a newsletter
-func handleNewsletterJoin(ctx context.Context, evt *events.NewsletterJoin, deviceID string, client *whatsmeow.Client) {
+func handleNewsletterJoin(ctx context.Context, evt *events.NewsletterJoin, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Joined newsletter %s", evt.ID)
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func(e *events.NewsletterJoin) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardNewsletterJoinToWebhook(webhookCtx, e, deviceID); err != nil {
+			if err := forwardNewsletterJoinToWebhook(webhookCtx, e, sessionID, deviceID); err != nil {
 				logrus.Errorf("Failed to forward newsletter join to webhook: %v", err)
 			}
 		}(evt)
@@ -26,14 +26,14 @@ func handleNewsletterJoin(ctx context.Context, evt *events.NewsletterJoin, devic
 }
 
 // handleNewsletterLeave handles when you leave/unsubscribe from a newsletter
-func handleNewsletterLeave(ctx context.Context, evt *events.NewsletterLeave, deviceID string, client *whatsmeow.Client) {
+func handleNewsletterLeave(ctx context.Context, evt *events.NewsletterLeave, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Left newsletter %s (role: %s)", evt.ID, evt.Role)
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func(e *events.NewsletterLeave) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardNewsletterLeaveToWebhook(webhookCtx, e, deviceID); err != nil {
+			if err := forwardNewsletterLeaveToWebhook(webhookCtx, e, sessionID, deviceID); err != nil {
 				logrus.Errorf("Failed to forward newsletter leave to webhook: %v", err)
 			}
 		}(evt)
@@ -41,14 +41,14 @@ func handleNewsletterLeave(ctx context.Context, evt *events.NewsletterLeave, dev
 }
 
 // handleNewsletterLiveUpdate handles new messages in newsletters
-func handleNewsletterLiveUpdate(ctx context.Context, evt *events.NewsletterLiveUpdate, deviceID string, client *whatsmeow.Client) {
+func handleNewsletterLiveUpdate(ctx context.Context, evt *events.NewsletterLiveUpdate, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Newsletter %s: %d new message(s)", evt.JID, len(evt.Messages))
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func(e *events.NewsletterLiveUpdate) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardNewsletterLiveUpdateToWebhook(webhookCtx, e, deviceID); err != nil {
+			if err := forwardNewsletterLiveUpdateToWebhook(webhookCtx, e, sessionID, deviceID); err != nil {
 				logrus.Errorf("Failed to forward newsletter live update to webhook: %v", err)
 			}
 		}(evt)
@@ -56,14 +56,14 @@ func handleNewsletterLiveUpdate(ctx context.Context, evt *events.NewsletterLiveU
 }
 
 // handleNewsletterMuteChange handles newsletter mute setting changes
-func handleNewsletterMuteChange(ctx context.Context, evt *events.NewsletterMuteChange, deviceID string, client *whatsmeow.Client) {
+func handleNewsletterMuteChange(ctx context.Context, evt *events.NewsletterMuteChange, sessionID string, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Newsletter %s mute changed to: %s", evt.ID, evt.Mute)
 
 	if len(config.WhatsappWebhook) > 0 {
 		go func(e *events.NewsletterMuteChange) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardNewsletterMuteChangeToWebhook(webhookCtx, e, deviceID); err != nil {
+			if err := forwardNewsletterMuteChangeToWebhook(webhookCtx, e, sessionID, deviceID); err != nil {
 				logrus.Errorf("Failed to forward newsletter mute change to webhook: %v", err)
 			}
 		}(evt)
@@ -72,7 +72,7 @@ func handleNewsletterMuteChange(ctx context.Context, evt *events.NewsletterMuteC
 
 // Webhook forwarding functions
 
-func forwardNewsletterJoinToWebhook(ctx context.Context, evt *events.NewsletterJoin, deviceID string) error {
+func forwardNewsletterJoinToWebhook(ctx context.Context, evt *events.NewsletterJoin, sessionID string, deviceID string) error {
 	payload := map[string]any{
 		"newsletter_id": evt.ID.String(),
 	}
@@ -91,11 +91,14 @@ func forwardNewsletterJoinToWebhook(ctx context.Context, evt *events.NewsletterJ
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, body, "newsletter.joined")
 }
 
-func forwardNewsletterLeaveToWebhook(ctx context.Context, evt *events.NewsletterLeave, deviceID string) error {
+func forwardNewsletterLeaveToWebhook(ctx context.Context, evt *events.NewsletterLeave, sessionID string, deviceID string) error {
 	payload := map[string]any{
 		"newsletter_id": evt.ID.String(),
 		"role":          string(evt.Role),
@@ -109,11 +112,14 @@ func forwardNewsletterLeaveToWebhook(ctx context.Context, evt *events.Newsletter
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, body, "newsletter.left")
 }
 
-func forwardNewsletterLiveUpdateToWebhook(ctx context.Context, evt *events.NewsletterLiveUpdate, deviceID string) error {
+func forwardNewsletterLiveUpdateToWebhook(ctx context.Context, evt *events.NewsletterLiveUpdate, sessionID string, deviceID string) error {
 	messages := make([]map[string]any, 0, len(evt.Messages))
 	for _, msg := range evt.Messages {
 		m := map[string]any{
@@ -144,11 +150,14 @@ func forwardNewsletterLiveUpdateToWebhook(ctx context.Context, evt *events.Newsl
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, body, "newsletter.message")
 }
 
-func forwardNewsletterMuteChangeToWebhook(ctx context.Context, evt *events.NewsletterMuteChange, deviceID string) error {
+func forwardNewsletterMuteChangeToWebhook(ctx context.Context, evt *events.NewsletterMuteChange, sessionID string, deviceID string) error {
 	payload := map[string]any{
 		"newsletter_id": evt.ID.String(),
 		"mute":          string(evt.Mute),
@@ -161,6 +170,9 @@ func forwardNewsletterMuteChangeToWebhook(ctx context.Context, evt *events.Newsl
 	}
 	if deviceID != "" {
 		body["device_id"] = deviceID
+	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
 	}
 
 	return forwardPayloadToConfiguredWebhooks(ctx, body, "newsletter.mute")
