@@ -647,7 +647,7 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) (bool, string) {
 			}
 		}
 
-		return true, data[0].JID.User + "@" + data[0].JID.Server
+		return true, data[0].JID.String()
 	}
 
 	return true, jid
