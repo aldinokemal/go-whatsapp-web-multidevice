@@ -115,6 +115,18 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 					payload["body"] = editedText.GetText()
 				} else if editedConv := editedMessage.GetConversation(); editedConv != "" {
 					payload["body"] = editedConv
+				} else if editedImage := editedMessage.GetImageMessage(); editedImage != nil {
+					payload["caption"] = editedImage.GetCaption()
+				} else if editedVideo := editedMessage.GetVideoMessage(); editedVideo != nil {
+					payload["caption"] = editedVideo.GetCaption()
+				} else if editedDocument := editedMessage.GetDocumentMessage(); editedDocument != nil {
+					payload["caption"] = editedDocument.GetCaption()
+				} else if editedDocument := editedMessage.GetDocumentWithCaptionMessage(); editedDocument != nil {
+					payload["caption"] = editedDocument.Message.DocumentMessage.GetCaption()
+				} else if editedLocation := editedMessage.GetLocationMessage(); editedLocation != nil {
+					payload["caption"] = editedLocation.GetComment()
+				} else if editedLiveLocation := editedMessage.GetLiveLocationMessage(); editedLiveLocation != nil {
+					payload["caption"] = editedLiveLocation.GetCaption()
 				}
 			}
 			return EventTypeMessageEdited, payload, nil
@@ -244,11 +256,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 			payload["document"] = extracted.MediaPath
 		} else {
 			payload["document"] = map[string]any{
-				"url":      documentMedia.GetURL(),
-				"filename": documentMedia.GetFileName(),
-				"caption":  documentMedia.GetCaption(),
+				"url": documentMedia.GetURL(),
 			}
 		}
+
+		payload["filename"] = documentMedia.GetFileName()
+		payload["caption"] = documentMedia.GetCaption()
 	}
 
 	if imageMedia := msg.GetImageMessage(); imageMedia != nil {
@@ -261,10 +274,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 			payload["image"] = extracted.MediaPath
 		} else {
 			payload["image"] = map[string]any{
-				"url":     imageMedia.GetURL(),
-				"caption": imageMedia.GetCaption(),
+				"url": imageMedia.GetURL(),
 			}
 		}
+
+		payload["caption"] = imageMedia.GetCaption()
 	}
 
 	if stickerMedia := msg.GetStickerMessage(); stickerMedia != nil {
@@ -292,10 +306,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 			payload["video"] = extracted.MediaPath
 		} else {
 			payload["video"] = map[string]any{
-				"url":     videoMedia.GetURL(),
-				"caption": videoMedia.GetCaption(),
+				"url": videoMedia.GetURL(),
 			}
 		}
+
+		payload["caption"] = videoMedia.GetCaption()
 	}
 
 	if ptvMedia := msg.GetPtvMessage(); ptvMedia != nil {
@@ -308,10 +323,11 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 			payload["video_note"] = extracted.MediaPath
 		} else {
 			payload["video_note"] = map[string]any{
-				"url":     ptvMedia.GetURL(),
-				"caption": ptvMedia.GetCaption(),
+				"url": ptvMedia.GetURL(),
 			}
 		}
+
+		payload["caption"] = ptvMedia.GetCaption()
 	}
 
 	return nil

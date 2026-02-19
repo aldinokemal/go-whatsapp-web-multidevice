@@ -25,10 +25,9 @@ func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorage
 		return
 	}
 	id := atomic.AddInt32(&historySyncID, 1)
-	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
+	fileName := fmt.Sprintf("%s/history-%d-%d-%s.json",
 		config.PathStorages,
 		startupTime,
-		client.Store.ID.String(),
 		id,
 		evt.Data.SyncType.String(),
 	)
@@ -53,6 +52,10 @@ func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorage
 	if chatStorageRepo != nil {
 		if err := processHistorySync(ctx, evt.Data, chatStorageRepo, client); err != nil {
 			log.Errorf("Failed to process history sync to database: %v", err)
+		} else {
+			if err := forwardHistoryToWebhook(ctx, evt, client); err != nil {
+				log.Errorf("Failed to forward history sync to webhook: %v", err)
+			}
 		}
 	}
 }
