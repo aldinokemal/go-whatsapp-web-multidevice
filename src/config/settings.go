@@ -23,7 +23,7 @@ var (
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
-	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on"
+	DBURI     = "file:storages/whatsapp.db?_journal_mode=WAL&_foreign_keys=on"
 	DBKeysURI = ""
 
 	WhatsappAutoReplyMessage          string
