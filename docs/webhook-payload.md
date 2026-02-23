@@ -552,6 +552,12 @@ WHATSAPP_AUTO_REJECT_CALL=true
 When `WHATSAPP_AUTO_DOWNLOAD_MEDIA` is enabled, media is downloaded and `image` contains the file path.
 When disabled, `image` contains an object with the URL.
 
+If a caption is present, it is included in the top-level `body` field (consistent with text messages).
+When auto-download is enabled and a caption exists, `image` becomes an object with `path` and `caption`.
+When no caption exists, `image` remains a plain file path string for backward compatibility.
+
+With auto-download enabled (no caption):
+
 ```json
 {
   "event": "message",
@@ -563,6 +569,27 @@ When disabled, `image` contains an object with the URL.
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:05:51Z",
     "image": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpeg"
+  }
+}
+```
+
+With auto-download enabled (with caption):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A3",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:05:51Z",
+    "body": "Check this out!",
+    "image": {
+      "path": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpeg",
+      "caption": "Check this out!"
+    }
   }
 }
 ```
@@ -579,6 +606,7 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:05:51Z",
+    "body": "Check this out!",
     "image": {
       "url": "https://mmg.whatsapp.net/...",
       "caption": "Check this out!"
@@ -599,7 +627,11 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:07:24Z",
-    "video": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.mp4"
+    "body": "Watch this!",
+    "video": {
+      "path": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.mp4",
+      "caption": "Watch this!"
+    }
   }
 }
 ```
@@ -633,7 +665,11 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T11:00:00Z",
-    "document": "statics/media/1752404965-document.pdf"
+    "body": "Monthly report",
+    "document": {
+      "path": "statics/media/1752404965-document.pdf",
+      "caption": "Monthly report"
+    }
   }
 }
 ```
@@ -650,6 +686,7 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T11:00:00Z",
+    "body": "Monthly report",
     "document": {
       "url": "https://mmg.whatsapp.net/...",
       "filename": "report.pdf"

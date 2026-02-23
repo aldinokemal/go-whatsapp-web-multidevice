@@ -189,6 +189,14 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 		payload["body"] = message.Text
 	}
 
+	// Fallback: extract caption from media messages if no text body was set
+	if _, hasBody := payload["body"]; !hasBody {
+		msg := utils.UnwrapMessage(evt.Message)
+		if caption := utils.ExtractMediaCaption(msg); caption != "" {
+			payload["body"] = caption
+		}
+	}
+
 	// Add reply context if present
 	if message.RepliedId != "" {
 		payload["replied_to_id"] = message.RepliedId
@@ -241,7 +249,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				logrus.Errorf("Failed to download document: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 			}
-			payload["document"] = extracted.MediaPath
+			payload["document"] = buildAutoDownloadPayload(extracted)
 		} else {
 			payload["document"] = map[string]any{
 				"url":      documentMedia.GetURL(),
@@ -257,7 +265,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				logrus.Errorf("Failed to download image: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download image: %v", err))
 			}
-			payload["image"] = extracted.MediaPath
+			payload["image"] = buildAutoDownloadPayload(extracted)
 		} else {
 			payload["image"] = map[string]any{
 				"url":     imageMedia.GetURL(),
@@ -288,7 +296,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				logrus.Errorf("Failed to download video: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video: %v", err))
 			}
-			payload["video"] = extracted.MediaPath
+			payload["video"] = buildAutoDownloadPayload(extracted)
 		} else {
 			payload["video"] = map[string]any{
 				"url":     videoMedia.GetURL(),
@@ -304,7 +312,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				logrus.Errorf("Failed to download video note: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download video note: %v", err))
 			}
-			payload["video_note"] = extracted.MediaPath
+			payload["video_note"] = buildAutoDownloadPayload(extracted)
 		} else {
 			payload["video_note"] = map[string]any{
 				"url":     ptvMedia.GetURL(),
@@ -314,6 +322,18 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	return nil
+}
+
+// buildAutoDownloadPayload builds the media payload for auto-downloaded media.
+// Returns just the path string if no caption (backward compatible), or a map with path+caption.
+func buildAutoDownloadPayload(extracted utils.ExtractedMedia) any {
+	if extracted.Caption != "" {
+		return map[string]any{
+			"path":    extracted.MediaPath,
+			"caption": extracted.Caption,
+		}
+	}
+	return extracted.MediaPath
 }
 
 func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
