@@ -13,6 +13,7 @@ var (
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
 	AppBasePath            = ""
+	AppBasicAuthDBURI      = ""
 	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 
 	McpPort = "8080"

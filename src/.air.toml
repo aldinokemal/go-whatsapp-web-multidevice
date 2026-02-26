@@ -2,4 +2,23 @@ root = '.'
 tmp_dir = "tmp"
 
 [build]
-exclude_dir = ["statics", "storages"]
+cmd = "go build -o ./tmp/main ."
+bin = "./tmp/main"
+full_bin = "./tmp/main rest"
+include_ext = ["go", "tpl", "tmpl", "html"]
+exclude_dir = ["tmp", "statics", "storages", "vendor"]
+delay = 1000
+kill_delay = "0.5s"
+rerun = false
+
+[log]
+time = true
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true

@@ -97,6 +97,9 @@ func initEnvConfig() {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
 	}
+	if envBasicAuthDBURI := viper.GetString("app_basic_auth_db_uri"); envBasicAuthDBURI != "" {
+		config.AppBasicAuthDBURI = envBasicAuthDBURI
+	}
 	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
 		config.AppBasePath = envBasePath
 	}
@@ -208,6 +211,12 @@ func initFlags() {
 		"basic-auth", "b",
 		config.AppBasicAuthCredential,
 		"basic auth credential | -b=yourUsername:yourPassword",
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppBasicAuthDBURI,
+		"basic-auth-db-uri", "",
+		config.AppBasicAuthDBURI,
+		`postgres DB URI to fetch basic auth accounts | --basic-auth-db-uri="postgres://user:password@localhost:5432/dbname"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppBasePath,
@@ -384,6 +393,56 @@ func initApp() {
 	dm := whatsapp.GetDeviceManager()
 	if dm != nil {
 		_ = dm.LoadExistingDevices(ctx)
+	}
+
+	// Fetch dynamic basic auth credentials
+	if config.AppBasicAuthDBURI != "" {
+		dbAuth, err := sql.Open("postgres", config.AppBasicAuthDBURI)
+
+		// If the user forgot sslmode=disable, the ping might fail. Let's try to ping first to verify connection.
+		if err == nil {
+			err = dbAuth.Ping()
+			if err != nil && strings.Contains(err.Error(), "SSL is not enabled on the server") {
+				logrus.Warnf("Postgres SSL not enabled, attempting connection with sslmode=disable...")
+				dbAuth.Close()
+
+				// Re-init with sslmode=disable
+				fallbackURI := config.AppBasicAuthDBURI
+				if strings.Contains(fallbackURI, "?") {
+					fallbackURI += "&sslmode=disable"
+				} else {
+					fallbackURI += "?sslmode=disable"
+				}
+
+				dbAuth, err = sql.Open("postgres", fallbackURI)
+				if err == nil {
+					err = dbAuth.Ping()
+				}
+			}
+		}
+
+		if err != nil {
+			logrus.Errorf("Failed to connect to basic auth DB: %v", err)
+			return
+		}
+
+		if err == nil {
+			rows, errQuery := dbAuth.Query("SELECT login FROM res_users WHERE login LIKE '%@%' AND login IS NOT NULL AND login != ''")
+			if errQuery == nil {
+				for rows.Next() {
+					var login string
+					if errScan := rows.Scan(&login); errScan == nil {
+						config.AppBasicAuthCredential = append(config.AppBasicAuthCredential, login+":"+login)
+					}
+				}
+				rows.Close()
+			} else {
+				logrus.Warnf("Failed to query res_users for basic auth: %v", errQuery)
+			}
+			dbAuth.Close()
+		} else {
+			logrus.Warnf("Failed to connect to basic auth DB: %v", err)
+		}
 	}
 
 	// Usecase

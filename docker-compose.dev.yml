@@ -1,0 +1,21 @@
+services:
+  whatsapp_go:
+    build:
+      context: .
+      dockerfile: ./docker/golang.dev.Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src
+      - go_cache:/root/go
+    env_file:
+      - src/.env
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+volumes:
+  go_cache:
