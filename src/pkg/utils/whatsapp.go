@@ -218,6 +218,14 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		} else {
 			messageText = "👤 " + messageText
 		}
+	} else if contactsArrayMessage := evt.Message.GetContactsArrayMessage(); contactsArrayMessage != nil {
+		count := len(contactsArrayMessage.GetContacts())
+		displayName := contactsArrayMessage.GetDisplayName()
+		if displayName != "" {
+			messageText = fmt.Sprintf("👥 %s (%d contacts)", displayName, count)
+		} else {
+			messageText = fmt.Sprintf("👥 %d contacts", count)
+		}
 	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		messageText = listMessage.GetTitle()
 		if messageText == "" {
