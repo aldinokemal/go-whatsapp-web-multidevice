@@ -342,14 +342,7 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 	}
 
 	if contactsArrayMessage := msg.GetContactsArrayMessage(); contactsArrayMessage != nil {
-		contacts := make([]map[string]any, 0, len(contactsArrayMessage.GetContacts()))
-		for _, c := range contactsArrayMessage.GetContacts() {
-			contacts = append(contacts, map[string]any{
-				"displayName": c.GetDisplayName(),
-				"vcard":       c.GetVcard(),
-			})
-		}
-		payload["contacts_array"] = contacts
+		payload["contacts_array"] = contactsArrayMessage.GetContacts()
 	}
 
 	if listMessage := msg.GetListMessage(); listMessage != nil {
