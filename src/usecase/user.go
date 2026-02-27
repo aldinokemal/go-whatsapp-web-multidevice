@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -20,11 +21,13 @@ import (
 )
 
 type serviceUser struct {
-	// Remove the WaCli field - we'll use the global client instead
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewUserService() domainUser.IUserUsecase {
-	return &serviceUser{}
+func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
+	return &serviceUser{
+		chatStorageRepo: chatStorageRepo,
+	}
 }
 
 func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
@@ -67,7 +70,7 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 		return response, err
 	}
 
-	for _, userInfo := range resp {
+	for jid, userInfo := range resp {
 		var device []domainUser.InfoResponseDataDevice
 		for _, j := range userInfo.Devices {
 			device = append(device, domainUser.InfoResponseDataDevice{
@@ -84,6 +87,14 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 			PictureID: userInfo.PictureID,
 			Devices:   device,
 		}
+
+		// Try to get name from storage if available
+		if service.chatStorageRepo != nil {
+			if chat, err := service.chatStorageRepo.GetChat(jid.String()); err == nil && chat != nil {
+				data.Name = chat.Name
+			}
+		}
+
 		if userInfo.VerifiedName != nil {
 			data.VerifiedName = fmt.Sprintf("%v", *userInfo.VerifiedName)
 		}

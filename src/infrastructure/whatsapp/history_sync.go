@@ -286,8 +286,24 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 
 		// Check if chat exists (device-scoped to avoid cross-device data leak)
 		existingChat, err := chatStorageRepo.GetChatByDevice(deviceID, jidStr)
-		if err != nil || existingChat == nil {
-			// Chat doesn't exist yet, skip
+		if err != nil {
+			log.Warnf("Failed to check chat existence for %s: %v", jidStr, err)
+			continue
+		}
+
+		if existingChat == nil {
+			// Chat doesn't exist, create it to store the push name
+			newChat := &domainChatStorage.Chat{
+				DeviceID:        deviceID,
+				JID:             jidStr,
+				Name:            name,
+				LastMessageTime: time.Now(), // Use current time as placeholder
+			}
+			if err := chatStorageRepo.StoreChat(newChat); err != nil {
+				log.Warnf("Failed to create chat for %s during pushname sync: %v", jidStr, err)
+			} else {
+				log.Debugf("Created new chat for %s with name %s from history sync", jidStr, name)
+			}
 			continue
 		}
 
