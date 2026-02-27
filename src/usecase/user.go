@@ -104,6 +104,8 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 		if service.chatStorageRepo != nil && deviceID != "" {
 			if chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid.String()); err == nil && chat != nil {
 				data.Name = chat.Name
+			} else if err != nil {
+				logrus.Debugf("Could not fetch chat name from storage for %s: %v", jid.String(), err)
 			}
 		}
 
