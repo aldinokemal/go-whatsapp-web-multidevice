@@ -326,7 +326,7 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
-	connStr := fmt.Sprintf("%s?_journal_mode=WAL", config.ChatStorageURI)
+	connStr := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", config.ChatStorageURI)
 	if config.ChatStorageEnableForeignKeys {
 		connStr += "&_foreign_keys=on"
 	}
@@ -337,8 +337,8 @@ func initChatStorage() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
@@ -390,7 +390,7 @@ func initApp() {
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
-	userUsecase = usecase.NewUserService()
+	userUsecase = usecase.NewUserService(chatStorageRepo)
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()

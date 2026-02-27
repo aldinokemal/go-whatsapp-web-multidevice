@@ -125,6 +125,9 @@ func CleanupDatabase() error {
 			} else {
 				logrus.Info("[CLEANUP] KeysDB file removed successfully")
 			}
+			// Remove WAL and SHM sidecar files
+			os.Remove(keysDBPath + "-wal")
+			os.Remove(keysDBPath + "-shm")
 		}
 	}
 
@@ -145,6 +148,9 @@ func CleanupDatabase() error {
 	} else {
 		logrus.Info("[CLEANUP] Database file removed successfully")
 	}
+	// Remove WAL and SHM sidecar files
+	os.Remove(dbPath + "-wal")
+	os.Remove(dbPath + "-shm")
 	return nil
 }
 

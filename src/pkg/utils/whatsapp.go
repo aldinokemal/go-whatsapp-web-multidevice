@@ -137,6 +137,26 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	return ""
 }
 
+// ExtractMediaCaption extracts caption text from media messages (image, video, document, PTV).
+func ExtractMediaCaption(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if img := msg.GetImageMessage(); img != nil {
+		return img.GetCaption()
+	}
+	if vid := msg.GetVideoMessage(); vid != nil {
+		return vid.GetCaption()
+	}
+	if doc := msg.GetDocumentMessage(); doc != nil {
+		return doc.GetCaption()
+	}
+	if ptv := msg.GetPtvMessage(); ptv != nil {
+		return ptv.GetCaption()
+	}
+	return ""
+}
+
 // ExtractMessageTextFromEvent extracts text content from a WhatsApp event message with emojis
 func ExtractMessageTextFromEvent(evt *events.Message) string {
 	messageText := evt.Message.GetConversation()
@@ -197,6 +217,15 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 			messageText = "👤 Contact"
 		} else {
 			messageText = "👤 " + messageText
+		}
+	} else if contactsArrayMessage := evt.Message.GetContactsArrayMessage(); contactsArrayMessage != nil {
+		contacts := contactsArrayMessage.GetContacts()
+		count := len(contacts)
+		displayName := contactsArrayMessage.GetDisplayName()
+		if displayName != "" {
+			messageText = fmt.Sprintf("👥 %s (%d contacts)", displayName, count)
+		} else {
+			messageText = fmt.Sprintf("👥 %d contacts", count)
 		}
 	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		messageText = listMessage.GetTitle()

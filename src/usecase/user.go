@@ -9,22 +9,26 @@ import (
 	"time"
 
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 )
 
 type serviceUser struct {
-	// Remove the WaCli field - we'll use the global client instead
+	chatStorageRepo domainChatStorage.IChatStorageRepository
 }
 
-func NewUserService() domainUser.IUserUsecase {
-	return &serviceUser{}
+func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
+	return &serviceUser{
+		chatStorageRepo: chatStorageRepo,
+	}
 }
 
 func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
@@ -67,7 +71,19 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 		return response, err
 	}
 
-	for _, userInfo := range resp {
+	// Get device ID for scoped storage lookup
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+
+	for jid, userInfo := range resp {
 		var device []domainUser.InfoResponseDataDevice
 		for _, j := range userInfo.Devices {
 			device = append(device, domainUser.InfoResponseDataDevice{
@@ -84,6 +100,16 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 			PictureID: userInfo.PictureID,
 			Devices:   device,
 		}
+
+		// Try to get name from storage if available (device-scoped to prevent data leak)
+		if service.chatStorageRepo != nil && deviceID != "" {
+			if chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid.String()); err == nil && chat != nil {
+				data.Name = chat.Name
+			} else if err != nil {
+				logrus.Debugf("Could not fetch chat name from storage for %s: %v", jid.String(), err)
+			}
+		}
+
 		if userInfo.VerifiedName != nil {
 			data.VerifiedName = fmt.Sprintf("%v", *userInfo.VerifiedName)
 		}
