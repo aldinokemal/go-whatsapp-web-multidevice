@@ -341,6 +341,10 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 		payload["contact"] = contactMessage
 	}
 
+	if contactsArrayMessage := msg.GetContactsArrayMessage(); contactsArrayMessage != nil {
+		payload["contacts_array"] = contactsArrayMessage.GetContacts()
+	}
+
 	if listMessage := msg.GetListMessage(); listMessage != nil {
 		payload["list"] = listMessage
 	}
