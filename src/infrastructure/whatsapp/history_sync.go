@@ -302,7 +302,7 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 			if err := chatStorageRepo.StoreChat(newChat); err != nil {
 				log.Warnf("Failed to create chat for %s during pushname sync: %v", jidStr, err)
 			} else {
-				log.Debugf("Created new chat for %s with name %s from history sync", jidStr, name)
+				log.Debugf("Created new chat entry from history sync")
 			}
 			continue
 		}
@@ -313,7 +313,7 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 			if err := chatStorageRepo.StoreChat(existingChat); err != nil {
 				log.Warnf("Failed to update chat name for %s: %v", jidStr, err)
 			} else {
-				log.Debugf("Updated chat name for %s to %s", jidStr, name)
+				log.Debugf("Updated chat name from history sync")
 			}
 		}
 	}
