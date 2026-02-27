@@ -176,7 +176,7 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 	} else if documentMessage := evt.Message.GetDocumentMessage(); documentMessage != nil {
 		messageText = documentMessage.GetCaption()
 		if messageText == "" {
-			fileName := documentMessage.GetFileName()
+			fileName := strings.TrimSpace(documentMessage.GetFileName())
 			if fileName != "" {
 				messageText = "📄 " + fileName
 			} else {
