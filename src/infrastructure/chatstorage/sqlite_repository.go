@@ -669,7 +669,7 @@ func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string
 	existingChat, err := r.GetChat(chatJID)
 	if err == nil && existingChat != nil && existingChat.Name != "" {
 		// If we have a pushname and the existing name is just a phone number/JID user, update it
-		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {
+		if pushName != "" && (existingChat.Name == jid.ToNonAD().User || existingChat.Name == senderUser) {
 			return pushName
 		}
 		return existingChat.Name
@@ -689,12 +689,12 @@ func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string
 	default:
 		// This is an individual contact
 		// Priority: pushName > senderUser > JID user
-		if pushName != "" && pushName != senderUser && pushName != jid.User {
+		if pushName != "" && pushName != senderUser && pushName != jid.ToNonAD().User {
 			name = pushName
 		} else if senderUser != "" {
 			name = senderUser
 		} else {
-			name = jid.User
+			name = jid.ToNonAD().User
 		}
 	}
 
@@ -712,7 +712,7 @@ func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid 
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err == nil && existingChat != nil && existingChat.Name != "" {
 		// If we have a pushname and the existing name is just a phone number/JID user, update it
-		if pushName != "" && (existingChat.Name == jid.User || existingChat.Name == senderUser) {
+		if pushName != "" && (existingChat.Name == jid.ToNonAD().User || existingChat.Name == senderUser) {
 			return pushName
 		}
 		return existingChat.Name
@@ -732,12 +732,12 @@ func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid 
 	default:
 		// This is an individual contact
 		// Priority: pushName > senderUser > JID user
-		if pushName != "" && pushName != senderUser && pushName != jid.User {
+		if pushName != "" && pushName != senderUser && pushName != jid.ToNonAD().User {
 			name = pushName
 		} else if senderUser != "" {
 			name = senderUser
 		} else {
-			name = jid.User
+			name = jid.ToNonAD().User
 		}
 	}
 
