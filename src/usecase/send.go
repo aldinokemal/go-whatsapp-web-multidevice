@@ -341,7 +341,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
-		caption = "🖼️ " + request.Caption
+		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	go func() {
@@ -427,8 +427,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	caption := "📄 Document"
+	if fileName != "" {
+		caption = "📄 " + fileName
+	}
 	if request.Caption != "" {
-		caption = "📄 " + request.Caption
+		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {

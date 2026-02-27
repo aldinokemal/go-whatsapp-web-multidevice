@@ -172,15 +172,16 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		messageText = imageMessage.GetCaption()
 		if messageText == "" {
 			messageText = "🖼️ Image"
-		} else {
-			messageText = "🖼️ " + messageText
 		}
 	} else if documentMessage := evt.Message.GetDocumentMessage(); documentMessage != nil {
 		messageText = documentMessage.GetCaption()
 		if messageText == "" {
-			messageText = "📄 Document"
-		} else {
-			messageText = "📄 " + messageText
+			fileName := documentMessage.GetFileName()
+			if fileName != "" {
+				messageText = "📄 " + fileName
+			} else {
+				messageText = "📄 Document"
+			}
 		}
 	} else if videoMessage := evt.Message.GetVideoMessage(); videoMessage != nil {
 		messageText = videoMessage.GetCaption()
