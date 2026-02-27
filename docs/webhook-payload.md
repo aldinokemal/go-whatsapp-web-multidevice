@@ -733,6 +733,8 @@ With auto-download disabled:
 
 ### Contact Message
 
+When a user shares a single contact:
+
 ```json
 {
   "event": "message",
@@ -750,6 +752,36 @@ With auto-download disabled:
   }
 }
 ```
+
+### Contacts Array Message
+
+When a user shares multiple contacts at once (via WhatsApp's multi-contact share feature):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "A1B2C3D4E5F6789012345678",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:10:19Z",
+    "contacts_array": [
+      {
+        "displayName": "Alice",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+      },
+      {
+        "displayName": "Bob",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Bob;;;\nFN:Bob\nTEL;type=Mobile:+62 813 9876 5432\nEND:VCARD"
+      }
+    ]
+  }
+}
+```
+
+> **Note:** WhatsApp uses `ContactMessage` (field 4) for a single contact and `ContactsArrayMessage` (field 13) for multiple contacts. A single contact produces `"contact"`, while multiple contacts produce `"contacts_array"`.
 
 ### Location Message
 
