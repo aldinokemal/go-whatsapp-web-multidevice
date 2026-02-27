@@ -187,67 +187,36 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		messageText = videoMessage.GetCaption()
 		if messageText == "" {
 			messageText = "🎥 Video"
-		} else {
-			messageText = "🎥 " + messageText
 		}
 	} else if liveLocationMessage := evt.Message.GetLiveLocationMessage(); liveLocationMessage != nil {
 		messageText = liveLocationMessage.GetCaption()
 		if messageText == "" {
 			messageText = "📍 Live Location"
-		} else {
-			messageText = "📍 " + messageText
 		}
 	} else if locationMessage := evt.Message.GetLocationMessage(); locationMessage != nil {
 		messageText = locationMessage.GetName()
 		if messageText == "" {
 			messageText = "📍 Location"
-		} else {
-			messageText = "📍 " + messageText
-		}
-	} else if stickerMessage := evt.Message.GetStickerMessage(); stickerMessage != nil {
-		messageText = "🎨 Sticker"
-		if stickerMessage.GetIsAnimated() {
-			messageText = "✨ Animated Sticker"
-		}
-		if stickerMessage.GetAccessibilityLabel() != "" {
-			messageText += " - " + stickerMessage.GetAccessibilityLabel()
 		}
 	} else if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
 		messageText = contactMessage.GetDisplayName()
 		if messageText == "" {
 			messageText = "👤 Contact"
-		} else {
-			messageText = "👤 " + messageText
-		}
-	} else if contactsArrayMessage := evt.Message.GetContactsArrayMessage(); contactsArrayMessage != nil {
-		contacts := contactsArrayMessage.GetContacts()
-		count := len(contacts)
-		displayName := contactsArrayMessage.GetDisplayName()
-		if displayName != "" {
-			messageText = fmt.Sprintf("👥 %s (%d contacts)", displayName, count)
-		} else {
-			messageText = fmt.Sprintf("👥 %d contacts", count)
 		}
 	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		messageText = listMessage.GetTitle()
 		if messageText == "" {
 			messageText = "📝 List"
-		} else {
-			messageText = "📝 " + messageText
 		}
 	} else if orderMessage := evt.Message.GetOrderMessage(); orderMessage != nil {
 		messageText = orderMessage.GetOrderTitle()
 		if messageText == "" {
 			messageText = "🛍️ Order"
-		} else {
-			messageText = "🛍️ " + messageText
 		}
 	} else if paymentMessage := evt.Message.GetPaymentInviteMessage(); paymentMessage != nil {
 		messageText = paymentMessage.GetServiceType().String()
 		if messageText == "" {
 			messageText = "💳 Payment"
-		} else {
-			messageText = "💳 " + messageText
 		}
 	} else if audioMessage := evt.Message.GetAudioMessage(); audioMessage != nil {
 		messageText = "🎧 Audio"
@@ -258,8 +227,6 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		messageText = pollMessageV3.GetName()
 		if messageText == "" {
 			messageText = "📊 Poll"
-		} else {
-			messageText = "📊 " + messageText
 		}
 	} else if pollMessageV4 := evt.Message.GetPollCreationMessageV4(); pollMessageV4 != nil {
 		if pollMessage := pollMessageV4.GetMessage(); pollMessage != nil {
@@ -267,15 +234,11 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		}
 		if messageText == "" {
 			messageText = "📊 Poll"
-		} else {
-			messageText = "📊 " + messageText
 		}
 	} else if pollMessageV5 := evt.Message.GetPollCreationMessageV5(); pollMessageV5 != nil {
 		messageText = pollMessageV5.GetName()
 		if messageText == "" {
 			messageText = "📊 Poll"
-		} else {
-			messageText = "📊 " + messageText
 		}
 	}
 	return messageText
