@@ -12,7 +12,7 @@ require (
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.11.2
-	github.com/mark3labs/mcp-go v0.44.0
+	github.com/mark3labs/mcp-go v0.44.1
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/sirupsen/logrus v1.9.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.69.0
 	go.mau.fi/libsignal v0.2.1
-	go.mau.fi/whatsmeow v0.0.0-20260219150138-7ae702b1eed4
+	go.mau.fi/whatsmeow v0.0.0-20260227112304-c9652e4448a2
 	golang.org/x/image v0.36.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -51,7 +51,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.20 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
+	github.com/petermattis/goid v0.0.0-20260226131333-17d1149c6ac6 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
