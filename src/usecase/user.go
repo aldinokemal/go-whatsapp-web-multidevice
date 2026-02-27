@@ -70,6 +70,18 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 		return response, err
 	}
 
+	// Get device ID for scoped storage lookup
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+
 	for jid, userInfo := range resp {
 		var device []domainUser.InfoResponseDataDevice
 		for _, j := range userInfo.Devices {
@@ -88,9 +100,9 @@ func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequ
 			Devices:   device,
 		}
 
-		// Try to get name from storage if available
-		if service.chatStorageRepo != nil {
-			if chat, err := service.chatStorageRepo.GetChat(jid.String()); err == nil && chat != nil {
+		// Try to get name from storage if available (device-scoped to prevent data leak)
+		if service.chatStorageRepo != nil && deviceID != "" {
+			if chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid.String()); err == nil && chat != nil {
 				data.Name = chat.Name
 			}
 		}

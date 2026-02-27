@@ -297,7 +297,7 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 				DeviceID:        deviceID,
 				JID:             jidStr,
 				Name:            name,
-				LastMessageTime: time.Now(), // Use current time as placeholder
+				LastMessageTime: time.Unix(0, 0).UTC(), // Use zero time so it doesn't bubble up in chat list
 			}
 			if err := chatStorageRepo.StoreChat(newChat); err != nil {
 				log.Warnf("Failed to create chat for %s during pushname sync: %v", jidStr, err)
