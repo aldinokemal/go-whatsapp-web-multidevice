@@ -219,7 +219,8 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 			messageText = "👤 " + messageText
 		}
 	} else if contactsArrayMessage := evt.Message.GetContactsArrayMessage(); contactsArrayMessage != nil {
-		count := len(contactsArrayMessage.GetContacts())
+		contacts := contactsArrayMessage.GetContacts()
+		count := len(contacts)
 		displayName := contactsArrayMessage.GetDisplayName()
 		if displayName != "" {
 			messageText = fmt.Sprintf("👥 %s (%d contacts)", displayName, count)
