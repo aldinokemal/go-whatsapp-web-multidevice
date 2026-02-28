@@ -11,6 +11,7 @@ type Chat struct {
 	EphemeralExpiration uint32    `db:"ephemeral_expiration"`
 	CreatedAt           time.Time `db:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at"`
+	Archived            bool      `db:"archived"`
 }
 
 // Message represents a WhatsApp message
@@ -74,4 +75,5 @@ type ChatFilter struct {
 	Offset     int
 	SearchName string
 	HasMedia   bool
+	IsArchived *bool
 }
