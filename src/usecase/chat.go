@@ -65,7 +65,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 			EphemeralExpiration: chat.EphemeralExpiration,
 			CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
-			Archived:            chat.Archived,
+		Archived:            chat.Archived,
 		}
 		chatInfos = append(chatInfos, chatInfo)
 	}
@@ -189,7 +189,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		EphemeralExpiration: chat.EphemeralExpiration,
 		CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
-			Archived:            chat.Archived,
+		Archived:            chat.Archived,
 	}
 
 	// Create pagination response

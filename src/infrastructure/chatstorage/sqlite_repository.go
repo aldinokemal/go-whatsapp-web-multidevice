@@ -32,7 +32,7 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 
 	// Try update first, then insert if no rows affected (cross-db compatible)
 	result, err := r.db.Exec(`
-		UPDATE chats SET name = ?, last_message_time = ?, ephemeral_expiration = ?, updated_at = ?, archived = ?, archived = ?
+		UPDATE chats SET name = ?, last_message_time = ?, ephemeral_expiration = ?, updated_at = ?, archived = ?
 		WHERE jid = ? AND device_id = ?
 	`, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, chat.UpdatedAt, chat.Archived, chat.JID, chat.DeviceID)
 	if err != nil {
@@ -52,7 +52,7 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 // GetChat retrieves a chat by JID
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived, archived
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived
 		FROM chats
 		WHERE jid = ?
 	`
@@ -68,7 +68,7 @@ func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) 
 // GetChatByDevice retrieves a chat by JID for a specific device
 func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived, archived
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived
 		FROM chats
 		WHERE jid = ? AND device_id = ?
 	`
@@ -107,7 +107,7 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 	var args []any
 
 	query := `
-		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived, c.archived
+		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived
 		FROM chats c
 	`
 
@@ -121,14 +121,6 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 		conditions = append(conditions, "m.media_type != ''")
 	}
 
-	if filter.IsArchived != nil {
-		conditions = append(conditions, "c.archived = ?")
-		if *filter.IsArchived {
-			args = append(args, 1)
-		} else {
-			args = append(args, 0)
-		}
-	}
 	if filter.DeviceID != "" {
 		conditions = append(conditions, "c.device_id = ?")
 		args = append(args, filter.DeviceID)
@@ -136,7 +128,11 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 
 	if filter.IsArchived != nil {
 		conditions = append(conditions, "c.archived = ?")
-		args = append(args, *filter.IsArchived)
+		if *filter.IsArchived {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
 	}
 
 	if len(conditions) > 0 {
@@ -516,7 +512,7 @@ func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*d
 	chat := &domainChatStorage.Chat{}
 	err := scanner.Scan(
 		&chat.DeviceID, &chat.JID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
-		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived, &chat.Archived,
+		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived,
 	)
 	return chat, err
 }
@@ -1046,8 +1042,6 @@ func (r *SQLiteRepository) runMigration(migration string, version int) error {
 // Compatible with SQLite, MySQL, and PostgreSQL
 func (r *SQLiteRepository) getMigrations() []string {
 	return []string{
-		// Migration 13: Add archived column to chats
-		`ALTER TABLE chats ADD COLUMN archived BOOLEAN DEFAULT FALSE`,
 		// Migration 1: Create chats table
 		`CREATE TABLE IF NOT EXISTS chats (
 			jid VARCHAR(255) NOT NULL,
@@ -1079,7 +1073,6 @@ func (r *SQLiteRepository) getMigrations() []string {
 			file_length INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			archived BOOLEAN DEFAULT FALSE,
 			PRIMARY KEY (id, chat_jid, device_id)
 		)`,
 
