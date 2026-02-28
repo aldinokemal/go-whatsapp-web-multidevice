@@ -10,8 +10,8 @@ import (
 )
 
 // forwardDeleteToWebhook sends a delete event to webhook
-func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) error {
-	payload, err := createDeletePayload(ctx, evt, message, deviceID, client)
+func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, sessionID string, deviceID string, client *whatsmeow.Client) error {
+	payload, err := createDeletePayload(ctx, evt, message, sessionID, deviceID, client)
 	if err != nil {
 		return err
 	}
@@ -20,7 +20,7 @@ func forwardDeleteToWebhook(ctx context.Context, evt *events.DeleteForMe, messag
 }
 
 // createDeletePayload creates a webhook payload for delete events
-func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, deviceID string, client *whatsmeow.Client) (map[string]any, error) {
+func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *domainChatStorage.Message, sessionID string, deviceID string, client *whatsmeow.Client) (map[string]any, error) {
 	body := make(map[string]any)
 	payload := make(map[string]any)
 
@@ -48,6 +48,9 @@ func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *
 	body["event"] = "message.deleted"
 	if deviceID != "" {
 		body["device_id"] = deviceID
+	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
 	}
 	body["payload"] = payload
 
