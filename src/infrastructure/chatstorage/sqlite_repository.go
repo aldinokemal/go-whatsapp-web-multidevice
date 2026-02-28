@@ -1118,7 +1118,7 @@ func (r *SQLiteRepository) getMigrations() []string {
 		// Migration 12: Create index for devices
 		`CREATE INDEX IF NOT EXISTS idx_devices_created_at ON devices(created_at)`,
 
-		// Migration 13: Add archived column to chats (ignore error if column already exists from previous modifications)
+		// Migration 13: Add archived column to chats
 		`ALTER TABLE chats ADD COLUMN archived BOOLEAN DEFAULT FALSE;`,
 	}
 }

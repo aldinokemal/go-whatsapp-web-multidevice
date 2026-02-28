@@ -10,7 +10,7 @@ import (
 )
 
 func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
-		_ = ctx
+	_ = ctx
 	_ = client
 	if evt == nil {
 		return
