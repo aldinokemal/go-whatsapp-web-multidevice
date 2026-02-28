@@ -805,6 +805,12 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	} else if existingChat != nil {
 		// Preserve existing ephemeral_expiration if incoming message doesn't have one
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
+		chat.Archived = existingChat.Archived
+	}
+
+	// Preserve existing archived state
+	if existingChat != nil {
+		chat.Archived = existingChat.Archived
 	}
 
 	// Store or update the chat
@@ -948,9 +954,15 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		LastMessageTime: timestamp,
 	}
 
-	// Preserve existing ephemeral_expiration if chat exists
+	// Preserve existing ephemeral_expiration and archived state if chat exists
 	if existingChat != nil {
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
+		chat.Archived = existingChat.Archived
+	}
+
+	// Preserve existing archived state
+	if existingChat != nil {
+		chat.Archived = existingChat.Archived
 	}
 
 	if err := r.StoreChat(chat); err != nil {
@@ -1051,7 +1063,6 @@ func (r *SQLiteRepository) getMigrations() []string {
 			ephemeral_expiration INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			archived BOOLEAN DEFAULT FALSE,
 			PRIMARY KEY (jid, device_id)
 		)`,
 
