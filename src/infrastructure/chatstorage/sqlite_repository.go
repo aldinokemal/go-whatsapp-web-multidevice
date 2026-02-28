@@ -805,13 +805,14 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	} else if existingChat != nil {
 		// Preserve existing ephemeral_expiration if incoming message doesn't have one
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
-		chat.Archived = existingChat.Archived
 	}
 
 	// Preserve existing archived state
 	if existingChat != nil {
 		chat.Archived = existingChat.Archived
 	}
+
+	// Store or update the chat
 
 	// Store or update the chat
 	if err := r.StoreChat(chat); err != nil {
@@ -959,12 +960,6 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
 		chat.Archived = existingChat.Archived
 	}
-
-	// Preserve existing archived state
-	if existingChat != nil {
-		chat.Archived = existingChat.Archived
-	}
-
 	if err := r.StoreChat(chat); err != nil {
 		return fmt.Errorf("failed to store chat: %w", err)
 	}
