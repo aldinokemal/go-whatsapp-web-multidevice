@@ -6,6 +6,7 @@ import (
 
 // IMessageActions handles message action operations
 type IMessageActions interface {
+	GetMessage(ctx context.Context, request GetMessageRequest) (response GetMessageResponse, err error)
 	MarkAsRead(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
 	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
 	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)

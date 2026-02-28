@@ -1481,6 +1481,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}:
+    get:
+      operationId: getMessage
+      tags:
+        - message
+      summary: Get Message by ID
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+        - in: query
+          name: phone
+          schema:
+            type: string
+          example: '6289685024051@s.whatsapp.net'
+          description: Phone number (optional for chat verification)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Success get message
+                  results:
+                    $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /message/{message_id}/revoke:
     post:
       operationId: revokeMessage
@@ -3535,6 +3586,61 @@ components:
             status:
               type: string
               example: '<feature> success ....'
+    MessageResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+          description: Message ID
+        chat_jid:
+          type: string
+          example: '6289685024051@s.whatsapp.net'
+          description: Chat JID (phone or group ID)
+        sender_jid:
+          type: string
+          example: '6289685024051@s.whatsapp.net'
+          description: Sender's JID
+        content:
+          type: string
+          example: 'Hello, World!'
+          description: Message content
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: Message timestamp
+        is_from_me:
+          type: boolean
+          example: true
+          description: Whether message is from the current user
+        media_type:
+          type: string
+          example: 'image'
+          description: Media type (image, video, audio, document, sticker, etc.)
+        filename:
+          type: string
+          example: 'photo.jpg'
+          description: Filename for media
+        url:
+          type: string
+          example: 'https://example.com/media/...'
+          description: URL for media file
+        file_length:
+          type: integer
+          format: int64
+          example: 102400
+          description: File size in bytes
+        created_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: When message was created in database
+        updated_at:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: When message was last updated
     DeviceResponse:
       type: object
       properties:
