@@ -7,6 +7,7 @@ type ListChatsRequest struct {
 	Offset   int    `json:"offset" query:"offset"`
 	Search   string `json:"search" query:"search"`
 	HasMedia bool   `json:"has_media" query:"has_media"`
+	Archived *bool  `json:"archived" query:"archived"`
 }
 
 type ListChatsResponse struct {
@@ -51,6 +52,7 @@ type ChatInfo struct {
 	EphemeralExpiration uint32 `json:"ephemeral_expiration"`
 	CreatedAt           string `json:"created_at"`
 	UpdatedAt           string `json:"updated_at"`
+	Archived            bool   `json:"archived"`
 }
 
 type MessageInfo struct {
