@@ -537,6 +537,44 @@ func (r *SQLiteRepository) GetTotalChatCount() (int64, error) {
 	return r.getCount("SELECT COUNT(*) FROM chats")
 }
 
+// GetFilteredChatCount returns the count of chats matching the given filter
+func (r *SQLiteRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFilter) (int64, error) {
+	var conditions []string
+	var args []any
+
+	query := `SELECT COUNT(*) FROM chats c`
+
+	if filter.SearchName != "" {
+		conditions = append(conditions, "c.name LIKE ?")
+		args = append(args, "%"+filter.SearchName+"%")
+	}
+
+	if filter.HasMedia {
+		query += " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
+		conditions = append(conditions, "m.media_type != ''")
+	}
+
+	if filter.DeviceID != "" {
+		conditions = append(conditions, "c.device_id = ?")
+		args = append(args, filter.DeviceID)
+	}
+
+	if filter.IsArchived != nil {
+		conditions = append(conditions, "c.archived = ?")
+		if *filter.IsArchived {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	return r.getCount(query, args...)
+}
+
 // TruncateAllChats deletes all chats from the database
 // Note: Due to foreign key constraints, messages must be deleted first
 func (r *SQLiteRepository) TruncateAllChats() error {
@@ -929,7 +967,6 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
 	chatJID := normalizedJID.String()
 
-	// Get chat name (no pushname available for sent messages)
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 
@@ -1029,7 +1066,6 @@ func (r *SQLiteRepository) getSchemaVersion() (int, error) {
 }
 
 // runMigration executes a migration
-// runMigration executes a migration
 func (r *SQLiteRepository) runMigration(migration string, version int) error {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -1050,6 +1086,7 @@ func (r *SQLiteRepository) runMigration(migration string, version int) error {
 
 	return tx.Commit()
 }
+
 // getMigrations returns all database migrations
 // Compatible with SQLite, MySQL, and PostgreSQL
 func (r *SQLiteRepository) getMigrations() []string {
@@ -1125,5 +1162,8 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 13: Add archived column to chats
 		`ALTER TABLE chats ADD COLUMN archived BOOLEAN DEFAULT FALSE;`,
+
+		// Migration 14: Add index for archived column
+		`CREATE INDEX IF NOT EXISTS idx_chats_archived ON chats(archived)`,
 	}
 }

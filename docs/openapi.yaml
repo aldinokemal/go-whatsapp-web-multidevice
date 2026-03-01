@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.2.0
+  version: 8.3.0
   description: |
     This API is used for sending whatsapp via API.
 
@@ -1910,6 +1910,11 @@ paths:
             type: boolean
             default: false
           description: Filter chats that contain media messages
+        - name: archived
+          in: query
+          schema:
+            type: boolean
+          description: Filter by archived status. true = archived only, false = non-archived only. Omit to return all chats.
       responses:
         '200':
           description: OK
@@ -3894,130 +3899,8 @@ components:
         name:
           type: string
           example: "Aldino Kemal"
-    GroupResponse:
-      type: object
-      properties:
-        code:
-          type: string
-          example: "SUCCESS"
-        message:
-          type: string
-          example: "Success get list groups"
-        results:
-          type: object
-          properties:
-            data:
-              type: array
-              items:
-                $ref: '#/components/schemas/Group'
-    Group:
-      type: object
-      properties:
-        JID:
-          type: string
-          example: "120363347168689807@g.us"
-        OwnerJID:
-          type: string
-          example: "6288228744537@s.whatsapp.net"
-        Name:
-          type: string
-          example: "Example Group"
-        NameSetAt:
-          type: string
-          format: date-time
-          example: "2024-10-11T21:27:29+07:00"
-        NameSetBy:
-          type: string
-          example: "6288228744537@s.whatsapp.net"
-        Topic:
-          type: string
-          example: ""
-        TopicID:
-          type: string
-          example: ""
-        TopicSetAt:
-          type: string
-          format: date-time
-          example: "0001-01-01T00:00:00Z"
-        TopicSetBy:
-          type: string
-          example: ""
-        TopicDeleted:
-          type: boolean
-          example: false
-        IsLocked:
-          type: boolean
-          example: false
-        IsAnnounce:
-          type: boolean
-          example: false
-        AnnounceVersionID:
-          type: string
-          example: "1728656849439709"
-        IsEphemeral:
-          type: boolean
-          example: false
-        DisappearingTimer:
-          type: integer
-          example: 0
-        IsIncognito:
-          type: boolean
-          example: false
-        IsParent:
-          type: boolean
-          example: false
-        DefaultMembershipApprovalMode:
-          type: string
-          example: ""
-        LinkedParentJID:
-          type: string
-          example: ""
-        IsDefaultSubGroup:
-          type: boolean
-          example: false
-        IsJoinApprovalRequired:
-          type: boolean
-          example: false
-        GroupCreated:
-          type: string
-          format: date-time
-          example: "2024-10-11T21:27:29+07:00"
-        ParticipantVersionID:
-          type: string
-          example: "1728656849439790"
-        Participants:
-          type: array
-          items:
-            $ref: '#/components/schemas/Participant'
-        MemberAddMode:
-          type: string
-          example: "admin_add"
 
-    Participant:
-      type: object
-      properties:
-        JID:
-          type: string
-          example: "6288228744537@s.whatsapp.net"
-        LID:
-          type: string
-          example: "20036609675500@lid"
-        IsAdmin:
-          type: boolean
-          example: true
-        IsSuperAdmin:
-          type: boolean
-          example: true
-        DisplayName:
-          type: string
-          example: ""
-        Error:
-          type: integer
-          example: 0
-        AddRequest:
-          type: string
-          example: null
-    
+
     GroupParticipantRequestListResponse:
       type: object
       properties:
@@ -4187,6 +4070,10 @@ components:
           format: date-time
           example: '2024-01-15T10:30:00Z'
           description: Chat last update timestamp
+        archived:
+          type: boolean
+          example: false
+          description: Whether the chat is archived
 
     ChatMessagesResponse:
       type: object
@@ -4400,22 +4287,7 @@ components:
           type: object
           description: Group information object (structure may vary)
           additionalProperties: true
-    UserGroupInfoResponse:
-      type: object
-      properties:
-        status:
-          type: integer
-          example: 200
-        code:
-          type: string
-          example: SUCCESS
-        message:
-          type: string
-          example: Success get group info
-        results:
-          type: object
-          description: Group information object (structure may vary)
-          additionalProperties: true
+
     GetGroupInviteLinkResponse:
       type: object
       properties:

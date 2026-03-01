@@ -51,8 +51,8 @@ type ChatInfo struct {
 	LastMessageTime     string `json:"last_message_time"`
 	EphemeralExpiration uint32 `json:"ephemeral_expiration"`
 	CreatedAt           string `json:"created_at"`
-	Archived            bool   `json:"archived"`
 	UpdatedAt           string `json:"updated_at"`
+	Archived            bool   `json:"archived"`
 }
 
 type MessageInfo struct {

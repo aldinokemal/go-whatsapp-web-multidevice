@@ -122,6 +122,13 @@ func (r *deviceChatStorage) GetTotalChatCount() (int64, error) {
 	return r.base.GetTotalChatCount()
 }
 
+func (r *deviceChatStorage) GetFilteredChatCount(filter *domainChatStorage.ChatFilter) (int64, error) {
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetFilteredChatCount(filter)
+}
+
 func (r *deviceChatStorage) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	return r.base.GetChatNameWithPushNameByDevice(r.deviceID, jid, chatJID, senderUser, pushName)
 }

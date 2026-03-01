@@ -9,25 +9,27 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
-	_ = ctx
-	_ = client
+func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
 	if evt == nil {
 		return
 	}
 	if chatStorageRepo == nil {
 		return
 	}
-	
+
+	// Derive device ID from client (strips device number suffix like :11)
+	// This matches how history_sync and event_message derive device IDs for DB lookups
+	deviceID := client.Store.ID.ToNonAD().String()
 	if deviceID == "" {
 		return
 	}
 
-	jidStr := evt.JID.String()
+	// Normalize JID from LID format (@lid) to regular format (@s.whatsapp.net)
+	normalizedJID := NormalizeJIDFromLID(ctx, evt.JID, client)
+	jidStr := normalizedJID.String()
 
 	chat, err := chatStorageRepo.GetChatByDevice(deviceID, jidStr)
 	if err != nil || chat == nil {
-		// Just log and exit if chat doesn't exist, as it will be synced later
 		if err != nil {
 			logrus.WithError(err).WithField("device_id", deviceID).WithField("jid", jidStr).Debug("Failed to get chat by device in handleArchive")
 		} else {
@@ -35,7 +37,7 @@ func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo dom
 		}
 		return
 	}
-	
+
 	if evt.Action == nil || evt.Action.Archived == nil {
 		return
 	}
@@ -45,6 +47,6 @@ func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo dom
 	chat.Archived = isArchived
 	err = chatStorageRepo.StoreChat(chat)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to update chat archive status")
+		logrus.WithError(err).WithField("device_id", deviceID).WithField("jid", jidStr).Error("Failed to update chat archive status")
 	}
 }

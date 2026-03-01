@@ -47,8 +47,8 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		return response, err
 	}
 
-	// Get total count for pagination
-	totalCount, err := service.chatStorageRepo.GetTotalChatCount()
+	// Get total count for pagination (with same filters for accuracy)
+	totalCount, err := service.chatStorageRepo.GetFilteredChatCount(filter)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get total chat count")
 		// Continue with partial data
@@ -65,7 +65,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 			EphemeralExpiration: chat.EphemeralExpiration,
 			CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
-		Archived:            chat.Archived,
+			Archived:            chat.Archived,
 		}
 		chatInfos = append(chatInfos, chatInfo)
 	}
@@ -99,7 +99,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, fmt.Errorf("device identification required")
 	}
 
-	chat, err := service.chatStorageRepo.GetChat(request.ChatJID)
+	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get chat info")
 		return response, err
@@ -357,6 +357,12 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 		response.Message = "Chat archived successfully"
 	} else {
 		response.Message = "Chat unarchived successfully"
+	}
+
+	// Update local storage immediately for consistency
+	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceIDFromContext(ctx), request.ChatJID); existingChat != nil {
+		existingChat.Archived = request.Archived
+		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}
 
 	logrus.WithFields(logrus.Fields{
