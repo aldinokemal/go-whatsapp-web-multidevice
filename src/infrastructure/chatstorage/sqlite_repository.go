@@ -779,11 +779,11 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
 	sender := normalizedSender.ToNonAD().String()
 
-	// Get appropriate chat name using pushname if available
-	chatName := r.GetChatNameWithPushName(normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
+	// Get appropriate chat name using pushname if available (device-scoped)
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
 
-	// Get existing chat to preserve ephemeral_expiration if needed
-	existingChat, err := r.GetChat(chatJID)
+	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
+	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
@@ -932,7 +932,8 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	chatJID := normalizedJID.String()
 
 	// Get chat name (no pushname available for sent messages)
-	chatName := r.GetChatNameWithPushName(normalizedJID, chatJID, normalizedJID.User, "")
+	// Get chat name (no pushname available for sent messages) - device scoped
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 
 	// Check context again before database operations
 	select {
@@ -941,8 +942,8 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
-	// Get existing chat to preserve ephemeral_expiration
-	existingChat, err := r.GetChat(chatJID)
+	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
+	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
