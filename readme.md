@@ -499,7 +499,6 @@ You can fork or edit this source code !
 
 ### HTTP REST API
 
-- [API Specification Document](https://bump.sh/aldinokemal/doc/go-whatsapp-web-multidevice).
 - Check [docs/openapi.yml](./docs/openapi.yaml) for detailed API specifications.
 - Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
