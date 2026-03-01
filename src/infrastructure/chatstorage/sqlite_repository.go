@@ -1031,21 +1031,27 @@ func (r *SQLiteRepository) getSchemaVersion() (int, error) {
 }
 
 // runMigration executes a migration
+// runMigration executes a migration
 func (r *SQLiteRepository) runMigration(migration string, version int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	// Execute migration (single statement)
-	if _, err := r.db.Exec(migration); err != nil {
+	if _, err := tx.Exec(migration); err != nil {
 		return err
 	}
 
 	// Update schema version - delete then insert for cross-db compatibility
-	_, _ = r.db.Exec("DELETE FROM schema_info WHERE version = ?", version)
-	if _, err := r.db.Exec("INSERT INTO schema_info (version) VALUES (?)", version); err != nil {
+	_, _ = tx.Exec("DELETE FROM schema_info WHERE version = ?", version)
+	if _, err := tx.Exec("INSERT INTO schema_info (version) VALUES (?)", version); err != nil {
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
-
 // getMigrations returns all database migrations
 // Compatible with SQLite, MySQL, and PostgreSQL
 func (r *SQLiteRepository) getMigrations() []string {
