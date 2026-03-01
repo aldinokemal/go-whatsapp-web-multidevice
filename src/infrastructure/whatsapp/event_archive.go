@@ -10,43 +10,36 @@ import (
 )
 
 func handleArchive(ctx context.Context, evt *events.Archive, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	if evt == nil {
+	if evt == nil || chatStorageRepo == nil {
 		return
 	}
-	if chatStorageRepo == nil {
+	if evt.Action == nil || evt.Action.Archived == nil {
 		return
 	}
 
 	// Derive device ID from client (strips device number suffix like :11)
-	// This matches how history_sync and event_message derive device IDs for DB lookups
 	deviceID := client.Store.ID.ToNonAD().String()
 	if deviceID == "" {
 		return
 	}
 
 	// Normalize JID from LID format (@lid) to regular format (@s.whatsapp.net)
-	normalizedJID := NormalizeJIDFromLID(ctx, evt.JID, client)
-	jidStr := normalizedJID.String()
+	jidStr := NormalizeJIDFromLID(ctx, evt.JID, client).String()
+
+	logFields := logrus.Fields{"device_id": deviceID, "jid": jidStr}
 
 	chat, err := chatStorageRepo.GetChatByDevice(deviceID, jidStr)
-	if err != nil || chat == nil {
-		if err != nil {
-			logrus.WithError(err).WithField("device_id", deviceID).WithField("jid", jidStr).Debug("Failed to get chat by device in handleArchive")
-		} else {
-			logrus.WithField("device_id", deviceID).WithField("jid", jidStr).Debug("Chat not found in handleArchive, skipping archive status update")
-		}
-		return
-	}
-
-	if evt.Action == nil || evt.Action.Archived == nil {
-		return
-	}
-
-	isArchived := *evt.Action.Archived
-
-	chat.Archived = isArchived
-	err = chatStorageRepo.StoreChat(chat)
 	if err != nil {
-		logrus.WithError(err).WithField("device_id", deviceID).WithField("jid", jidStr).Error("Failed to update chat archive status")
+		logrus.WithError(err).WithFields(logFields).Debug("Failed to get chat in handleArchive")
+		return
+	}
+	if chat == nil {
+		logrus.WithFields(logFields).Debug("Chat not found in handleArchive, skipping")
+		return
+	}
+
+	chat.Archived = *evt.Action.Archived
+	if err = chatStorageRepo.StoreChat(chat); err != nil {
+		logrus.WithError(err).WithFields(logFields).Error("Failed to update chat archive status")
 	}
 }

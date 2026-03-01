@@ -101,23 +101,16 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	return message, err
 }
 
-// GetChats retrieves chats with filtering
-func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
-	var conditions []string
-	var args []any
-
-	query := `
-		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived
-		FROM chats c
-	`
-
+// buildChatFilterQuery constructs the shared WHERE clause and JOIN for chat filter queries.
+// Returns the query fragment (starting from JOIN/WHERE), conditions, and args.
+func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFilter) (joinClause string, conditions []string, args []any) {
 	if filter.SearchName != "" {
 		conditions = append(conditions, "c.name LIKE ?")
 		args = append(args, "%"+filter.SearchName+"%")
 	}
 
 	if filter.HasMedia {
-		query += " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
+		joinClause = " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
 		conditions = append(conditions, "m.media_type != ''")
 	}
 
@@ -135,6 +128,19 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 		}
 	}
 
+	return joinClause, conditions, args
+}
+
+// GetChats retrieves chats with filtering
+func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	query := `
+		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived
+		FROM chats c
+	`
+
+	joinClause, conditions, args := r.buildChatFilterQuery(filter)
+	query += joinClause
+
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -143,7 +149,6 @@ func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*do
 
 	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
-		// Validate limit to prevent abuse
 		if filter.Limit > 1000 {
 			filter.Limit = 1000
 		}
@@ -380,7 +385,6 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 
 	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
-		// Validate limit to prevent abuse
 		if filter.Limit > 1000 {
 			filter.Limit = 1000
 		}
@@ -446,7 +450,6 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 
 	// Add limit with validation
 	if limit > 0 {
-		// Validate limit to prevent abuse
 		if limit > 1000 {
 			limit = 1000
 		}
@@ -539,34 +542,10 @@ func (r *SQLiteRepository) GetTotalChatCount() (int64, error) {
 
 // GetFilteredChatCount returns the count of chats matching the given filter
 func (r *SQLiteRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFilter) (int64, error) {
-	var conditions []string
-	var args []any
-
 	query := `SELECT COUNT(*) FROM chats c`
 
-	if filter.SearchName != "" {
-		conditions = append(conditions, "c.name LIKE ?")
-		args = append(args, "%"+filter.SearchName+"%")
-	}
-
-	if filter.HasMedia {
-		query += " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
-		conditions = append(conditions, "m.media_type != ''")
-	}
-
-	if filter.DeviceID != "" {
-		conditions = append(conditions, "c.device_id = ?")
-		args = append(args, filter.DeviceID)
-	}
-
-	if filter.IsArchived != nil {
-		conditions = append(conditions, "c.archived = ?")
-		if *filter.IsArchived {
-			args = append(args, 1)
-		} else {
-			args = append(args, 0)
-		}
-	}
+	joinClause, conditions, args := r.buildChatFilterQuery(filter)
+	query += joinClause
 
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
