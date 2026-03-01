@@ -813,8 +813,6 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	}
 
 	// Store or update the chat
-
-	// Store or update the chat
 	if err := r.StoreChat(chat); err != nil {
 		return fmt.Errorf("failed to store chat: %w", err)
 	}
