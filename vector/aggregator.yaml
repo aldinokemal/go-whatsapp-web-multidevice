@@ -1,0 +1,21 @@
+data_dir: /tmp/vector-aggregator
+
+sources:
+  from_agents:
+    type: vector
+    address: "0.0.0.0:8686"
+    version: "2"
+
+sinks:
+  elasticsearch:
+    type: elasticsearch
+    inputs: ["from_agents"]
+    endpoints:
+      - "${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
+    bulk:
+      index: "whatsapp-messages-%Y.%m.%d"
+    tls:
+      verify_certificate: false
+    buffer:
+      type: disk
+      max_size: 268435488
