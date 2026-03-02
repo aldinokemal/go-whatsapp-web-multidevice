@@ -1,0 +1,33 @@
+data_dir: /tmp/vector-agent
+
+sources:
+  messages_log:
+    type: file
+    include:
+      - /app/logs/messages.log
+    read_from: beginning
+
+transforms:
+  parse_json:
+    type: remap
+    inputs: ["messages_log"]
+    source: |
+      . = parse_json!(.message)
+      del(.level)
+      del(.msg)
+      if !exists(.text) {
+        abort
+      }
+      if contains(string(.text) ?? "", "[WAENGINE ALERT]") {
+        abort
+      }
+      if starts_with(string(.from) ?? "", "6281919459304") {
+        abort
+      }
+      . = compact!(.)
+
+sinks:
+  to_aggregator:
+    type: vector
+    inputs: ["parse_json"]
+    address: "${VECTOR_AGGREGATOR_HOST:-vector-aggregator:8686}"
