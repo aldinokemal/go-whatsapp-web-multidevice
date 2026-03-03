@@ -9,6 +9,7 @@ services:
       - ./src:/app/src
       - go_cache:/root/go
       - logs_data:/app/logs
+      - storages_data:/app/storages
     env_file:
       - src/.env
     restart: unless-stopped
@@ -33,3 +34,4 @@ services:
 volumes:
   go_cache:
   logs_data:
+  storages_data:

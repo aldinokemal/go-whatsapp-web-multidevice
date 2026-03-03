@@ -13,6 +13,7 @@ services:
       - "3000:3000"
     volumes:
       - logs_data:/app/logs
+      - storages_data:/app/storages
     env_file:
       - src/.env
 
@@ -23,6 +24,8 @@ services:
       - logs_data:/app/logs
     environment:
       VECTOR_AGGREGATOR_HOST: ${VECTOR_AGGREGATOR_HOST:-host.docker.internal:8686}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["sh", "-c", "mkdir -p /tmp/vector-agent && vector --config /etc/vector/vector.yaml"]
     restart: unless-stopped
     depends_on:
@@ -30,3 +33,4 @@ services:
 
 volumes:
   logs_data:
+  storages_data:
