@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag version to promote to latest (e.g., v7.0.0)'
+        description: "Tag version to promote to latest (e.g., v7.0.0)"
         required: true
         type: string
 
@@ -55,4 +55,3 @@ jobs:
           docker buildx imagetools create \
             -t ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:latest \
             ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ inputs.tag }}
-
