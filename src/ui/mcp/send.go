@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	mcpHelpers "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/helpers"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -55,6 +56,11 @@ func (s *SendHandler) toolSendText() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")
@@ -126,6 +132,11 @@ func (s *SendHandler) toolSendContact() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendContact(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")
@@ -186,6 +197,11 @@ func (s *SendHandler) toolSendLink() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")
@@ -246,6 +262,11 @@ func (s *SendHandler) toolSendLocation() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendLocation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")
@@ -310,6 +331,11 @@ func (s *SendHandler) toolSendImage() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendImage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")
@@ -381,6 +407,11 @@ func (s *SendHandler) toolSendSticker() mcp.Tool {
 }
 
 func (s *SendHandler) handleSendSticker(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	phone, ok := request.GetArguments()["phone"].(string)
 	if !ok {
 		return nil, errors.New("phone must be a string")

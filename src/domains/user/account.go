@@ -19,6 +19,7 @@ type InfoResponseDataDevice struct {
 }
 
 type InfoResponseData struct {
+	Name         string                   `json:"name"`
 	VerifiedName string                   `json:"verified_name"`
 	Status       string                   `json:"status"`
 	PictureID    string                   `json:"picture_id"`
