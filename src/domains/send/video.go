@@ -7,6 +7,7 @@ type VideoRequest struct {
 	Caption  string                `json:"caption" form:"caption"`
 	Video    *multipart.FileHeader `json:"video" form:"video"`
 	ViewOnce bool                  `json:"view_once" form:"view_once"`
-	Compress bool                  `json:"compress"`
+	Compress    bool                  `json:"compress"`
+	GifPlayback bool                  `json:"gif_playback" form:"gif_playback"`
 	VideoURL *string               `json:"video_url" form:"video_url"`
 }
