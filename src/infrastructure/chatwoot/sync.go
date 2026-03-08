@@ -368,7 +368,7 @@ func getExtensionForMediaType(mediaType, filename string) string {
 	case "video":
 		return ".mp4"
 	case "audio", "ptt":
-		return ".ogg"
+		return ".oga"
 	case "document":
 		return ".bin"
 	case "sticker":

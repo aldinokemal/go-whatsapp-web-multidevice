@@ -73,6 +73,10 @@ func determineMediaExtension(originalFilename, mimeType string) string {
 		}
 	}
 
+	if idx := strings.Index(mimeType, ";"); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+
 	if ext, ok := resolveKnownDocumentExtension(mimeType); ok {
 		return ext
 	}

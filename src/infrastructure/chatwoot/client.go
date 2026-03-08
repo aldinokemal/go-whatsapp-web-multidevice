@@ -516,10 +516,15 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 			defer file.Close()
 
 			fileName := filepath.Base(fp)
+			ext := filepath.Ext(fp)
 
-			mimeType := mime.TypeByExtension(filepath.Ext(fp))
+			mimeType := mime.TypeByExtension(ext)
 			if mimeType == "" {
-				mimeType = "application/octet-stream"
+				if ext == ".oga" {
+					mimeType = "audio/ogg"
+				} else {
+					mimeType = "application/octet-stream"
+				}
 			}
 
 			// Custom form part with correct Content-Type for Chatwoot to render images inline
