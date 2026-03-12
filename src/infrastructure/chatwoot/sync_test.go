@@ -162,8 +162,8 @@ func TestGetExtensionForMediaType(t *testing.T) {
 	}{
 		{"image", "", ".jpg"},
 		{"video", "", ".mp4"},
-		{"audio", "", ".ogg"},
-		{"ptt", "", ".ogg"},
+		{"audio", "", ".oga"},
+		{"ptt", "", ".oga"},
 		{"document", "", ".bin"},
 		{"sticker", "", ".webp"},
 		{"unknown", "", ""},
