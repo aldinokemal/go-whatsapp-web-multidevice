@@ -34,6 +34,66 @@ func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository)
 	}
 }
 
+func (service serviceMessage) GetMessage(ctx context.Context, request domainMessage.GetMessageRequest) (response domainMessage.GetMessageResponse, err error) {
+	if request.MessageID == "" {
+		return response, fmt.Errorf("message_id cannot be empty")
+	}
+
+	if request.Phone != "" {
+		utils.SanitizePhone(&request.Phone)
+	}
+
+	// Query the message from database
+	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if err != nil {
+		return response, fmt.Errorf("failed to fetch message: %v", err)
+	}
+
+	if message == nil {
+		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+	}
+
+	// If phone is provided, verify message belongs to that chat
+	if request.Phone != "" {
+		client := whatsapp.ClientFromContext(ctx)
+		if client == nil {
+			return response, pkgError.ErrWaCLI
+		}
+
+		dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+		if err != nil {
+			return response, err
+		}
+
+		if message.ChatJID != dataWaRecipient.String() {
+			return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, request.Phone)
+		}
+	}
+
+	// Map database message to response
+	response.ID = message.ID
+	response.ChatJID = message.ChatJID
+	response.SenderJID = message.Sender
+	response.Content = message.Content
+	response.Timestamp = message.Timestamp.Format(time.RFC3339)
+	response.IsFromMe = message.IsFromMe
+	response.MediaType = message.MediaType
+	response.Filename = message.Filename
+	response.URL = message.URL
+	response.FileLength = message.FileLength
+	response.CreatedAt = message.CreatedAt.Format(time.RFC3339)
+	response.UpdatedAt = message.UpdatedAt.Format(time.RFC3339)
+
+	logrus.Info(map[string]any{
+		"action":     "get_message",
+		"message_id": request.MessageID,
+		"phone":      request.Phone,
+		"chat_jid":   message.ChatJID,
+	})
+
+	return response, nil
+}
+
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
 		return response, err

@@ -51,3 +51,23 @@ type DownloadMediaResponse struct {
 	FilePath  string `json:"file_path"`
 	FileSize  int64  `json:"file_size"`
 }
+
+type GetMessageRequest struct {
+	MessageID string `json:"message_id" uri:"message_id"`
+	Phone     string `json:"phone" query:"phone"`
+}
+
+type GetMessageResponse struct {
+	ID         string `json:"id"`
+	ChatJID    string `json:"chat_jid"`
+	SenderJID  string `json:"sender_jid"`
+	Content    string `json:"content"`
+	Timestamp  string `json:"timestamp"`
+	IsFromMe   bool   `json:"is_from_me"`
+	MediaType  string `json:"media_type"`
+	Filename   string `json:"filename"`
+	URL        string `json:"url"`
+	FileLength uint64 `json:"file_length"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
