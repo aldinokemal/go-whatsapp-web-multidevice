@@ -95,6 +95,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 			recipientJID.String(),           // Recipient JID
 			config.WhatsappAutoReplyMessage, // Auto-reply content
 			response.Timestamp,              // Timestamp from response
+			nil,                             // text-only message, no media
 		); err != nil {
 			// Log storage error but don't fail the auto-reply
 			log.Errorf("Failed to store auto-reply message in chat storage: %v", err)
