@@ -187,6 +187,13 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 						}
 					}
 				} else {
+					// Check if this is a group chat — group messages must have a participant
+					// to identify the actual sender. Without it, we'd incorrectly store the
+					// group JID as the sender (see GitHub issue #609).
+					if jid.Server == "g.us" {
+						log.Warnf("Skipping group message %s in chat %s: no participant info available", messageID, chatJID)
+						continue
+					}
 					// For individual chats, use the chat JID as sender with full format
 					sender = jid.String() // Use full JID format for consistency
 				}
