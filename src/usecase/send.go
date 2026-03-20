@@ -392,7 +392,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 
 	fileMimeType := resolveDocumentMIME(fileName, fileBytes)
 
-	// Generate thumbnail for document preview (best-effort, non-blocking)
+	// Generate thumbnail for document preview (best-effort, non-fatal on failure)
 	thumbnailBytes := generateDocumentThumbnail(fileBytes, fileName, fileMimeType)
 
 	// Send to WA server
@@ -485,7 +485,9 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
 	pngGenerated := false
 	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
-	cmd := exec.Command("pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
 	if err := cmd.Run(); err == nil {
 		// pdftoppm with -singlefile outputs to {prefix}.png
 		actualOut := pdftoppmOut + ".png"
@@ -497,7 +499,7 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 
 	// Fallback to ImageMagick convert
 	if !pngGenerated {
-		cmd = exec.Command("convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
+		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
 		if err := cmd.Run(); err != nil {
 			return nil
 		}
@@ -522,7 +524,8 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 
 // generateImageDocThumbnail creates a thumbnail for image files sent as documents.
 func generateImageDocThumbnail(imageBytes []byte, fileName string, uuid string) []byte {
-	tempPath := fmt.Sprintf("%s/docimg_%s_%s", config.PathSendItems, uuid, fileName)
+	safeFileName := filepath.Base(fileName)
+	tempPath := fmt.Sprintf("%s/docimg_%s_%s", config.PathSendItems, uuid, safeFileName)
 	thumbPath := fmt.Sprintf("%s/docimg_%s_thumb.jpg", config.PathSendItems, uuid)
 
 	defer func() {
