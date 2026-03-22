@@ -11,9 +11,9 @@ require (
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
-	github.com/lib/pq v1.11.2
+	github.com/lib/pq v1.12.0
 	github.com/mark3labs/mcp-go v0.45.0
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/sirupsen/logrus v1.9.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.69.0
 	go.mau.fi/libsignal v0.2.1
-	go.mau.fi/whatsmeow v0.0.0-20260305215846-fc65416c22c4
+	go.mau.fi/whatsmeow v0.0.0-20260321154921-234105b0ae55
 	golang.org/x/image v0.37.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -33,7 +33,7 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
-	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -45,7 +45,7 @@ require (
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/mailru/easyjson v0.9.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
