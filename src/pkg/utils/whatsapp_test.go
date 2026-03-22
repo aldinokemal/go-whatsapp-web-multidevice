@@ -34,6 +34,12 @@ func TestDetermineMediaExtension(t *testing.T) {
 			wantSuffix: ".zip",
 		},
 		{
+			name:       "AudioOgaWithCodecsParam",
+			filename:   "",
+			mimeType:   "audio/ogg; codecs=opus",
+			wantSuffix: ".oga",
+		},
+		{
 			name:       "ExeFromFilename",
 			filename:   "installer.exe",
 			mimeType:   "application/octet-stream",

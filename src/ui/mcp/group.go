@@ -7,6 +7,7 @@ import (
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	mcpHelpers "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/helpers"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.mau.fi/whatsmeow"
@@ -56,6 +57,11 @@ func (h *GroupHandler) toolCreateGroup() mcp.Tool {
 }
 
 func (h *GroupHandler) handleCreateGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	title, err := request.RequireString("title")
 	if err != nil {
 		return nil, err
@@ -105,6 +111,11 @@ func (h *GroupHandler) toolJoinGroup() mcp.Tool {
 }
 
 func (h *GroupHandler) handleJoinGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	link, err := request.RequireString("invite_link")
 	if err != nil {
 		return nil, err
@@ -140,6 +151,11 @@ func (h *GroupHandler) toolLeaveGroup() mcp.Tool {
 }
 
 func (h *GroupHandler) handleLeaveGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -171,6 +187,11 @@ func (h *GroupHandler) toolGetParticipants() mcp.Tool {
 }
 
 func (h *GroupHandler) handleGetParticipants(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -213,6 +234,11 @@ func (h *GroupHandler) toolManageParticipants() mcp.Tool {
 }
 
 func (h *GroupHandler) handleManageParticipants(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -284,6 +310,11 @@ func (h *GroupHandler) toolGetInviteLink() mcp.Tool {
 }
 
 func (h *GroupHandler) handleGetInviteLink(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -331,6 +362,11 @@ func (h *GroupHandler) toolGroupInfo() mcp.Tool {
 }
 
 func (h *GroupHandler) handleGroupInfo(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -368,6 +404,11 @@ func (h *GroupHandler) toolSetGroupName() mcp.Tool {
 }
 
 func (h *GroupHandler) handleSetGroupName(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -408,6 +449,11 @@ func (h *GroupHandler) toolSetGroupTopic() mcp.Tool {
 }
 
 func (h *GroupHandler) handleSetGroupTopic(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -448,6 +494,11 @@ func (h *GroupHandler) toolSetGroupLocked() mcp.Tool {
 }
 
 func (h *GroupHandler) handleSetGroupLocked(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -503,6 +554,11 @@ func (h *GroupHandler) toolSetGroupAnnounce() mcp.Tool {
 }
 
 func (h *GroupHandler) handleSetGroupAnnounce(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -554,6 +610,11 @@ func (h *GroupHandler) toolListGroupJoinRequests() mcp.Tool {
 }
 
 func (h *GroupHandler) handleListGroupJoinRequests(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err
@@ -596,6 +657,11 @@ func (h *GroupHandler) toolManageGroupJoinRequests() mcp.Tool {
 }
 
 func (h *GroupHandler) handleManageGroupJoinRequests(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	groupID, err := request.RequireString("group_id")
 	if err != nil {
 		return nil, err

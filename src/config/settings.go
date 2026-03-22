@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion             = "v8.2.1"
+	AppVersion             = "v8.3.3"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -23,7 +23,7 @@ var (
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
-	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on"
+	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000"
 	DBKeysURI = ""
 
 	WhatsappAutoReplyMessage          string
@@ -41,7 +41,9 @@ var (
 	WhatsappSettingMaxDownloadSize    int64    = 500000000 // 500MB
 	WhatsappTypeUser                           = "@s.whatsapp.net"
 	WhatsappTypeGroup                          = "@g.us"
+	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
+	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true

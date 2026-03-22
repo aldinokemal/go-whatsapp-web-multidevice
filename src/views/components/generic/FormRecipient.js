@@ -40,6 +40,7 @@ export default {
             { value: window.TYPEUSER, text: 'Private Message' },
             { value: window.TYPEGROUP, text: 'Group Message' },
             { value: window.TYPENEWSLETTER, text: 'Newsletter' },
+            { value: window.TYPELID, text: 'LID (Linked ID)' },
             { value: window.TYPESTATUS, text: 'Status' }
         ];
     },

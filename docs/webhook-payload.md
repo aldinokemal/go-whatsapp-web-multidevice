@@ -20,6 +20,7 @@ The following events can be received via webhook:
 | `message.edited`     | Edited messages                                         |
 | `message.ack`        | Delivery and read receipts                              |
 | `message.deleted`    | Messages deleted for the user                           |
+| `chat_presence`      | Typing and recording indicators from contacts           |
 | `group.participants` | Group member join/leave/promote/demote events           |
 | `group.joined`       | You were added to a group                               |
 | `newsletter.joined`  | You subscribed to a newsletter/channel                  |
@@ -138,7 +139,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**   | **Type** | **Description**                                                                                                     |
 |-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
 | `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `payload`   | object   | Event-specific payload data                                                                                         |
 
@@ -277,6 +278,105 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 | `payload.from_lid`                 | string   | LID of the user (if available)                            |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
+
+## Chat Presence Events
+
+Chat presence events are triggered when a contact starts or stops typing (or recording audio) in a chat.
+These events use the `chat_presence` event type and are useful for implementing message batching strategies.
+
+**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA automatically marks
+itself as online upon connection, so no additional configuration is needed.
+
+### User Typing
+
+Triggered when a user starts typing a text message.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "composing",
+    "media": "",
+    "is_group": false
+  }
+}
+```
+
+### User Stopped Typing
+
+Triggered when a user stops typing (pauses or clears the input field).
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:05Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "paused",
+    "media": "",
+    "is_group": false
+  }
+}
+```
+
+### User Recording Audio
+
+Triggered when a user starts recording a voice message.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:01:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "state": "composing",
+    "media": "audio",
+    "is_group": false
+  }
+}
+```
+
+### Group Typing
+
+Triggered when a user starts typing in a group chat.
+
+```json
+{
+  "event": "chat_presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:02:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "from_lid": "251556368777322@lid",
+    "chat_id": "120363402106XXXXX@g.us",
+    "state": "composing",
+    "media": "",
+    "is_group": true
+  }
+}
+```
+
+### Chat Presence Event Fields
+
+| **Field**          | **Type** | **Description**                                                    |
+|--------------------|----------|--------------------------------------------------------------------|
+| `event`            | string   | Always `"chat_presence"` for typing events                         |
+| `device_id`        | string   | JID of the device that received this event                         |
+| `timestamp`        | string   | RFC3339 formatted timestamp when the event was processed           |
+| `payload.from`     | string   | JID of the user who is typing (e.g., `628987654321@s.whatsapp.net`)|
+| `payload.from_lid` | string   | LID of the user (if available, typically in group chats)           |
+| `payload.chat_id`  | string   | Chat identifier (individual or group)                              |
+| `payload.state`    | string   | Typing state: `"composing"` (typing) or `"paused"` (stopped)      |
+| `payload.media`    | string   | Media type: `""` (text message) or `"audio"` (voice recording)    |
+| `payload.is_group` | boolean  | Whether this is a group chat                                       |
 
 ## Group Events
 
@@ -552,6 +652,12 @@ WHATSAPP_AUTO_REJECT_CALL=true
 When `WHATSAPP_AUTO_DOWNLOAD_MEDIA` is enabled, media is downloaded and `image` contains the file path.
 When disabled, `image` contains an object with the URL.
 
+If a caption is present, it is included in the top-level `body` field (consistent with text messages).
+When auto-download is enabled and a caption exists, `image` becomes an object with `path` and `caption`.
+When no caption exists, `image` remains a plain file path string for backward compatibility.
+
+With auto-download enabled (no caption):
+
 ```json
 {
   "event": "message",
@@ -563,6 +669,27 @@ When disabled, `image` contains an object with the URL.
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:05:51Z",
     "image": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpeg"
+  }
+}
+```
+
+With auto-download enabled (with caption):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A3",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:05:51Z",
+    "body": "Check this out!",
+    "image": {
+      "path": "statics/media/1752404751-ad9e37ac-c658-4fe5-8d25-ba4a3f4d58fd.jpeg",
+      "caption": "Check this out!"
+    }
   }
 }
 ```
@@ -579,6 +706,7 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:05:51Z",
+    "body": "Check this out!",
     "image": {
       "url": "https://mmg.whatsapp.net/...",
       "caption": "Check this out!"
@@ -599,7 +727,11 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2025-07-13T11:07:24Z",
-    "video": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.mp4"
+    "body": "Watch this!",
+    "video": {
+      "path": "statics/media/1752404845-b9393cd1-8546-4df9-8a60-ee3276036aba.mp4",
+      "caption": "Watch this!"
+    }
   }
 }
 ```
@@ -633,7 +765,11 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T11:00:00Z",
-    "document": "statics/media/1752404965-document.pdf"
+    "body": "Monthly report",
+    "document": {
+      "path": "statics/media/1752404965-document.pdf",
+      "caption": "Monthly report"
+    }
   }
 }
 ```
@@ -650,6 +786,7 @@ With auto-download disabled:
     "from": "628123456789@s.whatsapp.net",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T11:00:00Z",
+    "body": "Monthly report",
     "document": {
       "url": "https://mmg.whatsapp.net/...",
       "filename": "report.pdf"
@@ -696,6 +833,8 @@ With auto-download disabled:
 
 ### Contact Message
 
+When a user shares a single contact:
+
 ```json
 {
   "event": "message",
@@ -713,6 +852,36 @@ With auto-download disabled:
   }
 }
 ```
+
+### Contacts Array Message
+
+When a user shares multiple contacts at once (via WhatsApp's multi-contact share feature):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "A1B2C3D4E5F6789012345678",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2025-07-13T11:10:19Z",
+    "contacts_array": [
+      {
+        "displayName": "Alice",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+      },
+      {
+        "displayName": "Bob",
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Bob;;;\nFN:Bob\nTEL;type=Mobile:+62 813 9876 5432\nEND:VCARD"
+      }
+    ]
+  }
+}
+```
+
+> **Note:** WhatsApp uses `ContactMessage` (field 4) for a single contact and `ContactsArrayMessage` (field 13) for multiple contacts. A single contact produces `"contact"`, while multiple contacts produce `"contacts_array"`.
 
 ### Location Message
 
