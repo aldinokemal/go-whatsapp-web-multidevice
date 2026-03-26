@@ -7,4 +7,4 @@
 .env.development
 .env.test
 .env.production
-docker
+# Keep docker/ in context so the image can COPY entrypoint.sh (see docker/golang.Dockerfile).
