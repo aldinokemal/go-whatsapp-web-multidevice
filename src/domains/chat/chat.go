@@ -56,18 +56,20 @@ type ChatInfo struct {
 }
 
 type MessageInfo struct {
-	ID         string `json:"id"`
-	ChatJID    string `json:"chat_jid"`
-	SenderJID  string `json:"sender_jid"`
-	Content    string `json:"content"`
-	Timestamp  string `json:"timestamp"`
-	IsFromMe   bool   `json:"is_from_me"`
-	MediaType  string `json:"media_type"`
-	Filename   string `json:"filename"`
-	URL        string `json:"url"`
-	FileLength uint64 `json:"file_length"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID        string `json:"id"`
+	ChatJID   string `json:"chat_jid"`
+	SenderJID string `json:"sender_jid"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
+	IsFromMe  bool   `json:"is_from_me"`
+	MediaType string `json:"media_type"`
+	// CallMetadata is JSON when media_type is "call" (incoming call log).
+	CallMetadata string `json:"call_metadata,omitempty"`
+	Filename     string `json:"filename"`
+	URL          string `json:"url"`
+	FileLength   uint64 `json:"file_length"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type PaginationResponse struct {

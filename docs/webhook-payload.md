@@ -576,6 +576,10 @@ Triggered when you mute or unmute a newsletter.
 Call events are triggered when you receive an incoming WhatsApp call. You can optionally auto-reject calls using the
 `WHATSAPP_AUTO_REJECT_CALL` environment variable or `--auto-reject-call` CLI flag.
 
+When chat storage is enabled, each incoming call is also persisted as a synthetic message in the chat history:
+`media_type` is `call`, `content` is `Incoming call`, and `call_metadata` (JSON) holds `call_id`, `auto_rejected`, and
+optional `remote_platform`, `remote_version`, and `group_jid`. List chat messages via the REST/MCP chat APIs to retrieve these rows.
+
 ### Call Offer
 
 Triggered when an incoming call is received.
