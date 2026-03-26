@@ -69,7 +69,7 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp); err != nil {
+		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, msg); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				logrus.Warn("Timeout storing sent message")
 			} else {
@@ -392,6 +392,9 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 
 	fileMimeType := resolveDocumentMIME(fileName, fileBytes)
 
+	// Generate thumbnail for document preview (best-effort, non-fatal on failure)
+	thumbnailBytes := generateDocumentThumbnail(fileBytes, fileName, fileMimeType)
+
 	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
 	if err != nil {
@@ -410,6 +413,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		FileEncSHA256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),
+		JPEGThumbnail: thumbnailBytes,
 	}}
 
 	if request.BaseRequest.IsForwarded {
@@ -441,6 +445,112 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+// generateDocumentThumbnail creates a JPEG thumbnail for document preview in WhatsApp.
+// Supports PDF (via ImageMagick convert or pdftoppm) and image files sent as documents.
+// Returns nil if thumbnail generation fails (non-fatal).
+func generateDocumentThumbnail(fileBytes []byte, fileName string, mimeType string) []byte {
+	generateUUID := fiberUtils.UUIDv4()
+	ext := strings.ToLower(filepath.Ext(fileName))
+
+	switch {
+	case mimeType == "application/pdf" || ext == ".pdf":
+		return generatePDFThumbnail(fileBytes, generateUUID)
+	case strings.HasPrefix(mimeType, "image/"):
+		return generateImageDocThumbnail(fileBytes, fileName, generateUUID)
+	default:
+		return nil
+	}
+}
+
+// generatePDFThumbnail renders the first page of a PDF as a JPEG thumbnail.
+// Tries pdftoppm first (from poppler-utils), falls back to ImageMagick convert.
+func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
+	tempPDF := fmt.Sprintf("%s/thumb_%s.pdf", config.PathSendItems, uuid)
+	tempPNG := fmt.Sprintf("%s/thumb_%s.png", config.PathSendItems, uuid)
+	thumbPath := fmt.Sprintf("%s/thumb_%s_thumb.jpg", config.PathSendItems, uuid)
+
+	defer func() {
+		_ = utils.RemoveFile(0, tempPDF, tempPNG, thumbPath)
+		// pdftoppm outputs with suffix, clean that too
+		pdftoppmOut := fmt.Sprintf("%s/thumb_%s-1.png", config.PathSendItems, uuid)
+		_ = utils.RemoveFile(0, pdftoppmOut)
+	}()
+
+	if err := os.WriteFile(tempPDF, pdfBytes, 0644); err != nil {
+		return nil
+	}
+
+	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
+	pngGenerated := false
+	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
+	if err := cmd.Run(); err == nil {
+		// pdftoppm with -singlefile outputs to {prefix}.png
+		actualOut := pdftoppmOut + ".png"
+		if _, statErr := os.Stat(actualOut); statErr == nil {
+			_ = os.Rename(actualOut, tempPNG)
+			pngGenerated = true
+		}
+	}
+
+	// Fallback to ImageMagick convert
+	if !pngGenerated {
+		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
+		if err := cmd.Run(); err != nil {
+			return nil
+		}
+	}
+
+	// Resize to thumbnail
+	srcImage, err := imaging.Open(tempPNG)
+	if err != nil {
+		return nil
+	}
+	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	if err = imaging.Save(resized, thumbPath); err != nil {
+		return nil
+	}
+
+	thumbBytes, err := os.ReadFile(thumbPath)
+	if err != nil {
+		return nil
+	}
+	return thumbBytes
+}
+
+// generateImageDocThumbnail creates a thumbnail for image files sent as documents.
+func generateImageDocThumbnail(imageBytes []byte, fileName string, uuid string) []byte {
+	safeFileName := filepath.Base(fileName)
+	tempPath := fmt.Sprintf("%s/docimg_%s_%s", config.PathSendItems, uuid, safeFileName)
+	thumbPath := fmt.Sprintf("%s/docimg_%s_thumb.jpg", config.PathSendItems, uuid)
+
+	defer func() {
+		_ = utils.RemoveFile(0, tempPath, thumbPath)
+	}()
+
+	if err := os.WriteFile(tempPath, imageBytes, 0644); err != nil {
+		return nil
+	}
+
+	srcImage, err := imaging.Open(tempPath)
+	if err != nil {
+		return nil
+	}
+
+	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	if err = imaging.Save(resized, thumbPath); err != nil {
+		return nil
+	}
+
+	thumbBytes, err := os.ReadFile(thumbPath)
+	if err != nil {
+		return nil
+	}
+	return thumbBytes
 }
 
 func resolveDocumentMIME(filename string, fileBytes []byte) string {

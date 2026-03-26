@@ -11,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -915,7 +916,7 @@ func (r *SQLiteRepository) TruncateAllDataWithLogging(logPrefix string) error {
 }
 
 // StoreSentMessageWithContext stores a message that was sent by the user with context cancellation support
-func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
+func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
 	// Check if context is already cancelled before starting
 	select {
 	case <-ctx.Done():
@@ -986,15 +987,30 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	default:
 	}
 
+	// Extract media info from the protobuf message if available
+	var mediaType, filename, mediaURL string
+	var mediaKey, fileSHA256, fileEncSHA256 []byte
+	var fileLength uint64
+	if msg != nil {
+		mediaType, filename, mediaURL, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
+	}
+
 	// Store the sent message
 	message := &domainChatStorage.Message{
-		ID:        messageID,
-		ChatJID:   chatJID,
-		DeviceID:  deviceID,
-		Sender:    senderJID,
-		Content:   content,
-		Timestamp: timestamp,
-		IsFromMe:  true,
+		ID:            messageID,
+		ChatJID:       chatJID,
+		DeviceID:      deviceID,
+		Sender:        senderJID,
+		Content:       content,
+		Timestamp:     timestamp,
+		IsFromMe:      true,
+		MediaType:     mediaType,
+		Filename:      filename,
+		URL:           mediaURL,
+		MediaKey:      mediaKey,
+		FileSHA256:    fileSHA256,
+		FileEncSHA256: fileEncSHA256,
+		FileLength:    fileLength,
 	}
 
 	return r.StoreMessage(message)
