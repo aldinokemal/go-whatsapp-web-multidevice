@@ -112,9 +112,8 @@ func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFi
 	}
 
 	if filter.HasMedia {
-		joinClause = " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
-		// Exclude synthetic call rows (media_type "call") — not attachment media
-		conditions = append(conditions, "m.media_type NOT IN ('', 'call')")
+		// EXISTS avoids duplicating chats when a conversation has multiple media messages (JOIN would).
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid AND m.device_id = c.device_id AND m.media_type NOT IN ('', 'call'))`)
 	}
 
 	if filter.DeviceID != "" {
