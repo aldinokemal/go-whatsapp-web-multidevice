@@ -32,9 +32,11 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 
 	if chatStorageRepo != nil {
 		if err := chatStorageRepo.CreateIncomingCallRecord(ctx, evt, autoRejected); err != nil {
-			if errors.Is(err, domainChatStorage.ErrMissingDeviceContext) {
+			switch {
+			case errors.Is(err, domainChatStorage.ErrMissingDeviceContext),
+				errors.Is(err, domainChatStorage.ErrCallOfferMissingPeerJID):
 				logrus.Warnf("Skipping incoming call persistence: %v", err)
-			} else {
+			default:
 				logrus.Errorf("Failed to persist incoming call: %v", err)
 			}
 		}

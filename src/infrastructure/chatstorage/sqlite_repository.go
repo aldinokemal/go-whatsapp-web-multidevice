@@ -888,7 +888,12 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 		peerJID = evt.From
 	}
 	if peerJID.IsEmpty() {
-		return nil
+		return fmt.Errorf("%w (call_id=%q group_jid=%s from=%s)",
+			domainChatStorage.ErrCallOfferMissingPeerJID,
+			evt.CallID,
+			evt.GroupJID.String(),
+			evt.From.String(),
+		)
 	}
 
 	normalizedChat := whatsapp.NormalizeJIDFromLID(ctx, peerJID, client)
