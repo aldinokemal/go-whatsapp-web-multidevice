@@ -1,6 +1,10 @@
 package whatsapp
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+)
 
 func TestChatwootMessageTypeFromPayload(t *testing.T) {
 	tests := []struct {
@@ -63,6 +67,39 @@ func TestShouldForwardEventToChatwoot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsEventWhitelistedForChatwoot(t *testing.T) {
+	originalEvents := config.WhatsappWebhookEvents
+	defer func() { config.WhatsappWebhookEvents = originalEvents }()
+
+	t.Run("empty whitelist allows all", func(t *testing.T) {
+		config.WhatsappWebhookEvents = nil
+		if !isEventWhitelistedForChatwoot("message.reaction") {
+			t.Fatal("expected message.reaction to be allowed when whitelist is empty")
+		}
+	})
+
+	t.Run("explicit reaction whitelist allowed", func(t *testing.T) {
+		config.WhatsappWebhookEvents = []string{"message.reaction"}
+		if !isEventWhitelistedForChatwoot("message.reaction") {
+			t.Fatal("expected message.reaction to be allowed when explicitly whitelisted")
+		}
+	})
+
+	t.Run("message whitelist also allows reactions for chatwoot", func(t *testing.T) {
+		config.WhatsappWebhookEvents = []string{"message"}
+		if !isEventWhitelistedForChatwoot("message.reaction") {
+			t.Fatal("expected message.reaction to be allowed for Chatwoot when message is whitelisted")
+		}
+	})
+
+	t.Run("unrelated whitelist blocks reaction", func(t *testing.T) {
+		config.WhatsappWebhookEvents = []string{"message.ack"}
+		if isEventWhitelistedForChatwoot("message.reaction") {
+			t.Fatal("expected message.reaction to be blocked for Chatwoot when not covered by whitelist")
+		}
+	})
 }
 
 func TestBuildReactionChatwootContent(t *testing.T) {

@@ -72,17 +72,22 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	// Check if event is whitelisted (if whitelist is configured)
-	if len(config.WhatsappWebhookEvents) > 0 {
-		if !isEventWhitelisted(eventName) {
-			logrus.Debugf("Skipping event %s - not in webhook events whitelist", eventName)
-			return nil
-		}
+	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
+
+	if !webhookAllowed && !chatwootAllowed {
+		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
+		return nil
 	}
 
-	err := forwardToWebhooks(ctx, payload, eventName)
+	var err error
+	if webhookAllowed {
+		err = forwardToWebhooks(ctx, payload, eventName)
+	} else {
+		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
+	}
 
-	if shouldForwardEventToChatwoot(eventName) && config.ChatwootEnabled {
+	if chatwootAllowed {
 		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
@@ -222,6 +227,16 @@ func shouldForwardEventToChatwoot(eventName string) bool {
 	default:
 		return false
 	}
+}
+
+func isEventWhitelistedForChatwoot(eventName string) bool {
+	if len(config.WhatsappWebhookEvents) == 0 {
+		return true
+	}
+	if isEventWhitelisted(eventName) {
+		return true
+	}
+	return eventName == "message.reaction" && isEventWhitelisted("message")
 }
 
 func buildReactionChatwootContent(data map[string]interface{}, isGroup bool, fromName string) string {
