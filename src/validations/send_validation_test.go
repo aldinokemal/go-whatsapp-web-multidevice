@@ -173,7 +173,7 @@ func TestValidateSendFile(t *testing.T) {
 				},
 				File: nil,
 			}},
-			err: pkgError.ValidationError("file: cannot be blank."),
+			err: pkgError.ValidationError("either File or FileURL must be provided"),
 		},
 	}
 

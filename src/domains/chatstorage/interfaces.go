@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -11,6 +12,8 @@ import (
 type IChatStorageRepository interface {
 	// Chat operations
 	CreateMessage(ctx context.Context, evt *events.Message) error
+	// CreateIncomingCallRecord persists an incoming call as a synthetic message (media_type "call") for chat history.
+	CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error
 	StoreChat(chat *Chat) error
 	GetChat(jid string) (*Chat, error)
 	GetChatByDevice(deviceID, jid string) (*Chat, error)
@@ -26,13 +29,14 @@ type IChatStorageRepository interface {
 	SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*Message, error) // Database-level search with device isolation
 	DeleteMessage(id, chatJID string) error
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
-	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error
+	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
 	GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error)
 	GetTotalMessageCount() (int64, error)
 	GetTotalChatCount() (int64, error)
+	GetFilteredChatCount(filter *ChatFilter) (int64, error)
 	GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string
 	GetChatNameWithPushNameByDevice(deviceID string, jid types.JID, chatJID string, senderUser string, pushName string) string
 	GetStorageStatistics() (chatCount int64, messageCount int64, err error)

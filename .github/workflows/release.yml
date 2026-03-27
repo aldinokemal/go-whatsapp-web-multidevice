@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   build-linux-windows:
@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.25"
 
       - name: Install cross-compilation toolchains
         run: |
@@ -39,7 +39,7 @@ jobs:
         run: |
           cat > /tmp/.goreleaser-linux-windows.yml << 'EOF'
           project_name: whatsapp
-          
+
           builds:
             - id: linux-amd64
               dir: ./src
@@ -105,7 +105,7 @@ jobs:
                 - "386"
               ldflags: -s -w
               binary: "{{ .Os }}-{{ .Arch }}"
-          
+
           archives:
             - id: binaries
               builds:
@@ -116,10 +116,10 @@ jobs:
                 - windows-386
               format: zip
               name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-          
+
           checksum:
             name_template: "checksums.txt"
-          
+
           release:
             draft: false
             github:
@@ -143,7 +143,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.25"
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -155,7 +155,7 @@ jobs:
         run: |
           cat > /tmp/.goreleaser-macos.yml << 'EOF'
           project_name: whatsapp
-          
+
           builds:
             - id: darwin-amd64
               dir: ./src
@@ -180,7 +180,7 @@ jobs:
                 - arm64
               ldflags: -s -w
               binary: "{{ .Os }}-{{ .Arch }}"
-          
+
           archives:
             - id: binaries
               builds:
@@ -188,10 +188,10 @@ jobs:
                 - darwin-arm64
               format: zip
               name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-          
+
           checksum:
             name_template: "checksums-macos.txt"
-          
+
           release:
             draft: false
             github:

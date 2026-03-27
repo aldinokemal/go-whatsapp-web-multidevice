@@ -215,10 +215,12 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 				}
 			}
 
-			// Use JID.User for clean phone number, fallback to PhoneNumber.String()
-			phoneNumber := participant.JID.User
-			if phoneNumber == "" {
-				phoneNumber = participant.PhoneNumber.String()
+			// Resolve @lid JIDs to phone-based JIDs before extracting phone number
+			resolvedJID := utils.ResolveLIDToPhone(ctx, participant.JID, client)
+			phoneNumber := resolvedJID.User
+			// If still an LID (resolution failed), try whatsmeow's PhoneNumber field
+			if resolvedJID.Server == "lid" && !participant.PhoneNumber.IsEmpty() {
+				phoneNumber = participant.PhoneNumber.User
 			}
 
 			participantData := domainGroup.GroupParticipant{
@@ -280,9 +282,13 @@ func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, req
 			displayName = info.VerifiedName.Details.GetVerifiedName()
 		}
 
+		// Resolve @lid JIDs to phone-based JIDs before extracting phone number
+		resolvedJID := utils.ResolveLIDToPhone(ctx, participant.JID, client)
+		phoneNumber := resolvedJID.User
+
 		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
 			JID:         participant.JID.String(),
-			PhoneNumber: participant.JID.User,
+			PhoneNumber: phoneNumber,
 			DisplayName: displayName,
 			RequestedAt: participant.RequestedAt,
 		})

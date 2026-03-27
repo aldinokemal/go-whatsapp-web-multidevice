@@ -6,6 +6,7 @@ export default {
             loading: false,
             searchQuery: '',
             includeMediaChats: false,
+            archiveFilter: '',
             currentPage: 1,
             pageSize: 10,
             totalChats: 0,
@@ -46,6 +47,10 @@ export default {
                 
                 if (this.includeMediaChats) {
                     params.append('has_media', 'true');
+                }
+
+                if (this.archiveFilter !== '') {
+                    params.append('archived', this.archiveFilter);
                 }
 
                 const response = await window.http.get(`/chats?${params}`);
@@ -131,7 +136,7 @@ export default {
         <div class="content">
             <div class="ui form">
                 <div class="fields">
-                    <div class="twelve wide field">
+                    <div class="eight wide field">
                         <label>Search Chats</label>
                         <div class="ui icon input">
                             <input type="text" 
@@ -147,6 +152,14 @@ export default {
                             <input type="checkbox" v-model="includeMediaChats" @change="searchChats">
                             <label>Media chats only</label>
                         </div>
+                    </div>
+                    <div class="four wide field">
+                        <label>Archive Filter</label>
+                        <select class="ui dropdown" v-model="archiveFilter" @change="searchChats">
+                            <option value="">All Chats</option>
+                            <option value="true">Archived</option>
+                            <option value="false">Non-Archived</option>
+                        </select>
                     </div>
                 </div>
             </div>

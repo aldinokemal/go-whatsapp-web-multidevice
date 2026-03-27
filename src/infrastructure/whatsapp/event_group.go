@@ -2,8 +2,10 @@ package whatsapp
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -76,4 +78,51 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 	}
 
 	return nil
+}
+
+// handleJoinedGroup handles the event when the connected device is added to a new group
+func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) {
+	log.Infof("Joined group %s (reason: %s, type: %s)", evt.JID, evt.Reason, evt.Type)
+
+	if len(config.WhatsappWebhook) > 0 {
+		go func(e *events.JoinedGroup, c *whatsmeow.Client) {
+			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := forwardJoinedGroupToWebhook(webhookCtx, e, deviceID, c); err != nil {
+				logrus.Errorf("Failed to forward joined group event to webhook: %v", err)
+			}
+		}(evt, client)
+	}
+}
+
+// forwardJoinedGroupToWebhook forwards the JoinedGroup event to configured webhooks
+func forwardJoinedGroupToWebhook(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) error {
+	// Get own JID to include in the payload
+	ownJID := client.Store.ID
+	if ownJID == nil {
+		return fmt.Errorf("client store ID is nil")
+	}
+
+	payload := map[string]any{
+		"chat_id": evt.JID.ToNonAD().String(),
+		"type":    "join",
+		"jids":    []string{ownJID.ToNonAD().String()},
+		"reason":  evt.Reason, // "invite" if via invite link
+	}
+
+	// Include group name if available (GroupName.Name is embedded in GroupInfo)
+	if evt.GroupName.Name != "" {
+		payload["group_name"] = evt.GroupName.Name
+	}
+
+	body := map[string]any{
+		"event":     "group.joined",
+		"payload":   payload,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+	if deviceID != "" {
+		body["device_id"] = deviceID
+	}
+
+	return forwardPayloadToConfiguredWebhooks(ctx, body, "group.joined")
 }

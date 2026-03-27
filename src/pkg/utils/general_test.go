@@ -105,6 +105,39 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
 	assert.Equal(suite.T(), "http://example.com/image.jpg", meta.Image)
 }
 
+func (suite *UtilsTestSuite) TestGetMetaDataFromURLSendsBrowserHeaders() {
+	// assertBrowserHeaders verifies that a request carries the full set of browser-like headers.
+	assertBrowserHeaders := func(t *testing.T, r *http.Request, label string) {
+		assert.Contains(t, r.Header.Get("User-Agent"), "Mozilla", label+": User-Agent should look browser-like")
+		assert.NotEmpty(t, r.Header.Get("Accept"), label+": Accept header should be set")
+		assert.NotEmpty(t, r.Header.Get("Accept-Language"), label+": Accept-Language header should be set")
+		assert.NotEmpty(t, r.Header.Get("Referer"), label+": Referer header should be set")
+	}
+
+	var serverURL string
+	var imageRequested bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/test-image.jpg":
+			imageRequested = true
+			assertBrowserHeaders(suite.T(), r, "image request")
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write([]byte("fake image data"))
+		default:
+			assertBrowserHeaders(suite.T(), r, "page request")
+			w.Write([]byte(`<!DOCTYPE html><html><head><title>Header Test</title><meta property='og:image' content='` + serverURL + `/test-image.jpg'></head><body></body></html>`))
+		}
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	meta, err := utils.GetMetaDataFromURL(server.URL)
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "Header Test", meta.Title)
+	assert.Contains(suite.T(), meta.Image, "/test-image.jpg")
+	assert.True(suite.T(), imageRequested, "Image endpoint /test-image.jpg should have been requested")
+}
+
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 	// Test with OG title and Twitter image
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -461,10 +494,10 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.m4a", filename)
 
-	// Test invalid content type
-	_, _, err = utils.DownloadAudioFromURL(server.URL + "/invalid.mp3")
-	assert.Error(suite.T(), err)
-	assert.Contains(suite.T(), err.Error(), "invalid content type")
+	// Test invalid content type - should now warn but still proceed (changed behavior for Chatwoot compatibility)
+	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/invalid.mp3")
+	assert.NoError(suite.T(), err) // Now proceeds with warning instead of error
+	assert.NotEmpty(suite.T(), data)
 
 	// Test file too large by content length
 	_, _, err = utils.DownloadAudioFromURL(server.URL + "/large.mp3")
