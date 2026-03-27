@@ -72,18 +72,23 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	// Check if event is whitelisted (if whitelist is configured)
-	if len(config.WhatsappWebhookEvents) > 0 {
-		if !isEventWhitelisted(eventName) {
-			logrus.Debugf("Skipping event %s - not in webhook events whitelist", eventName)
-			return nil
-		}
+	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
+
+	if !webhookAllowed && !chatwootAllowed {
+		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
+		return nil
 	}
 
-	err := forwardToWebhooks(ctx, payload, eventName)
+	var err error
+	if webhookAllowed {
+		err = forwardToWebhooks(ctx, payload, eventName)
+	} else {
+		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
+	}
 
-	if eventName == "message" && config.ChatwootEnabled {
-		go forwardToChatwoot(ctx, payload)
+	if chatwootAllowed {
+		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
 	return err
@@ -215,6 +220,49 @@ func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, from
 	return content, attachments
 }
 
+func shouldForwardEventToChatwoot(eventName string) bool {
+	switch eventName {
+	case "message", "message.reaction":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEventWhitelistedForChatwoot(eventName string) bool {
+	if len(config.WhatsappWebhookEvents) == 0 {
+		return true
+	}
+	if isEventWhitelisted(eventName) {
+		return true
+	}
+	return eventName == "message.reaction" && isEventWhitelisted("message")
+}
+
+func buildReactionChatwootContent(data map[string]interface{}, isGroup bool, fromName string) string {
+	reaction, _ := data["reaction"].(string)
+	reactedMessageID, _ := data["reacted_message_id"].(string)
+
+	actor := "Someone"
+	if fromName != "" {
+		actor = fromName
+	} else if from, ok := data["from"].(string); ok && from != "" {
+		actor = utils.ExtractPhoneFromJID(from)
+	}
+
+	if reactedMessageID != "" {
+		if reaction == "" {
+			return fmt.Sprintf("%s removed a reaction from message %s", actor, reactedMessageID)
+		}
+		return fmt.Sprintf("%s reacted %s to message %s", actor, reaction, reactedMessageID)
+	}
+
+	if reaction == "" {
+		return fmt.Sprintf("%s removed a reaction", actor)
+	}
+	return fmt.Sprintf("%s reacted %s", actor, reaction)
+}
+
 func chatwootMessageTypeFromPayload(data map[string]interface{}) string {
 	if isFromMe, ok := data["is_from_me"].(bool); ok && isFromMe {
 		return "outgoing"
@@ -337,8 +385,8 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	return nil
 }
 
-func forwardToChatwoot(ctx context.Context, payload map[string]any) {
-	logrus.Info("Chatwoot: Attempting to forward message...")
+func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
+	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
 	cw := chatwoot.GetDefaultClient()
 	if !cw.IsConfigured() {
 		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
@@ -359,7 +407,16 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any) {
 	}
 
 	// Build message content
-	content, attachments := buildChatwootMessageContent(data, info.IsGroup, info.FromName)
+	var (
+		content     string
+		attachments []string
+	)
+	switch eventName {
+	case "message.reaction":
+		content = buildReactionChatwootContent(data, info.IsGroup, info.FromName)
+	default:
+		content, attachments = buildChatwootMessageContent(data, info.IsGroup, info.FromName)
+	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 
 	// Sync to Chatwoot
