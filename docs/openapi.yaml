@@ -4138,7 +4138,11 @@ components:
           type: string
           example: 'image'
           nullable: true
-          description: Type of media (image, video, audio, document, etc.)
+          description: Type of media (image, video, audio, document, etc.). Value `call` indicates a stored incoming call log.
+        call_metadata:
+          type: string
+          example: '{"call_id":"ABC","auto_rejected":false}'
+          description: JSON string with call details when media_type is `call`. Omitted when not applicable (matches Go json omitempty).
         filename:
           type: string
           example: 'photo.jpg'

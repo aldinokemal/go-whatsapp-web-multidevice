@@ -2,16 +2,18 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 // handleCallOffer handles incoming call events and optionally auto-rejects them
-func handleCallOffer(ctx context.Context, evt *events.CallOffer, deviceID string, client *whatsmeow.Client) {
+func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	logrus.Infof("Incoming call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
 
 	// Auto-reject call if configured
@@ -25,6 +27,18 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, deviceID string
 		} else {
 			autoRejected = true
 			logrus.Infof("Auto-rejected call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
+		}
+	}
+
+	if chatStorageRepo != nil {
+		if err := chatStorageRepo.CreateIncomingCallRecord(ctx, evt, autoRejected); err != nil {
+			switch {
+			case errors.Is(err, domainChatStorage.ErrMissingDeviceContext),
+				errors.Is(err, domainChatStorage.ErrCallOfferMissingPeerJID):
+				logrus.Warnf("Skipping incoming call persistence: %v", err)
+			default:
+				logrus.Errorf("Failed to persist incoming call: %v", err)
+			}
 		}
 	}
 

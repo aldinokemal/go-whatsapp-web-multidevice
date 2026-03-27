@@ -24,6 +24,7 @@ type Message struct {
 	Timestamp     time.Time `db:"timestamp"`
 	IsFromMe      bool      `db:"is_from_me"`
 	MediaType     string    `db:"media_type"`
+	CallMetadata  string    `db:"call_metadata"` // JSON metadata when media_type is "call"
 	Filename      string    `db:"filename"`
 	URL           string    `db:"url"`
 	MediaKey      []byte    `db:"media_key"`
