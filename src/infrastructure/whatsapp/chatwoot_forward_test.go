@@ -105,6 +105,17 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 			expected: "Bob removed a reaction from message wamid-789",
 		},
 		{
+			name: "group reaction falls back to sender jid when pushname missing",
+			payload: map[string]interface{}{
+				"reaction":           "😂",
+				"reacted_message_id": "wamid-999",
+				"from":               "628777000111@s.whatsapp.net",
+			},
+			isGroup:  true,
+			fromName: "",
+			expected: "628777000111 reacted 😂 to message wamid-999",
+		},
+		{
 			name: "missing target id still produces readable text",
 			payload: map[string]interface{}{
 				"reaction": "❤️",

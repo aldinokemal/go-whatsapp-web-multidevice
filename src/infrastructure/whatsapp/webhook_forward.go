@@ -229,14 +229,10 @@ func buildReactionChatwootContent(data map[string]interface{}, isGroup bool, fro
 	reactedMessageID, _ := data["reacted_message_id"].(string)
 
 	actor := "Someone"
-	if isGroup && fromName != "" {
+	if fromName != "" {
 		actor = fromName
-	} else if !isGroup {
-		if fromName != "" {
-			actor = fromName
-		} else if from, ok := data["from"].(string); ok && from != "" {
-			actor = utils.ExtractPhoneFromJID(from)
-		}
+	} else if from, ok := data["from"].(string); ok && from != "" {
+		actor = utils.ExtractPhoneFromJID(from)
 	}
 
 	if reactedMessageID != "" {
