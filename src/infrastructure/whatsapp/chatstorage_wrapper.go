@@ -41,6 +41,10 @@ func (r *deviceChatStorage) CreateMessage(ctx context.Context, evt *events.Messa
 	return r.base.CreateMessage(ctx, evt)
 }
 
+func (r *deviceChatStorage) CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error {
+	return r.base.CreateIncomingCallRecord(ctx, evt, autoRejected)
+}
+
 func (r *deviceChatStorage) StoreChat(chat *domainChatStorage.Chat) error {
 	return r.base.StoreChat(r.withDeviceChat(chat))
 }
