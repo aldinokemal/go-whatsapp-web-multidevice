@@ -4142,8 +4142,7 @@ components:
         call_metadata:
           type: string
           example: '{"call_id":"ABC","auto_rejected":false}'
-          nullable: true
-          description: JSON string with call details when media_type is `call`
+          description: JSON string with call details when media_type is `call`. Omitted when not applicable (matches Go json omitempty).
         filename:
           type: string
           example: 'photo.jpg'
