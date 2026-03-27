@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -31,7 +32,11 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 
 	if chatStorageRepo != nil {
 		if err := chatStorageRepo.CreateIncomingCallRecord(ctx, evt, autoRejected); err != nil {
-			logrus.Errorf("Failed to persist incoming call: %v", err)
+			if errors.Is(err, domainChatStorage.ErrMissingDeviceContext) {
+				logrus.Warnf("Skipping incoming call persistence: %v", err)
+			} else {
+				logrus.Errorf("Failed to persist incoming call: %v", err)
+			}
 		}
 	}
 

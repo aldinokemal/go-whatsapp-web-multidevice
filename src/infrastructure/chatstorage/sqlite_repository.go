@@ -113,7 +113,8 @@ func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFi
 
 	if filter.HasMedia {
 		joinClause = " INNER JOIN messages m ON c.jid = m.chat_jid AND c.device_id = m.device_id"
-		conditions = append(conditions, "m.media_type != ''")
+		// Exclude synthetic call rows (media_type "call") — not attachment media
+		conditions = append(conditions, "m.media_type NOT IN ('', 'call')")
 	}
 
 	if filter.DeviceID != "" {
@@ -368,7 +369,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	}
 
 	if filter.MediaOnly {
-		conditions = append(conditions, "media_type != ''")
+		conditions = append(conditions, "media_type NOT IN ('', 'call')")
 	}
 
 	if filter.IsFromMe != nil {
@@ -876,7 +877,7 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 
 	client := whatsapp.ClientFromContext(ctx)
 	if client == nil || client.Store == nil || client.Store.ID == nil {
-		return nil
+		return domainChatStorage.ErrMissingDeviceContext
 	}
 
 	deviceID := client.Store.ID.ToNonAD().String()
@@ -939,9 +940,9 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 		return fmt.Errorf("failed to marshal call metadata: %w", err)
 	}
 
-	msgID := evt.CallID
-	if msgID == "" {
-		msgID = fmt.Sprintf("call-%d", evt.Timestamp.UnixNano())
+	msgID := "call:" + evt.CallID
+	if evt.CallID == "" {
+		msgID = fmt.Sprintf("call:%d", evt.Timestamp.UnixNano())
 	}
 
 	message := &domainChatStorage.Message{
