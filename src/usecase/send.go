@@ -868,6 +868,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		MediaKey:            uploaded.MediaKey,
 		DirectPath:          proto.String(uploaded.DirectPath),
 		ViewOnce:            proto.Bool(request.ViewOnce),
+		GifPlayback:         proto.Bool(request.GifPlayback),
 		JPEGThumbnail:       dataWaThumbnail,
 		ThumbnailEncSHA256:  dataWaThumbnail,
 		ThumbnailSHA256:     dataWaThumbnail,
