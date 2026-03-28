@@ -14,13 +14,10 @@ export default {
         }
     },
     computed: {
-        currentUserId() {
+        currentUserJID() {
             // connected can be array of objects with device/id or may be undefined
             if (!this.connected || this.connected.length === 0) return null;
-            const entry = this.connected[0];
-            const raw = entry.device || entry.id || '';
-            if (!raw || typeof raw !== 'string') return null;
-            return raw.split('@')[0].split(':')[0];
+            return this.connected[0].jid;
         }
     },
     methods: {
@@ -104,13 +101,12 @@ export default {
         isAdmin(group) {
             // Check if current user is the owner
             const owner = group.OwnerJID.split('@')[0];
-            if (owner === this.currentUserId) {
+            if (owner === this.currentUserJID) {
                 return true;
             }
             
             // Check if current user is an admin in participants
-            const currentUserJID = `${this.currentUserId}@s.whatsapp.net`;
-            const participant = group.Participants.find(p => p.PhoneNumber === currentUserJID);
+            const participant = group.Participants.find(p => p.PhoneNumber === this.currentUserJID);
             return participant && participant.IsAdmin;
         },
         async handleSeeRequestedMember(group_id) {
