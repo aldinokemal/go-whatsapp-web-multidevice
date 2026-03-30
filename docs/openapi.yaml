@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.3.0
+  version: 8.3.1
   description: |
     This API is used for sending whatsapp via API.
 
@@ -3384,6 +3384,108 @@ components:
               type: string
               example: Success update group photo
 
+    UserMyGroupItem:
+      type: object
+      description: |
+        One joined group as serialized `whatsmeow/types.GroupInfo`. Embedded structs are flattened; field names stay PascalCase (Go default JSON).
+      properties:
+        JID:
+          type: string
+          example: "120363416355796813@g.us"
+        OwnerJID:
+          type: string
+        OwnerPN:
+          type: string
+        Name:
+          type: string
+        NameSetAt:
+          type: string
+          format: date-time
+        NameSetBy:
+          type: string
+        NameSetByPN:
+          type: string
+        GroupCreated:
+          type: string
+          format: date-time
+        CreatorCountryCode:
+          type: string
+        ParticipantVersionID:
+          type: string
+        ParticipantCount:
+          type: integer
+        Participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/JoinedGroupParticipant'
+        MemberAddMode:
+          type: string
+          example: "admin_add"
+        Suspended:
+          type: boolean
+        AddressingMode:
+          type: string
+        IsLocked:
+          type: boolean
+        IsAnnounce:
+          type: boolean
+        AnnounceVersionID:
+          type: string
+        IsEphemeral:
+          type: boolean
+        DisappearingTimer:
+          type: integer
+        IsIncognito:
+          type: boolean
+        IsJoinApprovalRequired:
+          type: boolean
+        DefaultMembershipApprovalMode:
+          type: string
+        IsParent:
+          type: boolean
+        LinkedParentJID:
+          type: string
+        IsDefaultSubGroup:
+          type: boolean
+        Topic:
+          type: string
+        TopicID:
+          type: string
+        TopicDeleted:
+          type: boolean
+        TopicSetAt:
+          type: string
+          format: date-time
+        TopicSetBy:
+          type: string
+        TopicSetByPN:
+          type: string
+
+    JoinedGroupParticipant:
+      type: object
+      description: Serialized `whatsmeow/types.GroupParticipant` in joined-group list payloads.
+      properties:
+        JID:
+          type: string
+          description: Primary ID for the member (often `@lid`).
+        PhoneNumber:
+          type: string
+          description: User JID string when known (e.g. `628...@s.whatsapp.net`); may be empty in edge cases.
+        LID:
+          type: string
+        IsAdmin:
+          type: boolean
+        IsSuperAdmin:
+          type: boolean
+        DisplayName:
+          type: string
+          description: Set for some anonymous / announcement cases; often empty.
+        Error:
+          type: integer
+        AddRequest:
+          type: object
+          nullable: true
+
     UserGroupResponse:
       type: object
       properties:
@@ -3399,35 +3501,7 @@ components:
             data:
               type: array
               items:
-                type: object
-                properties:
-                  JID:
-                    type: string
-                  OwnerJID:
-                    type: string
-                  Name:
-                    type: string
-                  NameSetAt:
-                    type: string
-                  NameSetBy:
-                    type: string
-                  GroupCreated:
-                    type: string
-                  ParticipantVersionID:
-                    type: string
-                  Participants:
-                    type: array
-                    items:
-                      properties:
-                        JID:
-                          type: string
-                        IsAdmin:
-                          type: boolean
-                        IsSuperAdmin:
-                          type: boolean
-                        Error:
-                          type: number
-
+                $ref: '#/components/schemas/UserMyGroupItem'
 
     UserInfoResponse:
       type: object
@@ -3901,6 +3975,28 @@ components:
           example: "Aldino Kemal"
 
 
+    GroupParticipantRequestItem:
+      type: object
+      properties:
+        jid:
+          type: string
+          description: Requester's JID; often `@lid` until a phone mapping exists locally.
+          example: "84198740205822@lid"
+        phone_number:
+          type: string
+          description: |
+            Digits from the resolved `@s.whatsapp.net` JID when LID→PN mapping is available.
+            Empty when only `@lid` is known — the LID user part is not a phone number and must not be shown here.
+          example: "6289685024091"
+        display_name:
+          type: string
+          description: From saved contact, verified business name, or WhatsApp-supplied display (may be omitted when empty).
+          example: "John Doe"
+        requested_at:
+          type: string
+          format: date-time
+          example: "2026-03-27T23:18:47Z"
+
     GroupParticipantRequestListResponse:
       type: object
       properties:
@@ -3911,26 +4007,10 @@ components:
           type: string
           example: "Success getting list requested participants"
         results:
-          type: object
-          properties:
-            data:
-              type: array
-              items:
-                type: object
-                properties:
-                  jid:
-                    type: string
-                    example: "6289685024091@s.whatsapp.net"
-                  phone_number:
-                    type: string
-                    example: "6289685024091"
-                  display_name:
-                    type: string
-                    example: "John Doe"
-                  requested_at:
-                    type: string
-                    format: date-time
-                    example: "2024-10-11T21:27:29+07:00"
+          type: array
+          description: Pending join requests for the group (not wrapped in `data`).
+          items:
+            $ref: '#/components/schemas/GroupParticipantRequestItem'
     UserCheckResponse:
       type: object
       properties:
@@ -4138,7 +4218,11 @@ components:
           type: string
           example: 'image'
           nullable: true
-          description: Type of media (image, video, audio, document, etc.)
+          description: Type of media (image, video, audio, document, etc.). Value `call` indicates a stored incoming call log.
+        call_metadata:
+          type: string
+          example: '{"call_id":"ABC","auto_rejected":false}'
+          description: JSON string with call details when media_type is `call`. Omitted when not applicable (matches Go json omitempty).
         filename:
           type: string
           example: 'photo.jpg'

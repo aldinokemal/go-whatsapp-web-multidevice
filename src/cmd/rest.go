@@ -76,8 +76,18 @@ func restServer(_ *cobra.Command, _ []string) {
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
-	// Device manager - needed for chatwoot webhook
+	// Device manager - needed for chatwoot webhook and health check
 	dm := whatsapp.GetDeviceManager()
+
+	// Health check endpoint (public, no auth)
+	// Registered at root path (ignoring AppBasePath) to ensure fixed availability
+	// for infrastructure health probes (Kubernetes liveness/readiness, Docker healthcheck, etc.)
+	app.Get("/health", func(c *fiber.Ctx) error {
+		if dm != nil && dm.IsHealthy() {
+			return c.SendString("OK")
+		}
+		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
+	})
 
 	// Chatwoot webhook - registered BEFORE basic auth middleware
 	// This allows Chatwoot to send webhooks without authentication

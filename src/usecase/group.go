@@ -190,40 +190,15 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 		response.Name = groupInfo.GroupName.Name
 		response.Participants = make([]domainGroup.GroupParticipant, 0, len(groupInfo.Participants))
 
-		// Collect JIDs for batch GetUserInfo call
-		jids := make([]types.JID, 0, len(groupInfo.Participants))
-		for _, p := range groupInfo.Participants {
-			jids = append(jids, p.JID)
-		}
-
-		// Fetch user info for verified business names (ignore errors)
-		userInfoMap := make(map[types.JID]types.UserInfo)
-		if len(jids) > 0 {
-			userInfoMap, _ = client.GetUserInfo(ctx, jids)
-		}
+		userInfo := userInfoMapForJIDs(ctx, client, jidsForGetUserInfoGroup(ctx, client, groupInfo.Participants))
 
 		for _, participant := range groupInfo.Participants {
-			displayName := participant.DisplayName
-
-			// Try contact store first (for known contacts)
-			if displayName == "" {
-				if contact, err := client.Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
-					displayName = contact.FullName
-				} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
-					// Fall back to verified business name
-					displayName = info.VerifiedName.Details.GetVerifiedName()
-				}
-			}
-
-			// Use JID.User for clean phone number, fallback to PhoneNumber.String()
-			phoneNumber := participant.JID.User
-			if phoneNumber == "" {
-				phoneNumber = participant.PhoneNumber.String()
-			}
+			lookupJID := groupParticipantPhoneJID(ctx, client, participant)
+			displayName := resolveParticipantDisplayName(ctx, client, participant.DisplayName, lookupJID, participant.JID, userInfo)
 
 			participantData := domainGroup.GroupParticipant{
 				JID:          participant.JID.String(),
-				PhoneNumber:  phoneNumber,
+				PhoneNumber:  groupParticipantPhoneUser(ctx, client, participant),
 				LID:          participant.LID.String(),
 				DisplayName:  displayName,
 				IsAdmin:      participant.IsAdmin,
@@ -257,32 +232,15 @@ func (service serviceGroup) GetGroupRequestParticipants(ctx context.Context, req
 		return result, err
 	}
 
-	// Collect JIDs for batch GetUserInfo call
-	jids := make([]types.JID, 0, len(participants))
-	for _, p := range participants {
-		jids = append(jids, p.JID)
-	}
-
-	// Fetch user info for verified business names (ignore errors)
-	userInfoMap := make(map[types.JID]types.UserInfo)
-	if len(jids) > 0 {
-		userInfoMap, _ = client.GetUserInfo(ctx, jids)
-	}
+	userInfo := userInfoMapForJIDs(ctx, client, jidsForGetUserInfoWireJIDs(ctx, client, participants))
 
 	for _, participant := range participants {
-		displayName := ""
-
-		// Try contact store first (for known contacts)
-		if contact, err := client.Store.Contacts.GetContact(ctx, participant.JID); err == nil && contact.FullName != "" {
-			displayName = contact.FullName
-		} else if info, ok := userInfoMap[participant.JID]; ok && info.VerifiedName != nil && info.VerifiedName.Details != nil {
-			// Fall back to verified business name
-			displayName = info.VerifiedName.Details.GetVerifiedName()
-		}
+		lookupJID, phoneDigits := wireParticipantLookupAndPhone(ctx, client, participant.JID)
+		displayName := resolveParticipantDisplayName(ctx, client, "", lookupJID, participant.JID, userInfo)
 
 		result = append(result, domainGroup.GetGroupRequestParticipantsResponse{
 			JID:         participant.JID.String(),
-			PhoneNumber: participant.JID.User,
+			PhoneNumber: phoneDigits,
 			DisplayName: displayName,
 			RequestedAt: participant.RequestedAt,
 		})
@@ -533,4 +491,124 @@ func (service serviceGroup) GetGroupInviteLink(ctx context.Context, request doma
 	}
 
 	return response, nil
+}
+
+// --- Group participant display / identity (LID vs phone JIDs; whatsmeow USync keys) ---
+
+func userInfoMapForJIDs(ctx context.Context, client *whatsmeow.Client, jids []types.JID) map[types.JID]types.UserInfo {
+	if len(jids) == 0 {
+		return nil
+	}
+	m, _ := client.GetUserInfo(ctx, jids)
+	return m
+}
+
+func jidsForGetUserInfoGroup(ctx context.Context, client *whatsmeow.Client, participants []types.GroupParticipant) []types.JID {
+	uniq := make(map[types.JID]struct{}, len(participants))
+	for _, p := range participants {
+		addJIDForUSyncQuery(uniq, groupParticipantPhoneJID(ctx, client, p), p.JID)
+	}
+	return mapKeysToSlice(uniq)
+}
+
+func jidsForGetUserInfoWireJIDs(ctx context.Context, client *whatsmeow.Client, participants []types.GroupParticipantRequest) []types.JID {
+	uniq := make(map[types.JID]struct{}, len(participants))
+	for _, p := range participants {
+		addJIDForUSyncQuery(uniq, utils.ResolveLIDToPhone(ctx, p.JID, client), p.JID)
+	}
+	return mapKeysToSlice(uniq)
+}
+
+// addJIDForUSyncQuery registers the JID to send to GetUserInfo. Responses are usually keyed by @s.whatsapp.net;
+// if lookup is still @lid, we keep the wire JID so the query can still run.
+func addJIDForUSyncQuery(uniq map[types.JID]struct{}, lookup types.JID, wireJID types.JID) {
+	if lookup.Server != types.HiddenUserServer {
+		uniq[lookup] = struct{}{}
+		return
+	}
+	uniq[wireJID] = struct{}{}
+}
+
+func mapKeysToSlice(uniq map[types.JID]struct{}) []types.JID {
+	out := make([]types.JID, 0, len(uniq))
+	for j := range uniq {
+		out = append(out, j)
+	}
+	return out
+}
+
+// groupParticipantPhoneJID is the @s.whatsapp.net (or best-effort) JID for contact / user-info map lookups.
+func groupParticipantPhoneJID(ctx context.Context, client *whatsmeow.Client, p types.GroupParticipant) types.JID {
+	if !p.PhoneNumber.IsEmpty() {
+		return p.PhoneNumber
+	}
+	return utils.ResolveLIDToPhone(ctx, p.JID, client)
+}
+
+// wireParticipantLookupAndPhone returns the JID to use for contact/user-info lookups and the phone user
+// string for API output, using a single LID→PN resolution per participant.
+func wireParticipantLookupAndPhone(ctx context.Context, client *whatsmeow.Client, wire types.JID) (lookupJID types.JID, phoneDigits string) {
+	resolved := utils.ResolveLIDToPhone(ctx, wire, client)
+	phoneDigits = resolved.User
+	if resolved.Server != types.HiddenUserServer {
+		return resolved, phoneDigits
+	}
+	return wire, phoneDigits
+}
+
+// groupParticipantPhoneUser is the numeric phone for API responses (digits), using PhoneNumber when LID resolution fails.
+func groupParticipantPhoneUser(ctx context.Context, client *whatsmeow.Client, p types.GroupParticipant) string {
+	resolved := utils.ResolveLIDToPhone(ctx, p.JID, client)
+	if resolved.Server != types.HiddenUserServer {
+		return resolved.User
+	}
+	if !p.PhoneNumber.IsEmpty() {
+		return p.PhoneNumber.User
+	}
+	return resolved.User
+}
+
+func resolveParticipantDisplayName(ctx context.Context, client *whatsmeow.Client, seed string, lookupJID types.JID, wireJID types.JID, userInfo map[types.JID]types.UserInfo) string {
+	if seed != "" {
+		return seed
+	}
+	if s := contactDisplayName(ctx, client, lookupJID); s != "" {
+		return s
+	}
+	if s := verifiedNameFromUserInfo(userInfo[lookupJID]); s != "" {
+		return s
+	}
+	if wireJID != lookupJID {
+		if s := verifiedNameFromUserInfo(userInfo[wireJID]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func contactDisplayName(ctx context.Context, client *whatsmeow.Client, jid types.JID) string {
+	if jid.IsEmpty() {
+		return ""
+	}
+	contact, err := client.Store.Contacts.GetContact(ctx, jid)
+	if err != nil || !contact.Found {
+		return ""
+	}
+	switch {
+	case contact.FullName != "":
+		return contact.FullName
+	case contact.PushName != "":
+		return contact.PushName
+	case contact.BusinessName != "":
+		return contact.BusinessName
+	default:
+		return ""
+	}
+}
+
+func verifiedNameFromUserInfo(info types.UserInfo) string {
+	if info.VerifiedName != nil && info.VerifiedName.Details != nil {
+		return info.VerifiedName.Details.GetVerifiedName()
+	}
+	return ""
 }
