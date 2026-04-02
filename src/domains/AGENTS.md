@@ -1,6 +1,6 @@
 # domains
 
-Business domain layer. Each subdomain has `interfaces.go` (usecase interface) + request/response structs.
+Business domain layer. Each subdomain has `interfaces.go` (usecase interface) + request/response structs. 10 domain packages.
 
 ## STRUCTURE
 ```
@@ -12,7 +12,7 @@ domains/
 ├── group/       # Group CRUD + participants
 ├── message/     # Message operations (react, delete, revoke, star)
 ├── newsletter/  # Newsletter/channel operations
-├── send/        # Message sending (text, image, video, document, etc.)
+├── send/        # Message sending (text, image, video, document, etc.) — 15 request files
 ├── settings/    # Application settings
 └── user/        # User info, avatar, privacy, contacts
 ```
@@ -22,6 +22,7 @@ domains/
 - Use `*bool` for optional boolean filters (e.g., `Archived *bool` in `ListChatsRequest`)
 - Request structs validate via `ozzo-validation` in `validations/` package
 - `chatstorage/` is the only domain with a repository interface — others use whatsmeow directly
+- `send/` has the most request files (one per message type)
 
 ## ANTI-PATTERNS
 - Never put business logic in domain packages — they define contracts only

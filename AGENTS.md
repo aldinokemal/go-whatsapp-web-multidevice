@@ -1,6 +1,8 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-01
+**Generated:** 2026-04-02
+**Commit:** 0e0af10
+**Branch:** main
 
 ## OVERVIEW
 
@@ -13,15 +15,15 @@ go-whatsapp-web-multidevice/
 │   ├── cmd/                # Cobra CLI commands (rest, mcp)
 │   ├── domains/            # Business domain contracts (interfaces + DTOs)
 │   ├── infrastructure/     # External integrations
-│   │   ├── whatsapp/       # WhatsApp protocol (whatsmeow) — 28 files
-│   │   ├── chatstorage/    # SQLite chat/message persistence
-│   │   └── chatwoot/       # Chatwoot CRM integration
+│   │   ├── whatsapp/       # WhatsApp protocol (whatsmeow) — 24 Go files
+│   │   ├── chatstorage/    # SQLite/PostgreSQL chat+message persistence
+│   │   └── chatwoot/       # Chatwoot CRM integration (sync + client)
 │   ├── ui/                 # Transport layers (REST, MCP, WebSocket)
 │   ├── usecase/            # Application logic (bridges domain ↔ infra)
-│   ├── validations/        # ozzo-validation input checks + tests
-│   ├── views/              # Vue.js 3 components (Semantic UI)
-│   ├── pkg/                # Shared utilities
-│   ├── config/             # Viper config binding
+│   ├── validations/        # ozzo-validation input checks + tests (19 test files total)
+│   ├── views/              # Vue.js 3 components (Semantic UI) — 49 components
+│   ├── pkg/                # Shared utilities (utils/ + error/)
+│   ├── config/             # Viper config binding (settings.go)
 │   └── storages/           # Runtime DB files (SQLite)
 ├── docs/                   # OpenAPI spec (openapi.yaml)
 └── gallery/                # Screenshot examples
@@ -33,18 +35,19 @@ go-whatsapp-web-multidevice/
 |------|----------|-------|
 | Add new message type | `domains/send/`, `usecase/send.go`, `validations/send_validation.go` | 3-file pattern |
 | Add new API endpoint | `ui/rest/`, `usecase/`, `domains/` | Handler → usecase → domain |
+| Add MCP tool | `ui/mcp/` | Mirrors REST; includes `query.go` for read ops |
 | Handle WhatsApp event | `infrastructure/whatsapp/event_*.go` | Register in `event_handler.go` switch |
-| Add DB migration | `infrastructure/chatstorage/sqlite_repository.go` → `getMigrations()` | Append only, never insert |
-| Add MCP tool | `ui/mcp/` | Mirrors REST endpoints |
+| Add DB migration | `infrastructure/chatstorage/sqlite_repository.go` → `getMigrations()` | Append only — currently 15 migrations |
 | Add Vue component | `views/components/` | Plain JS, no .vue SFC |
-| Device management | `infrastructure/whatsapp/device_manager.go` | 602-line central orchestrator |
+| Device management | `infrastructure/whatsapp/device_manager.go` | 615-line central orchestrator |
+| Chatwoot integration | `infrastructure/chatwoot/` | `client.go` (API) + `sync.go` (bidirectional sync) |
 
 ## COMMANDS
 ```bash
 cd src && go run . rest          # Run REST API mode
 cd src && go run . mcp           # Run MCP server mode
 cd src && go build -o whatsapp   # Build binary
-cd src && go test ./...          # Run all tests
+cd src && go test ./...          # Run all tests (19 test files)
 cd src && go vet ./...           # Static analysis
 cd src && go fmt ./...           # Format code
 go mod tidy                      # Update dependencies
@@ -86,10 +89,13 @@ deviceID := client.Store.ID.ToNonAD().String()  // ✅ "6289605618749@s.whatsapp
 |---------|------|
 | `go.mau.fi/whatsmeow` | WhatsApp Web protocol |
 | `github.com/gofiber/fiber/v2` | REST web framework |
-| `github.com/mark3labs/mcp-go` | MCP server |
+| `github.com/mark3labs/mcp-go` | MCP server (v0.45.0) |
 | `github.com/spf13/cobra` | CLI framework |
 | `github.com/spf13/viper` | Config management |
-| `github.com/ozzo/ozzo-validation` | Input validation |
+| `github.com/go-ozzo/ozzo-validation/v4` | Input validation |
+| `github.com/sirupsen/logrus` | Structured logging |
+| `github.com/mattn/go-sqlite3` | SQLite driver |
+| `github.com/lib/pq` | PostgreSQL driver |
 
 ## NOTES
 
@@ -99,3 +105,5 @@ deviceID := client.Store.ID.ToNonAD().String()  // ✅ "6289605618749@s.whatsapp
 - FFmpeg required for media processing
 - HTML/JS assets embedded in binary via Go's `embed`
 - Database: SQLite default, PostgreSQL supported via `DB_URI`
+- Docker: `docker-compose.yml` with volume mounts for `storages/` and `statics/`
+- CI: GoReleaser builds for Linux/Windows, GitHub Actions for release + Docker image
