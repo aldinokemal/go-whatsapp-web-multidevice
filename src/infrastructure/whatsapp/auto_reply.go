@@ -20,16 +20,20 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	}
 
 	if client == nil {
+		log.Debugf("Auto-reply: skipping, client is nil")
 		return
 	}
 
 	// Skip groups, broadcasts, and self messages
 	if utils.IsGroupJID(evt.Info.Chat.String()) || evt.Info.IsIncomingBroadcast() || evt.Info.IsFromMe {
+		log.Debugf("Auto-reply: skipping message %s (group=%v, broadcast=%v, fromMe=%v)",
+			evt.Info.ID, utils.IsGroupJID(evt.Info.Chat.String()), evt.Info.IsIncomingBroadcast(), evt.Info.IsFromMe)
 		return
 	}
 
-	// Only reply to direct 1:1 chats (e.g., *@s.whatsapp.net)
-	if evt.Info.Chat.Server != types.DefaultUserServer {
+	// Only reply to direct 1:1 chats (e.g., *@s.whatsapp.net or *@lid)
+	if evt.Info.Chat.Server != types.DefaultUserServer && evt.Info.Chat.Server != types.HiddenUserServer {
+		log.Debugf("Auto-reply: skipping message %s, unsupported chat server: %s", evt.Info.ID, evt.Info.Chat.Server)
 		return
 	}
 
@@ -38,6 +42,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	if strings.Contains(source, "broadcast") ||
 		strings.HasSuffix(evt.Info.Chat.String(), "@broadcast") ||
 		strings.HasPrefix(evt.Info.Chat.String(), "status@") {
+		log.Debugf("Auto-reply: skipping message %s, broadcast/status context: %s", evt.Info.ID, source)
 		return
 	}
 
@@ -61,6 +66,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 		}
 	}
 	if !hasText {
+		log.Debugf("Auto-reply: skipping message %s, no text content detected", evt.Info.ID)
 		return
 	}
 
