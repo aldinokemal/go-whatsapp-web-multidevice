@@ -1003,7 +1003,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	}
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
-	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
+	if len(metadata.ImageThumb) > 0 {
 		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
 		if err == nil {
 			// Update the message with the uploaded thumbnail information
@@ -1011,8 +1011,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
 			msg.ExtendedTextMessage.MediaKey = uploadedThumb.MediaKey
-			msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
-			msg.ExtendedTextMessage.ThumbnailWidth = metadata.Width
+			if metadata.Height != nil {
+				msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
+			}
+			if metadata.Width != nil {
+				msg.ExtendedTextMessage.ThumbnailWidth = metadata.Width
+			}
 		} else {
 			logrus.Warnf("Failed to upload thumbnail: %v, continue without uploaded thumbnail", err)
 		}
