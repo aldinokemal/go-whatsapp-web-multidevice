@@ -1142,6 +1142,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress video
+                gif_playback:
+                  type: boolean
+                  example: false
+                  description: Display video as GIF (looping, silent, autoplay)
                 duration:
                   type: integer
                   example: 3600
