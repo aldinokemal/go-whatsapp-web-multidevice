@@ -5,7 +5,7 @@ Vue.js 3 frontend components using Semantic UI. Served as embedded HTML via Go's
 ## STRUCTURE
 ```
 views/
-├── components/     # 48 Vue.js components (one per feature)
+├── components/     # 49 Vue.js components (one per feature)
 │   ├── App*.js         # Login, logout, reconnect
 │   ├── Account*.js     # Avatar, profile, privacy, contacts
 │   ├── Chat*.js        # ChatList, ChatMessages, ChatPinManager, ChatDisappearingManager

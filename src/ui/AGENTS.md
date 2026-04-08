@@ -6,9 +6,13 @@ User interface layer. Three transport modes: REST API, MCP server, WebSocket.
 ```
 ui/
 ├── rest/            # Fiber HTTP handlers (9 files, 1:1 with domains)
-│   ├── helpers/     # Response formatting, device resolution
-│   └── middleware/  # Auth, logging, CORS
+│   ├── helpers/     # common.go: ResponseSuccess, device resolution
+│   └── middleware/  # basicauth, device, recovery, timeout (+test)
 ├── mcp/             # MCP (Model Context Protocol) tools for AI agents
+│   ├── app.go       # Login/logout/reconnect tools
+│   ├── group.go     # Group management tools (779 lines, largest)
+│   ├── send.go      # Message sending tools
+│   ├── query.go     # Read-only query tools (chats, messages, devices)
 │   └── helpers/     # MCP-specific utilities
 └── websocket/       # Real-time WebSocket events
 ```
@@ -22,11 +26,15 @@ Each handler file maps to one domain. Pattern:
 
 Device resolution: `helpers.ResolveDevice(c)` extracts from `X-Device-Id` header.
 
+## MCP TOOL PATTERN
+Each MCP file registers tools via `mcp-go`. Same usecase calls as REST, different transport. `query.go` handles read-only operations (chat list, messages, device info).
+
 ## CONVENTIONS
 - Query param parsing: use `c.Query("param")` for strings, `strconv` for booleans
 - Boolean query params: parse to `*bool` (nil = not provided)
 - All REST handlers are in `rest/` directory, one file per domain
-- MCP tools mirror REST endpoints but with different transport
+- REST has `chatwoot.go` handler for Chatwoot webhook integration
+- Middleware: `basicauth` (optional), `device` (resolve device context), `recovery`, `timeout`
 
 ## ANTI-PATTERNS
 - Never put business logic in handlers — delegate to usecase layer

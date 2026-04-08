@@ -16,6 +16,7 @@ export default {
             caption: '',
             view_once: false,
             compress: false,
+            gif_playback: false,
             type: window.TYPEUSER,
             phone: '',
             loading: false,
@@ -94,6 +95,7 @@ export default {
                 payload.append("caption", this.caption.trim())
                 payload.append("view_once", this.view_once)
                 payload.append("compress", this.compress)
+                payload.append("gif_playback", this.gif_playback)
                 payload.append("is_forwarded", this.is_forwarded)
                 if (this.duration && this.duration > 0) {
                     payload.append("duration", this.duration)
@@ -123,6 +125,7 @@ export default {
             this.caption = '';
             this.view_once = false;
             this.compress = false;
+            this.gif_playback = false;
             this.phone = '';
             this.selectedFileName = null;
             this.video_url = null;
@@ -178,6 +181,13 @@ export default {
                     <div class="ui toggle checkbox">
                         <input type="checkbox" aria-label="compress" v-model="compress">
                         <label>Check for compressing video to smaller size</label>
+                    </div>
+                </div>
+                <div class="field" v-if="isShowAttributes()">
+                    <label>GIF Playback</label>
+                    <div class="ui toggle checkbox">
+                        <input type="checkbox" aria-label="gif playback" v-model="gif_playback">
+                        <label>Display video as GIF (looping, silent, autoplay)</label>
                     </div>
                 </div>
                 <div class="field" v-if="isShowAttributes() && !view_once">
