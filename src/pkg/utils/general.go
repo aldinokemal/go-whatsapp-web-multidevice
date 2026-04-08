@@ -255,15 +255,8 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 								width := uint32(bounds.Max.X - bounds.Min.X)
 								height := uint32(bounds.Max.Y - bounds.Min.Y)
 
-								// Check if image is square (1:1 ratio)
-								if width == height && width <= 200 {
-									// For small square images, leave width and height as nil
-									meta.Width = nil
-									meta.Height = nil
-								} else {
-									meta.Width = &width
-									meta.Height = &height
-								}
+								meta.Width = &width
+								meta.Height = &height
 
 								logrus.Debugf("Image dimensions: %dx%d", width, height)
 							}
