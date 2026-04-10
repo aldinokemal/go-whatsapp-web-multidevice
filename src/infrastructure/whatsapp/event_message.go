@@ -18,6 +18,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+var reMention = regexp.MustCompile(`\B@\w+`)
+
 // Event types for webhook payload
 const (
 	EventTypeMessage         = "message"
@@ -165,7 +167,7 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 
 	// Replace LID mentions with phone numbers in text
 	if message.Text != "" && client != nil && client.Store != nil && client.Store.LIDs != nil {
-		tags := regexp.MustCompile(`\B@\w+`).FindAllString(message.Text, -1)
+		tags := reMention.FindAllString(message.Text, -1)
 		tagsMap := make(map[string]bool)
 		for _, tag := range tags {
 			tagsMap[tag] = true
@@ -215,6 +217,10 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 
 	if utils.BuildForwarded(evt) {
 		payload["forwarded"] = true
+	}
+
+	if referral := utils.ExtractExternalAdReply(msg); referral != nil {
+		payload["referral"] = referral
 	}
 
 	if err := buildMediaFields(ctx, client, msg, payload); err != nil {

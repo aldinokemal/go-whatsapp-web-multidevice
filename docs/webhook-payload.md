@@ -1052,6 +1052,68 @@ When a message is edited, the webhook includes the original message ID to track 
 }
 ```
 
+### Meta Ads Referral (Click-to-WhatsApp)
+
+When a conversation starts from a Meta Click-to-WhatsApp ad, the first inbound message includes ad attribution metadata in the `referral` field. This is extracted from the WhatsApp protocol's `contextInfo.externalAdReply`.
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6B4",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "Jane Customer",
+    "timestamp": "2023-10-15T12:00:00Z",
+    "is_from_me": false,
+    "body": "Hello! I would like more information about the property.",
+    "referral": {
+      "ctwa_clid": "FAKE_CLID_abc123xyz",
+      "source_url": "https://fb.me/fake-ad-link",
+      "source_id": "123456789012345",
+      "ref": "landing_page_01",
+      "source_app": "facebook",
+      "media_type": "IMAGE",
+      "ad_title": "Your Dream Farm",
+      "ad_body": "Discover exclusive rural properties in the countryside.",
+      "thumbnail_url": "https://example.com/ad-thumbnail.jpg",
+      "original_image_url": "https://example.com/ad-image.jpg",
+      "show_ad_attribution": true,
+      "click_to_whatsapp_call": false,
+      "contains_auto_reply": false,
+      "automated_greeting_message_shown": true,
+      "greeting_message_body": "Hello! I want to know more about this ad.",
+      "source_type": "ad",
+      "ad_type": "CTWA"
+    }
+  }
+}
+```
+
+**Referral fields** (all optional, only present when the message originated from a Meta ad):
+
+| **Field**                          | **Type** | **Description**                                                    |
+|------------------------------------|----------|--------------------------------------------------------------------|
+| `ctwa_clid`                        | string   | Meta Click-to-WhatsApp click ID for ad attribution                 |
+| `source_url`                       | string   | Landing page / ad destination URL                                  |
+| `source_id`                        | string   | Meta ad creative or ad set ID                                      |
+| `ref`                              | string   | The `ref` parameter set on the WhatsApp button in the ad           |
+| `source_app`                       | string   | Origin platform: `"facebook"` or `"instagram"`                     |
+| `media_type`                       | string   | Ad creative media type: `"NONE"`, `"IMAGE"`, or `"VIDEO"`         |
+| `ad_title`                         | string   | Ad creative title                                                  |
+| `ad_body`                          | string   | Ad creative description/body text                                  |
+| `thumbnail_url`                    | string   | URL of the ad thumbnail image                                      |
+| `original_image_url`               | string   | URL of the original ad image                                       |
+| `media_url`                        | string   | URL of the ad media                                                |
+| `show_ad_attribution`              | boolean  | Whether to show the ad attribution badge                           |
+| `contains_auto_reply`              | boolean  | Whether the ad has a pre-filled auto-reply message                 |
+| `automated_greeting_message_shown` | boolean  | Whether the automated greeting was shown to the user               |
+| `greeting_message_body`            | string   | Body text of the automated greeting message                        |
+| `click_to_whatsapp_call`           | boolean  | Whether this is a Click-to-WhatsApp Call ad (vs chat)              |
+| `source_type`                      | string   | Source type (e.g., `"ad"`)                                         |
+| `ad_type`                          | string   | Ad type: `"CTWA"` (Click-to-WhatsApp) or `"CAWC"` (Click-to-Call) |
+
 ## Integration Guide
 
 ### Setting Up Webhook Endpoint

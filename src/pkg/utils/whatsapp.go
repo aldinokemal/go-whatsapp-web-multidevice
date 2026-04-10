@@ -312,122 +312,59 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 	return "", "", "", nil, nil, nil, 0
 }
 
+// ExtractContextInfo returns the ContextInfo from whichever message sub-type
+// is present. Returns nil when the message has no ContextInfo.
+func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
+	if msg == nil {
+		return nil
+	}
+	switch {
+	case msg.GetExtendedTextMessage() != nil:
+		return msg.GetExtendedTextMessage().GetContextInfo()
+	case msg.GetImageMessage() != nil:
+		return msg.GetImageMessage().GetContextInfo()
+	case msg.GetVideoMessage() != nil:
+		return msg.GetVideoMessage().GetContextInfo()
+	case msg.GetAudioMessage() != nil:
+		return msg.GetAudioMessage().GetContextInfo()
+	case msg.GetDocumentMessage() != nil:
+		return msg.GetDocumentMessage().GetContextInfo()
+	case msg.GetStickerMessage() != nil:
+		return msg.GetStickerMessage().GetContextInfo()
+	case msg.GetContactMessage() != nil:
+		return msg.GetContactMessage().GetContextInfo()
+	case msg.GetLocationMessage() != nil:
+		return msg.GetLocationMessage().GetContextInfo()
+	case msg.GetPtvMessage() != nil:
+		return msg.GetPtvMessage().GetContextInfo()
+	case msg.GetLiveLocationMessage() != nil:
+		return msg.GetLiveLocationMessage().GetContextInfo()
+	}
+	return nil
+}
+
 // ExtractEphemeralExpiration extracts ephemeral expiration from a WhatsApp message
 func ExtractEphemeralExpiration(msg *waE2E.Message) uint32 {
-	logrus.Debug("ExtractEphemeralExpiration: Starting extraction process")
-
 	if msg == nil {
-		logrus.Debug("ExtractEphemeralExpiration: Message is nil, returning 0")
 		return 0
 	}
 
-	logrus.Debug("ExtractEphemeralExpiration: Message is valid, checking message types")
-
-	// Check extended text message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for extended text message")
-	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Extended text message found, checking context info")
-		if contextInfo := extendedText.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in extended text message")
-			return expiration
+	if ci := ExtractContextInfo(msg); ci != nil {
+		if exp := ci.GetExpiration(); exp != 0 {
+			return exp
 		}
-		logrus.Debug("ExtractEphemeralExpiration: Extended text message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No extended text message found")
 	}
 
-	// Check regular conversation message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for regular conversation message")
-	if msg.GetConversation() != "" {
-		logrus.Debug("ExtractEphemeralExpiration: Regular conversation message found, but no context info available for this type")
-		// Regular text messages might have context info too
-		// This would need to be checked based on the actual protobuf structure
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No regular conversation message found")
-	}
-
-	// Check image message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for image message")
-	if img := msg.GetImageMessage(); img != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Image message found, checking context info")
-		if contextInfo := img.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in image message")
-			return expiration
+	if pm := msg.GetProtocolMessage(); pm != nil {
+		if exp := pm.GetEphemeralExpiration(); exp != 0 {
+			return exp
 		}
-		logrus.Debug("ExtractEphemeralExpiration: Image message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No image message found")
 	}
 
-	// Check video message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for video message")
-	if vid := msg.GetVideoMessage(); vid != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Video message found, checking context info")
-		if contextInfo := vid.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in video message")
-			return expiration
-		}
-		logrus.Debug("ExtractEphemeralExpiration: Video message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No video message found")
-	}
-
-	// Check audio message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for audio message")
-	if aud := msg.GetAudioMessage(); aud != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Audio message found, checking context info")
-		if contextInfo := aud.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in audio message")
-			return expiration
-		}
-		logrus.Debug("ExtractEphemeralExpiration: Audio message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No audio message found")
-	}
-
-	// Check document message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for document message")
-	if doc := msg.GetDocumentMessage(); doc != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Document message found, checking context info")
-		if contextInfo := doc.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in document message")
-			return expiration
-		}
-		logrus.Debug("ExtractEphemeralExpiration: Document message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No document message found")
-	}
-
-	// Check sticker message
-	logrus.Debug("ExtractEphemeralExpiration: Checking for sticker message")
-	if sticker := msg.GetStickerMessage(); sticker != nil {
-		logrus.Debug("ExtractEphemeralExpiration: Sticker message found, checking context info")
-		if contextInfo := sticker.GetContextInfo(); contextInfo != nil {
-			expiration := contextInfo.GetExpiration()
-			logrus.WithField("expiration", expiration).Debug("ExtractEphemeralExpiration: Found expiration in sticker message")
-			return expiration
-		}
-		logrus.Debug("ExtractEphemeralExpiration: Sticker message has no context info")
-	} else {
-		logrus.Debug("ExtractEphemeralExpiration: No sticker message found")
-	}
-
-	if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
-		if ephemeralExpiration := protocolMessage.GetEphemeralExpiration(); ephemeralExpiration != 0 {
-			logrus.WithField("expiration", ephemeralExpiration).Debug("ExtractEphemeralExpiration: Found expiration in protocol message")
-			return ephemeralExpiration
-		}
-		logrus.Debug("ExtractEphemeralExpiration: Protocol message has no expiration")
-	}
-
-	logrus.Debug("ExtractEphemeralExpiration: No expiration found in any message type, returning 0")
 	return 0
 }
+
+var reNonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
 
 // GenerateMediaFilename creates a filename for media files
 func GenerateMediaFilename(mediaType, extension, caption string) string {
@@ -435,9 +372,7 @@ func GenerateMediaFilename(mediaType, extension, caption string) string {
 	name := mediaType + "_" + timestamp
 
 	if caption != "" {
-		// Only keep alphanumeric, _, -
-		re := regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
-		cleanCaption := re.ReplaceAllString(caption, "_")
+		cleanCaption := reNonAlphanumeric.ReplaceAllString(caption, "_")
 		if len(cleanCaption) > 30 {
 			cleanCaption = cleanCaption[:30]
 		}
@@ -450,11 +385,11 @@ func GenerateMediaFilename(mediaType, extension, caption string) string {
 	return name
 }
 
+var reDigits = regexp.MustCompile(`\d+`)
+
 // ExtractPhoneNumber is a helper function to extract the phone number from a JID
 func ExtractPhoneNumber(jid string) string {
-	regex := regexp.MustCompile(`\d+`)
-	// Find all matches of the pattern in the JID
-	matches := regex.FindAllString(jid, -1)
+	matches := reDigits.FindAllString(jid, -1)
 	// The first match should be the phone number
 	if len(matches) > 0 {
 		return matches[0]
@@ -810,16 +745,22 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 
 	if extendedMessage := msg.GetExtendedTextMessage(); extendedMessage != nil {
 		message.Text = extendedMessage.GetText()
-		message.RepliedId = extendedMessage.ContextInfo.GetStanzaID()
-		message.QuotedMessage = extendedMessage.ContextInfo.GetQuotedMessage().GetConversation()
 	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
 			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
 				message.Text = extendedText.GetText()
-				message.RepliedId = extendedText.ContextInfo.GetStanzaID()
-				message.QuotedMessage = extendedText.ContextInfo.GetQuotedMessage().GetConversation()
 			}
+			if ci := ExtractContextInfo(editedMessage); ci != nil {
+				message.RepliedId = ci.GetStanzaID()
+				message.QuotedMessage = ci.GetQuotedMessage().GetConversation()
+			}
+			return message
 		}
+	}
+
+	if ci := ExtractContextInfo(msg); ci != nil {
+		message.RepliedId = ci.GetStanzaID()
+		message.QuotedMessage = ci.GetQuotedMessage().GetConversation()
 	}
 
 	return message
@@ -836,14 +777,96 @@ func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
 
 func BuildForwarded(evt *events.Message) bool {
 	msg := UnwrapMessage(evt.Message)
-	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
-		return extendedText.ContextInfo.GetIsForwarded()
-	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
-		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
-			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
-				return extendedText.ContextInfo.GetIsForwarded()
+	if ci := ExtractContextInfo(msg); ci != nil {
+		return ci.GetIsForwarded()
+	}
+	if pm := msg.GetProtocolMessage(); pm != nil {
+		if edited := pm.GetEditedMessage(); edited != nil {
+			if ci := ExtractContextInfo(edited); ci != nil {
+				return ci.GetIsForwarded()
 			}
 		}
 	}
 	return false
+}
+
+// ExtractExternalAdReply extracts Meta Ads referral/attribution metadata from
+// incoming Click-to-WhatsApp ad messages. Returns nil when no ad data is present.
+func ExtractExternalAdReply(msg *waE2E.Message) map[string]any {
+	if msg == nil {
+		return nil
+	}
+
+	ci := ExtractContextInfo(UnwrapMessage(msg))
+	if ci == nil {
+		return nil
+	}
+
+	ad := ci.GetExternalAdReply()
+	if ad == nil {
+		return nil
+	}
+
+	referral := make(map[string]any)
+
+	if v := ad.GetCtwaClid(); v != "" {
+		referral["ctwa_clid"] = v
+	}
+	if v := ad.GetSourceURL(); v != "" {
+		referral["source_url"] = v
+	}
+	if v := ad.GetSourceID(); v != "" {
+		referral["source_id"] = v
+	}
+	if v := ad.GetRef(); v != "" {
+		referral["ref"] = v
+	}
+	if v := ad.GetSourceApp(); v != "" {
+		referral["source_app"] = v
+	}
+	if v := ad.GetTitle(); v != "" {
+		referral["ad_title"] = v
+	}
+	if v := ad.GetBody(); v != "" {
+		referral["ad_body"] = v
+	}
+	if v := ad.GetThumbnailURL(); v != "" {
+		referral["thumbnail_url"] = v
+	}
+	if v := ad.GetOriginalImageURL(); v != "" {
+		referral["original_image_url"] = v
+	}
+	if v := ad.GetMediaURL(); v != "" {
+		referral["media_url"] = v
+	}
+	if ad.MediaType != nil {
+		referral["media_type"] = ad.GetMediaType().String()
+	}
+	if ad.ShowAdAttribution != nil {
+		referral["show_ad_attribution"] = ad.GetShowAdAttribution()
+	}
+	if ad.ContainsAutoReply != nil {
+		referral["contains_auto_reply"] = ad.GetContainsAutoReply()
+	}
+	if ad.AutomatedGreetingMessageShown != nil {
+		referral["automated_greeting_message_shown"] = ad.GetAutomatedGreetingMessageShown()
+	}
+	if v := ad.GetGreetingMessageBody(); v != "" {
+		referral["greeting_message_body"] = v
+	}
+	if ad.ClickToWhatsappCall != nil {
+		referral["click_to_whatsapp_call"] = ad.GetClickToWhatsappCall()
+	}
+	if v := ad.GetSourceType(); v != "" {
+		referral["source_type"] = v
+	}
+	if ad.AdType != nil {
+		referral["ad_type"] = ad.GetAdType().String()
+	}
+
+	if len(referral) == 0 {
+		return nil
+	}
+
+	return referral
 }
