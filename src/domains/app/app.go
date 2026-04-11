@@ -18,6 +18,7 @@ type IAppUsecase interface {
 type DevicesResponse struct {
 	Name   string `json:"name"`
 	Device string `json:"device"`
+	JID    string `json:"jid,omitempty"`
 }
 
 type LoginResponse struct {

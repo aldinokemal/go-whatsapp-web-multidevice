@@ -13,7 +13,7 @@ import (
 )
 
 // handleCallOffer handles incoming call events and optionally auto-rejects them
-func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
+func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo domainChatStorage.IChatStorageRepository, sessionID string, deviceID string, client *whatsmeow.Client) {
 	logrus.Infof("Incoming call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
 
 	// Auto-reject call if configured
@@ -47,7 +47,7 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 		go func(e *events.CallOffer, c *whatsmeow.Client, rejected bool) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := forwardCallOfferToWebhook(webhookCtx, e, deviceID, c, rejected); err != nil {
+			if err := forwardCallOfferToWebhook(webhookCtx, e, sessionID, deviceID, c, rejected); err != nil {
 				logrus.Errorf("Failed to forward call event to webhook: %v", err)
 			}
 		}(evt, client, autoRejected)
@@ -55,7 +55,7 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 }
 
 // createCallOfferPayload creates a webhook payload for incoming call events
-func createCallOfferPayload(ctx context.Context, evt *events.CallOffer, deviceID string, client *whatsmeow.Client, autoRejected bool) map[string]any {
+func createCallOfferPayload(ctx context.Context, evt *events.CallOffer, sessionID string, deviceID string, client *whatsmeow.Client, autoRejected bool) map[string]any {
 	body := make(map[string]any)
 	payload := make(map[string]any)
 
@@ -83,13 +83,16 @@ func createCallOfferPayload(ctx context.Context, evt *events.CallOffer, deviceID
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 	body["payload"] = payload
 
 	return body
 }
 
 // forwardCallOfferToWebhook forwards incoming call events to the configured webhook URLs
-func forwardCallOfferToWebhook(ctx context.Context, evt *events.CallOffer, deviceID string, client *whatsmeow.Client, autoRejected bool) error {
-	payload := createCallOfferPayload(ctx, evt, deviceID, client, autoRejected)
+func forwardCallOfferToWebhook(ctx context.Context, evt *events.CallOffer, sessionID string, deviceID string, client *whatsmeow.Client, autoRejected bool) error {
+	payload := createCallOfferPayload(ctx, evt, sessionID, deviceID, client, autoRejected)
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "call.offer")
 }
