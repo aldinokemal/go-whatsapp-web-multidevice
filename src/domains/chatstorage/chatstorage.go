@@ -16,23 +16,24 @@ type Chat struct {
 
 // Message represents a WhatsApp message
 type Message struct {
-	ID            string    `db:"id"`
-	ChatJID       string    `db:"chat_jid"`
-	DeviceID      string    `db:"device_id"`
-	Sender        string    `db:"sender"`
-	Content       string    `db:"content"`
-	Timestamp     time.Time `db:"timestamp"`
-	IsFromMe      bool      `db:"is_from_me"`
-	MediaType     string    `db:"media_type"`
-	CallMetadata  string    `db:"call_metadata"` // JSON metadata when media_type is "call"
-	Filename      string    `db:"filename"`
-	URL           string    `db:"url"`
-	MediaKey      []byte    `db:"media_key"`
-	FileSHA256    []byte    `db:"file_sha256"`
-	FileEncSHA256 []byte    `db:"file_enc_sha256"`
-	FileLength    uint64    `db:"file_length"`
-	CreatedAt     time.Time `db:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at"`
+	ID               string    `db:"id"`
+	ChatJID          string    `db:"chat_jid"`
+	DeviceID         string    `db:"device_id"`
+	Sender           string    `db:"sender"`
+	Content          string    `db:"content"`
+	Timestamp        time.Time `db:"timestamp"`
+	IsFromMe         bool      `db:"is_from_me"`
+	MediaType        string    `db:"media_type"`
+	CallMetadata     string    `db:"call_metadata"`
+	Filename         string    `db:"filename"`
+	URL              string    `db:"url"`
+	MediaKey         []byte    `db:"media_key"`
+	FileSHA256       []byte    `db:"file_sha256"`
+	FileEncSHA256    []byte    `db:"file_enc_sha256"`
+	FileLength       uint64    `db:"file_length"`
+	ReferralMetadata string    `db:"referral_metadata"`
+	CreatedAt        time.Time `db:"created_at"`
+	UpdatedAt        time.Time `db:"updated_at"`
 }
 
 // MediaInfo represents downloadable media information
