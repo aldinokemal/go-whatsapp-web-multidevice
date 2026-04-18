@@ -165,19 +165,20 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	messageInfos := make([]domainChat.MessageInfo, 0, len(messages))
 	for _, message := range messages {
 		messageInfo := domainChat.MessageInfo{
-			ID:           message.ID,
-			ChatJID:      message.ChatJID,
-			SenderJID:    message.Sender,
-			Content:      message.Content,
-			Timestamp:    message.Timestamp.Format(time.RFC3339),
-			IsFromMe:     message.IsFromMe,
-			MediaType:    message.MediaType,
-			CallMetadata: message.CallMetadata,
-			Filename:     message.Filename,
-			URL:          message.URL,
-			FileLength:   message.FileLength,
-			CreatedAt:    message.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:    message.UpdatedAt.Format(time.RFC3339),
+			ID:               message.ID,
+			ChatJID:          message.ChatJID,
+			SenderJID:        message.Sender,
+			Content:          message.Content,
+			Timestamp:        message.Timestamp.Format(time.RFC3339),
+			IsFromMe:         message.IsFromMe,
+			MediaType:        message.MediaType,
+			CallMetadata:     message.CallMetadata,
+			ReferralMetadata: message.ReferralMetadata,
+			Filename:         message.Filename,
+			URL:              message.URL,
+			FileLength:       message.FileLength,
+			CreatedAt:        message.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        message.UpdatedAt.Format(time.RFC3339),
 		}
 		messageInfos = append(messageInfos, messageInfo)
 	}

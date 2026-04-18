@@ -4233,6 +4233,10 @@ components:
           type: string
           example: '{"call_id":"ABC","auto_rejected":false}'
           description: JSON string with call details when media_type is `call`. Omitted when not applicable (matches Go json omitempty).
+        referral_metadata:
+          type: string
+          example: '{"ctwa_clid":"clid_123","source_app":"whatsapp"}'
+          description: JSON string with Meta Ads referral/attribution details when the message originated from a Click-to-WhatsApp ad. Omitted when not applicable (matches Go json omitempty).
         filename:
           type: string
           example: 'photo.jpg'
