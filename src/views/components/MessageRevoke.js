@@ -77,7 +77,7 @@ export default {
             <a class="ui red right ribbon label">Message</a>
             <div class="header">Revoke Message</div>
             <div class="description">
-                 any message in private or group chat
+                 Revoke your own message, or any member's message in a group where you are admin
             </div>
         </div>
     </div>
@@ -94,7 +94,7 @@ export default {
                 
                 <div class="field">
                     <label> Message ID</label>
-                    <input v-model="message_id" type="text" placeholder="Please enter your message id"
+                    <input v-model="message_id" type="text" placeholder="Please enter the message id to revoke"
                            aria-label="message id">
                 </div>
             </form>

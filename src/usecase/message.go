@@ -134,7 +134,28 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, types.EmptyJID, request.MessageID))
+	// Resolve the original sender so group admins can revoke other members'
+	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
+	// any other JID is admin-revoke and requires the bot to be group admin.
+	// WhatsApp message IDs are globally unique, so a cross-device lookup
+	// via GetMessageByID yields the same sender regardless of which device
+	// owns the row.
+	senderJID := types.EmptyJID
+	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if lookupErr != nil {
+		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
+	} else if message != nil && !message.IsFromMe && message.Sender != "" {
+		parsed, parseErr := utils.ParseJID(message.Sender)
+		if parseErr != nil {
+			logrus.Warnf("Failed to parse sender JID '%s' for revoke: %v", message.Sender, parseErr)
+		} else {
+			// Stored senders can still be @lid; whatsmeow's Revoke needs
+			// the phone-number form or it rejects the request at the wire.
+			senderJID = whatsapp.NormalizeJIDFromLID(ctx, parsed, client)
+		}
+	}
+
+	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
 	if err != nil {
 		return response, err
 	}
