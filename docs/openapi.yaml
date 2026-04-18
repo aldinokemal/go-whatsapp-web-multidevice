@@ -1491,6 +1491,12 @@ paths:
       tags:
         - message
       summary: Revoke Message
+      description: |
+        Revoke (delete for everyone) a message. Revokes the bot's own message by default.
+        If the target message was sent by another user and is present in chat storage,
+        the original sender is resolved automatically so a group-admin bot can revoke
+        other members' messages (anti-spam use case). The WhatsApp server rejects the
+        request if the bot is not a group admin.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
