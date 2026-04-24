@@ -4231,7 +4231,6 @@ components:
           description: Type of media (image, video, audio, document, etc.). Value `call` indicates a stored incoming call log.
         reactions:
           type: array
-          nullable: true
           description: Emoji reactions attached to this message
           items:
             $ref: '#/components/schemas/ChatReaction'

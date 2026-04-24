@@ -10,7 +10,7 @@ type Reaction struct {
 	ReactorJID   string    `db:"reactor_jid"`
 	Emoji        string    `db:"emoji"`
 	IsFromMe     bool      `db:"is_from_me"`
-	Timestamp    time.Time `db:"timestamp"`
+	Timestamp    time.Time `db:"reaction_timestamp"`
 	CreatedAt    time.Time `db:"created_at"`
 	UpdatedAt    time.Time `db:"updated_at"`
 }

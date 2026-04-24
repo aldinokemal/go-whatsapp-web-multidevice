@@ -940,7 +940,19 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	content := fmt.Sprintf("👤 %s (%s)", request.ContactName, request.ContactPhone)
+	contactName := strings.TrimSpace(request.ContactName)
+	contactPhone := strings.TrimSpace(request.ContactPhone)
+	var content string
+	switch {
+	case contactName != "" && contactPhone != "":
+		content = fmt.Sprintf("👤 %s (%s)", contactName, contactPhone)
+	case contactName != "":
+		content = fmt.Sprintf("👤 %s", contactName)
+	case contactPhone != "":
+		content = fmt.Sprintf("👤 %s", contactPhone)
+	default:
+		content = "👤 Contact"
+	}
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {

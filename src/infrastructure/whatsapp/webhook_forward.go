@@ -277,7 +277,7 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 			GetVcard() string
 		}); ok {
 			name := cm.GetDisplayName()
-			phone := extractPhoneFromVCard(cm.GetVcard())
+			phone := utils.ExtractPhoneFromVCard(cm.GetVcard())
 			switch {
 			case name != "" && phone != "":
 				return fmt.Sprintf("Contact: %s (%s)", name, phone)
@@ -335,18 +335,6 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 		return "Order message"
 	}
 
-	return ""
-}
-
-func extractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
-			}
-		}
-	}
 	return ""
 }
 

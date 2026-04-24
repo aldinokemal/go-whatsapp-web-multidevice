@@ -259,11 +259,42 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 	return messageText
 }
 
-func extractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
+func ExtractPhoneFromVCard(vcard string) string {
+	if vcard == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var lines []string
+	var current strings.Builder
+	for _, rawLine := range strings.Split(normalized, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
+			if current.Len() > 0 {
+				current.WriteString(line)
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "TEL:") || strings.HasPrefix(upper, "TEL;") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
 				return strings.TrimSpace(line[idx+1:])
 			}
 		}
@@ -273,7 +304,7 @@ func extractPhoneFromVCard(vcard string) string {
 
 func formatContactMessageText(prefix, fallback, displayName, vcard string) string {
 	name := strings.TrimSpace(displayName)
-	phone := strings.TrimSpace(extractPhoneFromVCard(vcard))
+	phone := strings.TrimSpace(ExtractPhoneFromVCard(vcard))
 
 	switch {
 	case name != "" && phone != "":
@@ -809,7 +840,9 @@ func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
 	msg := UnwrapMessage(evt.Message)
 	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		waReaction.Message = reactionMessage.GetText()
-		waReaction.ID = reactionMessage.GetKey().GetID()
+		if key := reactionMessage.GetKey(); key != nil {
+			waReaction.ID = key.GetID()
+		}
 	}
 	return waReaction
 }
