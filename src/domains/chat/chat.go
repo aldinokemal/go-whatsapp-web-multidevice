@@ -65,11 +65,15 @@ type MessageInfo struct {
 	MediaType string `json:"media_type"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
 	CallMetadata string `json:"call_metadata,omitempty"`
-	Filename     string `json:"filename"`
-	URL          string `json:"url"`
-	FileLength   uint64 `json:"file_length"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	// ContextMetadata is a JSON blob of whatsmeow ContextInfo-derived fields
+	// (replied_to_id, and room to extend with mentions, forwards, etc.).
+	// Empty when the message has no meaningful context.
+	ContextMetadata string `json:"context_metadata,omitempty"`
+	Filename        string `json:"filename"`
+	URL             string `json:"url"`
+	FileLength      uint64 `json:"file_length"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type PaginationResponse struct {
