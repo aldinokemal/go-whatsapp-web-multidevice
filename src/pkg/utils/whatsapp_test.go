@@ -1,6 +1,13 @@
 package utils
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+)
 
 func TestDetermineMediaExtension(t *testing.T) {
 	tests := []struct {
@@ -54,5 +61,48 @@ func TestDetermineMediaExtension(t *testing.T) {
 				t.Fatalf("determineMediaExtension() = %q, want %q", got, tt.wantSuffix)
 			}
 		})
+	}
+}
+
+func TestExtractMessageTextFromProtoContactIncludesPhone(t *testing.T) {
+	displayName := "Julio"
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Julio\nTEL;type=CELL;waid=5511998913283:+5511998913283\nEND:VCARD"
+	msg := &waE2E.Message{
+		ContactMessage: &waE2E.ContactMessage{
+			DisplayName: &displayName,
+			Vcard:       &vcard,
+		},
+	}
+
+	got := ExtractMessageTextFromProto(msg)
+	want := "Contact: Julio (+5511998913283)"
+	if got != want {
+		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
+	}
+}
+
+func TestExtractMessageTextFromEventContactIncludesPhone(t *testing.T) {
+	displayName := "Julio"
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Julio\nTEL;type=CELL;waid=5511998913283:+5511998913283\nEND:VCARD"
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat: types.NewJID("5511998913283", types.DefaultUserServer),
+			},
+			ID:        "MSG123",
+			Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ContactMessage: &waE2E.ContactMessage{
+				DisplayName: &displayName,
+				Vcard:       &vcard,
+			},
+		},
+	}
+
+	got := ExtractMessageTextFromEvent(evt)
+	want := "👤 Julio (+5511998913283)"
+	if got != want {
+		t.Fatalf("ExtractMessageTextFromEvent() = %q, want %q", got, want)
 	}
 }
