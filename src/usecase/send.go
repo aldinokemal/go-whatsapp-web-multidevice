@@ -940,7 +940,8 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	content := fmt.Sprintf("👤 %s (%s)", request.ContactName, request.ContactPhone)
+	contactPhone := strings.TrimPrefix(request.ContactPhone, "+")
+	content := fmt.Sprintf("👤 %s (+%s)", request.ContactName, contactPhone)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {

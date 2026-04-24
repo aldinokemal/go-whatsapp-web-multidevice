@@ -259,8 +259,39 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 	return messageText
 }
 
-func extractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
+// ExtractPhoneFromVCard extracts the first phone number from a vCard entry.
+func ExtractPhoneFromVCard(vcard string) string {
+	if vcard == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var lines []string
+	var current strings.Builder
+	for _, rawLine := range strings.Split(normalized, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
+			if current.Len() > 0 {
+				current.WriteString(line)
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
 			if idx := strings.LastIndex(line, ":"); idx >= 0 {
@@ -273,7 +304,7 @@ func extractPhoneFromVCard(vcard string) string {
 
 func formatContactMessageText(prefix, fallback, displayName, vcard string) string {
 	name := strings.TrimSpace(displayName)
-	phone := strings.TrimSpace(extractPhoneFromVCard(vcard))
+	phone := strings.TrimSpace(ExtractPhoneFromVCard(vcard))
 
 	switch {
 	case name != "" && phone != "":
