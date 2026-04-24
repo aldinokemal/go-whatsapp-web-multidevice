@@ -123,6 +123,15 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return doc.GetCaption()
 	}
 
+	if contactMessage := msg.GetContactMessage(); contactMessage != nil {
+		return formatContactMessageText(
+			"Contact: ",
+			"Contact shared",
+			contactMessage.GetDisplayName(),
+			contactMessage.GetVcard(),
+		)
+	}
+
 	// Check for buttons response message
 	if buttonsResponse := msg.GetButtonsResponseMessage(); buttonsResponse != nil {
 		return buttonsResponse.GetSelectedDisplayText()
@@ -203,10 +212,12 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 			messageText = "📍 Location"
 		}
 	} else if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
-		messageText = contactMessage.GetDisplayName()
-		if messageText == "" {
-			messageText = "👤 Contact"
-		}
+		messageText = formatContactMessageText(
+			"👤 ",
+			"👤 Contact",
+			contactMessage.GetDisplayName(),
+			contactMessage.GetVcard(),
+		)
 	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		messageText = listMessage.GetTitle()
 		if messageText == "" {
@@ -246,6 +257,65 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		}
 	}
 	return messageText
+}
+
+func ExtractPhoneFromVCard(vcard string) string {
+	if vcard == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var lines []string
+	var current strings.Builder
+	for _, rawLine := range strings.Split(normalized, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
+			if current.Len() > 0 {
+				current.WriteString(line)
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "TEL:") || strings.HasPrefix(upper, "TEL;") {
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
+}
+
+func formatContactMessageText(prefix, fallback, displayName, vcard string) string {
+	name := strings.TrimSpace(displayName)
+	phone := strings.TrimSpace(ExtractPhoneFromVCard(vcard))
+
+	switch {
+	case name != "" && phone != "":
+		return prefix + name + " (" + phone + ")"
+	case name != "":
+		return prefix + name
+	case phone != "":
+		return prefix + phone
+	default:
+		return fallback
+	}
 }
 
 // ExtractMediaInfo extracts media information from a WhatsApp message
@@ -770,7 +840,9 @@ func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
 	msg := UnwrapMessage(evt.Message)
 	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		waReaction.Message = reactionMessage.GetText()
-		waReaction.ID = reactionMessage.GetKey().GetID()
+		if key := reactionMessage.GetKey(); key != nil {
+			waReaction.ID = key.GetID()
+		}
 	}
 	return waReaction
 }

@@ -63,6 +63,7 @@ type MessageInfo struct {
 	Timestamp string `json:"timestamp"`
 	IsFromMe  bool   `json:"is_from_me"`
 	MediaType string `json:"media_type"`
+	Reactions []ReactionInfo `json:"reactions,omitempty"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
 	CallMetadata string `json:"call_metadata,omitempty"`
 	Filename     string `json:"filename"`
