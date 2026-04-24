@@ -225,3 +225,39 @@ func TestBuildEventPayloadDocumentWithCaption(t *testing.T) {
 		t.Fatalf("expected body='Important document', got %v", body)
 	}
 }
+
+func TestBuildEventPayloadReaction(t *testing.T) {
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "MSG204",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ReactionMessage: &waE2E.ReactionMessage{
+				Text: protoString("👍"),
+				Key: &waCommon.MessageKey{
+					ID: protoString("MSG100"),
+				},
+			},
+		},
+	}
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageReaction {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageReaction, eventType)
+	}
+	if got := payload["reaction"]; got != "👍" {
+		t.Fatalf("expected reaction '👍', got %v", got)
+	}
+	if got := payload["reacted_message_id"]; got != "MSG100" {
+		t.Fatalf("expected reacted_message_id 'MSG100', got %v", got)
+	}
+}
