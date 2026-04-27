@@ -272,12 +272,7 @@ func chatwootMessageTypeFromPayload(data map[string]interface{}) string {
 
 func extractStructuredMessageContent(data map[string]interface{}) string {
 	if contact, ok := data["contact"]; ok && contact != nil {
-		if cm, ok := contact.(interface {
-			GetDisplayName() string
-			GetVcard() string
-		}); ok {
-			name := cm.GetDisplayName()
-			phone := extractPhoneFromVCard(cm.GetVcard())
+		if name, phone, ok := extractContactDetails(contact); ok {
 			switch {
 			case name != "" && phone != "":
 				return fmt.Sprintf("Contact: %s (%s)", name, phone)
@@ -288,6 +283,38 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 			}
 		}
 		return "Contact shared"
+	}
+
+	if contactsArray, ok := data["contacts_array"]; ok && contactsArray != nil {
+		switch contacts := contactsArray.(type) {
+		case []webhookContactPayload:
+			return structuredContactsArraySummary(contacts)
+		case []*webhookContactPayload:
+			normalized := make([]webhookContactPayload, 0, len(contacts))
+			for _, contact := range contacts {
+				if contact != nil {
+					normalized = append(normalized, *contact)
+				}
+			}
+			return structuredContactsArraySummary(normalized)
+		case []interface{}:
+			if len(contacts) == 0 {
+				return "Contacts shared"
+			}
+			if name, phone, ok := extractContactDetails(contacts[0]); ok {
+				switch {
+				case name != "" && phone != "":
+					return fmt.Sprintf("Contacts: %s (%s)", name, phone)
+				case name != "":
+					return "Contacts: " + name
+				case phone != "":
+					return "Contacts: " + phone
+				}
+			}
+			return "Contacts shared"
+		default:
+			return "Contacts shared"
+		}
 	}
 
 	if location, ok := data["location"]; ok && location != nil {
@@ -336,6 +363,60 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 	}
 
 	return ""
+}
+
+func extractContactDetails(contact interface{}) (name string, phone string, ok bool) {
+	switch c := contact.(type) {
+	case webhookContactPayload:
+		return c.DisplayName, c.PhoneNumber, true
+	case *webhookContactPayload:
+		if c == nil {
+			return "", "", false
+		}
+		return c.DisplayName, c.PhoneNumber, true
+	case map[string]any:
+		if v, ok := c["displayName"].(string); ok {
+			name = v
+		} else if v, ok := c["display_name"].(string); ok {
+			name = v
+		}
+		if v, ok := c["phone_number"].(string); ok {
+			phone = v
+		}
+		if phone == "" {
+			if v, ok := c["vcard"].(string); ok {
+				phone = extractPhoneFromVCard(v)
+			}
+		}
+		return name, phone, name != "" || phone != ""
+	case interface {
+		GetDisplayName() string
+		GetVcard() string
+	}:
+		name = c.GetDisplayName()
+		phone = extractPhoneFromVCard(c.GetVcard())
+		return name, phone, true
+	default:
+		return "", "", false
+	}
+}
+
+func structuredContactsArraySummary(contacts []webhookContactPayload) string {
+	if len(contacts) == 0 {
+		return "Contacts shared"
+	}
+
+	first := contacts[0]
+	switch {
+	case first.DisplayName != "" && first.PhoneNumber != "":
+		return fmt.Sprintf("Contacts: %s (%s)", first.DisplayName, first.PhoneNumber)
+	case first.DisplayName != "":
+		return "Contacts: " + first.DisplayName
+	case first.PhoneNumber != "":
+		return "Contacts: " + first.PhoneNumber
+	default:
+		return "Contacts shared"
+	}
 }
 
 func extractPhoneFromVCard(vcard string) string {
