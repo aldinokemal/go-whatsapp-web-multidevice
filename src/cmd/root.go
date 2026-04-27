@@ -140,6 +140,39 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
+	if viper.IsSet("whatsapp_auto_reject_call") {
+		config.WhatsappAutoRejectCall = viper.GetBool("whatsapp_auto_reject_call")
+	}
+	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
+		config.WhatsappPresenceOnConnect = envPresenceOnConnect
+	}
+
+	// Chatwoot settings
+	if viper.IsSet("chatwoot_enabled") {
+		config.ChatwootEnabled = viper.GetBool("chatwoot_enabled")
+	}
+	if envChatwootURL := viper.GetString("chatwoot_url"); envChatwootURL != "" {
+		config.ChatwootURL = envChatwootURL
+	}
+	if envChatwootAPIToken := viper.GetString("chatwoot_api_token"); envChatwootAPIToken != "" {
+		config.ChatwootAPIToken = envChatwootAPIToken
+	}
+	if viper.IsSet("chatwoot_account_id") {
+		config.ChatwootAccountID = viper.GetInt("chatwoot_account_id")
+	}
+	if viper.IsSet("chatwoot_inbox_id") {
+		config.ChatwootInboxID = viper.GetInt("chatwoot_inbox_id")
+	}
+	if envChatwootDeviceID := viper.GetString("chatwoot_device_id"); envChatwootDeviceID != "" {
+		config.ChatwootDeviceID = envChatwootDeviceID
+	}
+	// Chatwoot History Sync settings
+	if viper.IsSet("chatwoot_import_messages") {
+		config.ChatwootImportMessages = viper.GetBool("chatwoot_import_messages")
+	}
+	if viper.IsSet("chatwoot_days_limit_import_messages") {
+		config.ChatwootDaysLimitImportMessages = viper.GetInt("chatwoot_days_limit_import_messages")
+	}
 }
 
 func initFlags() {
@@ -252,10 +285,48 @@ func initFlags() {
 		config.WhatsappAccountValidation,
 		`enable or disable account validation --account-validation <true/false> | example: --account-validation=true`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappAutoRejectCall,
+		"auto-reject-call", "",
+		config.WhatsappAutoRejectCall,
+		`auto reject incoming calls --auto-reject-call <true/false> | example: --auto-reject-call=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappPresenceOnConnect,
+		"presence-on-connect", "",
+		config.WhatsappPresenceOnConnect,
+		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
+	)
+
+	// Chatwoot flags
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootEnabled,
+		"chatwoot-enabled", "",
+		config.ChatwootEnabled,
+		`enable Chatwoot integration --chatwoot-enabled <true/false> | example: --chatwoot-enabled=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootDeviceID,
+		"chatwoot-device-id", "",
+		config.ChatwootDeviceID,
+		`device ID for Chatwoot outbound messages --chatwoot-device-id <string> | example: --chatwoot-device-id="my-device"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportMessages,
+		"chatwoot-import-messages", "",
+		config.ChatwootImportMessages,
+		`enable message history import to Chatwoot --chatwoot-import-messages <true/false> | example: --chatwoot-import-messages=true`,
+	)
+	rootCmd.PersistentFlags().IntVarP(
+		&config.ChatwootDaysLimitImportMessages,
+		"chatwoot-days-limit-import-messages", "",
+		config.ChatwootDaysLimitImportMessages,
+		`days of message history to import to Chatwoot --chatwoot-days-limit-import-messages <int> | example: --chatwoot-days-limit-import-messages=7`,
+	)
 }
 
 func initChatStorage() (*sql.DB, error) {
-	connStr := fmt.Sprintf("%s?_journal_mode=WAL", config.ChatStorageURI)
+	connStr := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", config.ChatStorageURI)
 	if config.ChatStorageEnableForeignKeys {
 		connStr += "&_foreign_keys=on"
 	}
@@ -266,8 +337,8 @@ func initChatStorage() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
@@ -319,7 +390,7 @@ func initApp() {
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
-	userUsecase = usecase.NewUserService()
+	userUsecase = usecase.NewUserService(chatStorageRepo)
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()

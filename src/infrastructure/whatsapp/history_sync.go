@@ -187,6 +187,13 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 						}
 					}
 				} else {
+					// Check if this is a group chat — group messages must have a participant
+					// to identify the actual sender. Without it, we'd incorrectly store the
+					// group JID as the sender (see GitHub issue #609).
+					if jid.Server == "g.us" {
+						log.Warnf("Skipping group message %s in chat %s: no participant info available", messageID, chatJID)
+						continue
+					}
 					// For individual chats, use the chat JID as sender with full format
 					sender = jid.String() // Use full JID format for consistency
 				}
@@ -286,8 +293,24 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 
 		// Check if chat exists (device-scoped to avoid cross-device data leak)
 		existingChat, err := chatStorageRepo.GetChatByDevice(deviceID, jidStr)
-		if err != nil || existingChat == nil {
-			// Chat doesn't exist yet, skip
+		if err != nil {
+			log.Warnf("Failed to check chat existence for %s: %v", jidStr, err)
+			continue
+		}
+
+		if existingChat == nil {
+			// Chat doesn't exist, create it to store the push name
+			newChat := &domainChatStorage.Chat{
+				DeviceID:        deviceID,
+				JID:             jidStr,
+				Name:            name,
+				LastMessageTime: time.Time{}, // Use zero time so it doesn't bubble up in chat list
+			}
+			if err := chatStorageRepo.StoreChat(newChat); err != nil {
+				log.Warnf("Failed to create chat for %s during pushname sync: %v", jidStr, err)
+			} else {
+				log.Debugf("Created new chat entry from history sync")
+			}
 			continue
 		}
 
@@ -297,7 +320,7 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 			if err := chatStorageRepo.StoreChat(existingChat); err != nil {
 				log.Warnf("Failed to update chat name for %s: %v", jidStr, err)
 			} else {
-				log.Debugf("Updated chat name for %s to %s", jidStr, name)
+				log.Debugf("Updated chat name from history sync")
 			}
 		}
 	}

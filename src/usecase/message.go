@@ -17,7 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
-	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
@@ -81,30 +80,35 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, err
 	}
 
-	// FromMe in reaction refers to whether the ORIGINAL message (being reacted to) was sent by us
-	isFromMe := true
+	// Determine the sender of the original message for BuildReaction.
+	// BuildReaction uses BuildMessageKey internally, which correctly sets the
+	// Participant field for group chats — required by the WhatsApp protocol.
+	// An empty JID means "message was from me".
+	senderJID := types.EmptyJID
 	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
 	if err != nil {
-		logrus.Warnf("Failed to lookup message %s for reaction: %v, using fallback heuristic", request.MessageID, err)
-		isFromMe = len(request.MessageID) <= 22
+		logrus.Warnf("Failed to lookup message %s for reaction: %v, using heuristic", request.MessageID, err)
+		if len(request.MessageID) > 22 {
+			if dataWaRecipient.Server == types.GroupServer {
+				logrus.Warnf("Cannot determine original sender for group reaction to %s — reaction may not be delivered", request.MessageID)
+			}
+		}
 	} else if message != nil {
-		isFromMe = message.IsFromMe
+		if !message.IsFromMe && message.Sender != "" {
+			parsed, parseErr := utils.ParseJID(message.Sender)
+			if parseErr == nil {
+				senderJID = parsed
+			} else {
+				logrus.Warnf("Failed to parse sender JID '%s' for reaction: %v", message.Sender, parseErr)
+			}
+		}
 	} else {
-		logrus.Debugf("Message %s not found in database, using ID length heuristic for FromMe", request.MessageID)
-		isFromMe = len(request.MessageID) <= 22
+		logrus.Debugf("Message %s not found in database, assuming sent by me", request.MessageID)
 	}
 
-	msg := &waE2E.Message{
-		ReactionMessage: &waE2E.ReactionMessage{
-			Key: &waCommon.MessageKey{
-				FromMe:    proto.Bool(isFromMe),
-				ID:        proto.String(request.MessageID),
-				RemoteJID: proto.String(dataWaRecipient.String()),
-			},
-			Text:              proto.String(request.Emoji),
-			SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
-		},
-	}
+	// BuildReaction correctly constructs the MessageKey with Participant field
+	// for group chats, which is required for the reaction to be delivered.
+	msg := client.BuildReaction(dataWaRecipient, senderJID, request.MessageID, request.Emoji)
 	ts, err := client.SendMessage(ctx, dataWaRecipient, msg)
 	if err != nil {
 		return response, err
@@ -130,7 +134,28 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, types.EmptyJID, request.MessageID))
+	// Resolve the original sender so group admins can revoke other members'
+	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
+	// any other JID is admin-revoke and requires the bot to be group admin.
+	// WhatsApp message IDs are globally unique, so a cross-device lookup
+	// via GetMessageByID yields the same sender regardless of which device
+	// owns the row.
+	senderJID := types.EmptyJID
+	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if lookupErr != nil {
+		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
+	} else if message != nil && !message.IsFromMe && message.Sender != "" {
+		parsed, parseErr := utils.ParseJID(message.Sender)
+		if parseErr != nil {
+			logrus.Warnf("Failed to parse sender JID '%s' for revoke: %v", message.Sender, parseErr)
+		} else {
+			// Stored senders can still be @lid; whatsmeow's Revoke needs
+			// the phone-number form or it rejects the request at the wire.
+			senderJID = whatsapp.NormalizeJIDFromLID(ctx, parsed, client)
+		}
+	}
+
+	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
 	if err != nil {
 		return response, err
 	}

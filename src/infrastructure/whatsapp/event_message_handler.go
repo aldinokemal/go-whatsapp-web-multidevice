@@ -68,10 +68,10 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 		return
 	}
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if path, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
-			log.Infof("Image downloaded to %s", path)
+			log.Infof("Image downloaded to %s", extracted.MediaPath)
 		}
 	}
 }
@@ -114,16 +114,7 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 		}
 	}
 
-	// Skip webhook for outgoing messages (IsFromMe) to avoid duplicate webhooks
-	// when multiple devices are connected. The sender's device receives an echo
-	// of the sent message, but we only want the recipient's device to trigger webhook.
-	// Note: Protocol messages (REVOKE, MESSAGE_EDIT) are allowed through above.
-	if evt.Info.IsFromMe {
-		log.Debugf("Skipping webhook for outgoing message %s (IsFromMe=true)", evt.Info.ID)
-		return
-	}
-
-	if len(config.WhatsappWebhook) > 0 &&
+	if (len(config.WhatsappWebhook) > 0 || config.ChatwootEnabled) &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
 		go func(e *events.Message, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

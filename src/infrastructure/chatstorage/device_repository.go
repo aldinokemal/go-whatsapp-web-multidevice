@@ -5,6 +5,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -36,6 +37,10 @@ func (r *DeviceRepository) withDeviceChat(chat *domainChatStorage.Chat) *domainC
 func (r *DeviceRepository) CreateMessage(ctx context.Context, evt *events.Message) error {
 	// Base repository will attempt to derive device id from client; keep call unchanged for now.
 	return r.base.CreateMessage(ctx, evt)
+}
+
+func (r *DeviceRepository) CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error {
+	return r.base.CreateIncomingCallRecord(ctx, evt, autoRejected)
 }
 
 func (r *DeviceRepository) StoreChat(chat *domainChatStorage.Chat) error {
@@ -100,8 +105,8 @@ func (r *DeviceRepository) DeleteMessageByDevice(deviceID, id, chatJID string) e
 	return r.base.DeleteMessageByDevice(deviceID, id, chatJID)
 }
 
-func (r *DeviceRepository) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time) error {
-	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp)
+func (r *DeviceRepository) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
+	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp, msg)
 }
 
 func (r *DeviceRepository) GetChatMessageCount(chatJID string) (int64, error) {
@@ -118,6 +123,13 @@ func (r *DeviceRepository) GetTotalMessageCount() (int64, error) {
 
 func (r *DeviceRepository) GetTotalChatCount() (int64, error) {
 	return r.base.GetTotalChatCount()
+}
+
+func (r *DeviceRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFilter) (int64, error) {
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetFilteredChatCount(filter)
 }
 
 func (r *DeviceRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {

@@ -47,8 +47,12 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
+	case *events.Archive:
+		handleArchive(ctx, evt, chatStorageRepo, client)
 	case *events.Presence:
 		handlePresence(ctx, evt)
+	case *events.ChatPresence:
+		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
 		handleHistorySync(ctx, evt, chatStorageRepo, client)
 	case *events.AppState:
@@ -65,6 +69,8 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleNewsletterLiveUpdate(ctx, evt, instance.JID(), client)
 	case *events.NewsletterMuteChange:
 		handleNewsletterMuteChange(ctx, evt, instance.JID(), client)
+	case *events.CallOffer:
+		handleCallOffer(ctx, evt, chatStorageRepo, instance.JID(), client)
 	}
 
 	instance.UpdateStateFromClient()
@@ -104,16 +110,36 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 }
 
+func resolvePresenceOnConnect() (types.Presence, bool) {
+	switch config.WhatsappPresenceOnConnect {
+	case "available":
+		return types.PresenceAvailable, false
+	case "none":
+		return "", true
+	default:
+		return types.PresenceUnavailable, false
+	}
+}
+
+func sendConfiguredPresence(ctx context.Context, client *whatsmeow.Client) {
+	presence, skip := resolvePresenceOnConnect()
+	if skip {
+		log.Infof("Skipping presence on connect (configured: none)")
+		return
+	}
+	if err := client.SendPresence(ctx, presence); err != nil {
+		log.Warnf("Failed to send %s presence: %v", presence, err)
+	} else {
+		log.Infof("Marked self as %s", presence)
+	}
+}
+
 func handleAppStateSyncComplete(_ context.Context, client *whatsmeow.Client, evt *events.AppStateSyncComplete) {
 	if client == nil {
 		return
 	}
 	if len(client.Store.PushName) > 0 && evt.Name == appstate.WAPatchCriticalBlock {
-		if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-			log.Warnf("Failed to send available presence: %v", err)
-		} else {
-			log.Infof("Marked self as available")
-		}
+		sendConfiguredPresence(context.Background(), client)
 	}
 }
 
@@ -179,13 +205,9 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 		return
 	}
 
-	// Send presence available when connecting and when the pushname is changed.
+	// Send configured presence when connecting and when the pushname is changed.
 	// This makes sure that outgoing messages always have the right pushname.
-	if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-		log.Warnf("Failed to send available presence: %v", err)
-	} else {
-		log.Infof("Marked self as available")
-	}
+	sendConfiguredPresence(context.Background(), client)
 }
 
 func handleStreamReplaced(_ context.Context) {

@@ -1,86 +1,119 @@
-# AGENTS.md
+# Go WhatsApp Web Multi-Device
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Go-based WhatsApp Web API server with REST and MCP modes. Multi-device management via whatsmeow.
 
-## Common Development Commands
+## Structure
 
-### Building and Running
+```
+src/
+├── main.go                    # Entry point; embeds views/ via go:embed
+├── cmd/                       # Cobra CLI: rest, mcp subcommands + root config (407 lines)
+├── config/settings.go         # All config vars (Viper-bound)
+├── domains/                   # Contracts only: interfaces + DTOs (10 packages)
+├── infrastructure/
+│   ├── whatsapp/              # WhatsApp protocol layer (29 files, 4845 lines)
+│   ├── chatstorage/           # SQLite/PostgreSQL persistence (1263-line repo)
+│   └── chatwoot/              # Chatwoot CRM bidirectional sync
+├── usecase/                   # Business logic (1:1 with domains)
+├── validations/               # ozzo-validation input checks + tests
+├── ui/
+│   ├── rest/                  # Fiber HTTP handlers + middleware
+│   └── mcp/                   # MCP server handlers
+├── views/                     # Vue.js 3 components (Semantic UI, plain JS)
+├── pkg/
+│   ├── utils/                 # Shared helpers: JID, media, phone formatting
+│   └── error/                 # 4 error types: app, generic, validation, whatsapp
+├── statics/                   # Runtime media + QR codes
+└── storages/                  # Runtime SQLite DBs
+```
 
-- **Build binary**: `cd src && go build -o whatsapp` (Linux/macOS) or `go build -o whatsapp.exe` (Windows)
-- **Run REST API mode**: `cd src && go run . rest` or `./whatsapp rest`
-- **Run MCP server mode**: `cd src && go run . mcp` or `./whatsapp mcp`
-- **Run with Docker**: `docker-compose up -d --build`
+## Commands
 
-### Testing
+```bash
+cd src && go run . rest          # Run REST API (port 3000)
+cd src && go run . mcp           # Run MCP server (port 8080)
+cd src && go build -o whatsapp   # Build binary
+cd src && go test ./...          # Run all tests
+cd src && go vet ./...           # Static analysis
+go mod tidy                      # Update dependencies (run from src/)
+```
 
-- **Run all tests**: `cd src && go test ./...`
-- **Run specific package tests**: `cd src && go test ./validations`
-- **Run tests with coverage**: `cd src && go test -cover ./...`
+## Where to Look
 
-### Development
+| Task | Location | Notes |
+|------|----------|-------|
+| Add message type | `domains/send/`, `usecase/send.go`, `validations/send_validation.go` | 3-file pattern |
+| Add API endpoint | `ui/rest/`, `usecase/`, `domains/` | Handler → usecase → domain |
+| Add MCP tool | `ui/mcp/` | Mirrors REST; `query.go` for read ops |
+| Handle WA event | `infrastructure/whatsapp/event_*.go` | Register in `event_handler.go` switch |
+| Add DB migration | `infrastructure/chatstorage/sqlite_repository.go` → `getMigrations()` | Append only — 15 migrations |
+| Add Vue component | `views/components/` | Plain JS, no .vue SFC |
+| Device management | `infrastructure/whatsapp/device_manager.go` | 615-line central orchestrator |
+| Chatwoot integration | `infrastructure/chatwoot/` | `client.go` (API) + `sync.go` (sync) |
+| CLI flags / config | `cmd/root.go` | Viper+Cobra, `.env` loading |
+| Shared helpers | `pkg/utils/whatsapp.go`, `general.go` | JID, media, phone formatting |
 
-- **Format code**: `cd src && go fmt ./...`
-- **Get dependencies**: `cd src && go mod tidy`
-- **Check for issues**: `cd src && go vet ./...`
+## Critical: Device ID vs JID
 
-## Project Architecture
+Two distinct identifiers — confusing them causes silent data bugs:
 
-This is a Go-based WhatsApp Web API server supporting both REST API and MCP (Model Context Protocol) modes.
+- **Device ID** (`instance.ID()`): User alias or UUID (e.g., `"my-device"`)
+- **JID** (`instance.JID()`): WhatsApp JID (e.g., `"6289605618749@s.whatsapp.net"`)
 
-### Core Architecture Pattern
+The `chats`/`messages` tables store device_id as the **JID without device number**:
+```go
+deviceID := client.Store.ID.ToNonAD().String()  // ✅ "6289605618749@s.whatsapp.net"
+// NOT instance.ID()  // ❌ may return alias or "6289605618749:11@s.whatsapp.net"
+```
 
-- **Domain-Driven Design**: Business logic separated into domain packages (`domains/`)
-- **Clean Architecture**: Clear separation between UI, use cases, and infrastructure layers
-- **Cobra CLI**: Command pattern with separate commands for `rest` and `mcp` modes
+## Conventions
 
-### Key Directories
+- **Clean Architecture**: `domains/` → `usecase/` → `ui/` (never reverse)
+- **1:1 mapping**: Each domain has matching usecase, validation, and UI handler
+- **Device scoping**: All chat/message DB queries must include `device_id`
+- **LID normalization**: WhatsApp sends `@lid` JIDs — call `NormalizeJIDFromLID()` before DB ops
+- **Optional booleans**: Use `*bool` for optional filter params (nil = not set)
+- **Config priority**: CLI flags > env vars > `.env` file
+- **Wrapper pattern**: `IChatStorageRepository` has two wrappers that inject device_id:
+  - `infrastructure/whatsapp/chatstorage_wrapper.go` (for event handlers)
+  - `infrastructure/chatstorage/device_repository.go` (for usecase layer)
 
-- `src/`: Main source code directory
-- `src/cmd/`: CLI commands (root, rest, mcp)
-- `src/domains/`: Business domain logic (app, chat, group, message, send, user, newsletter)
-- `src/infrastructure/`: External integrations (WhatsApp, database)
-- `src/ui/`: User interface layers (REST API, MCP server, WebSocket)
-- `src/usecase/`: Application use cases bridging domains and UI
-- `src/validations/`: Input validation logic
-- `src/pkg/`: Shared utilities and helpers
+## Anti-Patterns
 
-### Configuration
+- **Never** query chats/messages without device_id scoping
+- **Never** use raw event JIDs for DB lookups without `NormalizeJIDFromLID`
+- **Never** add `IChatStorageRepository` methods without updating both wrapper files
+- **Never** insert migrations in the middle — always append to `getMigrations()`
+- **Never** put business logic in domain packages — they define contracts only
+- **Never** remove the Device == 0 check in receipt forwarding (prevents duplicate webhooks)
 
-- **Environment Variables**: See `.env.example` for all available options
-- **Command Line Flags**: All env vars can be overridden with CLI flags
-- **Config Priority**: CLI flags > Environment variables > `.env` file
+## Testing
 
-### Database
+- Standard Go testing + `testify/assert` + `testify/suite`
+- Table-driven tests throughout
+- `httptest` for HTTP testing, `fiber.Test()` for middleware
+- Tests colocated with source: `*_test.go` next to implementation
+- Run: `cd src && go test ./...`
 
-- **Main DB**: WhatsApp connection data (SQLite by default, supports PostgreSQL)
-- **Chat Storage**: Separate SQLite database for chat history (`storages/chatstorage.db`)
-- **Database URIs**: Configurable via `DB_URI` and `DB_KEYS_URI` environment variables
+## Key Dependencies
 
-### Mode-Specific Architecture
+| Package | Role |
+|---------|------|
+| `go.mau.fi/whatsmeow` | WhatsApp Web protocol |
+| `github.com/gofiber/fiber/v2` | REST framework |
+| `github.com/mark3labs/mcp-go` | MCP server (v0.45.0) |
+| `github.com/spf13/cobra` + `viper` | CLI + config |
+| `github.com/go-ozzo/ozzo-validation/v4` | Input validation |
+| `github.com/mattn/go-sqlite3` / `github.com/lib/pq` | SQLite / PostgreSQL |
 
-- **REST Mode**: Fiber web server with HTML templates, WebSocket support, middleware stack
-- **MCP Mode**: Model Context Protocol server with SSE transport for AI agent integration
+## Notes
 
-### Key Dependencies
-
-- `go.mau.fi/whatsmeow`: WhatsApp Web protocol implementation
-- `github.com/gofiber/fiber/v2`: Web framework for REST API
-- `github.com/mark3labs/mcp-go`: MCP server implementation
-- `github.com/spf13/cobra`: CLI framework
-- `github.com/spf13/viper`: Configuration management
-
-### WhatsApp Integration
-
-- Uses whatsmeow library for WhatsApp Web protocol
-- **Multi-device login support**: Can connect and manage multiple WhatsApp accounts simultaneously
-- Auto-reconnection and connection monitoring per device
-- Media compression and webhook support
-
-## Important Notes
-
-- Supports multiple WhatsApp device connections in a single server instance
-- The application cannot run both REST and MCP modes simultaneously (limitation from whatsmeow library)
-- All source code must be in the `src/` directory
-- Media files are stored in `src/statics/media/` and `src/storages/`
-- HTML templates and assets are embedded in the binary using Go's embed feature
-- FFmpeg is required for media processing (installation varies by platform)
+- **Go 1.25.0+** required (`src/go.mod`)
+- REST and MCP modes cannot run simultaneously (whatsmeow limitation)
+- FFmpeg required for media processing (`ConvertToJPEG`, `ConvertToMP4`)
+- HTML/JS assets embedded in binary via `go:embed`
+- Database: SQLite default, PostgreSQL via `DB_URI` env var
+- Docker: multi-stage alpine build, non-root user `gowauser` (uid 20001)
+- CI: GitHub Actions → GoReleaser (Linux/Windows/macOS) + multi-arch Docker (GHCR + Docker Hub)
+- Hot reload: `.air.toml` configured (excludes `statics/`, `storages/`)
+- `status@broadcast` chat always returns name "Status" regardless of other naming

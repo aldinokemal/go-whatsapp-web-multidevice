@@ -69,7 +69,7 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp); err != nil {
+		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, msg); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				logrus.Warn("Timeout storing sent message")
 			} else {
@@ -341,7 +341,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
-		caption = "🖼️ " + request.Caption
+		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	go func() {
@@ -375,8 +375,25 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
-	fileBytes := helpers.MultipartFormFileHeaderToBytes(request.File)
-	fileMimeType := resolveDocumentMIME(request.File.Filename, fileBytes)
+	var (
+		fileBytes []byte
+		fileName  string
+	)
+
+	if request.FileURL != nil && *request.FileURL != "" {
+		fileBytes, fileName, err = utils.DownloadFileFromURL(*request.FileURL)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download file from URL: %v", err))
+		}
+	} else if request.File != nil {
+		fileBytes = helpers.MultipartFormFileHeaderToBytes(request.File)
+		fileName = request.File.Filename
+	}
+
+	fileMimeType := resolveDocumentMIME(fileName, fileBytes)
+
+	// Generate thumbnail for document preview (best-effort, non-fatal on failure)
+	thumbnailBytes := generateDocumentThumbnail(fileBytes, fileName, fileMimeType)
 
 	// Send to WA server
 	uploadedFile, err := service.uploadMedia(ctx, client, whatsmeow.MediaDocument, fileBytes, dataWaRecipient)
@@ -388,14 +405,15 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
 		URL:           proto.String(uploadedFile.URL),
 		Mimetype:      proto.String(fileMimeType),
-		Title:         proto.String(request.File.Filename),
+		Title:         proto.String(fileName),
 		FileSHA256:    uploadedFile.FileSHA256,
 		FileLength:    proto.Uint64(uploadedFile.FileLength),
 		MediaKey:      uploadedFile.MediaKey,
-		FileName:      proto.String(request.File.Filename),
+		FileName:      proto.String(fileName),
 		FileEncSHA256: uploadedFile.FileEncSHA256,
 		DirectPath:    proto.String(uploadedFile.DirectPath),
 		Caption:       proto.String(request.Caption),
+		JPEGThumbnail: thumbnailBytes,
 	}}
 
 	if request.BaseRequest.IsForwarded {
@@ -413,8 +431,11 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	}
 
 	caption := "📄 Document"
+	if fileName != "" {
+		caption = "📄 " + fileName
+	}
 	if request.Caption != "" {
-		caption = "📄 " + request.Caption
+		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
 	if err != nil {
@@ -424,6 +445,112 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+// generateDocumentThumbnail creates a JPEG thumbnail for document preview in WhatsApp.
+// Supports PDF (via ImageMagick convert or pdftoppm) and image files sent as documents.
+// Returns nil if thumbnail generation fails (non-fatal).
+func generateDocumentThumbnail(fileBytes []byte, fileName string, mimeType string) []byte {
+	generateUUID := fiberUtils.UUIDv4()
+	ext := strings.ToLower(filepath.Ext(fileName))
+
+	switch {
+	case mimeType == "application/pdf" || ext == ".pdf":
+		return generatePDFThumbnail(fileBytes, generateUUID)
+	case strings.HasPrefix(mimeType, "image/"):
+		return generateImageDocThumbnail(fileBytes, fileName, generateUUID)
+	default:
+		return nil
+	}
+}
+
+// generatePDFThumbnail renders the first page of a PDF as a JPEG thumbnail.
+// Tries pdftoppm first (from poppler-utils), falls back to ImageMagick convert.
+func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
+	tempPDF := fmt.Sprintf("%s/thumb_%s.pdf", config.PathSendItems, uuid)
+	tempPNG := fmt.Sprintf("%s/thumb_%s.png", config.PathSendItems, uuid)
+	thumbPath := fmt.Sprintf("%s/thumb_%s_thumb.jpg", config.PathSendItems, uuid)
+
+	defer func() {
+		_ = utils.RemoveFile(0, tempPDF, tempPNG, thumbPath)
+		// pdftoppm outputs with suffix, clean that too
+		pdftoppmOut := fmt.Sprintf("%s/thumb_%s-1.png", config.PathSendItems, uuid)
+		_ = utils.RemoveFile(0, pdftoppmOut)
+	}()
+
+	if err := os.WriteFile(tempPDF, pdfBytes, 0644); err != nil {
+		return nil
+	}
+
+	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
+	pngGenerated := false
+	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
+	if err := cmd.Run(); err == nil {
+		// pdftoppm with -singlefile outputs to {prefix}.png
+		actualOut := pdftoppmOut + ".png"
+		if _, statErr := os.Stat(actualOut); statErr == nil {
+			_ = os.Rename(actualOut, tempPNG)
+			pngGenerated = true
+		}
+	}
+
+	// Fallback to ImageMagick convert
+	if !pngGenerated {
+		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
+		if err := cmd.Run(); err != nil {
+			return nil
+		}
+	}
+
+	// Resize to thumbnail
+	srcImage, err := imaging.Open(tempPNG)
+	if err != nil {
+		return nil
+	}
+	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	if err = imaging.Save(resized, thumbPath); err != nil {
+		return nil
+	}
+
+	thumbBytes, err := os.ReadFile(thumbPath)
+	if err != nil {
+		return nil
+	}
+	return thumbBytes
+}
+
+// generateImageDocThumbnail creates a thumbnail for image files sent as documents.
+func generateImageDocThumbnail(imageBytes []byte, fileName string, uuid string) []byte {
+	safeFileName := filepath.Base(fileName)
+	tempPath := fmt.Sprintf("%s/docimg_%s_%s", config.PathSendItems, uuid, safeFileName)
+	thumbPath := fmt.Sprintf("%s/docimg_%s_thumb.jpg", config.PathSendItems, uuid)
+
+	defer func() {
+		_ = utils.RemoveFile(0, tempPath, thumbPath)
+	}()
+
+	if err := os.WriteFile(tempPath, imageBytes, 0644); err != nil {
+		return nil
+	}
+
+	srcImage, err := imaging.Open(tempPath)
+	if err != nil {
+		return nil
+	}
+
+	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	if err = imaging.Save(resized, thumbPath); err != nil {
+		return nil
+	}
+
+	thumbBytes, err := os.ReadFile(thumbPath)
+	if err != nil {
+		return nil
+	}
+	return thumbBytes
 }
 
 func resolveDocumentMIME(filename string, fileBytes []byte) string {
@@ -741,6 +868,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		MediaKey:            uploaded.MediaKey,
 		DirectPath:          proto.String(uploaded.DirectPath),
 		ViewOnce:            proto.Bool(request.ViewOnce),
+		GifPlayback:         proto.Bool(request.GifPlayback),
 		JPEGThumbnail:       dataWaThumbnail,
 		ThumbnailEncSHA256:  dataWaThumbnail,
 		ThumbnailSHA256:     dataWaThumbnail,
@@ -876,7 +1004,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	}
 
 	// If we have a thumbnail image, upload it to WhatsApp's servers
-	if len(metadata.ImageThumb) > 0 && metadata.Height != nil && metadata.Width != nil {
+	if len(metadata.ImageThumb) > 0 {
 		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
 		if err == nil {
 			// Update the message with the uploaded thumbnail information
@@ -884,8 +1012,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
 			msg.ExtendedTextMessage.MediaKey = uploadedThumb.MediaKey
-			msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
-			msg.ExtendedTextMessage.ThumbnailWidth = metadata.Width
+			if metadata.Height != nil {
+				msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
+			}
+			if metadata.Width != nil {
+				msg.ExtendedTextMessage.ThumbnailWidth = metadata.Width
+			}
 		} else {
 			logrus.Warnf("Failed to upload thumbnail: %v, continue without uploaded thumbnail", err)
 		}
@@ -974,13 +1106,23 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	}
 
 	var (
-		audioBytes      []byte
-		audioMimeType   string
-		audioFilename   string
-		audioDuration   uint32
-		tempAudioPath   string
-		deleteTempFile  bool
+		audioBytes     []byte
+		audioMimeType  string
+		audioFilename  string
+		audioDuration  uint32
+		tempAudioPath  string
+		deleteTempFile bool
+		deletedItems   []string
 	)
+
+	// Cleanup temporary files on exit
+	defer func() {
+		for _, path := range deletedItems {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				logrus.Warnf("Failed to cleanup temporary audio file %s: %v", path, err)
+			}
+		}
+	}()
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
@@ -1023,6 +1165,86 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	var waveformData []byte
 	if request.PTT && tempAudioPath != "" {
 		waveformData = generateWaveform(tempAudioPath)
+	}
+
+	// If PTT is requested, convert audio to OGG Opus format for WhatsApp voice note compatibility
+	// WhatsApp clients require OGG Opus format for voice notes to play correctly
+	if request.PTT {
+		// Check if already OGG format - skip conversion
+		isAlreadyOgg := strings.HasPrefix(audioMimeType, "audio/ogg") ||
+			strings.HasPrefix(audioMimeType, "application/ogg")
+
+		if !isAlreadyOgg {
+			// Check if ffmpeg is installed
+			_, err := exec.LookPath("ffmpeg")
+			if err != nil {
+				return response, pkgError.InternalServerError("ffmpeg not installed (required for PTT voice notes)")
+			}
+
+			// Get absolute base directory for temporary files
+			absBaseDir, err := filepath.Abs(config.PathSendItems)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to resolve base directory: %v", err))
+			}
+
+			generateUUID := fiberUtils.UUIDv4()
+
+			// Save input audio to temporary file
+			inputPath := filepath.Join(absBaseDir, fmt.Sprintf("audio_input_%s", generateUUID))
+			if err := os.WriteFile(inputPath, audioBytes, 0644); err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to save audio for conversion: %v", err))
+			}
+			deletedItems = append(deletedItems, inputPath)
+
+			// Output path for converted OGG Opus file
+			outputPath := filepath.Join(absBaseDir, fmt.Sprintf("audio_ptt_%s.ogg", generateUUID))
+			deletedItems = append(deletedItems, outputPath)
+
+			// Convert to OGG Opus using ffmpeg
+			// Opus codec is required for WhatsApp voice notes
+			// -c:a libopus: Use Opus codec
+			// -b:a 64k: Bitrate (64kbps is good quality for voice)
+			// -vbr on: Variable bitrate for better quality
+			// -application voip: Optimize for voice
+			// -ar 48000: Sample rate (Opus requires 48kHz)
+			// -ac 1: Mono (WhatsApp voice notes are mono)
+			convCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+
+			cmdConvert := exec.CommandContext(convCtx, "ffmpeg",
+				"-i", inputPath,
+				"-c:a", "libopus",
+				"-b:a", "64k",
+				"-vbr", "on",
+				"-application", "voip",
+				"-ar", "48000",
+				"-ac", "1",
+				"-y", // Overwrite output if exists
+				outputPath,
+			)
+
+			var stderr bytes.Buffer
+			cmdConvert.Stderr = &stderr
+
+			if err := cmdConvert.Run(); err != nil {
+				logrus.Errorf("ffmpeg PTT conversion failed: %v, stderr: %s", err, stderr.String())
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert audio to OGG Opus for PTT: %v", err))
+			}
+
+			// Read converted audio
+			audioBytes, err = os.ReadFile(outputPath)
+			if err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to read converted audio: %v", err))
+			}
+
+			// Update MIME type to OGG Opus
+			audioMimeType = "audio/ogg; codecs=opus"
+
+			logrus.Infof("Converted audio to OGG Opus for PTT: %d bytes", len(audioBytes))
+		} else {
+			// Already OGG format, ensure MIME type is correctly set
+			audioMimeType = "audio/ogg; codecs=opus"
+		}
 	}
 
 	// upload to WhatsApp servers
@@ -1212,7 +1434,7 @@ func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []s
 			continue
 		}
 
-		// Regular phone number mention
+		// Validate phone number/JID with WhatsApp check
 		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}

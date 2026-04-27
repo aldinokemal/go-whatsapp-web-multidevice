@@ -13,6 +13,8 @@ export default {
             name: null,
             status: null,
             devices: [],
+            resolvedPhone: null,
+            resolvedLid: null,
             //
             loading: false,
         }
@@ -51,9 +53,17 @@ export default {
             this.loading = true;
             try {
                 let response = await window.http.get(`/user/info?phone=${this.phone_id}`)
-                this.name = response.data.results.verified_name;
-                this.status = response.data.results.status;
-                this.devices = response.data.results.devices;
+                const results = response.data.results;
+                const userData = results.data && results.data.length > 0 ? results.data[0] : null;
+
+                if (userData) {
+                    this.name = userData.verified_name;
+                    this.status = userData.status;
+                    this.devices = userData.devices || [];
+                }
+
+                this.resolvedPhone = results.resolved_phone || null;
+                this.resolvedLid = results.resolved_lid || null;
             } catch (error) {
                 if (error.response) {
                     throw new Error(error.response.data.message);
@@ -68,6 +78,8 @@ export default {
             this.name = null;
             this.status = null;
             this.devices = [];
+            this.resolvedPhone = null;
+            this.resolvedLid = null;
             this.type = window.TYPEUSER;
         }
     },
@@ -77,12 +89,12 @@ export default {
         <a class="ui olive right ribbon label">Account</a>
             <div class="header">User Info</div>
             <div class="description">
-                You can search someone user info by phone
+                You can search someone user info by phone or LID
             </div>
         </div>
     </div>
-    
-    
+
+
     <!--  Modal UserInfo  -->
     <div class="ui small modal" id="modalUserInfo">
         <i class="close icon"></i>
@@ -99,18 +111,49 @@ export default {
                 </button>
             </form>
 
-            <div v-if="devices.length > 0" class="center">
-                <ol>
-                    <li>Name: {{ name }}</li>
-                    <li>Status: {{ status }}</li>
-                    <li>Device:
-                        <ul>
-                            <li v-for="d in devices">
-                                {{ d.Device }}
-                            </li>
-                        </ul>
-                    </li>
-                </ol>
+            <div v-if="devices.length > 0 || resolvedPhone || resolvedLid" class="ui segment" style="margin-top: 1em;">
+                <div class="ui list">
+                    <div class="item" v-if="resolvedPhone">
+                        <i class="phone icon"></i>
+                        <div class="content">
+                            <div class="header">Resolved Phone</div>
+                            <div class="description">{{ resolvedPhone }}</div>
+                        </div>
+                    </div>
+                    <div class="item" v-if="resolvedLid">
+                        <i class="linkify icon"></i>
+                        <div class="content">
+                            <div class="header">Resolved LID</div>
+                            <div class="description">{{ resolvedLid }}</div>
+                        </div>
+                    </div>
+                    <div class="item" v-if="name">
+                        <i class="user icon"></i>
+                        <div class="content">
+                            <div class="header">Name</div>
+                            <div class="description">{{ name }}</div>
+                        </div>
+                    </div>
+                    <div class="item" v-if="status">
+                        <i class="info circle icon"></i>
+                        <div class="content">
+                            <div class="header">Status</div>
+                            <div class="description">{{ status }}</div>
+                        </div>
+                    </div>
+                    <div class="item" v-if="devices.length > 0">
+                        <i class="mobile alternate icon"></i>
+                        <div class="content">
+                            <div class="header">Devices ({{ devices.length }})</div>
+                            <div class="ui relaxed list">
+                                <div class="item" v-for="d in devices" :key="d.AD">
+                                    <i class="tablet icon"></i>
+                                    <div class="content">{{ d.Device }} - {{ d.AD }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

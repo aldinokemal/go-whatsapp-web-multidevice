@@ -20,16 +20,20 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	}
 
 	if client == nil {
+		log.Debugf("Auto-reply: skipping, client is nil")
 		return
 	}
 
 	// Skip groups, broadcasts, and self messages
 	if utils.IsGroupJID(evt.Info.Chat.String()) || evt.Info.IsIncomingBroadcast() || evt.Info.IsFromMe {
+		log.Debugf("Auto-reply: skipping message %s (group=%v, broadcast=%v, fromMe=%v)",
+			evt.Info.ID, utils.IsGroupJID(evt.Info.Chat.String()), evt.Info.IsIncomingBroadcast(), evt.Info.IsFromMe)
 		return
 	}
 
-	// Only reply to direct 1:1 chats (e.g., *@s.whatsapp.net)
-	if evt.Info.Chat.Server != types.DefaultUserServer {
+	// Only reply to direct 1:1 chats (e.g., *@s.whatsapp.net or *@lid)
+	if evt.Info.Chat.Server != types.DefaultUserServer && evt.Info.Chat.Server != types.HiddenUserServer {
+		log.Debugf("Auto-reply: skipping message %s, unsupported chat server: %s", evt.Info.ID, evt.Info.Chat.Server)
 		return
 	}
 
@@ -38,33 +42,14 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	if strings.Contains(source, "broadcast") ||
 		strings.HasSuffix(evt.Info.Chat.String(), "@broadcast") ||
 		strings.HasPrefix(evt.Info.Chat.String(), "status@") {
+		log.Debugf("Auto-reply: skipping message %s, broadcast/status context: %s", evt.Info.ID, source)
 		return
 	}
 
 	// Require actual typed text (not captions or synthetic labels)
 	hasText := false
 
-	// Unwrap FutureProof wrappers to access the inner message content first
-	innerMsg := evt.Message
-	for i := 0; i < 3; i++ { // safeguard against excessively nested wrappers
-		if vm := innerMsg.GetViewOnceMessage(); vm != nil && vm.GetMessage() != nil {
-			innerMsg = vm.GetMessage()
-			continue
-		}
-		if em := innerMsg.GetEphemeralMessage(); em != nil && em.GetMessage() != nil {
-			innerMsg = em.GetMessage()
-			continue
-		}
-		if vm2 := innerMsg.GetViewOnceMessageV2(); vm2 != nil && vm2.GetMessage() != nil {
-			innerMsg = vm2.GetMessage()
-			continue
-		}
-		if vm2e := innerMsg.GetViewOnceMessageV2Extension(); vm2e != nil && vm2e.GetMessage() != nil {
-			innerMsg = vm2e.GetMessage()
-			continue
-		}
-		break
-	}
+	innerMsg := utils.UnwrapMessage(evt.Message)
 
 	// Check for genuine typed text on the unwrapped content
 	if conv := innerMsg.GetConversation(); conv != "" {
@@ -81,6 +66,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 		}
 	}
 	if !hasText {
+		log.Debugf("Auto-reply: skipping message %s, no text content detected", evt.Info.ID)
 		return
 	}
 
@@ -115,6 +101,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 			recipientJID.String(),           // Recipient JID
 			config.WhatsappAutoReplyMessage, // Auto-reply content
 			response.Timestamp,              // Timestamp from response
+			nil,                             // text-only message, no media
 		); err != nil {
 			// Log storage error but don't fail the auto-reply
 			log.Errorf("Failed to store auto-reply message in chat storage: %v", err)

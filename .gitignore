@@ -16,3 +16,4 @@ bin
 .vscode/settings.json
 src/whatsapp
 .worktrees/
+src/gowa
