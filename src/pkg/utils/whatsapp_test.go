@@ -1,6 +1,10 @@
 package utils
 
-import "testing"
+import (
+	"testing"
+
+	"go.mau.fi/whatsmeow/proto/waE2E"
+)
 
 func TestDetermineMediaExtension(t *testing.T) {
 	tests := []struct {
@@ -54,5 +58,31 @@ func TestDetermineMediaExtension(t *testing.T) {
 				t.Fatalf("determineMediaExtension() = %q, want %q", got, tt.wantSuffix)
 			}
 		})
+	}
+}
+
+func TestExtractPhoneFromVCard(t *testing.T) {
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+
+	got := extractPhoneFromVCard(vcard)
+	if got != "+62 812 3456 7890" {
+		t.Fatalf("extractPhoneFromVCard() = %q, want %q", got, "+62 812 3456 7890")
+	}
+}
+
+func TestExtractMessageTextFromProtoContactMessage(t *testing.T) {
+	name := "Alice"
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+	msg := &waE2E.Message{
+		ContactMessage: &waE2E.ContactMessage{
+			DisplayName: &name,
+			Vcard:       &vcard,
+		},
+	}
+
+	got := ExtractMessageTextFromProto(msg)
+	want := "Contact: Alice (+62 812 3456 7890)"
+	if got != want {
+		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
 	}
 }
