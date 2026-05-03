@@ -8,8 +8,8 @@ import (
 	"image"
 	"time"
 
-	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -223,6 +223,24 @@ func (service serviceUser) MyListNewsletter(ctx context.Context) (response domai
 	}
 
 	for _, data := range datas {
+		if data == nil {
+			continue
+		}
+
+		// GetSubscribedNewsletters may return incomplete metadata from WhatsApp,
+		// especially subscribers_count. Fetch each newsletter detail to enrich the
+		// count while keeping the base subscribed list as the source of truth.
+		detail, detailErr := client.GetNewsletterInfo(ctx, data.ID)
+		if detailErr != nil {
+			logrus.Debugf("Could not fetch newsletter detail for %s: %v", data.ID.String(), detailErr)
+			response.Data = append(response.Data, *data)
+			continue
+		}
+
+		if detail != nil {
+			data.ThreadMeta.SubscriberCount = detail.ThreadMeta.SubscriberCount
+		}
+
 		response.Data = append(response.Data, *data)
 	}
 	return response, nil
