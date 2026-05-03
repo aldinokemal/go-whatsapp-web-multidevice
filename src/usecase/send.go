@@ -980,9 +980,11 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		logrus.Debugf("Image dimensions: Square image or dimensions not available")
 	}
 
+	messageText := buildLinkMessageText(request.Caption, request.Link)
+
 	// Create the message
 	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:          proto.String(fmt.Sprintf("%s\n%s", request.Caption, request.Link)),
+		Text:          proto.String(messageText),
 		Title:         proto.String(metadata.Title),
 		MatchedText:   proto.String(request.Link),
 		Description:   proto.String(metadata.Description),
@@ -1023,11 +1025,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		}
 	}
 
-	content := "🔗 " + request.Link
-	if request.Caption != "" {
-		content = "🔗 " + request.Caption
-	}
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, messageText)
 	if err != nil {
 		return response, err
 	}
@@ -1035,6 +1033,17 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+func buildLinkMessageText(caption, link string) string {
+	caption = strings.TrimSpace(caption)
+	link = strings.TrimSpace(link)
+
+	if caption == "" {
+		return link
+	}
+
+	return fmt.Sprintf("%s\n%s", caption, link)
 }
 
 func (service serviceSend) SendLocation(ctx context.Context, request domainSend.LocationRequest) (response domainSend.GenericResponse, err error) {

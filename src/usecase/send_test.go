@@ -39,3 +39,39 @@ func TestResolveDocumentMIME(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildLinkMessageText(t *testing.T) {
+	tests := []struct {
+		name    string
+		caption string
+		link    string
+		want    string
+	}{
+		{
+			name: "returns link when caption is empty",
+			link: "https://example.com",
+			want: "https://example.com",
+		},
+		{
+			name:    "joins caption and link with newline",
+			caption: "Check this out",
+			link:    "https://example.com",
+			want:    "Check this out\nhttps://example.com",
+		},
+		{
+			name:    "ignores blank caption",
+			caption: "   ",
+			link:    "https://example.com",
+			want:    "https://example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildLinkMessageText(tt.caption, tt.link)
+			if got != tt.want {
+				t.Fatalf("buildLinkMessageText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
