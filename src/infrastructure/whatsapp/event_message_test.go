@@ -225,3 +225,92 @@ func TestBuildEventPayloadDocumentWithCaption(t *testing.T) {
 		t.Fatalf("expected body='Important document', got %v", body)
 	}
 }
+
+func TestBuildEventPayloadContactIncludesPhoneNumber(t *testing.T) {
+	name := "Alice"
+	vcard := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "MSG204",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ContactMessage: &waE2E.ContactMessage{
+				DisplayName: &name,
+				Vcard:       &vcard,
+			},
+		},
+	}
+
+	_, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	contact, ok := payload["contact"].(webhookContactPayload)
+	if !ok {
+		t.Fatalf("expected contact payload to be webhookContactPayload, got %T", payload["contact"])
+	}
+	if contact.DisplayName != "Alice" {
+		t.Fatalf("expected display name Alice, got %q", contact.DisplayName)
+	}
+	if contact.PhoneNumber != "+62 812 3456 7890" {
+		t.Fatalf("expected phone number from vCard, got %q", contact.PhoneNumber)
+	}
+}
+
+func TestBuildEventPayloadContactsArrayIncludesPhoneNumbers(t *testing.T) {
+	nameOne := "Alice"
+	vcardOne := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+	nameTwo := "Bob"
+	vcardTwo := "BEGIN:VCARD\nVERSION:3.0\nN:;Bob;;;\nFN:Bob\nTEL;type=Mobile:+62 813 9876 5432\nEND:VCARD"
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "MSG205",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+				Contacts: []*waE2E.ContactMessage{
+					{
+						DisplayName: &nameOne,
+						Vcard:       &vcardOne,
+					},
+					{
+						DisplayName: &nameTwo,
+						Vcard:       &vcardTwo,
+					},
+				},
+			},
+		},
+	}
+
+	_, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	contacts, ok := payload["contacts_array"].([]webhookContactPayload)
+	if !ok {
+		t.Fatalf("expected contacts_array to be []webhookContactPayload, got %T", payload["contacts_array"])
+	}
+	if len(contacts) != 2 {
+		t.Fatalf("expected 2 contacts, got %d", len(contacts))
+	}
+	if contacts[0].PhoneNumber != "+62 812 3456 7890" {
+		t.Fatalf("expected first phone number, got %q", contacts[0].PhoneNumber)
+	}
+	if contacts[1].PhoneNumber != "+62 813 9876 5432" {
+		t.Fatalf("expected second phone number, got %q", contacts[1].PhoneNumber)
+	}
+}
