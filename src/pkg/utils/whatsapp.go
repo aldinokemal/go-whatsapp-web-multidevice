@@ -138,6 +138,26 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return templateButtonReply.GetSelectedDisplayText()
 	}
 
+	if contactMessage := msg.GetContactMessage(); contactMessage != nil {
+		if text := FormatContactText(contactMessage.GetDisplayName(), ExtractPhoneFromVCard(contactMessage.GetVcard())); text != "" {
+			return text
+		}
+		return "Contact shared"
+	}
+
+	if contactsArrayMessage := msg.GetContactsArrayMessage(); contactsArrayMessage != nil {
+		contacts := contactsArrayMessage.GetContacts()
+		if len(contacts) > 0 {
+			first := contacts[0]
+			if first != nil {
+				if text := FormatContactsText(first.GetDisplayName(), ExtractPhoneFromVCard(first.GetVcard()), len(contacts)-1); text != "" {
+					return text
+				}
+			}
+		}
+		return "Contacts shared"
+	}
+
 	return ""
 }
 
@@ -159,6 +179,46 @@ func ExtractMediaCaption(msg *waE2E.Message) string {
 		return ptv.GetCaption()
 	}
 	return ""
+}
+
+// ExtractPhoneFromVCard extracts the first phone number found in a vCard payload.
+func ExtractPhoneFromVCard(vcard string) string {
+	for _, line := range strings.Split(vcard, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
+}
+
+// FormatContactText formats a single contact summary for storage and webhooks.
+func FormatContactText(name, phone string) string {
+	return formatContactText("Contact", name, phone, "")
+}
+
+// FormatContactsText formats a contact summary that may include omitted contacts.
+func FormatContactsText(name, phone string, extraCount int) string {
+	suffix := ""
+	if extraCount > 0 {
+		suffix = fmt.Sprintf(" +%d more", extraCount)
+	}
+	return formatContactText("Contacts", name, phone, suffix)
+}
+
+func formatContactText(label, name, phone, suffix string) string {
+	switch {
+	case name != "" && phone != "":
+		return fmt.Sprintf("%s: %s (%s)%s", label, name, phone, suffix)
+	case name != "":
+		return fmt.Sprintf("%s: %s%s", label, name, suffix)
+	case phone != "":
+		return fmt.Sprintf("%s: %s%s", label, phone, suffix)
+	default:
+		return ""
+	}
 }
 
 // ExtractMessageTextFromEvent extracts text content from a WhatsApp event message with emojis
@@ -202,10 +262,26 @@ func ExtractMessageTextFromEvent(evt *events.Message) string {
 		if messageText == "" {
 			messageText = "📍 Location"
 		}
+	} else if contactsArrayMessage := evt.Message.GetContactsArrayMessage(); contactsArrayMessage != nil {
+		contacts := contactsArrayMessage.GetContacts()
+		if len(contacts) > 0 {
+			first := contacts[0]
+			if first != nil {
+				messageText = FormatContactsText(first.GetDisplayName(), ExtractPhoneFromVCard(first.GetVcard()), len(contacts)-1)
+				if messageText != "" {
+					messageText = "👥 " + messageText
+				}
+			}
+		}
+		if messageText == "" {
+			messageText = "👥 Contacts shared"
+		}
 	} else if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
-		messageText = contactMessage.GetDisplayName()
+		messageText = FormatContactText(contactMessage.GetDisplayName(), ExtractPhoneFromVCard(contactMessage.GetVcard()))
 		if messageText == "" {
 			messageText = "👤 Contact"
+		} else {
+			messageText = "👤 " + messageText
 		}
 	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
 		messageText = listMessage.GetTitle()

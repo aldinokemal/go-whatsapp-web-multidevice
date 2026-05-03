@@ -12,6 +12,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -271,20 +272,27 @@ func chatwootMessageTypeFromPayload(data map[string]interface{}) string {
 }
 
 func extractStructuredMessageContent(data map[string]interface{}) string {
+	if contactsArray, ok := data["contacts_array"]; ok && contactsArray != nil {
+		if contacts, ok := contactsArray.([]*waE2E.ContactMessage); ok {
+			if len(contacts) > 0 {
+				first := contacts[0]
+				if first != nil {
+					if text := utils.FormatContactsText(first.GetDisplayName(), utils.ExtractPhoneFromVCard(first.GetVcard()), len(contacts)-1); text != "" {
+						return text
+					}
+				}
+			}
+		}
+		return "Contacts shared"
+	}
+
 	if contact, ok := data["contact"]; ok && contact != nil {
 		if cm, ok := contact.(interface {
 			GetDisplayName() string
 			GetVcard() string
 		}); ok {
-			name := cm.GetDisplayName()
-			phone := extractPhoneFromVCard(cm.GetVcard())
-			switch {
-			case name != "" && phone != "":
-				return fmt.Sprintf("Contact: %s (%s)", name, phone)
-			case name != "":
-				return "Contact: " + name
-			case phone != "":
-				return "Contact: " + phone
+			if text := utils.FormatContactText(cm.GetDisplayName(), utils.ExtractPhoneFromVCard(cm.GetVcard())); text != "" {
+				return text
 			}
 		}
 		return "Contact shared"
@@ -335,18 +343,6 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 		return "Order message"
 	}
 
-	return ""
-}
-
-func extractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
-			}
-		}
-	}
 	return ""
 }
 
