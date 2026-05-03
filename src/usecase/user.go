@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"sync"
 	"time"
 
-	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -222,7 +223,51 @@ func (service serviceUser) MyListNewsletter(ctx context.Context) (response domai
 		return
 	}
 
+	// GetSubscribedNewsletters may return incomplete metadata from WhatsApp,
+	// especially subscribers_count. Enrich entries that are missing the count via
+	// GetNewsletterInfo with bounded parallelism so we don't fan out unboundedly
+	// to the WhatsApp socket, and a per-call timeout so one slow newsletter
+	// cannot stall the whole request.
+	const (
+		newsletterDetailParallelism = 5
+		newsletterDetailTimeout     = 5 * time.Second
+	)
+
+	sem := make(chan struct{}, newsletterDetailParallelism)
+	var wg sync.WaitGroup
 	for _, data := range datas {
+		if data == nil {
+			continue
+		}
+		// Skip the detail fetch when the base response already populated the count.
+		if data.ThreadMeta.SubscriberCount > 0 {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(d *types.NewsletterMetadata) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			detailCtx, cancel := context.WithTimeout(ctx, newsletterDetailTimeout)
+			defer cancel()
+
+			detail, detailErr := client.GetNewsletterInfo(detailCtx, d.ID)
+			if detailErr != nil {
+				logrus.Debugf("Could not fetch newsletter detail for %s: %v", d.ID.String(), detailErr)
+				return
+			}
+			if detail != nil {
+				d.ThreadMeta.SubscriberCount = detail.ThreadMeta.SubscriberCount
+			}
+		}(data)
+	}
+	wg.Wait()
+
+	for _, data := range datas {
+		if data == nil {
+			continue
+		}
 		response.Data = append(response.Data, *data)
 	}
 	return response, nil
