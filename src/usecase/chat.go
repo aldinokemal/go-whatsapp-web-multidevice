@@ -12,6 +12,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 )
 
@@ -94,6 +95,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 
+	client := whatsapp.ClientFromContext(ctx)
 	deviceID := deviceIDFromContext(ctx)
 	if deviceID == "" {
 		return response, fmt.Errorf("device identification required")
@@ -163,21 +165,24 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 
 	// Convert entities to domain objects
 	messageInfos := make([]domainChat.MessageInfo, 0, len(messages))
+	senderDisplayNameCache := make(map[string]string)
 	for _, message := range messages {
+		senderDisplayName := resolveSenderDisplayName(ctx, client, message.Sender, message.IsFromMe, senderDisplayNameCache)
 		messageInfo := domainChat.MessageInfo{
-			ID:           message.ID,
-			ChatJID:      message.ChatJID,
-			SenderJID:    message.Sender,
-			Content:      message.Content,
-			Timestamp:    message.Timestamp.Format(time.RFC3339),
-			IsFromMe:     message.IsFromMe,
-			MediaType:    message.MediaType,
-			CallMetadata: message.CallMetadata,
-			Filename:     message.Filename,
-			URL:          message.URL,
-			FileLength:   message.FileLength,
-			CreatedAt:    message.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:    message.UpdatedAt.Format(time.RFC3339),
+			ID:                message.ID,
+			ChatJID:           message.ChatJID,
+			SenderJID:         message.Sender,
+			SenderDisplayName: senderDisplayName,
+			Content:           message.Content,
+			Timestamp:         message.Timestamp.Format(time.RFC3339),
+			IsFromMe:          message.IsFromMe,
+			MediaType:         message.MediaType,
+			CallMetadata:      message.CallMetadata,
+			Filename:          message.Filename,
+			URL:               message.URL,
+			FileLength:        message.FileLength,
+			CreatedAt:         message.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:         message.UpdatedAt.Format(time.RFC3339),
 		}
 		messageInfos = append(messageInfos, messageInfo)
 	}
@@ -212,6 +217,37 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}).Info("Retrieved chat messages successfully")
 
 	return response, nil
+}
+
+func resolveSenderDisplayName(ctx context.Context, client *whatsmeow.Client, senderJID string, isFromMe bool, cache map[string]string) string {
+	if isFromMe {
+		return "Me"
+	}
+
+	if senderJID == "" {
+		return ""
+	}
+
+	if cache != nil {
+		if cached, ok := cache[senderJID]; ok {
+			return cached
+		}
+	}
+
+	displayName := senderJID
+	if client != nil {
+		if parsed, err := utils.ParseJID(senderJID); err == nil {
+			if resolved := contactDisplayName(ctx, client, parsed); resolved != "" {
+				displayName = resolved
+			}
+		}
+	}
+
+	if cache != nil {
+		cache[senderJID] = displayName
+	}
+
+	return displayName
 }
 
 func deviceIDFromContext(ctx context.Context) string {
