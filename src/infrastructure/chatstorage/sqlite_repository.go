@@ -798,6 +798,53 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
 	sender := normalizedSender.ToNonAD().String()
 
+	// MESSAGE_EDIT should update the original message row instead of creating a new one.
+	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil &&
+		protocolMessage.GetType().String() == "MESSAGE_EDIT" {
+		editedContent := ""
+		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
+			editedContent = utils.ExtractMessageTextFromProto(editedMessage)
+			if editedContent == "" {
+				editedContent = utils.ExtractMediaCaption(editedMessage)
+			}
+		}
+		if editedContent == "" {
+			logrus.Debugf("Skipping edited message %s - no edited content", evt.Info.ID)
+			return nil
+		}
+
+		originalMessageID := ""
+		if key := protocolMessage.GetKey(); key != nil {
+			originalMessageID = key.GetID()
+		}
+		if originalMessageID == "" {
+			logrus.Debugf("Skipping edited message %s - missing original message ID", evt.Info.ID)
+			return nil
+		}
+
+		existingMessage, err := r.GetMessageByID(originalMessageID)
+		if err != nil {
+			return fmt.Errorf("failed to get original message %s for edit: %w", originalMessageID, err)
+		}
+
+		// Prefer updating the original row when we can match the current device/chat scope.
+		if existingMessage != nil && existingMessage.ChatJID == chatJID && existingMessage.DeviceID == deviceID {
+			existingMessage.Content = editedContent
+			return r.StoreMessage(existingMessage)
+		}
+
+		// Fallback for cases where the original row is missing.
+		return r.StoreMessage(&domainChatStorage.Message{
+			ID:        originalMessageID,
+			ChatJID:   chatJID,
+			DeviceID:  deviceID,
+			Sender:    sender,
+			Content:   editedContent,
+			Timestamp: evt.Info.Timestamp,
+			IsFromMe:  evt.Info.IsFromMe,
+		})
+	}
+
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
 

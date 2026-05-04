@@ -80,6 +80,49 @@ func TestBuildEventPayloadRevokedIncludesIsFromMe(t *testing.T) {
 	}
 }
 
+func TestBuildEventPayloadMessageEditIncludesOriginalMessageAndBody(t *testing.T) {
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("123", types.DefaultUserServer),
+				IsFromMe: true,
+			},
+			ID:        "EDIT123",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: protoProtocolMessageType(waE2E.ProtocolMessage_MESSAGE_EDIT),
+				Key: &waCommon.MessageKey{
+					ID: protoString("ORIGINAL123"),
+				},
+				EditedMessage: &waE2E.Message{
+					Conversation: protoString("edited text"),
+				},
+			},
+		},
+	}
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageEdited {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageEdited, eventType)
+	}
+	if value, ok := payload["original_message_id"]; !ok {
+		t.Fatal("expected original_message_id in payload")
+	} else if originalID, ok := value.(string); !ok || originalID != "ORIGINAL123" {
+		t.Fatalf("expected original_message_id=ORIGINAL123, got %v", value)
+	}
+	if value, ok := payload["body"]; !ok {
+		t.Fatal("expected body in payload")
+	} else if body, ok := value.(string); !ok || body != "edited text" {
+		t.Fatalf("expected body=edited text, got %v", value)
+	}
+}
+
 func protoString(value string) *string {
 	return &value
 }
