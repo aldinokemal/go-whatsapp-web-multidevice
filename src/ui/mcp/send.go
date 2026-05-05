@@ -83,7 +83,7 @@ func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRe
 
 	// Parse mentions array (ghost mentions)
 	var mentions []string
-	if mentionsRaw, ok := request.GetArguments()["mentions"].([]interface{}); ok {
+	if mentionsRaw, ok := request.GetArguments()["mentions"].([]any); ok {
 		for _, m := range mentionsRaw {
 			if mentionStr, ok := m.(string); ok {
 				mentions = append(mentions, mentionStr)

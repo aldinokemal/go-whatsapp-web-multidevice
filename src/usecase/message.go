@@ -306,7 +306,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	}
 
 	// Create a downloadable message interface based on media type
-	var downloadableMsg interface{}
+	var downloadableMsg any
 
 	switch message.MediaType {
 	case "image":

@@ -383,7 +383,7 @@ func buildWebhookContactPayload(contact *waE2E.ContactMessage) webhookContactPay
 	return webhookContactPayload{
 		DisplayName: contact.GetDisplayName(),
 		VCard:       vcard,
-		PhoneNumber: extractPhoneFromVCard(vcard),
+		PhoneNumber: utils.ExtractPhoneFromVCard(vcard),
 	}
 }
 
