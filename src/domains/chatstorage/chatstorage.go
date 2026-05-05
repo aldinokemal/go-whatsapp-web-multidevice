@@ -32,6 +32,8 @@ type Message struct {
 	FileEncSHA256    []byte    `db:"file_enc_sha256"`
 	FileLength       uint64    `db:"file_length"`
 	ReferralMetadata string    `db:"referral_metadata"`
+	RepliedToID      string    `db:"replied_to_id"`
+	QuotedBody       string    `db:"quoted_body"`
 	CreatedAt        time.Time `db:"created_at"`
 	UpdatedAt        time.Time `db:"updated_at"`
 }
