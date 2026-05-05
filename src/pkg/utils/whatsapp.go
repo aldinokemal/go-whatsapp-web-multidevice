@@ -56,6 +56,18 @@ func resolveKnownDocumentExtension(mimeType string) (string, bool) {
 	return ext, ok
 }
 
+func extractPhoneFromVCard(vcard string) string {
+	for _, line := range strings.Split(vcard, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
+}
+
 // KnownDocumentMIMEByExtension returns a known MIME type for a given Office document extension.
 func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 	return resolveKnownDocumentMIME(ext)
@@ -136,6 +148,43 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	// Check for template button reply
 	if templateButtonReply := msg.GetTemplateButtonReplyMessage(); templateButtonReply != nil {
 		return templateButtonReply.GetSelectedDisplayText()
+	}
+
+	// Check for shared contact card
+	if contact := msg.GetContactMessage(); contact != nil {
+		name := contact.GetDisplayName()
+		phone := extractPhoneFromVCard(contact.GetVcard())
+		switch {
+		case name != "" && phone != "":
+			return fmt.Sprintf("Contact: %s (%s)", name, phone)
+		case name != "":
+			return "Contact: " + name
+		case phone != "":
+			return "Contact: " + phone
+		default:
+			return "Contact shared"
+		}
+	}
+
+	// Check for shared multiple contact cards
+	if contactsArray := msg.GetContactsArrayMessage(); contactsArray != nil {
+		contacts := contactsArray.GetContacts()
+		if len(contacts) > 0 {
+			first := contacts[0]
+			if first != nil {
+				name := first.GetDisplayName()
+				phone := extractPhoneFromVCard(first.GetVcard())
+				switch {
+				case name != "" && phone != "":
+					return fmt.Sprintf("Contacts: %s (%s)", name, phone)
+				case name != "":
+					return "Contacts: " + name
+				case phone != "":
+					return "Contacts: " + phone
+				}
+			}
+		}
+		return "Contacts shared"
 	}
 
 	return ""
