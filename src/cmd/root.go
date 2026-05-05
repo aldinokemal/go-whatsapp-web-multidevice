@@ -146,6 +146,12 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	// Outbound proxy for whatsmeow WebSocket. Standard HTTP_PROXY env does not
+	// apply to the underlying ws dialer; this binding plumbs the address into
+	// (*whatsmeow.Client).SetProxyAddress before Connect. See issue #581.
+	if envProxy := viper.GetString("whatsapp_proxy"); envProxy != "" {
+		config.WhatsappProxy = envProxy
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
