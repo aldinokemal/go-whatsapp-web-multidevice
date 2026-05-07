@@ -38,6 +38,18 @@ import (
 // webpCanvasSizeRegex is compiled once at package level for efficiency
 var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
 
+const (
+	pdfThumbnailTimeout          = 10 * time.Second
+	pdfThumbnailMaxInputBytes    = 10 << 20 // 10 MiB; sending the document still proceeds without a thumbnail.
+	pdfThumbnailMaxPageDimension = 14400    // 200 inches at 72 PDF points/inch.
+	pdfThumbnailMaxOutputPixels  = 300
+)
+
+var (
+	pdfBoxRegex            = regexp.MustCompile(`(?is)/(?:MediaBox|CropBox)\s*\[\s*([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\s*\]`)
+	pdfThumbnailRenderSlot = make(chan struct{}, 1)
+)
+
 type serviceSend struct {
 	appService      app.IAppUsecase
 	chatStorageRepo domainChatStorage.IChatStorageRepository
@@ -448,7 +460,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 }
 
 // generateDocumentThumbnail creates a JPEG thumbnail for document preview in WhatsApp.
-// Supports PDF (via ImageMagick convert or pdftoppm) and image files sent as documents.
+// Supports PDF (via guarded pdftoppm rendering) and image files sent as documents.
 // Returns nil if thumbnail generation fails (non-fatal).
 func generateDocumentThumbnail(fileBytes []byte, fileName string, mimeType string) []byte {
 	generateUUID := fiberUtils.UUIDv4()
@@ -465,48 +477,58 @@ func generateDocumentThumbnail(fileBytes []byte, fileName string, mimeType strin
 }
 
 // generatePDFThumbnail renders the first page of a PDF as a JPEG thumbnail.
-// Tries pdftoppm first (from poppler-utils), falls back to ImageMagick convert.
+// PDF rendering is best-effort and is skipped when the file is too large, has
+// suspicious page geometry, or another PDF thumbnail render is already running.
 func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
+	if len(pdfBytes) == 0 || len(pdfBytes) > pdfThumbnailMaxInputBytes || !pdfHasSafeFirstPageGeometry(pdfBytes) {
+		return nil
+	}
+
+	select {
+	case pdfThumbnailRenderSlot <- struct{}{}:
+		defer func() { <-pdfThumbnailRenderSlot }()
+	default:
+		return nil
+	}
+
 	tempPDF := fmt.Sprintf("%s/thumb_%s.pdf", config.PathSendItems, uuid)
-	tempPNG := fmt.Sprintf("%s/thumb_%s.png", config.PathSendItems, uuid)
+	tempJPG := fmt.Sprintf("%s/thumb_%s.jpg", config.PathSendItems, uuid)
 	thumbPath := fmt.Sprintf("%s/thumb_%s_thumb.jpg", config.PathSendItems, uuid)
 
 	defer func() {
-		_ = utils.RemoveFile(0, tempPDF, tempPNG, thumbPath)
-		// pdftoppm outputs with suffix, clean that too
-		pdftoppmOut := fmt.Sprintf("%s/thumb_%s-1.png", config.PathSendItems, uuid)
-		_ = utils.RemoveFile(0, pdftoppmOut)
+		_ = utils.RemoveFile(0, tempPDF, tempJPG, thumbPath)
 	}()
 
 	if err := os.WriteFile(tempPDF, pdfBytes, 0644); err != nil {
 		return nil
 	}
 
-	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
-	pngGenerated := false
-	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
-	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), pdfThumbnailTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
-	if err := cmd.Run(); err == nil {
-		// pdftoppm with -singlefile outputs to {prefix}.png
-		actualOut := pdftoppmOut + ".png"
-		if _, statErr := os.Stat(actualOut); statErr == nil {
-			_ = os.Rename(actualOut, tempPNG)
-			pngGenerated = true
-		}
+	pdftoppmOut := strings.TrimSuffix(tempJPG, ".jpg")
+	cmd := exec.CommandContext(
+		cmdCtx,
+		"sh",
+		"-c",
+		"ulimit -t 10; ulimit -v 262144; ulimit -f 2048; exec \"$@\"",
+		"pdftoppm",
+		"pdftoppm",
+		"-jpeg",
+		"-f",
+		"1",
+		"-l",
+		"1",
+		"-scale-to",
+		strconv.Itoa(pdfThumbnailMaxOutputPixels),
+		"-singlefile",
+		tempPDF,
+		pdftoppmOut,
+	)
+	if err := cmd.Run(); err != nil {
+		return nil
 	}
 
-	// Fallback to ImageMagick convert
-	if !pngGenerated {
-		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
-		if err := cmd.Run(); err != nil {
-			return nil
-		}
-	}
-
-	// Resize to thumbnail
-	srcImage, err := imaging.Open(tempPNG)
+	srcImage, err := imaging.Open(tempJPG)
 	if err != nil {
 		return nil
 	}
@@ -520,6 +542,26 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		return nil
 	}
 	return thumbBytes
+}
+
+func pdfHasSafeFirstPageGeometry(pdfBytes []byte) bool {
+	match := pdfBoxRegex.FindSubmatch(pdfBytes)
+	if match == nil {
+		return true
+	}
+
+	coords := make([]float64, 4)
+	for i := 1; i <= 4; i++ {
+		coord, err := strconv.ParseFloat(string(match[i]), 64)
+		if err != nil {
+			return false
+		}
+		coords[i-1] = coord
+	}
+
+	width := math.Abs(coords[2] - coords[0])
+	height := math.Abs(coords[3] - coords[1])
+	return width > 0 && height > 0 && width <= pdfThumbnailMaxPageDimension && height <= pdfThumbnailMaxPageDimension
 }
 
 // generateImageDocThumbnail creates a thumbnail for image files sent as documents.
