@@ -1,6 +1,9 @@
 package usecase
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestResolveDocumentMIME(t *testing.T) {
 	tests := []struct {
@@ -37,5 +40,35 @@ func TestResolveDocumentMIME(t *testing.T) {
 				t.Fatalf("resolveDocumentMIME() = %q, want %q", got, tt.wantMIME)
 			}
 		})
+	}
+}
+
+func TestMaxBytesBufferAllowsWritesWithinLimit(t *testing.T) {
+	buffer := &maxBytesBuffer{maxSize: 5}
+
+	n, err := buffer.Write([]byte("hello"))
+	if err != nil {
+		t.Fatalf("Write() error = %v, want nil", err)
+	}
+	if n != 5 {
+		t.Fatalf("Write() n = %d, want 5", n)
+	}
+	if got := buffer.String(); got != "hello" {
+		t.Fatalf("buffer contents = %q, want %q", got, "hello")
+	}
+}
+
+func TestMaxBytesBufferRejectsWritesOverLimit(t *testing.T) {
+	buffer := &maxBytesBuffer{maxSize: 5}
+
+	n, err := buffer.Write([]byte("hello!"))
+	if !errors.Is(err, errImageExceedsMaxSize) {
+		t.Fatalf("Write() error = %v, want %v", err, errImageExceedsMaxSize)
+	}
+	if n != 5 {
+		t.Fatalf("Write() n = %d, want 5", n)
+	}
+	if got := buffer.String(); got != "hello" {
+		t.Fatalf("buffer contents = %q, want %q", got, "hello")
 	}
 }

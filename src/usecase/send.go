@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/image/webp"
+
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -37,6 +39,58 @@ import (
 
 // webpCanvasSizeRegex is compiled once at package level for efficiency
 var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
+
+var errImageExceedsMaxSize = errors.New("converted image exceeds maximum allowed size")
+
+type maxBytesBuffer struct {
+	bytes.Buffer
+	maxSize int64
+}
+
+func (buffer *maxBytesBuffer) Write(p []byte) (int, error) {
+	if int64(buffer.Len())+int64(len(p)) <= buffer.maxSize {
+		return buffer.Buffer.Write(p)
+	}
+
+	remaining := int(buffer.maxSize) - buffer.Len()
+	if remaining > 0 {
+		if _, err := buffer.Buffer.Write(p[:remaining]); err != nil {
+			return 0, err
+		}
+	}
+
+	return remaining, errImageExceedsMaxSize
+}
+
+func validateWebPImageBounds(imageData []byte) error {
+	webpConfig, err := webp.DecodeConfig(bytes.NewReader(imageData))
+	if err != nil {
+		return fmt.Errorf("failed to decode WebP config %w", err)
+	}
+
+	if webpConfig.Width <= 0 || webpConfig.Height <= 0 {
+		return fmt.Errorf("invalid WebP dimensions %dx%d", webpConfig.Width, webpConfig.Height)
+	}
+
+	const bytesPerDecodedPixel = int64(4)
+	maxPixels := config.WhatsappSettingMaxImageSize / bytesPerDecodedPixel
+	if maxPixels < 1 {
+		maxPixels = 1
+	}
+
+	width := int64(webpConfig.Width)
+	height := int64(webpConfig.Height)
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if width > maxInt64/height {
+		return fmt.Errorf("WebP dimensions %dx%d are too large", webpConfig.Width, webpConfig.Height)
+	}
+
+	if pixels := width * height; pixels > maxPixels {
+		return fmt.Errorf("decoded WebP dimensions %dx%d exceed maximum allowed pixels %d", webpConfig.Width, webpConfig.Height, maxPixels)
+	}
+
+	return nil
+}
 
 type serviceSend struct {
 	appService      app.IAppUsecase
@@ -225,6 +279,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		// Check if the downloaded image is WebP and convert to PNG if needed
 		mimeType := http.DetectContentType(imageData)
 		if mimeType == "image/webp" {
+			if err := validateWebPImageBounds(imageData); err != nil {
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to validate WebP image %v", err))
+			}
+
 			// Convert WebP to PNG
 			webpImage, err := imaging.Decode(bytes.NewReader(imageData))
 			if err != nil {
@@ -238,10 +296,13 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 				fileName = fileName + ".png"
 			}
 
-			// Convert to PNG format
-			var pngBuffer bytes.Buffer
-			err = imaging.Encode(&pngBuffer, webpImage, imaging.PNG)
+			// Convert to PNG format, preserving the configured remote image size cap.
+			pngBuffer := &maxBytesBuffer{maxSize: config.WhatsappSettingMaxImageSize}
+			err = imaging.Encode(pngBuffer, webpImage, imaging.PNG)
 			if err != nil {
+				if errors.Is(err, errImageExceedsMaxSize) {
+					return response, pkgError.InternalServerError(fmt.Sprintf("converted WebP image exceeds maximum allowed size %d", config.WhatsappSettingMaxImageSize))
+				}
 				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert WebP to PNG %v", err))
 			}
 			imageData = pngBuffer.Bytes()
