@@ -21,6 +21,8 @@ func isLabelAppState(evt *events.AppState) bool {
 		return false
 	}
 
+	// Note: IndexLabelAssociationMessage (per-message label) is intentionally excluded.
+	// Only chat-level associations and label edits are forwarded.
 	return evt.Index[0] == appstate.IndexLabelEdit || evt.Index[0] == appstate.IndexLabelAssociationChat
 }
 
@@ -90,8 +92,17 @@ func addLabelEditActionFields(payload map[string]any, action *waSyncAction.Label
 	if action.OrderIndex != nil {
 		payload["order_index"] = action.GetOrderIndex()
 	}
+	if action.IsActive != nil {
+		payload["is_active"] = action.GetIsActive()
+	}
 	if action.Type != nil {
 		payload["type"] = action.GetType().String()
+	}
+	if action.IsImmutable != nil {
+		payload["is_immutable"] = action.GetIsImmutable()
+	}
+	if action.MuteEndTimeMS != nil {
+		payload["mute_end_time_ms"] = action.GetMuteEndTimeMS()
 	}
 }
 
@@ -106,7 +117,7 @@ func addLabelChatFields(ctx context.Context, client *whatsmeow.Client, payload m
 	chatJID := jid.ToNonAD()
 	if chatJID.Server == "lid" {
 		payload["chat_lid"] = chatJID.String()
-		if client != nil && client.Store != nil && client.Store.LIDs != nil {
+		if client != nil {
 			chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
 		}
 	}
@@ -115,8 +126,8 @@ func addLabelChatFields(ctx context.Context, client *whatsmeow.Client, payload m
 }
 
 func labelAppStateTimestamp(evt *events.AppState) string {
-	if evt != nil && evt.SyncActionValue != nil && evt.Timestamp != nil && evt.GetTimestamp() > 0 {
-		return time.UnixMilli(evt.GetTimestamp()).UTC().Format(time.RFC3339)
+	if ts := evt.GetTimestamp(); ts > 0 {
+		return time.UnixMilli(ts).UTC().Format(time.RFC3339)
 	}
 
 	return time.Now().UTC().Format(time.RFC3339)
