@@ -79,7 +79,7 @@ func init() {
 		ticker := time.NewTicker(sentMessageIDsTTL)
 		defer ticker.Stop()
 		for range ticker.C {
-			sentMessageIDs.Range(func(key, value interface{}) bool {
+			sentMessageIDs.Range(func(key, value any) bool {
 				if time.Since(value.(time.Time)) > sentMessageIDsTTL {
 					sentMessageIDs.Delete(key)
 				}
@@ -103,53 +103,6 @@ func NewClient() *Client {
 
 func (c *Client) IsConfigured() bool {
 	return c.BaseURL != "" && c.APIToken != "" && c.AccountID != 0 && c.InboxID != 0
-}
-
-// doRequest executes an HTTP request with common headers and error handling.
-// It marshals the payload to JSON (if provided), sets auth headers, executes the request,
-// and decodes the response into result (if provided).
-func (c *Client) doRequest(method, endpoint string, payload interface{}, result interface{}) ([]byte, error) {
-	var body io.Reader
-	if payload != nil {
-		jsonPayload, err := json.Marshal(payload)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal payload: %w", err)
-		}
-		body = bytes.NewBuffer(jsonPayload)
-	}
-
-	req, err := http.NewRequest(method, endpoint, body)
-	if err != nil {
-		return nil, err
-	}
-
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("api_access_token", c.APIToken)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return bodyBytes, fmt.Errorf("request failed: status %d body %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	if result != nil && len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, result); err != nil {
-			return bodyBytes, fmt.Errorf("failed to decode response: %w", err)
-		}
-	}
-
-	return bodyBytes, nil
 }
 
 func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Contact, error) {
@@ -227,7 +180,7 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 		Name:        name,
 		PhoneNumber: phoneNumber,
 		Identifier:  contactIdentifier,
-		CustomAttributes: map[string]interface{}{
+		CustomAttributes: map[string]any{
 			"waha_whatsapp_jid": identifier,
 		},
 	}
@@ -310,7 +263,7 @@ func (c *Client) FindOrCreateContact(name, identifier string, isGroup bool) (*Co
 func (c *Client) UpdateContactName(contactID int, name string) error {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/%d", c.BaseURL, c.AccountID, contactID)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name": name,
 	}
 

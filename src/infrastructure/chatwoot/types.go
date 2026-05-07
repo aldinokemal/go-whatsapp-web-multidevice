@@ -1,12 +1,12 @@
 package chatwoot
 
 type Contact struct {
-	ID               int                    `json:"id"`
-	Name             string                 `json:"name"`
-	Email            string                 `json:"email"`
-	PhoneNumber      string                 `json:"phone_number"`
-	Identifier       string                 `json:"identifier"`
-	CustomAttributes map[string]interface{} `json:"custom_attributes"`
+	ID               int            `json:"id"`
+	Name             string         `json:"name"`
+	Email            string         `json:"email"`
+	PhoneNumber      string         `json:"phone_number"`
+	Identifier       string         `json:"identifier"`
+	CustomAttributes map[string]any `json:"custom_attributes"`
 }
 
 type Conversation struct {
@@ -25,11 +25,11 @@ type Message struct {
 }
 
 type CreateContactRequest struct {
-	InboxID          int                    `json:"inbox_id"`
-	Name             string                 `json:"name"`
-	PhoneNumber      string                 `json:"phone_number,omitempty"`
-	Identifier       string                 `json:"identifier,omitempty"`
-	CustomAttributes map[string]interface{} `json:"custom_attributes"`
+	InboxID          int            `json:"inbox_id"`
+	Name             string         `json:"name"`
+	PhoneNumber      string         `json:"phone_number,omitempty"`
+	Identifier       string         `json:"identifier,omitempty"`
+	CustomAttributes map[string]any `json:"custom_attributes"`
 }
 
 type CreateConversationRequest struct {
