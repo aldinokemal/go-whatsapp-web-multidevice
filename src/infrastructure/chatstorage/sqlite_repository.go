@@ -751,7 +751,7 @@ func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error)
 	}
 	var webhookURL string
 	err := r.db.QueryRow(`
-		SELECT webhook_url FROM devices WHERE device_id = ? LIMIT 1
+		SELECT COALESCE(webhook_url, '') FROM devices WHERE device_id = ? LIMIT 1
 	`, deviceID).Scan(&webhookURL)
 	if err == sql.ErrNoRows {
 		return nil, nil
