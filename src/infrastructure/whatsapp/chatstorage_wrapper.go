@@ -177,22 +177,27 @@ func (r *deviceChatStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceReco
 	return r.base.ListDeviceRecords()
 }
 
+// GetDeviceRecord delegates to the base repository.
 func (r *deviceChatStorage) GetDeviceRecord(deviceID string) (*domainChatStorage.DeviceRecord, error) {
 	return r.base.GetDeviceRecord(deviceID)
 }
 
+// GetDeviceRecordByJID fetches a device record by its JID.
 func (r *deviceChatStorage) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
 	return r.base.GetDeviceRecordByJID(jid)
 }
 
+// DeleteDeviceRecord delegates to the base repository.
 func (r *deviceChatStorage) DeleteDeviceRecord(deviceID string) error {
 	return r.base.DeleteDeviceRecord(deviceID)
 }
 
+// SetDeviceWebhookURL sets the webhook URL for a device.
 func (r *deviceChatStorage) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
 	return r.base.SetDeviceWebhookURL(deviceID, webhookURL)
 }
 
+// GetDeviceWebhookURL retrieves the webhook URL for a device.
 func (r *deviceChatStorage) GetDeviceWebhookURL(deviceID string) (*string, error) {
 	return r.base.GetDeviceWebhookURL(deviceID)
 }

@@ -173,6 +173,7 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 	})
 }
 
+// UpdateDeviceWebhook handles PATCH /devices/:device_id/webhook.
 func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	var req struct {
@@ -211,6 +212,7 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	})
 }
 
+// GetDeviceWebhook handles GET /devices/:device_id/webhook.
 func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	webhookURL, err := handler.Service.GetDeviceWebhook(c.UserContext(), deviceID)

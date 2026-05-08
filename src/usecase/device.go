@@ -145,6 +145,7 @@ func (s *serviceDevice) GetStatus(_ context.Context, deviceID string) (bool, boo
 	return false, false, fmt.Errorf("device %s not found", deviceID)
 }
 
+// SetDeviceWebhook sets the webhook URL for a specific device.
 func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, webhookURL string) error {
 	if s.manager == nil {
 		return fmt.Errorf("device manager not initialized")
@@ -182,6 +183,7 @@ func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, w
 	return nil
 }
 
+// GetDeviceWebhook retrieves the webhook URL for a specific device.
 func (s *serviceDevice) GetDeviceWebhook(ctx context.Context, deviceID string) (string, error) {
 	if s.manager == nil {
 		return "", fmt.Errorf("device manager not initialized")
