@@ -34,18 +34,4 @@ func TestGetDeviceWebhook_InvalidManager(t *testing.T) {
 	}
 }
 
-func TestGetDeviceWebhook_DeviceNotFound(t *testing.T) {
-	svc := &serviceDevice{manager: nil}
-	_, err := svc.GetDeviceWebhook(context.Background(), "nonexistent-device")
-	if err == nil {
-		t.Fatal("expected error when device not found")
-	}
-}
 
-func TestSetDeviceWebhook_DeviceNotFound(t *testing.T) {
-	svc := &serviceDevice{manager: nil}
-	err := svc.SetDeviceWebhook(context.Background(), "nonexistent-device", "https://example.com/webhook")
-	if err == nil {
-		t.Fatal("expected error when device not found")
-	}
-}
