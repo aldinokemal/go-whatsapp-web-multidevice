@@ -617,32 +617,36 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 	}
 	record.UpdatedAt = now
 
-	// Try update first, then insert if no rows affected (cross-db compatible)
-	// Only update webhook_url if a new value is provided (non-nil and non-empty)
-	result, err := r.db.Exec(`
-		UPDATE devices SET display_name = ?, jid = ?, updated_at = ?
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Single atomic UPDATE: preserves existing webhook_url when new value is nil/empty
+	result, err := tx.Exec(`
+		UPDATE devices SET display_name = ?, jid = ?, webhook_url = CASE WHEN ? IS NULL OR ? = '' THEN webhook_url ELSE ? END, updated_at = ?
 		WHERE device_id = ?
-	`, record.DisplayName, record.JID, record.UpdatedAt, record.DeviceID)
+	`, record.DisplayName, record.JID, record.WebhookURL, record.WebhookURL, record.WebhookURL, record.UpdatedAt, record.DeviceID)
 	if err != nil {
 		return err
 	}
 
-	// Update webhook_url separately only if a new value is provided
-	if record.WebhookURL != nil && *record.WebhookURL != "" {
-		_, err = r.db.Exec(`UPDATE devices SET webhook_url = ? WHERE device_id = ?`, record.WebhookURL, record.DeviceID)
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		_, err = tx.Exec(`
+			INSERT INTO devices (device_id, display_name, jid, webhook_url, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, record.DeviceID, record.DisplayName, record.JID, record.WebhookURL, record.CreatedAt, record.UpdatedAt)
 		if err != nil {
 			return err
 		}
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		_, err = r.db.Exec(`
-			INSERT INTO devices (device_id, display_name, jid, webhook_url, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, record.DeviceID, record.DisplayName, record.JID, record.WebhookURL, record.CreatedAt, record.UpdatedAt)
-	}
-	return err
+	return tx.Commit()
 }
 
 // ListDeviceRecords returns all registered devices.
