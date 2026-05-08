@@ -145,6 +145,69 @@ func (s *serviceDevice) GetStatus(_ context.Context, deviceID string) (bool, boo
 	return false, false, fmt.Errorf("device %s not found", deviceID)
 }
 
+func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, webhookURL string) error {
+	if s.manager == nil {
+		return fmt.Errorf("device manager not initialized")
+	}
+
+	inst, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return fmt.Errorf("storage not available")
+	}
+
+	var urlPtr *string
+	if webhookURL != "" {
+		urlPtr = &webhookURL
+	}
+
+	if err := storage.SetDeviceWebhookURL(inst.JID(), urlPtr); err != nil {
+		return fmt.Errorf("failed to set device webhook: %w", err)
+	}
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "DEVICE_WEBHOOK_UPDATED",
+		Message: fmt.Sprintf("Device %s webhook updated", deviceID),
+		Result: map[string]any{
+			"device_id":   deviceID,
+			"webhook_url": webhookURL,
+		},
+	}
+
+	return nil
+}
+
+func (s *serviceDevice) GetDeviceWebhook(ctx context.Context, deviceID string) (string, error) {
+	if s.manager == nil {
+		return "", fmt.Errorf("device manager not initialized")
+	}
+
+	inst, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return "", fmt.Errorf("device %s not found", deviceID)
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return "", fmt.Errorf("storage not available")
+	}
+
+	webhookURL, err := storage.GetDeviceWebhookURL(inst.JID())
+	if err != nil {
+		return "", fmt.Errorf("failed to get device webhook: %w", err)
+	}
+
+	if webhookURL == nil {
+		return "", nil
+	}
+
+	return *webhookURL, nil
+}
+
 func convertInstance(inst *whatsapp.DeviceInstance) domainDevice.Device {
 	if inst == nil {
 		return domainDevice.Device{}

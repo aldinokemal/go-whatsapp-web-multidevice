@@ -230,3 +230,120 @@ func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
 		t.Fatalf("extractStructuredMessageContent() = %q, want %q", got, want)
 	}
 }
+
+func TestGetWebhookURLsForDevice_NoDeviceJID(t *testing.T) {
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	urls := getWebhookURLsForDevice("")
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook when deviceJID is empty, got %v", urls)
+	}
+}
+
+func TestGetWebhookURLsForDevice_DeviceNotFound(t *testing.T) {
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	urls := getWebhookURLsForDevice("unknown-device-jid@s.whatsapp.net")
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook when device not found, got %v", urls)
+	}
+}
+
+func TestGetWebhookURLsForDevice_FallbackToGlobal(t *testing.T) {
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	dm := GetDeviceManager()
+	if dm == nil || dm.storage == nil {
+		t.Skip("DeviceManager or storage not available")
+	}
+
+	urls := getWebhookURLsForDevice("6289600000000@s.whatsapp.net")
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook fallback, got %v", urls)
+	}
+}
+
+func TestForwardPayloadToConfiguredWebhooks_WithDeviceSpecificWebhook(t *testing.T) {
+	ctx := context.Background()
+	deviceWebhookURL := "https://device-specific-webhook.com"
+	payload := map[string]any{
+		"foo":       "bar",
+		"device_id": "6289600000000@s.whatsapp.net",
+	}
+
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	dm := GetDeviceManager()
+	if dm == nil || dm.storage == nil {
+		t.Skip("DeviceManager or storage not available")
+	}
+
+	dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", &deviceWebhookURL)
+	defer func() { dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil) }()
+
+	var calledURLs []string
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
+		calledURLs = append(calledURLs, url)
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "test"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(calledURLs) != 1 {
+		t.Fatalf("expected 1 webhook call (device-specific override), got %d", len(calledURLs))
+	}
+	if calledURLs[0] != deviceWebhookURL {
+		t.Fatalf("expected device-specific webhook %s, got %s", deviceWebhookURL, calledURLs[0])
+	}
+}
+
+func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlobal(t *testing.T) {
+	ctx := context.Background()
+	payload := map[string]any{
+		"foo":       "bar",
+		"device_id": "6289600000000@s.whatsapp.net",
+	}
+
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	dm := GetDeviceManager()
+	if dm == nil || dm.storage == nil {
+		t.Skip("DeviceManager or storage not available")
+	}
+
+	dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil)
+	defer func() { dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil) }()
+
+	var calledURLs []string
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
+		calledURLs = append(calledURLs, url)
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "test"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(calledURLs) != 1 {
+		t.Fatalf("expected 1 webhook call (global fallback), got %d", len(calledURLs))
+	}
+	if calledURLs[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook, got %s", calledURLs[0])
+	}
+}

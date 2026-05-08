@@ -80,9 +80,12 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		return nil
 	}
 
+	deviceJID, _ := payload["device_id"].(string)
+	webhookURLs := getWebhookURLsForDevice(deviceJID)
+
 	var err error
 	if webhookAllowed {
-		err = forwardToWebhooks(ctx, payload, eventName)
+		err = forwardToWebhooks(ctx, payload, eventName, webhookURLs)
 	} else {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
@@ -94,8 +97,28 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	return err
 }
 
-func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	total := len(config.WhatsappWebhook)
+// getWebhookURLsForDevice returns the webhook URLs to use for a given device.
+// If the device has a custom webhook URL, it returns that URL only (override mode).
+// Otherwise, it returns the global configured webhook URLs.
+func getWebhookURLsForDevice(deviceJID string) []string {
+	if deviceJID == "" {
+		return config.WhatsappWebhook
+	}
+
+	dm := GetDeviceManager()
+	if dm != nil && dm.storage != nil {
+		record, err := dm.storage.GetDeviceRecordByJID(deviceJID)
+		if err == nil && record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+			logrus.Debugf("Using device-specific webhook for %s: %s", deviceJID, *record.WebhookURL)
+			return []string{*record.WebhookURL}
+		}
+	}
+
+	return config.WhatsappWebhook
+}
+
+func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string, webhookURLs []string) error {
+	total := len(webhookURLs)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
 
 	if total == 0 {
@@ -106,7 +129,7 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 		failed    []string
 		successes int
 	)
-	for _, url := range config.WhatsappWebhook {
+	for _, url := range webhookURLs {
 		if err := submitWebhookFn(ctx, payload, url); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
 			logrus.Warnf("Failed forwarding %s to %s: %v", eventName, url, err)

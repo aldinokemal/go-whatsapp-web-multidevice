@@ -619,9 +619,9 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 
 	// Try update first, then insert if no rows affected (cross-db compatible)
 	result, err := r.db.Exec(`
-		UPDATE devices SET display_name = ?, jid = ?, updated_at = ?
+		UPDATE devices SET display_name = ?, jid = ?, webhook_url = ?, updated_at = ?
 		WHERE device_id = ?
-	`, record.DisplayName, record.JID, record.UpdatedAt, record.DeviceID)
+	`, record.DisplayName, record.JID, record.WebhookURL, record.UpdatedAt, record.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -629,9 +629,9 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		_, err = r.db.Exec(`
-			INSERT INTO devices (device_id, display_name, jid, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?)
-		`, record.DeviceID, record.DisplayName, record.JID, record.CreatedAt, record.UpdatedAt)
+			INSERT INTO devices (device_id, display_name, jid, webhook_url, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, record.DeviceID, record.DisplayName, record.JID, record.WebhookURL, record.CreatedAt, record.UpdatedAt)
 	}
 	return err
 }
@@ -639,7 +639,7 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 // ListDeviceRecords returns all registered devices.
 func (r *SQLiteRepository) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
 	rows, err := r.db.Query(`
-		SELECT device_id, display_name, jid, created_at, updated_at
+		SELECT device_id, display_name, jid, webhook_url, created_at, updated_at
 		FROM devices
 		ORDER BY created_at ASC
 	`)
@@ -651,7 +651,7 @@ func (r *SQLiteRepository) ListDeviceRecords() ([]*domainChatStorage.DeviceRecor
 	var records []*domainChatStorage.DeviceRecord
 	for rows.Next() {
 		var rec domainChatStorage.DeviceRecord
-		if err := rows.Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+		if err := rows.Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.WebhookURL, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
 			return nil, err
 		}
 		records = append(records, &rec)
@@ -668,11 +668,33 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 
 	rec := &domainChatStorage.DeviceRecord{}
 	err := r.db.QueryRow(`
-		SELECT device_id, display_name, jid, created_at, updated_at
+		SELECT device_id, display_name, jid, webhook_url, created_at, updated_at
 		FROM devices
 		WHERE device_id = ?
 		LIMIT 1
-	`, deviceID).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt)
+	`, deviceID).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.WebhookURL, &rec.CreatedAt, &rec.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+// GetDeviceRecordByJID fetches a device registration by JID.
+func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
+	if strings.TrimSpace(jid) == "" {
+		return nil, fmt.Errorf("jid is required")
+	}
+
+	rec := &domainChatStorage.DeviceRecord{}
+	err := r.db.QueryRow(`
+		SELECT device_id, display_name, jid, webhook_url, created_at, updated_at
+		FROM devices
+		WHERE jid = ?
+		LIMIT 1
+	`, jid).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.WebhookURL, &rec.CreatedAt, &rec.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -689,6 +711,36 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	}
 	_, err := r.db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID)
 	return err
+}
+
+// SetDeviceWebhookURL updates the webhook URL for a device.
+func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	_, err := r.db.Exec(`
+		UPDATE devices SET webhook_url = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, time.Now(), deviceID)
+	return err
+}
+
+// GetDeviceWebhookURL retrieves the webhook URL for a device.
+func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var webhookURL *string
+	err := r.db.QueryRow(`
+		SELECT webhook_url FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return webhookURL, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -1269,5 +1321,8 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 16: JSON metadata for Meta Ads referral/attribution (CTWA)
 		`ALTER TABLE messages ADD COLUMN referral_metadata TEXT DEFAULT ''`,
+
+		// Migration 17: Add webhook_url to devices
+		`ALTER TABLE devices ADD COLUMN webhook_url TEXT DEFAULT ''`,
 	}
 }

@@ -50,7 +50,10 @@ type IChatStorageRepository interface {
 	SaveDeviceRecord(record *DeviceRecord) error
 	ListDeviceRecords() ([]*DeviceRecord, error)
 	GetDeviceRecord(deviceID string) (*DeviceRecord, error)
+	GetDeviceRecordByJID(jid string) (*DeviceRecord, error)
 	DeleteDeviceRecord(deviceID string) error
+	SetDeviceWebhookURL(deviceID string, webhookURL *string) error
+	GetDeviceWebhookURL(deviceID string) (*string, error)
 
 	// Schema operations
 	InitializeSchema() error

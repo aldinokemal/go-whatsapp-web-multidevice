@@ -24,6 +24,8 @@ func InitRestDevice(app fiber.Router, service device.IDeviceUsecase) Device {
 	app.Post("/devices/:device_id/logout", rest.LogoutDevice)
 	app.Post("/devices/:device_id/reconnect", rest.ReconnectDevice)
 	app.Get("/devices/:device_id/status", rest.Status)
+	app.Patch("/devices/:device_id/webhook", rest.UpdateDeviceWebhook)
+	app.Get("/devices/:device_id/webhook", rest.GetDeviceWebhook)
 
 	return rest
 }
@@ -167,6 +169,51 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 			"device_id":    deviceID,
 			"is_connected": isConnected,
 			"is_logged_in": isLoggedIn,
+		},
+	})
+}
+
+func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
+	deviceID := c.Params("device_id")
+	var req struct {
+		WebhookURL string `json:"webhook_url"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+
+	err := handler.Service.SetDeviceWebhook(c.UserContext(), deviceID, req.WebhookURL)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Device webhook updated",
+		Results: map[string]any{
+			"device_id":   deviceID,
+			"webhook_url": req.WebhookURL,
+		},
+	})
+}
+
+func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
+	deviceID := c.Params("device_id")
+	webhookURL, err := handler.Service.GetDeviceWebhook(c.UserContext(), deviceID)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Device webhook retrieved",
+		Results: map[string]any{
+			"device_id":   deviceID,
+			"webhook_url": webhookURL,
 		},
 	})
 }
