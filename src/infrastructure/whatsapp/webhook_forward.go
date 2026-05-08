@@ -81,11 +81,15 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	deviceJID, _ := payload["device_id"].(string)
-	webhookURLs := getWebhookURLsForDevice(deviceJID)
+	webhookURLs, err := getWebhookURLsForDevice(deviceJID)
+	if err != nil {
+		logrus.Warnf("Failed to get webhook URLs for device %s: %v", deviceJID, err)
+		return err
+	}
 
-	var err error
+	var webhookErr error
 	if webhookAllowed {
-		err = forwardToWebhooks(ctx, payload, eventName, webhookURLs)
+		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs)
 	} else {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
@@ -94,27 +98,30 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
-	return err
+	return webhookErr
 }
 
 // getWebhookURLsForDevice returns the webhook URLs to use for a given device.
 // If the device has a custom webhook URL, it returns that URL only (override mode).
 // Otherwise, it returns the global configured webhook URLs.
-func getWebhookURLsForDevice(deviceJID string) []string {
+func getWebhookURLsForDevice(deviceJID string) ([]string, error) {
 	if deviceJID == "" {
-		return config.WhatsappWebhook
+		return config.WhatsappWebhook, nil
 	}
 
 	dm := GetDeviceManager()
 	if dm != nil && dm.storage != nil {
 		record, err := dm.storage.GetDeviceRecordByJID(deviceJID)
-		if err == nil && record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
-			logrus.Debugf("Using device-specific webhook for %s: %s", deviceJID, *record.WebhookURL)
-			return []string{*record.WebhookURL}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get device record: %w", err)
+		}
+		if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+			logrus.Debugf("Using device-specific webhook for %s", deviceJID)
+			return []string{*record.WebhookURL}, nil
 		}
 	}
 
-	return config.WhatsappWebhook
+	return config.WhatsappWebhook, nil
 }
 
 func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string, webhookURLs []string) error {

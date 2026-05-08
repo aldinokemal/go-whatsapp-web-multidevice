@@ -618,12 +618,21 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 	record.UpdatedAt = now
 
 	// Try update first, then insert if no rows affected (cross-db compatible)
+	// Only update webhook_url if a new value is provided (non-nil and non-empty)
 	result, err := r.db.Exec(`
-		UPDATE devices SET display_name = ?, jid = ?, webhook_url = ?, updated_at = ?
+		UPDATE devices SET display_name = ?, jid = ?, updated_at = ?
 		WHERE device_id = ?
-	`, record.DisplayName, record.JID, record.WebhookURL, record.UpdatedAt, record.DeviceID)
+	`, record.DisplayName, record.JID, record.UpdatedAt, record.DeviceID)
 	if err != nil {
 		return err
+	}
+
+	// Update webhook_url separately only if a new value is provided
+	if record.WebhookURL != nil && *record.WebhookURL != "" {
+		_, err = r.db.Exec(`UPDATE devices SET webhook_url = ? WHERE device_id = ?`, record.WebhookURL, record.DeviceID)
+		if err != nil {
+			return err
+		}
 	}
 
 	rowsAffected, _ := result.RowsAffected()
@@ -718,11 +727,21 @@ func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *stri
 	if strings.TrimSpace(deviceID) == "" {
 		return fmt.Errorf("device id is required")
 	}
-	_, err := r.db.Exec(`
+	result, err := r.db.Exec(`
 		UPDATE devices SET webhook_url = ?, updated_at = ?
 		WHERE device_id = ?
 	`, webhookURL, time.Now(), deviceID)
-	return err
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // GetDeviceWebhookURL retrieves the webhook URL for a device.

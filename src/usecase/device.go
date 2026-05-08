@@ -165,7 +165,8 @@ func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, w
 		urlPtr = &webhookURL
 	}
 
-	if err := storage.SetDeviceWebhookURL(inst.JID(), urlPtr); err != nil {
+	// Use deviceID (the actual device identifier) for webhook persistence
+	if err := storage.SetDeviceWebhookURL(deviceID, urlPtr); err != nil {
 		return fmt.Errorf("failed to set device webhook: %w", err)
 	}
 
@@ -196,7 +197,8 @@ func (s *serviceDevice) GetDeviceWebhook(ctx context.Context, deviceID string) (
 		return "", fmt.Errorf("storage not available")
 	}
 
-	webhookURL, err := storage.GetDeviceWebhookURL(inst.JID())
+	// Use deviceID (the actual device identifier) for webhook retrieval
+	webhookURL, err := storage.GetDeviceWebhookURL(deviceID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get device webhook: %w", err)
 	}

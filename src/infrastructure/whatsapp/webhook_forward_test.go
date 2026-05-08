@@ -286,8 +286,22 @@ func TestForwardPayloadToConfiguredWebhooks_WithDeviceSpecificWebhook(t *testing
 		t.Skip("DeviceManager or storage not available")
 	}
 
-	dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", &deviceWebhookURL)
-	defer func() { dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil) }()
+	deviceID := "6289600000000@s.whatsapp.net"
+	prevWebhook, err := dm.storage.GetDeviceWebhookURL(deviceID)
+	if err != nil {
+		t.Fatalf("failed to get previous webhook: %v", err)
+	}
+
+	err = dm.storage.SetDeviceWebhookURL(deviceID, &deviceWebhookURL)
+	if err != nil {
+		t.Fatalf("failed to set device webhook: %v", err)
+	}
+	defer func() {
+		_, cleanupErr := dm.storage.GetDeviceWebhookURL(deviceID)
+		if cleanupErr == nil {
+			dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+		}
+	}()
 
 	var calledURLs []string
 	originalSubmit := submitWebhookFn
@@ -325,8 +339,19 @@ func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlob
 		t.Skip("DeviceManager or storage not available")
 	}
 
-	dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil)
-	defer func() { dm.storage.SetDeviceWebhookURL("6289600000000@s.whatsapp.net", nil) }()
+	deviceID := "6289600000000@s.whatsapp.net"
+	prevWebhook, err := dm.storage.GetDeviceWebhookURL(deviceID)
+	if err != nil {
+		t.Fatalf("failed to get previous webhook: %v", err)
+	}
+
+	err = dm.storage.SetDeviceWebhookURL(deviceID, nil)
+	if err != nil {
+		t.Fatalf("failed to clear device webhook: %v", err)
+	}
+	defer func() {
+		dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+	}()
 
 	var calledURLs []string
 	originalSubmit := submitWebhookFn

@@ -176,7 +176,7 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	var req struct {
-		WebhookURL string `json:"webhook_url"`
+		WebhookURL *string `json:"webhook_url"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -188,7 +188,16 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		})
 	}
 
-	err := handler.Service.SetDeviceWebhook(c.UserContext(), deviceID, req.WebhookURL)
+	if req.WebhookURL == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "webhook_url is required",
+			Results: nil,
+		})
+	}
+
+	err := handler.Service.SetDeviceWebhook(c.UserContext(), deviceID, *req.WebhookURL)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -197,7 +206,7 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		Message: "Device webhook updated",
 		Results: map[string]any{
 			"device_id":   deviceID,
-			"webhook_url": req.WebhookURL,
+			"webhook_url": *req.WebhookURL,
 		},
 	})
 }

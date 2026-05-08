@@ -8,7 +8,7 @@ Add per-device webhook support where each device can have its own webhook URL. I
 
 ## Flow Diagram
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         WHATSAPP EVENT RECEIVED                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -76,7 +76,7 @@ Add per-device webhook support where each device can have its own webhook URL. I
 
 ## API Flow: Set Device Webhook
 
-```
+```text
 Client                    REST API                    UseCase                  Repository
   │                          │                           │                          │
   │ PATCH /devices/:id/webhook│                          │                          │
