@@ -151,7 +151,7 @@ func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, w
 		return fmt.Errorf("device manager not initialized")
 	}
 
-	inst, ok := s.manager.GetDevice(deviceID)
+	_, ok := s.manager.GetDevice(deviceID)
 	if !ok {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
@@ -189,7 +189,7 @@ func (s *serviceDevice) GetDeviceWebhook(ctx context.Context, deviceID string) (
 		return "", fmt.Errorf("device manager not initialized")
 	}
 
-	inst, ok := s.manager.GetDevice(deviceID)
+	_, ok := s.manager.GetDevice(deviceID)
 	if !ok {
 		return "", fmt.Errorf("device %s not found", deviceID)
 	}

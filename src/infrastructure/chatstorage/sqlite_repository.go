@@ -749,7 +749,7 @@ func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error)
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
-	var webhookURL *string
+	var webhookURL string
 	err := r.db.QueryRow(`
 		SELECT webhook_url FROM devices WHERE device_id = ? LIMIT 1
 	`, deviceID).Scan(&webhookURL)
@@ -759,7 +759,10 @@ func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error)
 	if err != nil {
 		return nil, err
 	}
-	return webhookURL, nil
+	if webhookURL == "" {
+		return nil, nil
+	}
+	return &webhookURL, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support

@@ -236,7 +236,10 @@ func TestGetWebhookURLsForDevice_NoDeviceJID(t *testing.T) {
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	urls := getWebhookURLsForDevice("")
+	urls, err := getWebhookURLsForDevice("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
 		t.Fatalf("expected global webhook when deviceJID is empty, got %v", urls)
 	}
@@ -247,7 +250,10 @@ func TestGetWebhookURLsForDevice_DeviceNotFound(t *testing.T) {
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	urls := getWebhookURLsForDevice("unknown-device-jid@s.whatsapp.net")
+	urls, err := getWebhookURLsForDevice("unknown-device-jid@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
 		t.Fatalf("expected global webhook when device not found, got %v", urls)
 	}
@@ -263,9 +269,12 @@ func TestGetWebhookURLsForDevice_FallbackToGlobal(t *testing.T) {
 		t.Skip("DeviceManager or storage not available")
 	}
 
-	urls := getWebhookURLsForDevice("6289600000000@s.whatsapp.net")
+	urls, err := getWebhookURLsForDevice("6289600000000@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
-		t.Fatalf("expected global webhook fallback, got %v", urls)
+		t.Fatalf("expected global webhook when deviceJID is empty, got %v", urls)
 	}
 }
 
