@@ -1,6 +1,25 @@
 package usecase
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+)
+
+func TestBuildSentMessageStoreContextPreservesDevice(t *testing.T) {
+	device := &whatsapp.DeviceInstance{}
+	ctx := whatsapp.ContextWithDevice(context.Background(), device)
+
+	storeCtx, cancel := buildSentMessageStoreContext(ctx, time.Second)
+	defer cancel()
+
+	gotDevice, ok := whatsapp.DeviceFromContext(storeCtx)
+	if !ok || gotDevice != device {
+		t.Fatalf("expected device context to be preserved")
+	}
+}
 
 func TestResolveDocumentMIME(t *testing.T) {
 	tests := []struct {

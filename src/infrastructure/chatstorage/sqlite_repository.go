@@ -1050,6 +1050,11 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
 	chatJID := normalizedJID.String()
 
+	normalizedSenderJID := senderJID
+	if parsedSender, err := types.ParseJID(senderJID); err == nil {
+		normalizedSenderJID = whatsapp.NormalizeJIDFromLID(ctx, parsedSender, client).ToNonAD().String()
+	}
+
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 
@@ -1103,7 +1108,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		ID:            messageID,
 		ChatJID:       chatJID,
 		DeviceID:      deviceID,
-		Sender:        senderJID,
+		Sender:        normalizedSenderJID,
 		Content:       content,
 		Timestamp:     timestamp,
 		IsFromMe:      true,
