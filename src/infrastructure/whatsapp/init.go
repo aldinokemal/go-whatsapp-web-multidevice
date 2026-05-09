@@ -107,7 +107,7 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
 
-	deviceRepo := newDeviceChatStorage(instanceID, chatStorageRepo)
+	deviceRepo := newDeviceChatStorage(normalizeStorageDeviceID(instanceID), chatStorageRepo)
 	instance := NewDeviceInstance(instanceID, client, deviceRepo)
 
 	client.AddEventHandler(func(rawEvt interface{}) {
