@@ -637,10 +637,14 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 		return err
 	}
 	if rowsAffected == 0 {
+		webhookURL := ""
+		if record.WebhookURL != nil {
+			webhookURL = *record.WebhookURL
+		}
 		_, err = tx.Exec(`
 			INSERT INTO devices (device_id, display_name, jid, webhook_url, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?)
-		`, record.DeviceID, record.DisplayName, record.JID, record.WebhookURL, record.CreatedAt, record.UpdatedAt)
+		`, record.DeviceID, record.DisplayName, record.JID, webhookURL, record.CreatedAt, record.UpdatedAt)
 		if err != nil {
 			return err
 		}
