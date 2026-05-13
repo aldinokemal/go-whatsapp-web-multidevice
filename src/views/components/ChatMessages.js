@@ -152,7 +152,7 @@ export default {
     },
     formatSender(message) {
       if (message.is_from_me) return "Me";
-      return message.push_name || message.sender_jid || "Unknown";
+      return message.sender_display_name || message.sender_jid || "Unknown";
     },
     getMessageContent(message) {
       if (message.content) return message.content;

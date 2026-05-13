@@ -226,9 +226,52 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
+	if persistErr := service.persistEditedMessage(ctx, request.MessageID, dataWaRecipient.String(), request.Message, ts.Timestamp); persistErr != nil {
+		logrus.Warnf("Sent edit for message %s but failed to update storage: %v", request.MessageID, persistErr)
+	}
+
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
+}
+
+func (service serviceMessage) persistEditedMessage(ctx context.Context, messageID, chatJID, content string, editedAt time.Time) error {
+	if service.chatStorageRepo == nil {
+		return nil
+	}
+
+	deviceID := ""
+	if device, ok := whatsapp.DeviceFromContext(ctx); ok && device != nil {
+		deviceID = device.JID()
+		if deviceID == "" {
+			deviceID = device.ID()
+		}
+	}
+
+	existingMessage, err := service.chatStorageRepo.GetMessageByID(messageID)
+	if err != nil {
+		return fmt.Errorf("lookup message %s: %w", messageID, err)
+	}
+
+	if existingMessage != nil && existingMessage.ChatJID == chatJID && (deviceID == "" || existingMessage.DeviceID == deviceID) {
+		existingMessage.Content = content
+		return service.chatStorageRepo.StoreMessage(existingMessage)
+	}
+
+	senderJID := ""
+	if client := whatsapp.ClientFromContext(ctx); client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = client.Store.ID.String()
+	}
+
+	return service.chatStorageRepo.StoreMessage(&domainChatStorage.Message{
+		ID:        messageID,
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    senderJID,
+		Content:   content,
+		Timestamp: editedAt,
+		IsFromMe:  true,
+	})
 }
 
 // StarMessage implements message.IMessageService.
