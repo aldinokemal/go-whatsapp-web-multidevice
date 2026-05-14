@@ -300,9 +300,8 @@ If you want to build for Raspberry Pi or other ARM devices without needing a C t
    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags purego -o whatsapp-armv7
    ```
 3. Transfer the binary to your Pi, give it execution permission (`chmod +x`), and run it:
-   ```bash
-   ./whatsapp-armv6 rest
-   ```
+   - If you built ARMv6: `./whatsapp-armv6 rest`
+   - If you built ARMv7: `./whatsapp-armv7 rest`
 
 ### MCP Server (Model Context Protocol)
 
