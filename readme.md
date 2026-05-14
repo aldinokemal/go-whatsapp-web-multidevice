@@ -291,15 +291,18 @@ Note: Command-line flags will override any values set in environment variables o
 
 If you want to build for Raspberry Pi or other ARM devices without needing a C toolchain (CGO), you can use the `purego` build tag. This will use a pure-Go SQLite implementation.
 
-1. **Raspberry Pi Zero / 1 (ARMv6):**
+1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
+2. Open the folder that was cloned via cmd/terminal.
+3. run `cd src`
+4. **Build for Raspberry Pi Zero / 1 (ARMv6):**
    ```bash
    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -tags purego -o whatsapp-armv6
    ```
-2. **Raspberry Pi 2 / 3 / 4 (ARMv7 32-bit):**
+5. **Build for Raspberry Pi 2 / 3 / 4 (ARMv7 32-bit):**
    ```bash
    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags purego -o whatsapp-armv7
    ```
-3. Transfer the binary to your Pi, give it execution permission (`chmod +x`), and run it:
+6. Transfer the binary to your Pi, give it execution permission (`chmod +x`), and run it:
    - If you built ARMv6: `./whatsapp-armv6 rest`
    - If you built ARMv7: `./whatsapp-armv7 rest`
 

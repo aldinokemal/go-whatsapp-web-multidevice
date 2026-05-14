@@ -32,6 +32,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 	DBURI = strings.Trim(DBURI, `"'`)
 
 	if strings.HasPrefix(DBURI, "file:") {
+		DBURI = sqlite.FormatChatStorageURI(DBURI, true, true)
 		return sqlstore.New(ctx, sqlite.DriverName, DBURI, dbLog)
 	} else if strings.HasPrefix(DBURI, "postgres:") {
 		return sqlstore.New(ctx, "postgres", DBURI, dbLog)
