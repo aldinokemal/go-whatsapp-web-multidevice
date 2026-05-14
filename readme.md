@@ -287,6 +287,23 @@ Note: Command-line flags will override any values set in environment variables o
         1. run `.\whatsapp.exe --help` for more detail flags
 6. open `http://localhost:3000` in browser
 
+### Cross-Compile for Raspberry Pi (ARM)
+
+If you want to build for Raspberry Pi or other ARM devices without needing a C toolchain (CGO), you can use the `purego` build tag. This will use a pure-Go SQLite implementation.
+
+1. **Raspberry Pi Zero / 1 (ARMv6):**
+   ```bash
+   CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -tags purego -o whatsapp-armv6
+   ```
+2. **Raspberry Pi 2 / 3 / 4 (ARMv7 32-bit):**
+   ```bash
+   CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags purego -o whatsapp-armv7
+   ```
+3. Transfer the binary to your Pi, give it execution permission (`chmod +x`), and run it:
+   ```bash
+   ./whatsapp-armv6 rest
+   ```
+
 ### MCP Server (Model Context Protocol)
 
 This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a
