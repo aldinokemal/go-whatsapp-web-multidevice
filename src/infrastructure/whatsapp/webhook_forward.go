@@ -124,6 +124,9 @@ func getWebhookURLsForDevice(deviceJID string) ([]string, error) {
 	return config.WhatsappWebhook, nil
 }
 
+// forwardToWebhooks delivers the payload to each URL in the webhookURLs slice.
+// It logs successes and failures, returning an error only if all deliveries fail.
+// Partial failures (some succeed, some fail) are logged but do not cause a return error.
 func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string, webhookURLs []string) error {
 	total := len(webhookURLs)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)

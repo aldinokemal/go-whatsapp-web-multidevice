@@ -306,9 +306,14 @@ func TestForwardPayloadToConfiguredWebhooks_WithDeviceSpecificWebhook(t *testing
 		t.Fatalf("failed to set device webhook: %v", err)
 	}
 	defer func() {
-		_, cleanupErr := dm.storage.GetDeviceWebhookURL(deviceID)
-		if cleanupErr == nil {
-			dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+		var restoreErr error
+		if prevWebhook != nil {
+			restoreErr = dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+		} else {
+			restoreErr = dm.storage.SetDeviceWebhookURL(deviceID, nil)
+		}
+		if restoreErr != nil {
+			t.Logf("failed to restore webhook: %v", restoreErr)
 		}
 	}()
 
@@ -359,7 +364,15 @@ func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlob
 		t.Fatalf("failed to clear device webhook: %v", err)
 	}
 	defer func() {
-		dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+		var restoreErr error
+		if prevWebhook != nil {
+			restoreErr = dm.storage.SetDeviceWebhookURL(deviceID, prevWebhook)
+		} else {
+			restoreErr = dm.storage.SetDeviceWebhookURL(deviceID, nil)
+		}
+		if restoreErr != nil {
+			t.Logf("failed to restore webhook: %v", restoreErr)
+		}
 	}()
 
 	var calledURLs []string

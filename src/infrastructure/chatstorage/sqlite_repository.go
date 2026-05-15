@@ -730,7 +730,9 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	return err
 }
 
-// SetDeviceWebhookURL updates the webhook URL for a device.
+// SetDeviceWebhookURL updates or clears the webhook URL for a device.
+// Use nil for webhookURL to clear the device-specific webhook (forces fallback to global).
+// Returns sql.ErrNoRows if the device does not exist.
 func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
 	if strings.TrimSpace(deviceID) == "" {
 		return fmt.Errorf("device id is required")
@@ -752,7 +754,9 @@ func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *stri
 	return nil
 }
 
-// GetDeviceWebhookURL retrieves the webhook URL for a device.
+// GetDeviceWebhookURL retrieves the configured webhook URL for a device.
+// Returns (*string, nil) with the URL if set, (nil, nil) if no device-specific webhook is configured,
+// or (nil, error) on storage errors. Empty string in database is treated as nil (no override).
 func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device id is required")

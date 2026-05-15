@@ -192,12 +192,15 @@ func (r *deviceChatStorage) DeleteDeviceRecord(deviceID string) error {
 	return r.base.DeleteDeviceRecord(deviceID)
 }
 
-// SetDeviceWebhookURL sets the webhook URL for a device.
+// SetDeviceWebhookURL sets or clears the webhook URL for a device.
+// Pass a nil webhookURL to clear the device-specific webhook (falls back to global).
+// Pass a non-nil string pointer to set a device-specific webhook override.
 func (r *deviceChatStorage) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
 	return r.base.SetDeviceWebhookURL(deviceID, webhookURL)
 }
 
-// GetDeviceWebhookURL retrieves the webhook URL for a device.
+// GetDeviceWebhookURL retrieves the configured webhook URL for a device.
+// Returns nil if no device-specific webhook is set (caller should use global).
 func (r *deviceChatStorage) GetDeviceWebhookURL(deviceID string) (*string, error) {
 	return r.base.GetDeviceWebhookURL(deviceID)
 }
