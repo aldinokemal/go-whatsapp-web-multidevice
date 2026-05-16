@@ -986,7 +986,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		Title:         proto.String(metadata.Title),
 		MatchedText:   proto.String(request.Link),
 		Description:   proto.String(metadata.Description),
-		JPEGThumbnail: metadata.ImageThumb,
+		JPEGThumbnail: metadata.JPEGThumb,
 	}}
 
 	if request.BaseRequest.IsForwarded {
@@ -1012,6 +1012,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
 			msg.ExtendedTextMessage.MediaKey = uploadedThumb.MediaKey
+			msg.ExtendedTextMessage.MediaKeyTimestamp = proto.Int64(time.Now().Unix())
 			if metadata.Height != nil {
 				msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
 			}
