@@ -51,11 +51,8 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 }
 
 func buildSentMessageStoreContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	storeCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
-		storeCtx = whatsapp.ContextWithDevice(storeCtx, inst)
-	}
-	return storeCtx, cancel
+	base := context.WithoutCancel(ctx)
+	return context.WithTimeout(base, timeout)
 }
 
 // wrapSendMessage wraps the message sending process with message ID saving

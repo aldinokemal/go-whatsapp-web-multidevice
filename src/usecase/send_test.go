@@ -5,20 +5,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestBuildSentMessageStoreContextPreservesDevice(t *testing.T) {
-	device := &whatsapp.DeviceInstance{}
-	ctx := whatsapp.ContextWithDevice(context.Background(), device)
+type sentMessageStoreContextKey string
 
-	storeCtx, cancel := buildSentMessageStoreContext(ctx, time.Second)
+func TestBuildSentMessageStoreContextPreservesValuesAndDetachesCancellation(t *testing.T) {
+	parent := context.WithValue(context.Background(), sentMessageStoreContextKey("device"), "device-123")
+	parent, cancelParent := context.WithCancel(parent)
+
+	storeCtx, cancel := buildSentMessageStoreContext(parent, time.Second)
 	defer cancel()
 
-	gotDevice, ok := whatsapp.DeviceFromContext(storeCtx)
-	if !ok || gotDevice != device {
-		t.Fatalf("expected device context to be preserved")
-	}
+	cancelParent()
+
+	require.Equal(t, "device-123", storeCtx.Value(sentMessageStoreContextKey("device")))
+	assert.NoError(t, storeCtx.Err())
 }
 
 func TestResolveDocumentMIME(t *testing.T) {
