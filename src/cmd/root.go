@@ -23,10 +23,10 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -326,12 +326,9 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
-	connStr := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", config.ChatStorageURI)
-	if config.ChatStorageEnableForeignKeys {
-		connStr += "&_foreign_keys=on"
-	}
+	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
-	db, err := sql.Open("sqlite3", connStr)
+	db, err := sql.Open(sqlite.DriverName, connStr)
 	if err != nil {
 		return nil, err
 	}

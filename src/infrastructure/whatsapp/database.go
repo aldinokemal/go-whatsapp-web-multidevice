@@ -7,6 +7,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -31,7 +32,8 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 	DBURI = strings.Trim(DBURI, `"'`)
 
 	if strings.HasPrefix(DBURI, "file:") {
-		return sqlstore.New(ctx, "sqlite3", DBURI, dbLog)
+		DBURI = sqlite.FormatChatStorageURI(DBURI, true, true)
+		return sqlstore.New(ctx, sqlite.DriverName, DBURI, dbLog)
 	} else if strings.HasPrefix(DBURI, "postgres:") {
 		return sqlstore.New(ctx, "postgres", DBURI, dbLog)
 	}
