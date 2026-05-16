@@ -919,10 +919,12 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		return response, err
 	}
 
+	contactName := strings.TrimSpace(request.ContactName)
+	contactPhone := utils.CleanPhoneForWhatsApp(request.ContactPhone)
 	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
-		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
+		contactName, contactName, contactPhone, contactPhone)
 	msg := &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
-		DisplayName: proto.String(request.ContactName),
+		DisplayName: proto.String(contactName),
 		Vcard:       proto.String(msgVCard),
 	}}
 
@@ -940,7 +942,10 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	content := "👤 " + request.ContactName
+	content := "👤 " + contactName
+	if contactPhone != "" {
+		content = fmt.Sprintf("👤 %s (+%s)", contactName, contactPhone)
+	}
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {

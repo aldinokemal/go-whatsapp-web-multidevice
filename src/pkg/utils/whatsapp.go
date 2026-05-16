@@ -57,9 +57,38 @@ func resolveKnownDocumentExtension(mimeType string) (string, bool) {
 }
 
 // ExtractPhoneFromVCard returns the first phone number found in a vCard's TEL field.
-// Splits on "\n" — TrimSpace handles the trailing "\r" from CRLF-terminated vCards.
 func ExtractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
+	if vcard == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var lines []string
+	var current strings.Builder
+	for _, rawLine := range strings.Split(normalized, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
+			if current.Len() > 0 {
+				current.WriteString(line)
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
 			if idx := strings.LastIndex(line, ":"); idx >= 0 {
@@ -73,6 +102,9 @@ func ExtractPhoneFromVCard(vcard string) string {
 // FormatContactSummary builds a one-liner for a shared contact card.
 // Pass plural=true for ContactsArrayMessage to use the "Contacts" prefix.
 func FormatContactSummary(name, phone string, plural bool) string {
+	name = strings.TrimSpace(name)
+	phone = strings.TrimSpace(phone)
+
 	prefix := "Contact"
 	if plural {
 		prefix = "Contacts"

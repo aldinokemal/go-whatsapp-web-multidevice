@@ -521,6 +521,17 @@ func TestValidateSendContact(t *testing.T) {
 			}},
 			err: pkgError.ValidationError("contact_phone: cannot be blank."),
 		},
+		{
+			name: "should error with plus-only contact phone",
+			args: args{request: domainSend.ContactRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				ContactName:  "Aldino",
+				ContactPhone: "+",
+			}},
+			err: pkgError.ValidationError("contact phone number cannot be empty"),
+		},
 	}
 
 	for _, tt := range tests {
