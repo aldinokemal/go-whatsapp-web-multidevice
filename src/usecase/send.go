@@ -50,6 +50,11 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
+func buildSentMessageStoreContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(ctx)
+	return context.WithTimeout(base, timeout)
+}
+
 // wrapSendMessage wraps the message sending process with message ID saving
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
 	ts, err := client.SendMessage(ctx, recipient, msg)
@@ -59,14 +64,14 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 
 	// Store the sent message using chatstorage
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.String()
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD().String()
 	}
 
 	// Store message asynchronously with timeout
 	// Use a goroutine to avoid blocking the send operation
 	go func() {
-		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		storeCtx, cancel := buildSentMessageStoreContext(ctx, 2*time.Second)
 		defer cancel()
 
 		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, msg); err != nil {

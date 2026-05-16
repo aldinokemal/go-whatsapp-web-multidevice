@@ -32,6 +32,14 @@ type DeviceManager struct {
 	initOnce sync.Once
 }
 
+func (m *DeviceManager) refreshChatStorage(inst *DeviceInstance) {
+	if m == nil || m.storage == nil || inst == nil {
+		return
+	}
+
+	inst.SetChatStorage(newDeviceChatStorage(storageDeviceIDForInstance(inst), m.storage))
+}
+
 func NewDeviceManager(store *sqlstore.Container, keys *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceManager {
 	return &DeviceManager{
 		devices: make(map[string]*DeviceInstance),
@@ -419,6 +427,7 @@ func (m *DeviceManager) loadFromRegistry(records []*domainChatStorage.DeviceReco
 			if client := existingByJID.GetClient(); client != nil {
 				instance.SetClient(client)
 				instance.UpdateStateFromClient()
+				m.refreshChatStorage(instance)
 			}
 		}
 
@@ -438,6 +447,7 @@ func (m *DeviceManager) EnsureDefault(client *DeviceInstance) {
 
 	// Check if device exists by ID
 	if _, ok := m.devices[client.ID()]; ok {
+		m.refreshChatStorage(client)
 		return
 	}
 
@@ -448,12 +458,14 @@ func (m *DeviceManager) EnsureDefault(client *DeviceInstance) {
 			if inst.JID() == clientJID {
 				// Update existing device with the new client
 				inst.SetClient(client.GetClient())
+				m.refreshChatStorage(inst)
 				return
 			}
 		}
 	}
 
 	m.devices[client.ID()] = client
+	m.refreshChatStorage(client)
 }
 
 // EnsureClient returns a device instance with an initialized WhatsApp client.
@@ -466,6 +478,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	inst := m.ensureInstance(deviceID)
 	if existing := inst.GetClient(); existing != nil {
 		inst.UpdateStateFromClient()
+		m.refreshChatStorage(inst)
 		return inst, nil
 	}
 
@@ -501,6 +514,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 
 	inst.SetClient(client)
 	inst.UpdateStateFromClient()
+	m.refreshChatStorage(inst)
 
 	return inst, nil
 }

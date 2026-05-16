@@ -22,7 +22,7 @@ func newDeviceChatStorage(deviceID string, base domainChatStorage.IChatStorageRe
 		return nil
 	}
 	return &deviceChatStorage{
-		deviceID: deviceID,
+		deviceID: normalizeStorageDeviceID(deviceID),
 		base:     base,
 	}
 }

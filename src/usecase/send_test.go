@@ -1,6 +1,28 @@
 package usecase
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type sentMessageStoreContextKey string
+
+func TestBuildSentMessageStoreContextPreservesValuesAndDetachesCancellation(t *testing.T) {
+	parent := context.WithValue(context.Background(), sentMessageStoreContextKey("device"), "device-123")
+	parent, cancelParent := context.WithCancel(parent)
+
+	storeCtx, cancel := buildSentMessageStoreContext(parent, time.Second)
+	defer cancel()
+
+	cancelParent()
+
+	require.Equal(t, "device-123", storeCtx.Value(sentMessageStoreContextKey("device")))
+	assert.NoError(t, storeCtx.Err())
+}
 
 func TestResolveDocumentMIME(t *testing.T) {
 	tests := []struct {
