@@ -80,9 +80,16 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		return nil
 	}
 
-	var err error
+	deviceJID, _ := payload["device_id"].(string)
+	webhookURLs, err := getWebhookURLsForDevice(deviceJID)
+	if err != nil {
+		logrus.Warnf("Failed to get webhook URLs for device %s: %v", deviceJID, err)
+		return err
+	}
+
+	var webhookErr error
 	if webhookAllowed {
-		err = forwardToWebhooks(ctx, payload, eventName)
+		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs)
 	} else {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
@@ -91,11 +98,37 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
-	return err
+	return webhookErr
 }
 
-func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	total := len(config.WhatsappWebhook)
+// getWebhookURLsForDevice returns the webhook URLs to use for a given device.
+// If the device has a custom webhook URL, it returns that URL only (override mode).
+// Otherwise, it returns the global configured webhook URLs.
+func getWebhookURLsForDevice(deviceJID string) ([]string, error) {
+	if deviceJID == "" {
+		return config.WhatsappWebhook, nil
+	}
+
+	dm := GetDeviceManager()
+	if dm != nil && dm.storage != nil {
+		record, err := dm.storage.GetDeviceRecordByJID(deviceJID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get device record: %w", err)
+		}
+		if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+			logrus.Debugf("Using device-specific webhook for %s", deviceJID)
+			return []string{*record.WebhookURL}, nil
+		}
+	}
+
+	return config.WhatsappWebhook, nil
+}
+
+// forwardToWebhooks delivers the payload to each URL in the webhookURLs slice.
+// It logs successes and failures, returning an error only if all deliveries fail.
+// Partial failures (some succeed, some fail) are logged but do not cause a return error.
+func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string, webhookURLs []string) error {
+	total := len(webhookURLs)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
 
 	if total == 0 {
@@ -106,7 +139,7 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 		failed    []string
 		successes int
 	)
-	for _, url := range config.WhatsappWebhook {
+	for _, url := range webhookURLs {
 		if err := submitWebhookFn(ctx, payload, url); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
 			logrus.Warnf("Failed forwarding %s to %s: %v", eventName, url, err)

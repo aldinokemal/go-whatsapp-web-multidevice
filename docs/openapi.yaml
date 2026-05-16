@@ -498,6 +498,137 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /devices/{device_id}/webhook:
+    get:
+      operationId: getDeviceWebhook
+      tags:
+        - device
+      summary: Get device webhook URL
+      description: Get the webhook URL configured for a specific device. Returns empty if no device-specific webhook is set.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Device webhook retrieved
+                  results:
+                    type: object
+                    properties:
+                      device_id:
+                        type: string
+                        description: The device ID
+                        example: 'my-device'
+                      webhook_url:
+                        type: string
+                        description: The configured webhook URL (empty if not set)
+                        example: 'https://example.com/webhook'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    patch:
+      operationId: updateDeviceWebhook
+      tags:
+        - device
+      summary: Set device webhook URL
+      description: |
+        Set a custom webhook URL for a specific device. When set, webhook events for this device
+        will be sent to this URL instead of the global webhook URL.
+
+        Set to empty string to clear and use the global webhook.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhook_url:
+                  type: string
+                  description: Custom webhook URL to use for this device. Set to empty string to clear.
+                  example: 'https://example.com/webhook'
+              required:
+                - webhook_url
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Device webhook updated
+                  results:
+                    type: object
+                    properties:
+                      device_id:
+                        type: string
+                        description: The device ID
+                        example: 'my-device'
+                      webhook_url:
+                        type: string
+                        description: The configured webhook URL
+                        example: 'https://example.com/webhook'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /user/info:
     get:
       operationId: userInfo

@@ -613,3 +613,11 @@ func (m *DeviceManager) StoreInfo() (dbURI, keysURI string) {
 	}
 	return config.DBURI, config.DBKeysURI
 }
+
+// GetStorage returns the chat storage repository.
+func (m *DeviceManager) GetStorage() domainChatStorage.IChatStorageRepository {
+	if m == nil {
+		return nil
+	}
+	return m.storage
+}

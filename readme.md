@@ -110,6 +110,12 @@ Download:
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
   - for more detail, see [Webhook Payload Documentation](./docs/webhook-payload.md)
+- **Per-Device Webhook** - Each device can have its own webhook URL
+  - Set via API: `PATCH /devices/:device_id/webhook` with `{"webhook_url": "https://device-webhook.site/handler"}`
+  - Get via API: `GET /devices/:device_id/webhook`
+  - When a device has a custom webhook, events for that device are sent to the device-specific URL
+  - When no device webhook is set, events fall back to the global webhook (`--webhook`)
+  - Set to empty string `""` via PATCH to clear and use global webhook
 - Webhook Secret
   Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
 
@@ -514,6 +520,8 @@ You can fork or edit this source code !
 | ✅       | Logout Device                          | POST   | /devices/:device_id/logout          |
 | ✅       | Reconnect Device                       | POST   | /devices/:device_id/reconnect       |
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
+| ✅       | Get Device Webhook                     | GET    | /devices/:device_id/webhook         |
+| ✅       | Set Device Webhook                     | PATCH  | /devices/:device_id/webhook         |
 | ✅       | Login with Scan QR                     | GET    | /app/login                          |
 | ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
 | ✅       | Logout                                 | GET    | /app/logout                         |
