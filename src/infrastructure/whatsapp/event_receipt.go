@@ -35,7 +35,7 @@ func getReceiptTypeDescription(evt types.ReceiptType) string {
 }
 
 // createReceiptPayload creates a webhook payload for message acknowledgement (receipt) events
-func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) map[string]any {
+func createReceiptPayload(ctx context.Context, evt *events.Receipt, sessionID string, deviceID string, client *whatsmeow.Client) map[string]any {
 	body := make(map[string]any)
 	payload := make(map[string]any)
 
@@ -72,6 +72,9 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
+	if sessionID != "" {
+		body["session_id"] = sessionID
+	}
 	body["payload"] = payload
 
 	return body
@@ -86,7 +89,7 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 // we only send the receipt from the primary device (Device == 0).
 //
 // If you need receipts from all devices in the future, remove the Device == 0 check below.
-func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) error {
+func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, sessionID string, deviceID string, client *whatsmeow.Client) error {
 	// Only forward receipts from the primary device to avoid duplicates.
 	// See function comment above for detailed explanation.
 	if evt.Sender.Device != 0 {
@@ -94,6 +97,6 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 		return nil
 	}
 
-	payload := createReceiptPayload(ctx, evt, deviceID, client)
+	payload := createReceiptPayload(ctx, evt, sessionID, deviceID, client)
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
 }
