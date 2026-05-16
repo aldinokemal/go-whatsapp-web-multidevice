@@ -80,6 +80,40 @@ func TestBuildEventPayloadRevokedIncludesIsFromMe(t *testing.T) {
 	}
 }
 
+func TestBuildEventPayloadReactionIncludesTargetMessageID(t *testing.T) {
+	evt := reactionEventForTest("reaction-event-1", "MSG100", "\U0001f44d")
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageReaction {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageReaction, eventType)
+	}
+	if got := payload["reaction"]; got != "\U0001f44d" {
+		t.Fatalf("expected reaction payload, got %v", got)
+	}
+	if got := payload["reacted_message_id"]; got != "MSG100" {
+		t.Fatalf("expected reacted message id MSG100, got %v", got)
+	}
+}
+
+func TestBuildEventPayloadReactionWithoutKeyDoesNotPanic(t *testing.T) {
+	evt := reactionEventForTest("reaction-event-2", "MSG101", "\U0001f44d")
+	evt.Message.ReactionMessage.Key = nil
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageReaction {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageReaction, eventType)
+	}
+	if _, ok := payload["reacted_message_id"]; ok {
+		t.Fatalf("expected no reacted_message_id when reaction key is missing")
+	}
+}
+
 func protoString(value string) *string {
 	return &value
 }

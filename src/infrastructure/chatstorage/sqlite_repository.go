@@ -189,7 +189,12 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ?", jid)
+	if err != nil {
+		return err
+	}
+
+	// Delete messages after reactions to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
 	if err != nil {
 		return err
@@ -212,7 +217,12 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
+	if err != nil {
+		return err
+	}
+
+	// Delete messages after reactions to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
 	if err != nil {
 		return err
@@ -340,6 +350,60 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	return tx.Commit()
 }
 
+// StoreReaction creates, updates, or removes a message reaction.
+func (r *SQLiteRepository) StoreReaction(reaction *domainChatStorage.Reaction) error {
+	if reaction == nil {
+		return nil
+	}
+	if reaction.MessageID == "" || reaction.ChatJID == "" || reaction.DeviceID == "" || reaction.ReactorJID == "" {
+		return fmt.Errorf("reaction requires message_id, chat_jid, device_id, and reactor_jid")
+	}
+	if reaction.Emoji == "" {
+		return r.DeleteReaction(reaction.MessageID, reaction.ReactorJID, reaction.DeviceID)
+	}
+
+	now := time.Now()
+	if reaction.CreatedAt.IsZero() {
+		reaction.CreatedAt = now
+	}
+	reaction.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE message_reactions
+		SET chat_jid = ?, emoji = ?, is_from_me = ?, reaction_timestamp = ?, updated_at = ?
+		WHERE message_id = ? AND reactor_jid = ? AND device_id = ?
+	`, reaction.ChatJID, reaction.Emoji, reaction.IsFromMe, reaction.Timestamp, reaction.UpdatedAt,
+		reaction.MessageID, reaction.ReactorJID, reaction.DeviceID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO message_reactions (
+				message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+				reaction_timestamp, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, reaction.MessageID, reaction.ChatJID, reaction.DeviceID, reaction.ReactorJID,
+			reaction.Emoji, reaction.IsFromMe, reaction.Timestamp, reaction.CreatedAt, reaction.UpdatedAt)
+	}
+	return err
+}
+
+// DeleteReaction removes a single stored reaction.
+func (r *SQLiteRepository) DeleteReaction(messageID, reactorJID, deviceID string) error {
+	if messageID == "" || reactorJID == "" || deviceID == "" {
+		return nil
+	}
+
+	_, err := r.db.Exec(`
+		DELETE FROM message_reactions
+		WHERE message_id = ? AND reactor_jid = ? AND device_id = ?
+	`, messageID, reactorJID, deviceID)
+	return err
+}
+
 // GetMessages retrieves messages with filtering
 func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
 	// Require device_id for data isolation - fail fast if missing
@@ -414,7 +478,15 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		messages = append(messages, message)
 	}
 
-	return messages, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := r.loadMessageReactions(filter.DeviceID, filter.ChatJID, messages); err != nil {
+		return nil, err
+	}
+
+	return messages, nil
 }
 
 // SearchMessages performs database-level search for messages containing specific text
@@ -478,17 +550,99 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 		return nil, fmt.Errorf("error iterating messages: %w", err)
 	}
 
+	if err := r.loadMessageReactions(deviceID, chatJID, messages); err != nil {
+		return nil, fmt.Errorf("failed to load message reactions: %w", err)
+	}
+
 	return messages, nil
+}
+
+func (r *SQLiteRepository) loadMessageReactions(deviceID, chatJID string, messages []*domainChatStorage.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	messageIDs := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if message != nil && message.ID != "" {
+			messageIDs = append(messageIDs, message.ID)
+		}
+	}
+	if len(messageIDs) == 0 {
+		return nil
+	}
+
+	reactionsByMessageID := make(map[string][]domainChatStorage.Reaction)
+	for start := 0; start < len(messageIDs); start += 500 {
+		end := start + 500
+		if end > len(messageIDs) {
+			end = len(messageIDs)
+		}
+
+		batchIDs := messageIDs[start:end]
+		placeholders := make([]string, 0, len(batchIDs))
+		args := make([]any, 0, len(batchIDs)+2)
+		args = append(args, deviceID, chatJID)
+		for _, messageID := range batchIDs {
+			placeholders = append(placeholders, "?")
+			args = append(args, messageID)
+		}
+
+		query := `
+			SELECT message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+				reaction_timestamp, created_at, updated_at
+			FROM message_reactions
+			WHERE device_id = ? AND chat_jid = ? AND message_id IN (` + strings.Join(placeholders, ",") + `)
+			ORDER BY reaction_timestamp ASC, created_at ASC
+		`
+
+		rows, err := r.db.Query(query, args...)
+		if err != nil {
+			return err
+		}
+
+		for rows.Next() {
+			var reaction domainChatStorage.Reaction
+			if err := rows.Scan(
+				&reaction.MessageID, &reaction.ChatJID, &reaction.DeviceID, &reaction.ReactorJID,
+				&reaction.Emoji, &reaction.IsFromMe, &reaction.Timestamp, &reaction.CreatedAt, &reaction.UpdatedAt,
+			); err != nil {
+				rows.Close()
+				return err
+			}
+			reactionsByMessageID[reaction.MessageID] = append(reactionsByMessageID[reaction.MessageID], reaction)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		message.Reactions = reactionsByMessageID[message.ID]
+	}
+
+	return nil
 }
 
 // DeleteMessage deletes a specific message
 func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
+	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
 	return err
 }
 
 // DeleteMessageByDevice deletes a specific message for a specific device
 func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) error {
+	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
 	return err
 }
@@ -565,7 +719,12 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM message_reactions")
+	if err != nil {
+		return fmt.Errorf("failed to delete message reactions: %w", err)
+	}
+
+	// Delete messages after reactions to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
 		return fmt.Errorf("failed to delete messages: %w", err)
@@ -593,7 +752,11 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first via direct device_id filter
+	if _, err := tx.Exec(`DELETE FROM message_reactions WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device reactions: %w", err)
+	}
+
+	// Delete messages after reactions via direct device_id filter.
 	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device messages: %w", err)
 	}
@@ -873,6 +1036,83 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Store the message
 	return r.StoreMessage(message)
+}
+
+// CreateReaction stores or removes a reaction event as its own row in message_reactions.
+func (r *SQLiteRepository) CreateReaction(ctx context.Context, evt *events.Message) error {
+	reaction, err := r.reactionFromEvent(ctx, evt)
+	if err != nil {
+		return err
+	}
+	if reaction == nil {
+		return nil
+	}
+	return r.StoreReaction(reaction)
+}
+
+func (r *SQLiteRepository) reactionFromEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	if evt == nil || evt.Message == nil {
+		return nil, nil
+	}
+
+	msg := utils.UnwrapMessage(evt.Message)
+	reactionMessage := msg.GetReactionMessage()
+	if reactionMessage == nil {
+		return nil, nil
+	}
+
+	key := reactionMessage.GetKey()
+	if key == nil || key.GetID() == "" {
+		logrus.Debugf("Skipping reaction event %s - missing reacted message id", evt.Info.ID)
+		return nil, nil
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+	if deviceID == "" {
+		return nil, domainChatStorage.ErrMissingDeviceContext
+	}
+
+	chatJID := evt.Info.Chat
+	if chatJID.IsEmpty() && key.GetRemoteJID() != "" {
+		parsed, err := types.ParseJID(key.GetRemoteJID())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse reaction chat jid %q: %w", key.GetRemoteJID(), err)
+		}
+		chatJID = parsed
+	}
+	if chatJID.IsEmpty() {
+		return nil, fmt.Errorf("reaction chat jid is required")
+	}
+	normalizedChatJID := whatsapp.NormalizeJIDFromLID(ctx, chatJID, client)
+
+	reactorJID := evt.Info.Sender
+	if reactorJID.IsEmpty() && evt.Info.IsFromMe && client != nil && client.Store != nil && client.Store.ID != nil {
+		reactorJID = client.Store.ID.ToNonAD()
+	}
+	if reactorJID.IsEmpty() {
+		return nil, fmt.Errorf("reaction sender jid is required")
+	}
+	normalizedReactorJID := whatsapp.NormalizeJIDFromLID(ctx, reactorJID, client)
+
+	return &domainChatStorage.Reaction{
+		MessageID:  key.GetID(),
+		ChatJID:    normalizedChatJID.String(),
+		DeviceID:   deviceID,
+		ReactorJID: normalizedReactorJID.ToNonAD().String(),
+		Emoji:      reactionMessage.GetText(),
+		IsFromMe:   evt.Info.IsFromMe,
+		Timestamp:  evt.Info.Timestamp,
+	}, nil
 }
 
 // CreateIncomingCallRecord stores an incoming call as a synthetic message row (media_type "call").
@@ -1269,5 +1509,22 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 16: JSON metadata for Meta Ads referral/attribution (CTWA)
 		`ALTER TABLE messages ADD COLUMN referral_metadata TEXT DEFAULT ''`,
+
+		// Migration 17: Store emoji reactions per message
+		`CREATE TABLE IF NOT EXISTS message_reactions (
+			message_id VARCHAR(255) NOT NULL,
+			chat_jid VARCHAR(255) NOT NULL,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			reactor_jid VARCHAR(255) NOT NULL,
+			emoji TEXT NOT NULL DEFAULT '',
+			is_from_me BOOLEAN DEFAULT FALSE,
+			reaction_timestamp TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (message_id, reactor_jid, device_id)
+		)`,
+
+		// Migration 18: Index reactions by message and chat for history hydration
+		`CREATE INDEX IF NOT EXISTS idx_message_reactions_lookup ON message_reactions(device_id, chat_jid, message_id)`,
 	}
 }
