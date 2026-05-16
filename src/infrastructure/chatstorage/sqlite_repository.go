@@ -27,6 +27,28 @@ func NewStorageRepository(db *sql.DB) domainChatStorage.IChatStorageRepository {
 	return &SQLiteRepository{db: db}
 }
 
+// buildContextMetadata marshals whatsmeow ContextInfo-derived fields into a
+// JSON blob for the messages.context_metadata column. Returns "" when the
+// message has no meaningful context. Shape is open so future fields
+// (mentioned_jids, is_forwarded, ...) can be added without a migration.
+func buildContextMetadata(ci *waE2E.ContextInfo) string {
+	if ci == nil {
+		return ""
+	}
+	meta := map[string]any{}
+	if stanzaID := ci.GetStanzaID(); stanzaID != "" {
+		meta["replied_to_id"] = stanzaID
+	}
+	if len(meta) == 0 {
+		return ""
+	}
+	jsonBytes, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(jsonBytes)
+}
+
 // StoreChat creates or updates a chat
 func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 	now := time.Now()
@@ -89,7 +111,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ?
 		LIMIT 1
@@ -242,11 +264,11 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 	result, err := r.db.Exec(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
 			media_type = ?, call_metadata = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
-			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, context_metadata = ?, updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`, message.Sender, message.Content, message.Timestamp, message.IsFromMe,
 		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
-		message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
+		message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.UpdatedAt,
 		message.ID, message.ChatJID, message.DeviceID)
 	if err != nil {
 		return err
@@ -258,12 +280,12 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 				media_type, call_metadata, filename, url, media_key, file_sha256,
-				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-			message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
+			message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.CreatedAt, message.UpdatedAt)
 	}
 	return err
 }
@@ -284,7 +306,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	updateStmt, err := tx.Prepare(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
 			media_type = ?, call_metadata = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
-			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, context_metadata = ?, updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`)
 	if err != nil {
@@ -296,8 +318,8 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		INSERT INTO messages (
 			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
@@ -316,7 +338,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		result, err := updateStmt.Exec(
 			message.Sender, message.Content, message.Timestamp, message.IsFromMe,
 			message.MediaType, message.CallMetadata, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
-			message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
+			message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.UpdatedAt,
 			message.ID, message.ChatJID, message.DeviceID,
 		)
 		if err != nil {
@@ -329,7 +351,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 				message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 				message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 				message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-				message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt,
+				message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.CreatedAt, message.UpdatedAt,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert message %s: %w", message.ID, err)
@@ -379,7 +401,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -444,7 +466,7 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -507,7 +529,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 		&message.ID, &message.ChatJID, &message.DeviceID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.CallMetadata, &message.Filename,
 		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
-		&message.FileLength, &message.ReferralMetadata, &message.CreatedAt, &message.UpdatedAt,
+		&message.FileLength, &message.ReferralMetadata, &message.ContextMetadata, &message.CreatedAt, &message.UpdatedAt,
 	)
 	return message, err
 }
@@ -853,6 +875,12 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		}
 	}
 
+	// Capture whatsmeow ContextInfo (reply refs, ...) as a JSON blob so the
+	// info survives past the webhook event and shows up in /chat/:jid/messages
+	// responses. Structure is open so additional keys (mentions, forwards)
+	// can land without a new migration.
+	contextMetadata := buildContextMetadata(utils.ExtractContextInfo(evt.Message))
+
 	message := &domainChatStorage.Message{
 		ID:               evt.Info.ID,
 		ChatJID:          chatJID,
@@ -869,6 +897,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		FileEncSHA256:    fileEncSHA256,
 		FileLength:       fileLength,
 		ReferralMetadata: referralMetadata,
+		ContextMetadata:  contextMetadata,
 	}
 
 	// Store the message
@@ -1098,22 +1127,31 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		mediaType, filename, mediaURL, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
 	}
 
+	// Capture ContextInfo (reply refs, ...) from the outgoing message too so
+	// bot-authored replies show up in /chat/:jid/messages with the same shape
+	// as inbound replies. Mirrors the logic in CreateMessage.
+	var contextMetadata string
+	if msg != nil {
+		contextMetadata = buildContextMetadata(utils.ExtractContextInfo(msg))
+	}
+
 	// Store the sent message
 	message := &domainChatStorage.Message{
-		ID:            messageID,
-		ChatJID:       chatJID,
-		DeviceID:      deviceID,
-		Sender:        senderJID,
-		Content:       content,
-		Timestamp:     timestamp,
-		IsFromMe:      true,
-		MediaType:     mediaType,
-		Filename:      filename,
-		URL:           mediaURL,
-		MediaKey:      mediaKey,
-		FileSHA256:    fileSHA256,
-		FileEncSHA256: fileEncSHA256,
-		FileLength:    fileLength,
+		ID:              messageID,
+		ChatJID:         chatJID,
+		DeviceID:        deviceID,
+		Sender:          senderJID,
+		Content:         content,
+		Timestamp:       timestamp,
+		IsFromMe:        true,
+		MediaType:       mediaType,
+		Filename:        filename,
+		URL:             mediaURL,
+		MediaKey:        mediaKey,
+		FileSHA256:      fileSHA256,
+		FileEncSHA256:   fileEncSHA256,
+		FileLength:      fileLength,
+		ContextMetadata: contextMetadata,
 	}
 
 	return r.StoreMessage(message)
@@ -1269,5 +1307,10 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 16: JSON metadata for Meta Ads referral/attribution (CTWA)
 		`ALTER TABLE messages ADD COLUMN referral_metadata TEXT DEFAULT ''`,
+
+		// Migration 17: JSON metadata for whatsmeow ContextInfo (reply refs,
+		// mentions, forward info). Structure kept open-ended so future fields
+		// don't require a new migration — consumers JSON-parse on read.
+		`ALTER TABLE messages ADD COLUMN context_metadata TEXT DEFAULT ''`,
 	}
 }
