@@ -226,6 +226,54 @@ func TestBuildEventPayloadDocumentWithCaption(t *testing.T) {
 	}
 }
 
+func TestBuildEventPayloadQuotedBodyUsesQuotedCaption(t *testing.T) {
+	oldAutoDownload := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() {
+		config.WhatsappAutoDownloadMedia = oldAutoDownload
+	})
+
+	replyText := "Thanks for the update"
+	quotedCaption := "Launch checklist"
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "MSG206",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: &replyText,
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID: protoString("QUOTE206"),
+					QuotedMessage: &waE2E.Message{
+						ImageMessage: &waE2E.ImageMessage{
+							Caption: &quotedCaption,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	quotedBody, ok := payload["quoted_body"]
+	if !ok {
+		t.Fatal("expected quoted_body in payload when quoted message has a caption")
+	}
+	if quotedBody != "Launch checklist" {
+		t.Fatalf("expected quoted_body='Launch checklist', got %v", quotedBody)
+	}
+}
+
 func TestBuildEventPayloadContactIncludesPhoneNumber(t *testing.T) {
 	name := "Alice"
 	vcard := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
