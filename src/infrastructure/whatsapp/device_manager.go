@@ -504,7 +504,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
-	client.AddEventHandler(func(rawEvt interface{}) {
+	client.AddEventHandler(func(rawEvt any) {
 		handler(ctx, inst, rawEvt)
 	})
 

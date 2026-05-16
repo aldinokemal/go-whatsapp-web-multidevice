@@ -25,19 +25,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabihf \
             gcc-mingw-w64 \
+            libc6-dev-armhf-cross \
             libc6-dev-i386-cross \
             gcc-i686-linux-gnu
 
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          version: "~> v2"
           install-only: true
 
       - name: Create Linux/Windows GoReleaser config
         run: |
           cat > /tmp/.goreleaser-linux-windows.yml << 'EOF'
+          version: 2
           project_name: whatsapp
 
           builds:
@@ -66,6 +69,21 @@ jobs:
                 - arm64
               ldflags: -s -w
               binary: "{{ .Os }}-{{ .Arch }}"
+
+            - id: linux-armv7
+              dir: ./src
+              main: .
+              env:
+                - CGO_ENABLED=1
+                - CC=arm-linux-gnueabihf-gcc
+              goos:
+                - linux
+              goarch:
+                - arm
+              goarm:
+                - "7"
+              ldflags: -s -w
+              binary: "{{ .Os }}-{{ .Arch }}v{{ .Arm }}"
               
             - id: linux-386
               dir: ./src
@@ -108,14 +126,16 @@ jobs:
 
           archives:
             - id: binaries
-              builds:
+              ids:
                 - linux-amd64
                 - linux-arm64
+                - linux-armv7
                 - linux-386
                 - windows-amd64
                 - windows-386
-              format: zip
-              name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+              formats:
+                - zip
+              name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
 
           checksum:
             name_template: "checksums.txt"
@@ -130,7 +150,7 @@ jobs:
       - name: Run GoReleaser for Linux/Windows
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: goreleaser release --config /tmp/.goreleaser-linux-windows.yml --clean --timeout 60m --skip-validate
+        run: goreleaser release --config /tmp/.goreleaser-linux-windows.yml --clean --timeout 60m --skip=validate
 
   build-macos:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -146,14 +166,15 @@ jobs:
           go-version: "1.25"
 
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          version: "~> v2"
           install-only: true
 
       - name: Create macOS GoReleaser config
         run: |
           cat > /tmp/.goreleaser-macos.yml << 'EOF'
+          version: 2
           project_name: whatsapp
 
           builds:
@@ -183,10 +204,11 @@ jobs:
 
           archives:
             - id: binaries
-              builds:
+              ids:
                 - darwin-amd64
                 - darwin-arm64
-              format: zip
+              formats:
+                - zip
               name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
           checksum:
@@ -202,4 +224,4 @@ jobs:
       - name: Run GoReleaser for macOS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: goreleaser release --config /tmp/.goreleaser-macos.yml --timeout 60m --skip-validate
+        run: goreleaser release --config /tmp/.goreleaser-macos.yml --clean --timeout 60m --skip=validate

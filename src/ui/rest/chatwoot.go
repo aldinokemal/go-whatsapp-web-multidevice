@@ -269,7 +269,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 			Status:  fiber.StatusConflict,
 			Code:    "SYNC_ALREADY_RUNNING",
 			Message: "A sync is already in progress for this device",
-			Results: map[string]interface{}{
+			Results: map[string]any{
 				"progress": progress,
 			},
 		})
@@ -297,7 +297,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 		Status:  200,
 		Code:    "SYNC_STARTED",
 		Message: "History sync initiated in background",
-		Results: map[string]interface{}{
+		Results: map[string]any{
 			"device_id":      resolvedID,
 			"days_limit":     opts.DaysLimit,
 			"include_media":  opts.IncludeMedia,
@@ -331,7 +331,7 @@ func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
 			Status:  200,
 			Code:    "SUCCESS",
 			Message: "No sync has been initiated yet",
-			Results: map[string]interface{}{
+			Results: map[string]any{
 				"device_id": resolvedID,
 				"status":    "idle",
 			},
@@ -344,7 +344,7 @@ func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
 			Status:  200,
 			Code:    "SUCCESS",
 			Message: "No sync progress found for this device",
-			Results: map[string]interface{}{
+			Results: map[string]any{
 				"device_id": resolvedID,
 				"status":    "idle",
 			},
