@@ -52,7 +52,7 @@ func TestValidateSendSticker(t *testing.T) {
 					Sticker: sticker,
 				},
 			},
-			err: pkgError.ValidationError("Phone: cannot be blank."),
+			err: pkgError.ValidationError("phone: cannot be blank."),
 		},
 		{
 			name: "should error without sticker and sticker_url",
@@ -132,7 +132,7 @@ func TestValidateSendSticker(t *testing.T) {
 				request: domainSend.StickerRequest{
 					BaseRequest: domainSend.BaseRequest{
 						Phone:    "+6289123456",
-						Duration: func() *int { d := 3600; return &d }(),
+						Duration: func() *int { d := 86400; return &d }(),
 					},
 					Sticker: sticker,
 				},
@@ -150,7 +150,7 @@ func TestValidateSendSticker(t *testing.T) {
 					Sticker: sticker,
 				},
 			},
-			err: pkgError.ValidationError("duration must be between 0 and 4294967295 seconds (0 means no expiry)"),
+			err: pkgError.ValidationError("duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)"),
 		},
 	}
 

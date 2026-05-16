@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/gif"  // Register GIF format
-	_ "image/jpeg" // For JPEG encoding
-	_ "image/png"  // For PNG encoding
+	"image/color"
+	stddraw "image/draw"
+	_ "image/gif" // Register GIF format
+	"image/jpeg"
+	_ "image/png" // For PNG encoding
 	"io"
 	"math"
 	"math/rand"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/disintegration/imaging"
 	"github.com/sirupsen/logrus"
 	_ "golang.org/x/image/webp" // Register WebP format
 )
@@ -78,8 +81,62 @@ type Metadata struct {
 	Description string
 	Image       string
 	ImageThumb  []byte
+	JPEGThumb   []byte
 	Height      *uint32
 	Width       *uint32
+}
+
+const (
+	linkPreviewMaxImageDimension = 1024
+	linkPreviewMaxJPEGDimension  = 400
+	linkPreviewImageQuality      = 85
+	linkPreviewJPEGQuality       = 80
+)
+
+func resizeWithinBounds(src image.Image, maxDimension int) image.Image {
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= maxDimension && height <= maxDimension {
+		return src
+	}
+	if width >= height {
+		return imaging.Resize(src, maxDimension, 0, imaging.Lanczos)
+	}
+	return imaging.Resize(src, 0, maxDimension, imaging.Lanczos)
+}
+
+func encodeJPEGWithBackground(src image.Image, quality int) ([]byte, error) {
+	bounds := src.Bounds()
+	canvas := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	stddraw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.White}, image.Point{}, stddraw.Src)
+	stddraw.Draw(canvas, canvas.Bounds(), src, bounds.Min, stddraw.Over)
+
+	var buffer bytes.Buffer
+	if err := jpeg.Encode(&buffer, canvas, &jpeg.Options{Quality: quality}); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func buildLinkPreviewThumbnails(src image.Image) (imageThumb []byte, jpegThumb []byte, width uint32, height uint32, err error) {
+	preview := resizeWithinBounds(src, linkPreviewMaxImageDimension)
+	previewBounds := preview.Bounds()
+	width = uint32(previewBounds.Dx())
+	height = uint32(previewBounds.Dy())
+
+	imageThumb, err = encodeJPEGWithBackground(preview, linkPreviewImageQuality)
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+
+	inlinePreview := resizeWithinBounds(src, linkPreviewMaxJPEGDimension)
+	jpegThumb, err = encodeJPEGWithBackground(inlinePreview, linkPreviewJPEGQuality)
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+
+	return imageThumb, jpegThumb, width, height, nil
 }
 
 // newBrowserRequest creates an HTTP request with browser-like headers
@@ -243,22 +300,23 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 						} else if int64(len(imageData)) > maxImageSize {
 							logrus.Warnf("Downloaded image exceeds max size: %d > %d", len(imageData), maxImageSize)
 						} else {
-							meta.ImageThumb = imageData
-
 							// Validate image by decoding it
 							imageReader := bytes.NewReader(imageData)
 							img, _, err := image.Decode(imageReader)
 							if err != nil {
 								logrus.Warnf("Failed to decode image: %v", err)
 							} else {
-								bounds := img.Bounds()
-								width := uint32(bounds.Max.X - bounds.Min.X)
-								height := uint32(bounds.Max.Y - bounds.Min.Y)
+								imageThumb, jpegThumb, width, height, prepErr := buildLinkPreviewThumbnails(img)
+								if prepErr != nil {
+									logrus.Warnf("Failed to prepare link preview thumbnail: %v", prepErr)
+								} else {
+									meta.ImageThumb = imageThumb
+									meta.JPEGThumb = jpegThumb
+									meta.Width = &width
+									meta.Height = &height
 
-								meta.Width = &width
-								meta.Height = &height
-
-								logrus.Debugf("Image dimensions: %dx%d", width, height)
+									logrus.Debugf("Image dimensions: %dx%d", width, height)
+								}
 							}
 						}
 					}

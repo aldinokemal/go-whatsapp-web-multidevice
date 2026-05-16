@@ -2,11 +2,8 @@ package utils
 
 import (
 	"testing"
-	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
 )
 
 func TestDetermineMediaExtension(t *testing.T) {
@@ -64,53 +61,78 @@ func TestDetermineMediaExtension(t *testing.T) {
 	}
 }
 
-func TestExtractMessageTextFromProtoContactIncludesPhone(t *testing.T) {
-	displayName := "Julio"
-	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Julio\nTEL;type=CELL;waid=5511998913283:+5511998913283\nEND:VCARD"
-	msg := &waE2E.Message{
-		ContactMessage: &waE2E.ContactMessage{
-			DisplayName: &displayName,
-			Vcard:       &vcard,
+func TestExtractPhoneFromVCard(t *testing.T) {
+	tests := []struct {
+		name  string
+		vcard string
+		want  string
+	}{
+		{
+			name:  "LFEndings",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD",
+			want:  "+62 812 3456 7890",
+		},
+		{
+			name:  "CRLFEndings",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bob\r\nTEL:+1 555 0100\r\nEND:VCARD",
+			want:  "+1 555 0100",
+		},
+		{
+			name:  "FoldedLine",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD",
+			want:  "+5511998913283",
+		},
+		{
+			name:  "NoTelLine",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nEND:VCARD",
+			want:  "",
+		},
+		{
+			name:  "Empty",
+			vcard: "",
+			want:  "",
 		},
 	}
 
-	got := ExtractMessageTextFromProto(msg)
-	want := "Contact: Julio (+5511998913283)"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractPhoneFromVCard(tt.vcard)
+			if got != tt.want {
+				t.Fatalf("ExtractPhoneFromVCard() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestExtractMessageTextFromEventContactIncludesPhone(t *testing.T) {
-	displayName := "Julio"
-	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Julio\nTEL;type=CELL;waid=5511998913283:+5511998913283\nEND:VCARD"
-	evt := &events.Message{
-		Info: types.MessageInfo{
-			MessageSource: types.MessageSource{
-				Chat: types.NewJID("5511998913283", types.DefaultUserServer),
-			},
-			ID:        "MSG123",
-			Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
-		},
-		Message: &waE2E.Message{
-			ContactMessage: &waE2E.ContactMessage{
-				DisplayName: &displayName,
-				Vcard:       &vcard,
-			},
-		},
+func TestFormatContactSummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		dName  string
+		phone  string
+		plural bool
+		want   string
+	}{
+		{name: "SingleNameAndPhone", dName: "Alice", phone: "+62 812", plural: false, want: "Contact: Alice (+62 812)"},
+		{name: "SingleNameOnly", dName: "Alice", phone: "", plural: false, want: "Contact: Alice"},
+		{name: "SinglePhoneOnly", dName: "", phone: "+62 812", plural: false, want: "Contact: +62 812"},
+		{name: "SingleEmpty", dName: "", phone: "", plural: false, want: "Contact shared"},
+		{name: "SingleWhitespaceOnly", dName: " ", phone: " ", plural: false, want: "Contact shared"},
+		{name: "PluralNameAndPhone", dName: "Alice", phone: "+62 812", plural: true, want: "Contacts: Alice (+62 812)"},
+		{name: "PluralEmpty", dName: "", phone: "", plural: true, want: "Contacts shared"},
 	}
 
-	got := ExtractMessageTextFromEvent(evt)
-	want := "👤 Julio (+5511998913283)"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromEvent() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatContactSummary(tt.dName, tt.phone, tt.plural)
+			if got != tt.want {
+				t.Fatalf("FormatContactSummary() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestExtractMessageTextFromProtoContactBranches(t *testing.T) {
-	phoneVCard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD"
-	emptyVCard := ""
-	emptyName := ""
+func TestExtractMessageTextFromProtoContactMessage(t *testing.T) {
+	phoneVCard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alice\r\nTEL;type=Mobile:\r\n +62 812 3456 7890\r\nEND:VCARD"
 
 	tests := []struct {
 		name string
@@ -118,41 +140,41 @@ func TestExtractMessageTextFromProtoContactBranches(t *testing.T) {
 		want string
 	}{
 		{
-			name: "both name and phone",
+			name: "NameAndPhone",
 			msg: &waE2E.Message{
 				ContactMessage: &waE2E.ContactMessage{
-					DisplayName: strPtr("Julio"),
+					DisplayName: strPtr("Alice"),
 					Vcard:       strPtr(phoneVCard),
 				},
 			},
-			want: "Contact: Julio (+5511998913283)",
+			want: "Contact: Alice (+62 812 3456 7890)",
 		},
 		{
-			name: "name only",
+			name: "NameOnly",
 			msg: &waE2E.Message{
 				ContactMessage: &waE2E.ContactMessage{
-					DisplayName: strPtr("Julio"),
-					Vcard:       strPtr(emptyVCard),
+					DisplayName: strPtr("Alice"),
+					Vcard:       strPtr(""),
 				},
 			},
-			want: "Contact: Julio",
+			want: "Contact: Alice",
 		},
 		{
-			name: "phone only",
+			name: "PhoneOnly",
 			msg: &waE2E.Message{
 				ContactMessage: &waE2E.ContactMessage{
-					DisplayName: &emptyName,
+					DisplayName: strPtr(""),
 					Vcard:       strPtr(phoneVCard),
 				},
 			},
-			want: "Contact: +5511998913283",
+			want: "Contact: +62 812 3456 7890",
 		},
 		{
-			name: "neither",
+			name: "Neither",
 			msg: &waE2E.Message{
 				ContactMessage: &waE2E.ContactMessage{
-					DisplayName: &emptyName,
-					Vcard:       strPtr(emptyVCard),
+					DisplayName: strPtr(""),
+					Vcard:       strPtr(""),
 				},
 			},
 			want: "Contact shared",
@@ -169,111 +191,54 @@ func TestExtractMessageTextFromProtoContactBranches(t *testing.T) {
 	}
 }
 
-func TestExtractMessageTextFromEventContactBranches(t *testing.T) {
-	phoneVCard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD"
-	emptyVCard := ""
-	emptyName := ""
+func TestExtractMessageTextFromProtoContactsArrayMessage(t *testing.T) {
+	bob := "Bob"
+	bobVcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Bob\nTEL:+1 555 0100\nEND:VCARD"
+	carol := "Carol"
+	carolVcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nTEL:+1 555 0200\nEND:VCARD"
 
 	tests := []struct {
 		name string
-		evt  *events.Message
+		msg  *waE2E.Message
 		want string
 	}{
 		{
-			name: "both name and phone",
-			evt: &events.Message{
-				Info: types.MessageInfo{
-					MessageSource: types.MessageSource{
-						Chat: types.NewJID("5511998913283", types.DefaultUserServer),
-					},
-					ID:        "MSG124",
-					Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
-				},
-				Message: &waE2E.Message{
-					ContactMessage: &waE2E.ContactMessage{
-						DisplayName: strPtr("Julio"),
-						Vcard:       strPtr(phoneVCard),
+			name: "FirstContactWithNameAndPhone",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+					Contacts: []*waE2E.ContactMessage{
+						{DisplayName: &bob, Vcard: &bobVcard},
+						{DisplayName: &carol, Vcard: &carolVcard},
 					},
 				},
 			},
-			want: "👤 Julio (+5511998913283)",
+			want: "Contacts: Bob (+1 555 0100)",
 		},
 		{
-			name: "name only",
-			evt: &events.Message{
-				Info: types.MessageInfo{
-					MessageSource: types.MessageSource{
-						Chat: types.NewJID("5511998913283", types.DefaultUserServer),
-					},
-					ID:        "MSG125",
-					Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
-				},
-				Message: &waE2E.Message{
-					ContactMessage: &waE2E.ContactMessage{
-						DisplayName: strPtr("Julio"),
-						Vcard:       strPtr(emptyVCard),
-					},
-				},
+			name: "EmptyContactsArray",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{Contacts: nil},
 			},
-			want: "👤 Julio",
+			want: "Contacts shared",
 		},
 		{
-			name: "phone only",
-			evt: &events.Message{
-				Info: types.MessageInfo{
-					MessageSource: types.MessageSource{
-						Chat: types.NewJID("5511998913283", types.DefaultUserServer),
-					},
-					ID:        "MSG126",
-					Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
-				},
-				Message: &waE2E.Message{
-					ContactMessage: &waE2E.ContactMessage{
-						DisplayName: &emptyName,
-						Vcard:       strPtr(phoneVCard),
-					},
+			name: "FirstContactEmpty",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+					Contacts: []*waE2E.ContactMessage{{}},
 				},
 			},
-			want: "👤 +5511998913283",
-		},
-		{
-			name: "neither",
-			evt: &events.Message{
-				Info: types.MessageInfo{
-					MessageSource: types.MessageSource{
-						Chat: types.NewJID("5511998913283", types.DefaultUserServer),
-					},
-					ID:        "MSG127",
-					Timestamp: time.Date(2026, time.April, 24, 10, 0, 0, 0, time.UTC),
-				},
-				Message: &waE2E.Message{
-					ContactMessage: &waE2E.ContactMessage{
-						DisplayName: &emptyName,
-						Vcard:       strPtr(emptyVCard),
-					},
-				},
-			},
-			want: "👤 Contact",
+			want: "Contacts shared",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractMessageTextFromEvent(tt.evt)
+			got := ExtractMessageTextFromProto(tt.msg)
 			if got != tt.want {
-				t.Fatalf("ExtractMessageTextFromEvent() = %q, want %q", got, tt.want)
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestExtractPhoneFromVCardHandlesCRLFAndFoldedLines(t *testing.T) {
-	vcard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD"
-
-	got := ExtractPhoneFromVCard(vcard)
-	want := "+5511998913283"
-	if got != want {
-		t.Fatalf("ExtractPhoneFromVCard() = %q, want %q", got, want)
 	}
 }
 

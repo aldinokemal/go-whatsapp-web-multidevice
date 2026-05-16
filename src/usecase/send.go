@@ -919,10 +919,12 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		return response, err
 	}
 
+	contactName := strings.TrimSpace(request.ContactName)
+	contactPhone := utils.CleanPhoneForWhatsApp(request.ContactPhone)
 	msgVCard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%v;;;\nFN:%v\nTEL;type=CELL;waid=%v:+%v\nEND:VCARD",
-		request.ContactName, request.ContactName, request.ContactPhone, request.ContactPhone)
+		contactName, contactName, contactPhone, contactPhone)
 	msg := &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
-		DisplayName: proto.String(request.ContactName),
+		DisplayName: proto.String(contactName),
 		Vcard:       proto.String(msgVCard),
 	}}
 
@@ -940,8 +942,10 @@ func (service serviceSend) SendContact(ctx context.Context, request domainSend.C
 		msg.ContactMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
-	contactPhone := strings.TrimPrefix(request.ContactPhone, "+")
-	content := fmt.Sprintf("👤 %s (+%s)", request.ContactName, contactPhone)
+	content := "👤 " + contactName
+	if contactPhone != "" {
+		content = fmt.Sprintf("👤 %s (+%s)", contactName, contactPhone)
+	}
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
 	if err != nil {
@@ -987,7 +991,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		Title:         proto.String(metadata.Title),
 		MatchedText:   proto.String(request.Link),
 		Description:   proto.String(metadata.Description),
-		JPEGThumbnail: metadata.ImageThumb,
+		JPEGThumbnail: metadata.JPEGThumb,
 	}}
 
 	if request.BaseRequest.IsForwarded {
@@ -1013,6 +1017,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
 			msg.ExtendedTextMessage.MediaKey = uploadedThumb.MediaKey
+			msg.ExtendedTextMessage.MediaKeyTimestamp = proto.Int64(time.Now().Unix())
 			if metadata.Height != nil {
 				msg.ExtendedTextMessage.ThumbnailHeight = metadata.Height
 			}

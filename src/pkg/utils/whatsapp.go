@@ -56,14 +56,74 @@ func resolveKnownDocumentExtension(mimeType string) (string, bool) {
 	return ext, ok
 }
 
+// ExtractPhoneFromVCard returns the first phone number found in a vCard's TEL field.
+func ExtractPhoneFromVCard(vcard string) string {
+	if vcard == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	var lines []string
+	var current strings.Builder
+	for _, rawLine := range strings.Split(normalized, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
+			if current.Len() > 0 {
+				current.WriteString(line)
+			}
+			continue
+		}
+		if current.Len() > 0 {
+			lines = append(lines, current.String())
+			current.Reset()
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				return strings.TrimSpace(line[idx+1:])
+			}
+		}
+	}
+	return ""
+}
+
+// FormatContactSummary builds a one-liner for a shared contact card.
+// Pass plural=true for ContactsArrayMessage to use the "Contacts" prefix.
+func FormatContactSummary(name, phone string, plural bool) string {
+	name = strings.TrimSpace(name)
+	phone = strings.TrimSpace(phone)
+
+	prefix := "Contact"
+	if plural {
+		prefix = "Contacts"
+	}
+	switch {
+	case name != "" && phone != "":
+		return fmt.Sprintf("%s: %s (%s)", prefix, name, phone)
+	case name != "":
+		return prefix + ": " + name
+	case phone != "":
+		return prefix + ": " + phone
+	default:
+		return prefix + " shared"
+	}
+}
+
 // KnownDocumentMIMEByExtension returns a known MIME type for a given Office document extension.
 func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 	return resolveKnownDocumentMIME(ext)
-}
-
-// KnownDocumentExtensionByMIME returns a known Office document extension for a given MIME type.
-func KnownDocumentExtensionByMIME(mimeType string) (string, bool) {
-	return resolveKnownDocumentExtension(mimeType)
 }
 
 func determineMediaExtension(originalFilename, mimeType string) string {
@@ -123,15 +183,6 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return doc.GetCaption()
 	}
 
-	if contactMessage := msg.GetContactMessage(); contactMessage != nil {
-		return formatContactMessageText(
-			"Contact: ",
-			"Contact shared",
-			contactMessage.GetDisplayName(),
-			contactMessage.GetVcard(),
-		)
-	}
-
 	// Check for buttons response message
 	if buttonsResponse := msg.GetButtonsResponseMessage(); buttonsResponse != nil {
 		return buttonsResponse.GetSelectedDisplayText()
@@ -145,6 +196,20 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	// Check for template button reply
 	if templateButtonReply := msg.GetTemplateButtonReplyMessage(); templateButtonReply != nil {
 		return templateButtonReply.GetSelectedDisplayText()
+	}
+
+	// Check for shared contact card
+	if contact := msg.GetContactMessage(); contact != nil {
+		return FormatContactSummary(contact.GetDisplayName(), ExtractPhoneFromVCard(contact.GetVcard()), false)
+	}
+
+	// Check for shared multiple contact cards
+	if contactsArray := msg.GetContactsArrayMessage(); contactsArray != nil {
+		if contacts := contactsArray.GetContacts(); len(contacts) > 0 && contacts[0] != nil {
+			first := contacts[0]
+			return FormatContactSummary(first.GetDisplayName(), ExtractPhoneFromVCard(first.GetVcard()), true)
+		}
+		return "Contacts shared"
 	}
 
 	return ""
@@ -168,154 +233,6 @@ func ExtractMediaCaption(msg *waE2E.Message) string {
 		return ptv.GetCaption()
 	}
 	return ""
-}
-
-// ExtractMessageTextFromEvent extracts text content from a WhatsApp event message with emojis
-func ExtractMessageTextFromEvent(evt *events.Message) string {
-	messageText := evt.Message.GetConversation()
-	if extendedText := evt.Message.GetExtendedTextMessage(); extendedText != nil {
-		messageText = extendedText.GetText()
-	} else if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
-		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
-			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
-				messageText = extendedText.GetText()
-			}
-		}
-	} else if imageMessage := evt.Message.GetImageMessage(); imageMessage != nil {
-		messageText = imageMessage.GetCaption()
-		if messageText == "" {
-			messageText = "🖼️ Image"
-		}
-	} else if documentMessage := evt.Message.GetDocumentMessage(); documentMessage != nil {
-		messageText = documentMessage.GetCaption()
-		if messageText == "" {
-			fileName := strings.TrimSpace(documentMessage.GetFileName())
-			if fileName != "" {
-				messageText = "📄 " + fileName
-			} else {
-				messageText = "📄 Document"
-			}
-		}
-	} else if videoMessage := evt.Message.GetVideoMessage(); videoMessage != nil {
-		messageText = videoMessage.GetCaption()
-		if messageText == "" {
-			messageText = "🎥 Video"
-		}
-	} else if liveLocationMessage := evt.Message.GetLiveLocationMessage(); liveLocationMessage != nil {
-		messageText = liveLocationMessage.GetCaption()
-		if messageText == "" {
-			messageText = "📍 Live Location"
-		}
-	} else if locationMessage := evt.Message.GetLocationMessage(); locationMessage != nil {
-		messageText = locationMessage.GetName()
-		if messageText == "" {
-			messageText = "📍 Location"
-		}
-	} else if contactMessage := evt.Message.GetContactMessage(); contactMessage != nil {
-		messageText = formatContactMessageText(
-			"👤 ",
-			"👤 Contact",
-			contactMessage.GetDisplayName(),
-			contactMessage.GetVcard(),
-		)
-	} else if listMessage := evt.Message.GetListMessage(); listMessage != nil {
-		messageText = listMessage.GetTitle()
-		if messageText == "" {
-			messageText = "📝 List"
-		}
-	} else if orderMessage := evt.Message.GetOrderMessage(); orderMessage != nil {
-		messageText = orderMessage.GetOrderTitle()
-		if messageText == "" {
-			messageText = "🛍️ Order"
-		}
-	} else if paymentMessage := evt.Message.GetPaymentInviteMessage(); paymentMessage != nil {
-		messageText = paymentMessage.GetServiceType().String()
-		if messageText == "" {
-			messageText = "💳 Payment"
-		}
-	} else if audioMessage := evt.Message.GetAudioMessage(); audioMessage != nil {
-		messageText = "🎧 Audio"
-		if audioMessage.GetPTT() {
-			messageText = "🎤 Voice Message"
-		}
-	} else if pollMessageV3 := evt.Message.GetPollCreationMessageV3(); pollMessageV3 != nil {
-		messageText = pollMessageV3.GetName()
-		if messageText == "" {
-			messageText = "📊 Poll"
-		}
-	} else if pollMessageV4 := evt.Message.GetPollCreationMessageV4(); pollMessageV4 != nil {
-		if pollMessage := pollMessageV4.GetMessage(); pollMessage != nil {
-			messageText = pollMessage.GetConversation()
-		}
-		if messageText == "" {
-			messageText = "📊 Poll"
-		}
-	} else if pollMessageV5 := evt.Message.GetPollCreationMessageV5(); pollMessageV5 != nil {
-		messageText = pollMessageV5.GetName()
-		if messageText == "" {
-			messageText = "📊 Poll"
-		}
-	}
-	return messageText
-}
-
-// ExtractPhoneFromVCard extracts the first phone number from a vCard entry.
-func ExtractPhoneFromVCard(vcard string) string {
-	if vcard == "" {
-		return ""
-	}
-
-	normalized := strings.ReplaceAll(vcard, "\r\n", "\n")
-	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-
-	var lines []string
-	var current strings.Builder
-	for _, rawLine := range strings.Split(normalized, "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(rawLine, " ") || strings.HasPrefix(rawLine, "\t") {
-			if current.Len() > 0 {
-				current.WriteString(line)
-			}
-			continue
-		}
-		if current.Len() > 0 {
-			lines = append(lines, current.String())
-			current.Reset()
-		}
-		current.WriteString(line)
-	}
-	if current.Len() > 0 {
-		lines = append(lines, current.String())
-	}
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
-			}
-		}
-	}
-	return ""
-}
-
-func formatContactMessageText(prefix, fallback, displayName, vcard string) string {
-	name := strings.TrimSpace(displayName)
-	phone := strings.TrimSpace(ExtractPhoneFromVCard(vcard))
-
-	switch {
-	case name != "" && phone != "":
-		return prefix + name + " (" + phone + ")"
-	case name != "":
-		return prefix + name
-	case phone != "":
-		return prefix + phone
-	default:
-		return fallback
-	}
 }
 
 // ExtractMediaInfo extracts media information from a WhatsApp message
@@ -760,11 +677,6 @@ type EvtMessage struct {
 	QuotedMessage string `json:"quoted_message"`
 }
 
-type EvtReaction struct {
-	Message string `json:"message"`
-	ID      string `json:"id"`
-}
-
 // GetMessageDigestOrSignature generates HMAC signature for message
 func GetMessageDigestOrSignature(msg, key []byte) (string, error) {
 	mac := hmac.New(sha256.New, key)
@@ -834,15 +746,6 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 	}
 
 	return message
-}
-
-func BuildEventReaction(evt *events.Message) (waReaction EvtReaction) {
-	msg := UnwrapMessage(evt.Message)
-	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
-		waReaction.Message = reactionMessage.GetText()
-		waReaction.ID = reactionMessage.GetKey().GetID()
-	}
-	return waReaction
 }
 
 func BuildForwarded(evt *events.Message) bool {

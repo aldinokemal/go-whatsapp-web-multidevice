@@ -105,14 +105,14 @@ func TestIsEventWhitelistedForChatwoot(t *testing.T) {
 func TestBuildReactionChatwootContent(t *testing.T) {
 	tests := []struct {
 		name     string
-		payload  map[string]interface{}
+		payload  map[string]any
 		isGroup  bool
 		fromName string
 		expected string
 	}{
 		{
 			name: "group reaction with sender name and target id",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"reaction":           "👍",
 				"reacted_message_id": "wamid-123",
 			},
@@ -122,7 +122,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		},
 		{
 			name: "direct reaction falls back to phone",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"reaction":           "🔥",
 				"reacted_message_id": "wamid-456",
 				"from":               "628123456789@s.whatsapp.net",
@@ -133,7 +133,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		},
 		{
 			name: "reaction removal",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"reaction":           "",
 				"reacted_message_id": "wamid-789",
 			},
@@ -143,7 +143,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		},
 		{
 			name: "group reaction falls back to sender jid when pushname missing",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"reaction":           "😂",
 				"reacted_message_id": "wamid-999",
 				"from":               "628777000111@s.whatsapp.net",
@@ -154,7 +154,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		},
 		{
 			name: "missing target id still produces readable text",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"reaction": "❤️",
 			},
 			isGroup:  true,

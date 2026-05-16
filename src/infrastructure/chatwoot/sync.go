@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -398,40 +397,4 @@ func GetSyncService(
 // GetDefaultSyncService returns the global sync service if initialized
 func GetDefaultSyncService() *SyncService {
 	return globalSyncService
-}
-
-// TriggerAutoSync is called when a device connects to optionally start auto-sync
-func TriggerAutoSync(deviceID string, chatStorageRepo domainChatStorage.IChatStorageRepository, waClient *whatsmeow.Client) {
-	if !config.ChatwootEnabled || !config.ChatwootImportMessages {
-		return
-	}
-
-	client := GetDefaultClient()
-	if !client.IsConfigured() {
-		logrus.Warn("Chatwoot Sync: Auto-sync skipped - Chatwoot not configured")
-		return
-	}
-
-	// Resolve the storage device ID (JID) from the WhatsApp client,
-	// since chats are stored under the full JID, not the user-assigned alias.
-	storageDeviceID := deviceID
-	if waClient != nil && waClient.Store != nil && waClient.Store.ID != nil {
-		if jid := waClient.Store.ID.ToNonAD().String(); jid != "" {
-			storageDeviceID = jid
-		}
-	}
-
-	syncService := GetSyncService(client, chatStorageRepo)
-
-	go func() {
-		opts := DefaultSyncOptions()
-		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
-
-		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
-
-		_, err := syncService.SyncHistory(context.Background(), storageDeviceID, waClient, opts)
-		if err != nil {
-			logrus.Errorf("Chatwoot Sync: Auto-sync failed for device %s: %v", storageDeviceID, err)
-		}
-	}()
 }
