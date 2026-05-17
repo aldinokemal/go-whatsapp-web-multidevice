@@ -81,6 +81,9 @@ func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) err
 }
 
 func (r *deviceChatStorage) StoreMessageEdit(edit *domainChatStorage.MessageEdit) error {
+	if edit != nil && edit.DeviceID == "" {
+		edit.DeviceID = r.deviceID
+	}
 	return r.base.StoreMessageEdit(edit)
 }
 

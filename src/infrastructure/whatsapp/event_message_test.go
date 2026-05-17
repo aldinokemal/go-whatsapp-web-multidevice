@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -267,44 +268,66 @@ func TestBuildEventPayloadQuotedBodyUsesQuotedCaption(t *testing.T) {
 		config.WhatsappAutoDownloadMedia = oldAutoDownload
 	})
 
-	replyText := "Thanks for the update"
-	quotedCaption := "Launch checklist"
-	evt := &events.Message{
-		Info: types.MessageInfo{
-			MessageSource: types.MessageSource{
-				Chat:     types.NewJID("123", types.DefaultUserServer),
-				Sender:   types.NewJID("456", types.DefaultUserServer),
-				IsFromMe: false,
+	tests := []struct {
+		name           string
+		quotedMessage  func(*string) *waE2E.Message
+		wantQuotedBody string
+	}{
+		{
+			name: "uses quoted image caption",
+			quotedMessage: func(caption *string) *waE2E.Message {
+				return &waE2E.Message{
+					ImageMessage: &waE2E.ImageMessage{
+						Caption: caption,
+					},
+				}
 			},
-			ID:        "MSG206",
-			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+			wantQuotedBody: "Launch checklist",
 		},
-		Message: &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: &replyText,
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID: protoString("QUOTE206"),
-					QuotedMessage: &waE2E.Message{
-						ImageMessage: &waE2E.ImageMessage{
-							Caption: &quotedCaption,
+		{
+			name: "uses quoted document caption",
+			quotedMessage: func(caption *string) *waE2E.Message {
+				return &waE2E.Message{
+					DocumentMessage: &waE2E.DocumentMessage{
+						Caption: caption,
+					},
+				}
+			},
+			wantQuotedBody: "Project brief",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			replyText := "Thanks for the update"
+			quotedCaption := tt.wantQuotedBody
+			evt := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:     types.NewJID("123", types.DefaultUserServer),
+						Sender:   types.NewJID("456", types.DefaultUserServer),
+						IsFromMe: false,
+					},
+					ID:        "MSG206",
+					Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+				},
+				Message: &waE2E.Message{
+					ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+						Text: &replyText,
+						ContextInfo: &waE2E.ContextInfo{
+							StanzaID:      protoString("QUOTE206"),
+							QuotedMessage: tt.quotedMessage(&quotedCaption),
 						},
 					},
 				},
-			},
-		},
-	}
+			}
 
-	_, payload, err := buildEventPayload(context.Background(), nil, evt)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	quotedBody, ok := payload["quoted_body"]
-	if !ok {
-		t.Fatal("expected quoted_body in payload when quoted message has a caption")
-	}
-	if quotedBody != "Launch checklist" {
-		t.Fatalf("expected quoted_body='Launch checklist', got %v", quotedBody)
+			eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+			assert.NoError(t, err)
+			assert.Equal(t, EventTypeMessage, eventType)
+			assert.Contains(t, payload, "quoted_body")
+			assert.Equal(t, tt.wantQuotedBody, payload["quoted_body"])
+		})
 	}
 }
 

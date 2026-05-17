@@ -224,12 +224,14 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ?", jid)
-	if err != nil {
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ?", jid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ?", jid); err != nil {
 		return err
 	}
 
-	// Delete messages after reactions to keep cleanup explicit.
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
 	if err != nil {
 		return err
@@ -252,12 +254,14 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
-	if err != nil {
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
 		return err
 	}
 
-	// Delete messages after reactions to keep cleanup explicit.
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
 	if err != nil {
 		return err
@@ -746,7 +750,7 @@ func (r *SQLiteRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFi
 }
 
 // TruncateAllChats deletes all chats from the database
-// Note: Due to foreign key constraints, messages must be deleted first
+// Note: Due to foreign key constraints, dependent rows are cleaned up first
 func (r *SQLiteRepository) TruncateAllChats() error {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -759,7 +763,12 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 		return fmt.Errorf("failed to delete message reactions: %w", err)
 	}
 
-	// Delete messages after reactions to keep cleanup explicit.
+	_, err = tx.Exec("DELETE FROM message_edits")
+	if err != nil {
+		return fmt.Errorf("failed to delete message edits: %w", err)
+	}
+
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
 		return fmt.Errorf("failed to delete messages: %w", err)
@@ -774,8 +783,7 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	return tx.Commit()
 }
 
-// DeleteDeviceData deletes all chats and messages for a specific device_id.
-// Messages are deleted via foreign key cascade from chats.
+// DeleteDeviceData deletes all chats, messages, and edit history for a specific device_id.
 func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	if deviceID == "" {
 		return fmt.Errorf("device id is required")
@@ -791,7 +799,11 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 		return fmt.Errorf("failed to delete device reactions: %w", err)
 	}
 
-	// Delete messages after reactions via direct device_id filter.
+	if _, err := tx.Exec(`DELETE FROM message_edits WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device message edits: %w", err)
+	}
+
+	// Delete messages after dependent rows via direct device_id filter.
 	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device messages: %w", err)
 	}
@@ -1097,7 +1109,7 @@ func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
 		return nil
 	}
 	protocolMessage := msg.GetProtocolMessage()
-	if protocolMessage == nil || protocolMessage.GetType().String() != "MESSAGE_EDIT" {
+	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_MESSAGE_EDIT {
 		return nil
 	}
 	return protocolMessage.GetEditedMessage()
