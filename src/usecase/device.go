@@ -234,7 +234,7 @@ func (s *serviceDevice) SetDeviceWebhookConfig(ctx context.Context, deviceID str
 
 	_, ok := s.manager.GetDevice(deviceID)
 	if !ok {
-		return fmt.Errorf("device %s not found", deviceID)
+	return pkgError.ErrDeviceNotFound
 	}
 
 	storage := s.manager.GetStorage()
@@ -265,7 +265,7 @@ func (s *serviceDevice) GetDeviceWebhookConfig(ctx context.Context, deviceID str
 
 	_, ok := s.manager.GetDevice(deviceID)
 	if !ok {
-		return nil, fmt.Errorf("device %s not found", deviceID)
+	return pkgError.ErrDeviceNotFound
 	}
 
 	storage := s.manager.GetStorage()
