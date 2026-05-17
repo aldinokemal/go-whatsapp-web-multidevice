@@ -57,6 +57,10 @@ type IChatStorageRepository interface {
 	SetDeviceWebhookURL(deviceID string, webhookURL *string) error
 	// GetDeviceWebhookURL retrieves the webhook URL for a device.
 	GetDeviceWebhookURL(deviceID string) (*string, error)
+	// SetDeviceWebhookConfig sets the full webhook configuration for a device.
+	SetDeviceWebhookConfig(deviceID string, config *DeviceWebhookConfig) error
+	// GetDeviceWebhookConfig retrieves the full webhook configuration for a device.
+	GetDeviceWebhookConfig(deviceID string) (*DeviceWebhookConfig, error)
 
 	// Schema operations
 	InitializeSchema() error

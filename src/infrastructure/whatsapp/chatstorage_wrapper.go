@@ -204,3 +204,13 @@ func (r *deviceChatStorage) SetDeviceWebhookURL(deviceID string, webhookURL *str
 func (r *deviceChatStorage) GetDeviceWebhookURL(deviceID string) (*string, error) {
 	return r.base.GetDeviceWebhookURL(deviceID)
 }
+
+// SetDeviceWebhookConfig sets the complete webhook configuration for a device.
+func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *domainChatStorage.DeviceWebhookConfig) error {
+	return r.base.SetDeviceWebhookConfig(deviceID, config)
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
+func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	return r.base.GetDeviceWebhookConfig(deviceID)
+}

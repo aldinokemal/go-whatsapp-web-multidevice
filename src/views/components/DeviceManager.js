@@ -13,7 +13,11 @@ export default {
             deviceIdInput: '',
             isCreatingDevice: false,
             deviceToDelete: { id: '', jid: '', state: '' },
-            isDeleting: false
+            isDeleting: false,
+            webhookUrlInput: '',
+            webhookSecretInput: '',
+            webhookEventsInput: '',
+            webhookInsecureSkipVerify: false
         }
     },
     computed: {
@@ -53,10 +57,26 @@ export default {
             try {
                 this.isCreatingDevice = true;
                 const payload = this.deviceIdInput ? {device_id: this.deviceIdInput} : {};
+                if (this.webhookUrlInput) {
+                    payload.webhook_url = this.webhookUrlInput;
+                }
+                if (this.webhookSecretInput) {
+                    payload.webhook_secret = this.webhookSecretInput;
+                }
+                if (this.webhookEventsInput) {
+                    payload.webhook_events = this.webhookEventsInput;
+                }
+                if (this.webhookInsecureSkipVerify) {
+                    payload.webhook_insecure_skip_verify = this.webhookInsecureSkipVerify;
+                }
                 const res = await window.http.post('/devices', payload);
                 const deviceID = res.data?.results?.id || res.data?.results?.device_id || this.deviceIdInput;
                 this.setDeviceContext(deviceID);
                 this.deviceIdInput = '';
+                this.webhookUrlInput = '';
+                this.webhookSecretInput = '';
+                this.webhookEventsInput = '';
+                this.webhookInsecureSkipVerify = false;
             } catch (err) {
                 const msg = err.response?.data?.message || err.message || 'Failed to create device';
                 showErrorInfo(msg);
@@ -147,21 +167,41 @@ export default {
                     </div>
                 </h3>
                 <div class="ui form">
-                    <div class="two fields">
+                    <div class="fields">
                         <div class="field">
                             <label>Device ID (optional)</label>
                             <input type="text" v-model="deviceIdInput" placeholder="Leave empty to auto-generate">
                         </div>
+                    </div>
+                    <div class="fields">
                         <div class="field">
-                            <label>Actions</label>
-                            <div class="ui buttons">
-                                <button class="ui primary button" :class="{loading: isCreatingDevice}" @click="createDevice">
-                                    Create device
-                                </button>
-                                <div class="or"></div>
-                                <button class="ui button" @click="useDeviceFromInput">Use this device</button>
+                            <label>Webhook URL (optional)</label>
+                            <input type="text" v-model="webhookUrlInput" placeholder="https://your-webhook.com/handler">
+                        </div>
+                        <div class="field">
+                            <label>Webhook Secret (optional)</label>
+                            <input type="text" v-model="webhookSecretInput" placeholder="secret-key">
+                        </div>
+                    </div>
+                    <div class="fields">
+                        <div class="field">
+                            <label>Webhook Events (optional, comma-separated)</label>
+                            <input type="text" v-model="webhookEventsInput" placeholder="message,message.ack,group.participants">
+                        </div>
+                        <div class="field">
+                            <label>Skip TLS Verify</label>
+                            <div class="ui checkbox">
+                                <input type="checkbox" v-model="webhookInsecureSkipVerify">
+                                <label></label>
                             </div>
                         </div>
+                    </div>
+                    <div class="ui buttons">
+                        <button class="ui primary button" :class="{loading: isCreatingDevice}" @click="createDevice">
+                            Create device
+                        </button>
+                        <div class="or"></div>
+                        <button class="ui button" @click="useDeviceFromInput">Use this device</button>
                     </div>
                 </div>
                 <div class="ui divider"></div>

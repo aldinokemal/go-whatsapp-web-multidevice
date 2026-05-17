@@ -777,6 +777,54 @@ func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error)
 	return &webhookURL, nil
 }
 
+// SetDeviceWebhookConfig updates the complete webhook configuration for a device.
+// Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domainChatStorage.DeviceWebhookConfig) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	if config == nil {
+		return fmt.Errorf("webhook config is required")
+	}
+
+	var webhookURL *string
+	if config.WebhookURL != nil && *config.WebhookURL != "" {
+		webhookURL = config.WebhookURL
+	}
+
+	_, err := r.db.Exec(`
+		UPDATE devices
+		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, time.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
+// Returns (nil, nil) if no device-specific webhook configuration is set.
+func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var config domainChatStorage.DeviceWebhookConfig
+	var webhookURL *string
+	err := r.db.QueryRow(`
+		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
+		FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	config.WebhookURL = webhookURL
+	return &config, nil
+}
+
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
 func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	// First, check if chat already exists with a name
@@ -1358,5 +1406,10 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 17: Add webhook_url to devices
 		`ALTER TABLE devices ADD COLUMN webhook_url TEXT DEFAULT ''`,
+
+		// Migration 18: Add webhook configuration columns
+		`ALTER TABLE devices ADD COLUMN webhook_secret TEXT DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN webhook_events TEXT DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN webhook_insecure_skip_verify BOOLEAN DEFAULT FALSE`,
 	}
 }

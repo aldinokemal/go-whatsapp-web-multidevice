@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 type serviceDevice struct {
@@ -44,7 +46,7 @@ func (s *serviceDevice) GetDevice(_ context.Context, deviceID string) (*domainDe
 	return nil, fmt.Errorf("device %s not found", deviceID)
 }
 
-func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string) (*domainDevice.Device, error) {
+func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string, webhookURL string) (*domainDevice.Device, error) {
 	if s.manager == nil {
 		return nil, fmt.Errorf("device manager not initialized")
 	}
@@ -53,6 +55,17 @@ func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string) (*domain
 	if err != nil {
 		return nil, err
 	}
+
+	// Set device-specific webhook if provided
+	if webhookURL != "" {
+		storage := s.manager.GetStorage()
+		if storage != nil {
+			if err := storage.SetDeviceWebhookURL(deviceID, &webhookURL); err != nil {
+				logrus.Warnf("Failed to set webhook for device %s: %v", deviceID, err)
+			}
+		}
+	}
+
 	device := convertInstance(inst)
 	return &device, nil
 }
@@ -211,6 +224,61 @@ func (s *serviceDevice) GetDeviceWebhook(ctx context.Context, deviceID string) (
 	}
 
 	return *webhookURL, nil
+}
+
+// SetDeviceWebhookConfig sets the complete webhook configuration for a specific device.
+func (s *serviceDevice) SetDeviceWebhookConfig(ctx context.Context, deviceID string, config *chatstorage.DeviceWebhookConfig) error {
+	if s.manager == nil {
+		return fmt.Errorf("device manager not initialized")
+	}
+
+	_, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return fmt.Errorf("storage not available")
+	}
+
+	if err := storage.SetDeviceWebhookConfig(deviceID, config); err != nil {
+		return fmt.Errorf("failed to set device webhook config: %w", err)
+	}
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "DEVICE_WEBHOOK_CONFIG_UPDATED",
+		Message: fmt.Sprintf("Device %s webhook config updated", deviceID),
+		Result: map[string]any{
+			"device_id": deviceID,
+		},
+	}
+
+	return nil
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a specific device.
+func (s *serviceDevice) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*chatstorage.DeviceWebhookConfig, error) {
+	if s.manager == nil {
+		return nil, fmt.Errorf("device manager not initialized")
+	}
+
+	_, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return nil, fmt.Errorf("device %s not found", deviceID)
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return nil, fmt.Errorf("storage not available")
+	}
+
+	config, err := storage.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device webhook config: %w", err)
+	}
+
+	return config, nil
 }
 
 func convertInstance(inst *whatsapp.DeviceInstance) domainDevice.Device {

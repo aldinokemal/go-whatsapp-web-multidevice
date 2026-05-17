@@ -235,6 +235,10 @@ paths:
                   type: string
                   description: Optional custom device ID. If not provided, one will be generated.
                   example: 'my-custom-device-id'
+                webhook_url:
+                  type: string
+                  description: Optional device-specific webhook URL. If set, events for this device will be sent here instead of the global webhook.
+                  example: 'https://device-webhook.example.com/handler'
       responses:
         '200':
           description: OK
@@ -3864,6 +3868,10 @@ components:
         jid:
           type: string
           example: '628123456789@s.whatsapp.net'
+        webhook_url:
+          type: string
+          description: Device-specific webhook URL (empty if not set)
+          example: 'https://device-webhook.example.com/handler'
         created_at:
           type: string
           format: date-time

@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -57,7 +58,8 @@ func (handler *Device) GetDevice(c *fiber.Ctx) error {
 
 func (handler *Device) AddDevice(c *fiber.Ctx) error {
 	var req struct {
-		DeviceID string `json:"device_id"`
+		DeviceID   string `json:"device_id"`
+		WebhookURL string `json:"webhook_url"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -69,7 +71,7 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		})
 	}
 
-	device, err := handler.Service.AddDevice(c.UserContext(), req.DeviceID)
+	device, err := handler.Service.AddDevice(c.UserContext(), req.DeviceID, req.WebhookURL)
 	utils.PanicIfNeeded(err)
 
 	result := map[string]any{
@@ -78,6 +80,7 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		"jid":          device.JID,
 		"state":        device.State,
 		"created_at":   device.CreatedAt,
+		"webhook_url":  req.WebhookURL,
 	}
 
 	return c.JSON(utils.ResponseData{
@@ -177,7 +180,10 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	var req struct {
-		WebhookURL *string `json:"webhook_url"`
+		WebhookURL               *string `json:"webhook_url"`
+		WebhookSecret           string  `json:"webhook_secret"`
+		WebhookEvents           string  `json:"webhook_events"`
+		WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -198,7 +204,14 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		})
 	}
 
-	err := handler.Service.SetDeviceWebhook(c.UserContext(), deviceID, *req.WebhookURL)
+	config := &chatstorage.DeviceWebhookConfig{
+		WebhookURL:               req.WebhookURL,
+		WebhookSecret:           req.WebhookSecret,
+		WebhookEvents:           req.WebhookEvents,
+		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
+	}
+
+	err := handler.Service.SetDeviceWebhookConfig(c.UserContext(), deviceID, config)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -206,8 +219,11 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Device webhook updated",
 		Results: map[string]any{
-			"device_id":   deviceID,
+			"device_id": deviceID,
 			"webhook_url": *req.WebhookURL,
+			"webhook_secret": req.WebhookSecret,
+			"webhook_events": req.WebhookEvents,
+			"webhook_insecure_skip_verify": req.WebhookInsecureSkipVerify,
 		},
 	})
 }
@@ -215,8 +231,13 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 // GetDeviceWebhook handles GET /devices/:device_id/webhook.
 func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	webhookURL, err := handler.Service.GetDeviceWebhook(c.UserContext(), deviceID)
+	config, err := handler.Service.GetDeviceWebhookConfig(c.UserContext(), deviceID)
 	utils.PanicIfNeeded(err)
+
+	webhookURL := ""
+	if config != nil && config.WebhookURL != nil {
+		webhookURL = *config.WebhookURL
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -225,6 +246,9 @@ func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
 		Results: map[string]any{
 			"device_id":   deviceID,
 			"webhook_url": webhookURL,
+			"webhook_secret": func() string { if config != nil { return config.WebhookSecret }; return "" }(),
+			"webhook_events": func() string { if config != nil { return config.WebhookEvents }; return "" }(),
+			"webhook_insecure_skip_verify": func() bool { if config != nil { return config.WebhookInsecureSkipVerify }; return false }(),
 		},
 	})
 }

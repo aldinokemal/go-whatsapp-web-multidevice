@@ -250,16 +250,6 @@ func handlePresence(_ context.Context, evt *events.Presence) {
 
 func handleAppState(_ context.Context, evt *events.AppState, deviceID string, client *whatsmeow.Client) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
-
-	if isLabelAppState(evt) {
-		go func(e *events.AppState, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardLabelAppStateToWebhook(webhookCtx, e, deviceID, c); err != nil {
-				logrus.Errorf("Failed to forward label appstate event to webhook: %v", err)
-			}
-		}(evt, client)
-	}
 }
 
 func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {
