@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -80,18 +81,17 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		return nil
 	}
 
-	deviceJID, _ := payload["device_id"].(string)
-	webhookURLs, err := getWebhookURLsForDevice(deviceJID)
-	if err != nil {
-		logrus.Warnf("Failed to get webhook URLs for device %s: %v", deviceJID, err)
-		return err
+	webhookURLs := getWebhookURLsFromPayload(payload)
+	if len(webhookURLs) == 0 && !chatwootAllowed {
+		logrus.Debugf("Skipping event %s - no webhooks configured", eventName)
+		return nil
 	}
 
 	var webhookErr error
-	if webhookAllowed {
+	if webhookAllowed && len(webhookURLs) > 0 {
 		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs)
-	} else {
-		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
+	} else if webhookAllowed && len(webhookURLs) == 0 {
+		logrus.Debugf("Skipping event %s for webhooks (no webhook URLs)", eventName)
 	}
 
 	if chatwootAllowed {
@@ -101,27 +101,35 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	return webhookErr
 }
 
-// getWebhookURLsForDevice returns the webhook URLs to use for a given device.
-// If the device has a custom webhook URL, it returns that URL only (override mode).
-// Otherwise, it returns the global configured webhook URLs.
-func getWebhookURLsForDevice(deviceJID string) ([]string, error) {
+// getWebhookURLsFromPayload extracts webhook URLs from the payload's device_id.
+// Returns device-specific webhook if configured, otherwise falls back to global.
+func getWebhookURLsFromPayload(payload map[string]any) []string {
+	deviceJID, _ := payload["device_id"].(string)
 	if deviceJID == "" {
-		return config.WhatsappWebhook, nil
+		return config.WhatsappWebhook
 	}
 
+	record, err := getDeviceRecordForTest(deviceJID)
+	if err == nil && record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+		return []string{*record.WebhookURL}
+	}
+
+	return config.WhatsappWebhook
+}
+
+// webhookStorageForTest is injectable for unit testing without a real DeviceManager.
+var webhookStorageForTest func(deviceJID string) (*domainChatStorage.DeviceRecord, error)
+
+// getDeviceRecordForTest resolves the device record, using test override if set.
+func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+	if webhookStorageForTest != nil {
+		return webhookStorageForTest(deviceJID)
+	}
 	dm := GetDeviceManager()
 	if dm != nil && dm.storage != nil {
-		record, err := dm.storage.GetDeviceRecordByJID(deviceJID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get device record: %w", err)
-		}
-		if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
-			logrus.Debugf("Using device-specific webhook for %s", deviceJID)
-			return []string{*record.WebhookURL}, nil
-		}
+		return dm.storage.GetDeviceRecordByJID(deviceJID)
 	}
-
-	return config.WhatsappWebhook, nil
+	return nil, nil
 }
 
 // forwardToWebhooks delivers the payload to each URL in the webhookURLs slice.

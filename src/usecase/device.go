@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 )
@@ -153,7 +154,7 @@ func (s *serviceDevice) SetDeviceWebhook(ctx context.Context, deviceID string, w
 
 	_, ok := s.manager.GetDevice(deviceID)
 	if !ok {
-		return fmt.Errorf("device %s not found", deviceID)
+		return pkgError.ErrDeviceNotFound
 	}
 
 	storage := s.manager.GetStorage()

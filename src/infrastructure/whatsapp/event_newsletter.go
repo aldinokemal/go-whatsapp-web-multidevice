@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
@@ -14,60 +13,52 @@ import (
 func handleNewsletterJoin(ctx context.Context, evt *events.NewsletterJoin, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Joined newsletter %s", evt.ID)
 
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.NewsletterJoin) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardNewsletterJoinToWebhook(webhookCtx, e, deviceID); err != nil {
-				logrus.Errorf("Failed to forward newsletter join to webhook: %v", err)
-			}
-		}(evt)
-	}
+	go func(e *events.NewsletterJoin) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardNewsletterJoinToWebhook(webhookCtx, e, deviceID); err != nil {
+			logrus.Errorf("Failed to forward newsletter join to webhook: %v", err)
+		}
+	}(evt)
 }
 
 // handleNewsletterLeave handles when you leave/unsubscribe from a newsletter
 func handleNewsletterLeave(ctx context.Context, evt *events.NewsletterLeave, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Left newsletter %s (role: %s)", evt.ID, evt.Role)
 
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.NewsletterLeave) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardNewsletterLeaveToWebhook(webhookCtx, e, deviceID); err != nil {
-				logrus.Errorf("Failed to forward newsletter leave to webhook: %v", err)
-			}
-		}(evt)
-	}
+	go func(e *events.NewsletterLeave) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardNewsletterLeaveToWebhook(webhookCtx, e, deviceID); err != nil {
+			logrus.Errorf("Failed to forward newsletter leave to webhook: %v", err)
+		}
+	}(evt)
 }
 
 // handleNewsletterLiveUpdate handles new messages in newsletters
 func handleNewsletterLiveUpdate(ctx context.Context, evt *events.NewsletterLiveUpdate, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Newsletter %s: %d new message(s)", evt.JID, len(evt.Messages))
 
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.NewsletterLiveUpdate) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardNewsletterLiveUpdateToWebhook(webhookCtx, e, deviceID); err != nil {
-				logrus.Errorf("Failed to forward newsletter live update to webhook: %v", err)
-			}
-		}(evt)
-	}
+	go func(e *events.NewsletterLiveUpdate) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardNewsletterLiveUpdateToWebhook(webhookCtx, e, deviceID); err != nil {
+			logrus.Errorf("Failed to forward newsletter live update to webhook: %v", err)
+		}
+	}(evt)
 }
 
 // handleNewsletterMuteChange handles newsletter mute setting changes
 func handleNewsletterMuteChange(ctx context.Context, evt *events.NewsletterMuteChange, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Newsletter %s mute changed to: %s", evt.ID, evt.Mute)
 
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.NewsletterMuteChange) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardNewsletterMuteChangeToWebhook(webhookCtx, e, deviceID); err != nil {
-				logrus.Errorf("Failed to forward newsletter mute change to webhook: %v", err)
-			}
-		}(evt)
-	}
+	go func(e *events.NewsletterMuteChange) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardNewsletterMuteChangeToWebhook(webhookCtx, e, deviceID); err != nil {
+			logrus.Errorf("Failed to forward newsletter mute change to webhook: %v", err)
+		}
+	}(evt)
 }
 
 // Webhook forwarding functions

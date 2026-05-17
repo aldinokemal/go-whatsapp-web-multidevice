@@ -25,6 +25,15 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 		evt.Message,
 	)
 
+	if isReactionMessage(evt) {
+		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
+			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+		}
+
+		handleWebhookForward(ctx, evt, client)
+		return
+	}
+
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
 		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
@@ -114,14 +123,18 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 		}
 	}
 
-	if (len(config.WhatsappWebhook) > 0 || config.ChatwootEnabled) &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") {
-		go func(e *events.Message, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
-				logrus.Error("Failed forward to webhook: ", err)
-			}
-		}(evt, client)
+	if !config.ChatwootEnabled &&
+		strings.Contains(evt.Info.SourceString(), "broadcast") {
+		return
 	}
+
+	// Forward to webhook if any webhook is configured (global or per-device)
+	// The forwardPayloadToConfiguredWebhooks function itself handles the no-op case
+	go func(e *events.Message, c *whatsmeow.Client) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
+			logrus.Error("Failed forward to webhook: ", err)
+		}
+	}(evt, client)
 }

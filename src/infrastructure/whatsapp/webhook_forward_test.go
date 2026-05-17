@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
 func TestForwardPayloadToConfiguredWebhooks_NoWebhooksConfigured(t *testing.T) {
@@ -19,7 +19,7 @@ func TestForwardPayloadToConfiguredWebhooks_NoWebhooksConfigured(t *testing.T) {
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(context.Context, map[string]any, string) error {
 		t.Fatal("submitWebhookFn should not be invoked when no webhooks are configured")
 		return nil
 	}
@@ -40,7 +40,7 @@ func TestForwardPayloadToConfiguredWebhooks_PartialFailure(t *testing.T) {
 
 	originalSubmit := submitWebhookFn
 	var attempts []string
-	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
 		attempts = append(attempts, url)
 		if strings.Contains(url, "fail") {
 			return errors.New("boom")
@@ -67,7 +67,7 @@ func TestForwardPayloadToConfiguredWebhooks_AllFail(t *testing.T) {
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
 		return errors.New("failure for " + url)
 	}
 	defer func() { submitWebhookFn = originalSubmit }()
@@ -92,7 +92,7 @@ func TestForwardPayloadToConfiguredWebhooks_EventWhitelist_FilteredOut(t *testin
 
 	called := false
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(context.Context, map[string]any, string) error {
 		called = true
 		return nil
 	}
@@ -121,7 +121,7 @@ func TestForwardPayloadToConfiguredWebhooks_EventWhitelist_Allowed(t *testing.T)
 
 	called := false
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(context.Context, map[string]any, string) error {
 		called = true
 		return nil
 	}
@@ -150,7 +150,7 @@ func TestForwardPayloadToConfiguredWebhooks_EmptyWhitelist_AllowsAll(t *testing.
 
 	called := false
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(context.Context, map[string]any, string) error {
 		called = true
 		return nil
 	}
@@ -179,7 +179,7 @@ func TestForwardPayloadToConfiguredWebhooks_WhitelistCaseInsensitive(t *testing.
 
 	called := 0
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(context.Context, map[string]any, string) error {
 		called++
 		return nil
 	}
@@ -232,50 +232,77 @@ func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
 	}
 }
 
-func TestGetWebhookConfigForDevice_NoDeviceJID(t *testing.T) {
+func TestGetWebhookURLsFromPayload_NoDeviceID(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	configResult, err := getWebhookConfigForDevice("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if configResult != nil {
-		t.Fatalf("expected nil config when deviceJID is empty, got %v", configResult)
+	payload := map[string]any{"foo": "bar"}
+	urls := getWebhookURLsFromPayload(payload)
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook when no device_id, got %v", urls)
 	}
 }
 
-func TestGetWebhookConfigForDevice_DeviceNotFound(t *testing.T) {
+func TestGetWebhookURLsFromPayload_DeviceNotFound(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	configResult, err := getWebhookConfigForDevice("unknown-device-jid@s.whatsapp.net")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Simulate storage returning not-found (no device record)
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return nil, nil // not found, no error
 	}
-	if configResult != nil {
-		t.Fatalf("expected nil config when device not found, got %v", configResult)
+	defer func() { webhookStorageForTest = nil }()
+
+	payload := map[string]any{"device_id": "unknown-device-jid@s.whatsapp.net"}
+	urls := getWebhookURLsFromPayload(payload)
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook when device not found, got %v", urls)
 	}
 }
 
-func TestGetWebhookConfigForDevice_FallbackToGlobal(t *testing.T) {
+func TestGetWebhookURLsFromPayload_FallbackToGlobal(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	dm := GetDeviceManager()
-	if dm == nil || dm.storage == nil {
-		t.Skip("DeviceManager or storage not available")
+	// Simulate storage returning device without webhook URL
+	deviceWebhookURL := ""
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &deviceWebhookURL,
+		}, nil
 	}
+	defer func() { webhookStorageForTest = nil }()
 
-	configResult, err := getWebhookConfigForDevice("6289600000000@s.whatsapp.net")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	payload := map[string]any{"device_id": "6289600000000@s.whatsapp.net"}
+	urls := getWebhookURLsFromPayload(payload)
+	if len(urls) != 1 || urls[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook when device has no webhook, got %v", urls)
 	}
-	if configResult != nil {
-		t.Fatalf("expected nil config when device has no webhook set, got %v", configResult)
+}
+
+func TestGetWebhookURLsFromPayload_DeviceSpecificOverride(t *testing.T) {
+	deviceWebhookURL := "https://device-specific-webhook.com"
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	// Simulate storage returning device with webhook URL
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &deviceWebhookURL,
+		}, nil
+	}
+	defer func() { webhookStorageForTest = nil }()
+
+	payload := map[string]any{"device_id": "6289600000000@s.whatsapp.net"}
+	urls := getWebhookURLsFromPayload(payload)
+	if len(urls) != 1 || urls[0] != deviceWebhookURL {
+		t.Fatalf("expected device-specific webhook %s, got %v", deviceWebhookURL, urls)
 	}
 }
 
@@ -291,38 +318,18 @@ func TestForwardPayloadToConfiguredWebhooks_WithDeviceSpecificWebhook(t *testing
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	dm := GetDeviceManager()
-	if dm == nil || dm.storage == nil {
-		t.Skip("DeviceManager or storage not available")
+	// Simulate storage returning device with webhook URL
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &deviceWebhookURL,
+		}, nil
 	}
-
-	deviceID := "6289600000000@s.whatsapp.net"
-	prevConfig, err := dm.storage.GetDeviceWebhookConfig(deviceID)
-	if err != nil {
-		t.Fatalf("failed to get previous webhook config: %v", err)
-	}
-
-	err = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{
-		WebhookURL: &deviceWebhookURL,
-	})
-	if err != nil {
-		t.Fatalf("failed to set device webhook: %v", err)
-	}
-	defer func() {
-		var restoreErr error
-		if prevConfig != nil {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, prevConfig)
-		} else {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{})
-		}
-		if restoreErr != nil {
-			t.Logf("failed to restore webhook config: %v", restoreErr)
-		}
-	}()
+	defer func() { webhookStorageForTest = nil }()
 
 	var calledURLs []string
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
 		calledURLs = append(calledURLs, url)
 		return nil
 	}
@@ -351,36 +358,19 @@ func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlob
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	dm := GetDeviceManager()
-	if dm == nil || dm.storage == nil {
-		t.Skip("DeviceManager or storage not available")
+	// Simulate storage returning device without webhook URL
+	emptyURL := ""
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &emptyURL,
+		}, nil
 	}
-
-	deviceID := "6289600000000@s.whatsapp.net"
-	prevConfig, err := dm.storage.GetDeviceWebhookConfig(deviceID)
-	if err != nil {
-		t.Fatalf("failed to get previous webhook config: %v", err)
-	}
-
-	err = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{})
-	if err != nil {
-		t.Fatalf("failed to clear device webhook config: %v", err)
-	}
-	defer func() {
-		var restoreErr error
-		if prevConfig != nil {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, prevConfig)
-		} else {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{})
-		}
-		if restoreErr != nil {
-			t.Logf("failed to restore webhook config: %v", restoreErr)
-		}
-	}()
+	defer func() { webhookStorageForTest = nil }()
 
 	var calledURLs []string
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
 		calledURLs = append(calledURLs, url)
 		return nil
 	}
@@ -415,39 +405,18 @@ func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookOnly_NoGlobal(t *testin
 	config.WhatsappWebhook = nil
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	dm := GetDeviceManager()
-	if dm == nil || dm.storage == nil {
-		t.Skip("DeviceManager or storage not available")
+	// Simulate storage returning device with webhook URL
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &deviceWebhookURL,
+		}, nil
 	}
-
-	deviceID := "6289600000000@s.whatsapp.net"
-	prevConfig, err := dm.storage.GetDeviceWebhookConfig(deviceID)
-	if err != nil {
-		t.Fatalf("failed to get previous webhook config: %v", err)
-	}
-
-	// Set device-specific webhook (no global webhook configured)
-	err = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{
-		WebhookURL: &deviceWebhookURL,
-	})
-	if err != nil {
-		t.Fatalf("failed to set device webhook: %v", err)
-	}
-	defer func() {
-		var restoreErr error
-		if prevConfig != nil {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, prevConfig)
-		} else {
-			restoreErr = dm.storage.SetDeviceWebhookConfig(deviceID, &chatstorage.DeviceWebhookConfig{})
-		}
-		if restoreErr != nil {
-			t.Logf("failed to restore webhook config: %v", restoreErr)
-		}
-	}()
+	defer func() { webhookStorageForTest = nil }()
 
 	var calledURLs []string
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string) error {
 		calledURLs = append(calledURLs, url)
 		return nil
 	}
