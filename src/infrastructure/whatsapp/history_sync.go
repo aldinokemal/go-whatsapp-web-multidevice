@@ -148,22 +148,15 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				continue
 			}
 
-			// Extract message content and media info
-			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
-			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
-
-			// Skip if there's no content and no media
-			if content == "" && mediaType == "" {
-				continue
-			}
-
 			// Determine sender
 			sender := ""
+			senderJID := types.EmptyJID
 			isFromMe := msgKey.GetFromMe()
 			if isFromMe {
 				// For self-messages, use the full JID format to match regular message processing
 				if client != nil && client.Store.ID != nil {
-					sender = client.Store.ID.ToNonAD().String() // Use full JID instead of just User part
+					senderJID = client.Store.ID.ToNonAD()
+					sender = senderJID.String() // Use full JID instead of just User part
 				} else {
 					// Skip messages where we can't determine the sender to avoid NOT NULL violations
 					log.Warnf("Skipping self-message %s: client ID unavailable", messageID)
@@ -173,9 +166,9 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				participant := msgKey.GetParticipant()
 				if participant != "" {
 					// For group messages, participant contains the actual sender
-					if senderJID, err := types.ParseJID(participant); err == nil {
+					if parsedSenderJID, err := types.ParseJID(participant); err == nil {
 						// Normalize sender JID (convert @lid to @s.whatsapp.net if possible)
-						senderJID = NormalizeJIDFromLID(ctx, senderJID, client)
+						senderJID = NormalizeJIDFromLID(ctx, parsedSenderJID, client)
 						sender = senderJID.ToNonAD().String() // Use full JID format for consistency
 					} else {
 						// Fallback to participant string, but ensure it's not empty
@@ -195,13 +188,56 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 						continue
 					}
 					// For individual chats, use the chat JID as sender with full format
-					sender = jid.String() // Use full JID format for consistency
+					senderJID = jid
+					sender = senderJID.String() // Use full JID format for consistency
 				}
 			}
 
 			// Convert timestamp from Unix seconds to time.Time
 			// WhatsApp history sync timestamps are in seconds, not milliseconds
 			timestamp := time.Unix(int64(msg.GetMessageTimestamp()), 0)
+
+			if msg.GetMessage().GetReactionMessage() != nil {
+				if senderJID.IsEmpty() {
+					parsed, err := types.ParseJID(sender)
+					if err != nil {
+						log.Warnf("Skipping reaction %s: failed to parse sender %q: %v", messageID, sender, err)
+						continue
+					}
+					senderJID = parsed
+				}
+
+				reactionEvt := &events.Message{
+					Info: types.MessageInfo{
+						MessageSource: types.MessageSource{
+							Chat:     jid,
+							Sender:   senderJID,
+							IsFromMe: isFromMe,
+							IsGroup:  jid.Server == types.GroupServer,
+						},
+						ID:        messageID,
+						PushName:  msg.GetPushName(),
+						Timestamp: timestamp,
+					},
+					Message: msg.GetMessage(),
+				}
+				if err := chatStorageRepo.CreateReaction(ctx, reactionEvt); err != nil {
+					log.Warnf("Failed to store history reaction %s for chat %s: %v", messageID, chatJID, err)
+				}
+				if timestamp.After(latestTimestamp) {
+					latestTimestamp = timestamp
+				}
+				continue
+			}
+
+			// Extract message content and media info
+			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
+			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
+
+			// Skip if there's no content and no media
+			if content == "" && mediaType == "" {
+				continue
+			}
 
 			// Track latest timestamp
 			if timestamp.After(latestTimestamp) {
