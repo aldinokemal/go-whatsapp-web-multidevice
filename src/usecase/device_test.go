@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
@@ -18,7 +17,7 @@ func TestSetDeviceWebhook_InvalidManager(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when manager is nil")
 	}
-	if !errors.Is(err, context.Canceled) && err.Error() != "device manager not initialized" {
+	if err.Error() != "device manager not initialized" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -29,7 +28,7 @@ func TestGetDeviceWebhook_InvalidManager(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when manager is nil")
 	}
-	if !errors.Is(err, context.Canceled) && err.Error() != "device manager not initialized" {
+	if err.Error() != "device manager not initialized" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
