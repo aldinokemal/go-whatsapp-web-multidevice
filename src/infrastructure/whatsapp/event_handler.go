@@ -183,6 +183,9 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 	}
 	if instance != nil {
 		instance.UpdateStateFromClient()
+		if instanceManager := GetDeviceManager(); instanceManager != nil {
+			instanceManager.refreshChatStorage(instance)
+		}
 
 		// Persist updated JID/DisplayName to database after successful connection
 		// Skip if instance.ID looks like a JID (auto-created device) to avoid recreating deleted duplicates

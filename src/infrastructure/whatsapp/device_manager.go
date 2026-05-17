@@ -554,6 +554,8 @@ func (m *DeviceManager) ensureInstance(deviceID string) *DeviceInstance {
 	return inst
 }
 
+// refreshChatStorage rebinds the chat storage wrapper to the instance's latest
+// normalized device ID so wrapper-based queries stay aligned after JID updates.
 func (m *DeviceManager) getOrCreateStoreDevice(ctx context.Context, deviceID string) (*store.Device, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("store container is nil")

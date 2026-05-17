@@ -15,7 +15,8 @@ type recordingChatStorageRepo struct {
 	lastChat *domainChatStorage.Chat
 }
 
-func (r *recordingChatStorageRepo) CreateMessage(context.Context, *events.Message) error { return nil }
+func (r *recordingChatStorageRepo) CreateMessage(context.Context, *events.Message) error  { return nil }
+func (r *recordingChatStorageRepo) CreateReaction(context.Context, *events.Message) error { return nil }
 func (r *recordingChatStorageRepo) CreateIncomingCallRecord(context.Context, *events.CallOffer, bool) error {
 	return nil
 }
