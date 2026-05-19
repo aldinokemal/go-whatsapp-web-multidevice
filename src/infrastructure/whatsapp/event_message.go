@@ -41,6 +41,36 @@ type webhookContactPayload struct {
 	PhoneNumber string `json:"phone_number,omitempty"`
 }
 
+type webhookPollPayload struct {
+	Type                   string                     `json:"type"`
+	Version                string                     `json:"version,omitempty"`
+	Name                   string                     `json:"name,omitempty"`
+	Options                []webhookPollOptionPayload `json:"options,omitempty"`
+	SelectableOptionsCount uint32                     `json:"selectable_options_count,omitempty"`
+	PollType               string                     `json:"poll_type,omitempty"`
+	PollContentType        string                     `json:"poll_content_type,omitempty"`
+	EndTime                int64                      `json:"end_time,omitempty"`
+	HideParticipantName    bool                       `json:"hide_participant_name,omitempty"`
+	AllowAddOption         bool                       `json:"allow_add_option,omitempty"`
+	PollCreationMessageID  string                     `json:"poll_creation_message_id,omitempty"`
+	PollCreationChat       string                     `json:"poll_creation_chat,omitempty"`
+	PollCreationFromMe     bool                       `json:"poll_creation_from_me,omitempty"`
+	SelectedOptionHashes   []string                   `json:"selected_option_hashes,omitempty"`
+	Encrypted              bool                       `json:"encrypted,omitempty"`
+	Votes                  []webhookPollVotePayload   `json:"votes,omitempty"`
+	AddedOption            *webhookPollOptionPayload  `json:"added_option,omitempty"`
+}
+
+type webhookPollOptionPayload struct {
+	Name string `json:"name,omitempty"`
+	Hash string `json:"hash,omitempty"`
+}
+
+type webhookPollVotePayload struct {
+	OptionName      string `json:"option_name,omitempty"`
+	OptionVoteCount int64  `json:"option_vote_count"`
+}
+
 // forwardMessageToWebhook is a helper function to forward message event to webhook url
 func forwardMessageToWebhook(ctx context.Context, client *whatsmeow.Client, evt *events.Message) error {
 	webhookEvent, err := createWebhookEvent(ctx, client, evt)
@@ -241,7 +271,7 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 		return err
 	}
 
-	buildOtherMessageTypes(msg, payload)
+	buildOtherMessageTypes(ctx, client, evt, msg, payload)
 
 	return nil
 }
@@ -356,7 +386,7 @@ func buildAutoDownloadPayload(extracted utils.ExtractedMedia) any {
 	return extracted.MediaPath
 }
 
-func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
+func buildOtherMessageTypes(ctx context.Context, client *whatsmeow.Client, evt *events.Message, msg *waE2E.Message, payload map[string]any) {
 	if contactMessage := msg.GetContactMessage(); contactMessage != nil {
 		payload["contact"] = buildWebhookContactPayload(contactMessage)
 	}
@@ -380,6 +410,10 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
 	}
+
+	if poll := buildWebhookPollPayload(ctx, client, evt, msg); poll != nil {
+		payload["poll"] = poll
+	}
 }
 
 func buildWebhookContactPayload(contact *waE2E.ContactMessage) webhookContactPayload {
@@ -402,6 +436,105 @@ func buildWebhookContactsArrayPayload(contacts []*waE2E.ContactMessage) []webhoo
 			continue
 		}
 		result = append(result, buildWebhookContactPayload(contact))
+	}
+	return result
+}
+
+func buildWebhookPollPayload(ctx context.Context, client *whatsmeow.Client, evt *events.Message, msg *waE2E.Message) *webhookPollPayload {
+	if msg == nil {
+		return nil
+	}
+
+	if poll, version := utils.ExtractPollCreationMessage(msg); poll != nil {
+		options := make([]webhookPollOptionPayload, 0, len(poll.GetOptions()))
+		for _, option := range poll.GetOptions() {
+			if option == nil {
+				continue
+			}
+			options = append(options, webhookPollOptionPayload{
+				Name: option.GetOptionName(),
+				Hash: option.GetOptionHash(),
+			})
+		}
+
+		return &webhookPollPayload{
+			Type:                   "creation",
+			Version:                version,
+			Name:                   poll.GetName(),
+			Options:                options,
+			SelectableOptionsCount: poll.GetSelectableOptionsCount(),
+			PollType:               poll.GetPollType().String(),
+			PollContentType:        poll.GetPollContentType().String(),
+			EndTime:                poll.GetEndTime(),
+			HideParticipantName:    poll.GetHideParticipantName(),
+			AllowAddOption:         poll.GetAllowAddOption(),
+		}
+	}
+
+	if pollUpdate := msg.GetPollUpdateMessage(); pollUpdate != nil {
+		payload := &webhookPollPayload{
+			Type:      "vote",
+			Encrypted: true,
+		}
+		if key := pollUpdate.GetPollCreationMessageKey(); key != nil {
+			payload.PollCreationMessageID = key.GetID()
+			payload.PollCreationChat = key.GetRemoteJID()
+			payload.PollCreationFromMe = key.GetFromMe()
+		}
+		if client != nil && evt != nil {
+			if vote, err := client.DecryptPollVote(ctx, evt); err == nil && vote != nil {
+				payload.Encrypted = false
+				payload.SelectedOptionHashes = byteSlicesToHex(vote.GetSelectedOptions())
+			} else if err != nil {
+				logrus.Debugf("Failed to decrypt poll vote %s: %v", evt.Info.ID, err)
+			}
+		}
+		return payload
+	}
+
+	if pollSnapshot, version := utils.ExtractPollResultSnapshotMessage(msg); pollSnapshot != nil {
+		votes := make([]webhookPollVotePayload, 0, len(pollSnapshot.GetPollVotes()))
+		for _, vote := range pollSnapshot.GetPollVotes() {
+			if vote == nil {
+				continue
+			}
+			votes = append(votes, webhookPollVotePayload{
+				OptionName:      vote.GetOptionName(),
+				OptionVoteCount: vote.GetOptionVoteCount(),
+			})
+		}
+		return &webhookPollPayload{
+			Type:     "results",
+			Version:  version,
+			Name:     pollSnapshot.GetName(),
+			PollType: pollSnapshot.GetPollType().String(),
+			Votes:    votes,
+		}
+	}
+
+	if pollAddOption := msg.GetPollAddOptionMessage(); pollAddOption != nil {
+		payload := &webhookPollPayload{Type: "add_option"}
+		if key := pollAddOption.GetPollCreationMessageKey(); key != nil {
+			payload.PollCreationMessageID = key.GetID()
+			payload.PollCreationChat = key.GetRemoteJID()
+			payload.PollCreationFromMe = key.GetFromMe()
+		}
+		if option := pollAddOption.GetAddOption(); option != nil {
+			payload.AddedOption = &webhookPollOptionPayload{
+				Name: option.GetOptionName(),
+				Hash: option.GetOptionHash(),
+			}
+		}
+		return payload
+	}
+
+	return nil
+}
+
+func byteSlicesToHex(values [][]byte) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, fmt.Sprintf("%x", value))
 	}
 	return result
 }

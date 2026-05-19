@@ -125,6 +125,7 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	if msg == nil {
 		return ""
 	}
+	msg = UnwrapMessage(msg)
 
 	// Check for regular text message
 	if text := msg.GetConversation(); text != "" {
@@ -178,6 +179,86 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 			return FormatContactSummary(first.GetDisplayName(), ExtractPhoneFromVCard(first.GetVcard()), true)
 		}
 		return "Contacts shared"
+	}
+
+	if pollText := ExtractPollMessageTextFromProto(msg); pollText != "" {
+		return pollText
+	}
+
+	return ""
+}
+
+// ExtractPollCreationMessage returns the poll creation message regardless of the WhatsApp poll version.
+func ExtractPollCreationMessage(msg *waE2E.Message) (*waE2E.PollCreationMessage, string) {
+	if msg == nil {
+		return nil, ""
+	}
+	msg = UnwrapMessage(msg)
+	switch {
+	case msg.GetPollCreationMessage() != nil:
+		return msg.GetPollCreationMessage(), "v1"
+	case msg.GetPollCreationMessageV2() != nil:
+		return msg.GetPollCreationMessageV2(), "v2"
+	case msg.GetPollCreationMessageV3() != nil:
+		return msg.GetPollCreationMessageV3(), "v3"
+	case msg.GetPollCreationMessageV5() != nil:
+		return msg.GetPollCreationMessageV5(), "v5"
+	case msg.GetPollCreationMessageV6() != nil:
+		return msg.GetPollCreationMessageV6(), "v6"
+	default:
+		return nil, ""
+	}
+}
+
+// ExtractPollResultSnapshotMessage returns a poll result snapshot regardless of WhatsApp version.
+func ExtractPollResultSnapshotMessage(msg *waE2E.Message) (*waE2E.PollResultSnapshotMessage, string) {
+	if msg == nil {
+		return nil, ""
+	}
+	msg = UnwrapMessage(msg)
+	switch {
+	case msg.GetPollResultSnapshotMessage() != nil:
+		return msg.GetPollResultSnapshotMessage(), "v1"
+	case msg.GetPollResultSnapshotMessageV3() != nil:
+		return msg.GetPollResultSnapshotMessageV3(), "v3"
+	default:
+		return nil, ""
+	}
+}
+
+// ExtractPollMessageTextFromProto returns a short human-readable summary for poll messages.
+func ExtractPollMessageTextFromProto(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
+	msg = UnwrapMessage(msg)
+
+	if poll, _ := ExtractPollCreationMessage(msg); poll != nil {
+		if poll.GetName() != "" {
+			return "Poll: " + poll.GetName()
+		}
+		return "Poll"
+	}
+
+	if pollUpdate := msg.GetPollUpdateMessage(); pollUpdate != nil {
+		if key := pollUpdate.GetPollCreationMessageKey(); key != nil && key.GetID() != "" {
+			return "Poll vote: " + key.GetID()
+		}
+		return "Poll vote"
+	}
+
+	if pollSnapshot, _ := ExtractPollResultSnapshotMessage(msg); pollSnapshot != nil {
+		if pollSnapshot.GetName() != "" {
+			return "Poll results: " + pollSnapshot.GetName()
+		}
+		return "Poll results"
+	}
+
+	if pollAddOption := msg.GetPollAddOptionMessage(); pollAddOption != nil {
+		if option := pollAddOption.GetAddOption(); option != nil && option.GetOptionName() != "" {
+			return "Poll option added: " + option.GetOptionName()
+		}
+		return "Poll option added"
 	}
 
 	return ""
@@ -294,6 +375,12 @@ func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetPtvMessage().GetContextInfo()
 	case msg.GetLiveLocationMessage() != nil:
 		return msg.GetLiveLocationMessage().GetContextInfo()
+	}
+	if poll, _ := ExtractPollCreationMessage(msg); poll != nil {
+		return poll.GetContextInfo()
+	}
+	if poll, _ := ExtractPollResultSnapshotMessage(msg); poll != nil {
+		return poll.GetContextInfo()
 	}
 	return nil
 }
@@ -706,6 +793,9 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			}
 			return message
 		}
+	}
+	if message.Text == "" {
+		message.Text = ExtractPollMessageTextFromProto(msg)
 	}
 
 	if ci := ExtractContextInfo(msg); ci != nil {
