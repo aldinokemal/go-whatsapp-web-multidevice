@@ -10,6 +10,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/saas"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
@@ -72,6 +73,14 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
+	// SaaS_Construction integration: drop group messages BEFORE any
+	// outbound work — they're not actionable by the Phase A read-only
+	// agent and the SaaS would reject them anyway. No-op outside SaaS.
+	if saas.ShouldDropOutbound(payload) {
+		logrus.Debugf("SaaS: dropping group event %s", eventName)
+		return nil
+	}
+
 	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
@@ -113,6 +122,7 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 			continue
 		}
 		successes++
+		saas.RecordInbound()
 	}
 
 	if len(failed) > 0 {

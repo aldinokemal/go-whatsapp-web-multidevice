@@ -7,6 +7,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/saas"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -89,6 +90,11 @@ func restServer(_ *cobra.Command, _ []string) {
 		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
 	})
 
+	// SaaS_Construction-specific health endpoint. Reports integration
+	// status, paired_at, and last_message_at so the SaaS control plane
+	// can detect stuck sessions. Public; no PII surfaced.
+	app.Get("/healthz", saas.HealthHandler())
+
 	// Chatwoot webhook - registered BEFORE basic auth middleware
 	// This allows Chatwoot to send webhooks without authentication
 	if config.ChatwootEnabled {
@@ -137,6 +143,10 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	// SaaS_Construction integration: when SAAS_INBOUND_SECRET is set,
+	// gate every /send/* call on the shared `X-Saas-Token` header. No-op
+	// for non-SaaS deployments.
+	headerDeviceGroup.Use("/send", saas.InboundAuthMiddleware())
 	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	// Chatwoot sync routes - require authentication (webhook is registered earlier without auth)
