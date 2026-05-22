@@ -1,6 +1,28 @@
 package usecase
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+)
+
+func TestWithoutCancelPreservesDeviceContext(t *testing.T) {
+	deviceID := "6289605618749@s.whatsapp.net"
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	storeCtx := context.WithoutCancel(cancelledCtx)
+	inst, ok := whatsapp.DeviceFromContext(storeCtx)
+	if !ok || inst == nil {
+		t.Fatal("expected device instance to remain in detached context")
+	}
+	if got := inst.ID(); got != deviceID {
+		t.Fatalf("expected device id %q, got %q", deviceID, got)
+	}
+}
 
 func TestResolveDocumentMIME(t *testing.T) {
 	tests := []struct {
