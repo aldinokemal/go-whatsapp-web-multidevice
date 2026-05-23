@@ -231,6 +231,7 @@ func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
 	}
 }
 
+// TestExtractStructuredMessageContentWithPollPayload verifies poll payloads get Chatwoot fallback text.
 func TestExtractStructuredMessageContentWithPollPayload(t *testing.T) {
 	payload := map[string]any{
 		"poll": &webhookPollPayload{

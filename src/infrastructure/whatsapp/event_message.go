@@ -41,6 +41,7 @@ type webhookContactPayload struct {
 	PhoneNumber string `json:"phone_number,omitempty"`
 }
 
+// webhookPollPayload describes every poll-shaped webhook payload emitted from WhatsApp messages.
 type webhookPollPayload struct {
 	Type                   string                     `json:"type"`
 	Version                string                     `json:"version,omitempty"`
@@ -61,11 +62,13 @@ type webhookPollPayload struct {
 	AddedOption            *webhookPollOptionPayload  `json:"added_option,omitempty"`
 }
 
+// webhookPollOptionPayload contains the display name and hash for one poll option.
 type webhookPollOptionPayload struct {
 	Name string `json:"name,omitempty"`
 	Hash string `json:"hash,omitempty"`
 }
 
+// webhookPollVotePayload contains the visible vote count for one poll option.
 type webhookPollVotePayload struct {
 	OptionName      string `json:"option_name,omitempty"`
 	OptionVoteCount int64  `json:"option_vote_count"`
@@ -440,6 +443,7 @@ func buildWebhookContactsArrayPayload(contacts []*waE2E.ContactMessage) []webhoo
 	return result
 }
 
+// buildWebhookPollPayload converts WhatsApp poll creation, vote, result, and option events to webhook data.
 func buildWebhookPollPayload(ctx context.Context, client *whatsmeow.Client, evt *events.Message, msg *waE2E.Message) *webhookPollPayload {
 	if msg == nil {
 		return nil
@@ -531,6 +535,7 @@ func buildWebhookPollPayload(ctx context.Context, client *whatsmeow.Client, evt 
 	return nil
 }
 
+// byteSlicesToHex converts binary poll option hashes to their JSON-friendly hex representation.
 func byteSlicesToHex(values [][]byte) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
