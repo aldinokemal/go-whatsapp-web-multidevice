@@ -130,6 +130,8 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 			"is_connected": isConnected,
 			"is_logged_in": isLoggedIn,
 			"device_id":    device.ID(),
+			"jid":          device.JID(),         //Masanas iwan
+			"push_name":    device.DisplayName(), //Masanas iwan
 		},
 	})
 }
