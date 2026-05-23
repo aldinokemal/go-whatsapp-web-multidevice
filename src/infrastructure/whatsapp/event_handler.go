@@ -36,7 +36,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, client, evt)
 	case *events.PairSuccess:
-		handlePairSuccess(ctx, evt)
+		handlePairSuccess(ctx, evt, instance, chatStorageRepo)
 	case *events.LoggedOut:
 		handleLoggedOut(ctx, instance, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
@@ -46,7 +46,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Message:
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.Receipt:
-		handleReceipt(ctx, evt, instance.JID(), client)
+		handleReceipt(ctx, evt, instance.JID(), client, chatStorageRepo)
 	case *events.Archive:
 		handleArchive(ctx, evt, chatStorageRepo, client)
 	case *events.Presence:
@@ -143,13 +143,76 @@ func handleAppStateSyncComplete(_ context.Context, client *whatsmeow.Client, evt
 	}
 }
 
-func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
+func handlePairSuccess(ctx context.Context, evt *events.PairSuccess, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "LOGIN_SUCCESS",
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
 	primaryDB, secondaryDB := getStoreContainers()
 	syncKeysDevice(ctx, primaryDB, secondaryDB)
+
+	// Launch background unread count sync after successful pairing
+	if chatStorageRepo != nil && instance != nil {
+		go syncUnreadCountsInBackground(instance, chatStorageRepo)
+	}
+}
+
+// syncUnreadCountsInBackground computes unread counts for all chats in batches
+func syncUnreadCountsInBackground(instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+	deviceID := instance.JID()
+	if deviceID == "" {
+		deviceID = instance.ID()
+	}
+	if deviceID == "" {
+		return
+	}
+
+	log.Infof("Starting background unread count sync for device %s", deviceID)
+
+	batchSize := config.WhatsappUnreadSyncBatchSize
+	offset := 0
+
+	for {
+		filter := &domainChatStorage.ChatFilter{
+			DeviceID: deviceID,
+			Limit:    batchSize,
+			Offset:   offset,
+		}
+
+		chats, err := chatStorageRepo.GetChats(filter)
+		if err != nil {
+			logrus.Errorf("Failed to fetch chats for unread sync: %v", err)
+			return
+		}
+		if len(chats) == 0 {
+			break
+		}
+
+		for _, chat := range chats {
+			if chat.IsChatSynced {
+				continue
+			}
+
+			count, err := chatStorageRepo.ComputeChatUnreadCount(deviceID, chat.JID)
+			if err != nil {
+				logrus.Warnf("Failed to compute unread count for chat %s: %v", chat.JID, err)
+				continue
+			}
+
+			if err := chatStorageRepo.UpdateChatUnreadCount(deviceID, chat.JID, count); err != nil {
+				logrus.Warnf("Failed to update unread count for chat %s: %v", chat.JID, err)
+			}
+
+			if err := chatStorageRepo.MarkChatSynced(deviceID, chat.JID); err != nil {
+				logrus.Warnf("Failed to mark chat %s as synced: %v", chat.JID, err)
+			}
+		}
+
+		offset += batchSize
+		time.Sleep(1500 * time.Millisecond)
+	}
+
+	log.Infof("Completed background unread count sync for device %s", deviceID)
 }
 
 func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
@@ -214,12 +277,24 @@ func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
+func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	sendReceipt := false
 	switch evt.Type {
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		sendReceipt = true
 		log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
+
+		// Mark messages as read and reset unread count
+		if chatStorageRepo != nil {
+			chatJID := NormalizeJIDFromLID(ctx, evt.Chat, client).ToNonAD().String()
+			if err := chatStorageRepo.MarkMessagesAsRead(deviceID, chatJID); err != nil {
+				logrus.Warnf("Failed to mark messages as read for chat %s: %v", chatJID, err)
+			}
+			if err := chatStorageRepo.ResetChatUnreadCount(deviceID, chatJID); err != nil {
+				logrus.Warnf("Failed to reset unread count for chat %s: %v", chatJID, err)
+			}
+		}
+
 	case types.ReceiptTypeDelivered:
 		sendReceipt = true
 		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)

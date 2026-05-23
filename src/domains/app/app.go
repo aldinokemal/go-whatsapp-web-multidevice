@@ -10,7 +10,7 @@ type IAppUsecase interface {
 	LoginWithCode(ctx context.Context, deviceID string, phoneNumber string) (loginCode string, err error)
 	Logout(ctx context.Context, deviceID string) (err error)
 	Reconnect(ctx context.Context, deviceID string) (err error)
-	Status(ctx context.Context, deviceID string) (isConnected bool, isLoggedIn bool, err error)
+	Status(ctx context.Context, deviceID string) (isConnected bool, isLoggedIn bool, unreadCounts int64, err error)
 	FirstDevice(ctx context.Context) (response DevicesResponse, err error)
 	FetchDevices(ctx context.Context) (response []DevicesResponse, err error)
 }
