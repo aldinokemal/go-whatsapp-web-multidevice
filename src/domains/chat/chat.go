@@ -53,6 +53,8 @@ type ChatInfo struct {
 	CreatedAt           string `json:"created_at"`
 	UpdatedAt           string `json:"updated_at"`
 	Archived            bool   `json:"archived"`
+	UnreadCount         int    `json:"unread_count"`
+	IsUnread            bool   `json:"is_unread"`
 }
 
 type MessageInfo struct {

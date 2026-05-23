@@ -45,18 +45,19 @@ func (h *AppHandler) handleConnectionStatus(_ context.Context, _ mcp.CallToolReq
 		return nil, err
 	}
 
-	isConnected, isLoggedIn, err := h.appService.Status(context.Background(), deviceID)
+	isConnected, isLoggedIn, unreadCounts, err := h.appService.Status(context.Background(), deviceID)
 	if err != nil {
 		return nil, err
 	}
 
 	structured := map[string]any{
-		"is_connected": isConnected,
-		"is_logged_in": isLoggedIn,
-		"device_id":    deviceID,
+		"is_connected":  isConnected,
+		"is_logged_in":  isLoggedIn,
+		"device_id":     deviceID,
+		"unread_chats": unreadCounts,
 	}
 
-	fallback := fmt.Sprintf("connected=%t logged_in=%t", isConnected, isLoggedIn)
+	fallback := fmt.Sprintf("connected=%t logged_in=%t unread_chats=%d", isConnected, isLoggedIn, unreadCounts)
 	return mcp.NewToolResultStructured(structured, fallback), nil
 }
 

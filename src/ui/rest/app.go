@@ -119,7 +119,7 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 		return err
 	}
 
-	isConnected, isLoggedIn, err := handler.Service.Status(c.UserContext(), device.ID())
+	isConnected, isLoggedIn, unreadCounts, err := handler.Service.Status(c.UserContext(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -127,9 +127,10 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Connection status retrieved",
 		Results: map[string]any{
-			"is_connected": isConnected,
-			"is_logged_in": isLoggedIn,
-			"device_id":    device.ID(),
+			"is_connected":  isConnected,
+			"is_logged_in":  isLoggedIn,
+			"device_id":     device.ID(),
+			"unread_chats": unreadCounts,
 		},
 	})
 }

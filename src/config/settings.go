@@ -44,6 +44,7 @@ var (
 	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
 	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
+	WhatsappUnreadSyncBatchSize                = 15           // Number of chats to sync per batch in background unread count sync
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true

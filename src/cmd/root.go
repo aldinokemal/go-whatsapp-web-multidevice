@@ -146,6 +146,9 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	if envBatchSize := viper.GetInt("whatsapp_unread_sync_batch_size"); envBatchSize > 0 {
+		config.WhatsappUnreadSyncBatchSize = envBatchSize
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {

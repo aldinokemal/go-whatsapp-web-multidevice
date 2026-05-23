@@ -208,27 +208,35 @@ func (service *serviceApp) Reconnect(_ context.Context, deviceID string) (err er
 	return err
 }
 
-func (service *serviceApp) Status(_ context.Context, deviceID string) (bool, bool, error) {
+func (service *serviceApp) Status(_ context.Context, deviceID string) (bool, bool, int64, error) {
 	if service.deviceManager == nil {
-		return false, false, fmt.Errorf("device manager not initialized")
+		return false, false, 0, fmt.Errorf("device manager not initialized")
 	}
 
 	instance, ok := service.deviceManager.GetDevice(deviceID)
 	if !ok || instance == nil {
-		return false, false, fmt.Errorf("device %s not found", deviceID)
+		return false, false, 0, fmt.Errorf("device %s not found", deviceID)
 	}
 
 	instance.UpdateStateFromClient()
 	client := instance.GetClient()
 	if client == nil {
-		return false, false, nil
+		return false, false, 0, nil
 	}
 
 	if client.Store == nil || client.Store.ID == nil {
-		return false, false, nil
+		return false, false, 0, nil
 	}
 
-	return client.IsConnected(), client.IsLoggedIn(), nil
+	// Get total unread count for this device
+	var unreadCounts int64
+	if jid := instance.JID(); jid != "" {
+		if count, err := service.chatStorageRepo.GetTotalUnreadCount(jid); err == nil {
+			unreadCounts = count
+		}
+	}
+
+	return client.IsConnected(), client.IsLoggedIn(), unreadCounts, nil
 }
 
 func (service *serviceApp) FirstDevice(ctx context.Context) (response domainApp.DevicesResponse, err error) {
