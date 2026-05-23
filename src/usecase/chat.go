@@ -179,6 +179,17 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 			CreatedAt:    message.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:    message.UpdatedAt.Format(time.RFC3339),
 		}
+		if len(message.Reactions) > 0 {
+			messageInfo.Reactions = make([]domainChat.ReactionInfo, 0, len(message.Reactions))
+			for _, reaction := range message.Reactions {
+				messageInfo.Reactions = append(messageInfo.Reactions, domainChat.ReactionInfo{
+					Emoji:     reaction.Emoji,
+					SenderJID: reaction.ReactorJID,
+					IsFromMe:  reaction.IsFromMe,
+					Timestamp: reaction.Timestamp.Format(time.RFC3339),
+				})
+			}
+		}
 		messageInfos = append(messageInfos, messageInfo)
 	}
 

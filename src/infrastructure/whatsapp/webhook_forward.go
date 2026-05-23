@@ -140,7 +140,7 @@ type chatwootContactInfo struct {
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
 // For groups, uses the group JID as identifier and tries to fetch group name.
 // For private chats, uses the sender's phone number.
-func extractChatwootContactInfo(ctx context.Context, data map[string]interface{}) (*chatwootContactInfo, error) {
+func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chatwootContactInfo, error) {
 	from, _ := data["from"].(string)
 	fromName, _ := data["from_name"].(string)
 	chatID, _ := data["chat_id"].(string)
@@ -181,7 +181,7 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]interface{}
 
 // buildChatwootMessageContent extracts message body and attachments from the payload.
 // For group messages, prepends the sender name to the content.
-func buildChatwootMessageContent(data map[string]interface{}, isGroup bool, fromName string) (content string, attachments []string) {
+func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName string) (content string, attachments []string) {
 	if body, ok := data["body"].(string); ok && body != "" {
 		content = body
 	}
@@ -239,7 +239,7 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	return eventName == "message.reaction" && isEventWhitelisted("message")
 }
 
-func buildReactionChatwootContent(data map[string]interface{}, isGroup bool, fromName string) string {
+func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
 	reaction, _ := data["reaction"].(string)
 	reactedMessageID, _ := data["reacted_message_id"].(string)
 
@@ -263,31 +263,44 @@ func buildReactionChatwootContent(data map[string]interface{}, isGroup bool, fro
 	return fmt.Sprintf("%s reacted %s", actor, reaction)
 }
 
-func chatwootMessageTypeFromPayload(data map[string]interface{}) string {
+func chatwootMessageTypeFromPayload(data map[string]any) string {
 	if isFromMe, ok := data["is_from_me"].(bool); ok && isFromMe {
 		return "outgoing"
 	}
 	return "incoming"
 }
 
-func extractStructuredMessageContent(data map[string]interface{}) string {
+func extractStructuredMessageContent(data map[string]any) string {
 	if contact, ok := data["contact"]; ok && contact != nil {
-		if cm, ok := contact.(interface {
-			GetDisplayName() string
-			GetVcard() string
-		}); ok {
-			name := cm.GetDisplayName()
-			phone := extractPhoneFromVCard(cm.GetVcard())
-			switch {
-			case name != "" && phone != "":
-				return fmt.Sprintf("Contact: %s (%s)", name, phone)
-			case name != "":
-				return "Contact: " + name
-			case phone != "":
-				return "Contact: " + phone
-			}
+		if name, phone, ok := extractContactDetails(contact); ok {
+			return utils.FormatContactSummary(name, phone, false)
 		}
 		return "Contact shared"
+	}
+
+	if contactsArray, ok := data["contacts_array"]; ok && contactsArray != nil {
+		switch contacts := contactsArray.(type) {
+		case []webhookContactPayload:
+			return structuredContactsArraySummary(contacts)
+		case []*webhookContactPayload:
+			normalized := make([]webhookContactPayload, 0, len(contacts))
+			for _, contact := range contacts {
+				if contact != nil {
+					normalized = append(normalized, *contact)
+				}
+			}
+			return structuredContactsArraySummary(normalized)
+		case []any:
+			if len(contacts) == 0 {
+				return "Contacts shared"
+			}
+			if name, phone, ok := extractContactDetails(contacts[0]); ok {
+				return utils.FormatContactSummary(name, phone, true)
+			}
+			return "Contacts shared"
+		default:
+			return "Contacts shared"
+		}
 	}
 
 	if location, ok := data["location"]; ok && location != nil {
@@ -338,16 +351,48 @@ func extractStructuredMessageContent(data map[string]interface{}) string {
 	return ""
 }
 
-func extractPhoneFromVCard(vcard string) string {
-	for _, line := range strings.Split(vcard, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
+func extractContactDetails(contact any) (name string, phone string, ok bool) {
+	switch c := contact.(type) {
+	case webhookContactPayload:
+		return c.DisplayName, c.PhoneNumber, true
+	case *webhookContactPayload:
+		if c == nil {
+			return "", "", false
+		}
+		return c.DisplayName, c.PhoneNumber, true
+	case map[string]any:
+		if v, ok := c["displayName"].(string); ok {
+			name = v
+		} else if v, ok := c["display_name"].(string); ok {
+			name = v
+		}
+		if v, ok := c["phone_number"].(string); ok {
+			phone = v
+		}
+		if phone == "" {
+			if v, ok := c["vcard"].(string); ok {
+				phone = utils.ExtractPhoneFromVCard(v)
 			}
 		}
+		return name, phone, name != "" || phone != ""
+	case interface {
+		GetDisplayName() string
+		GetVcard() string
+	}:
+		name = c.GetDisplayName()
+		phone = utils.ExtractPhoneFromVCard(c.GetVcard())
+		return name, phone, true
+	default:
+		return "", "", false
 	}
-	return ""
+}
+
+func structuredContactsArraySummary(contacts []webhookContactPayload) string {
+	if len(contacts) == 0 {
+		return "Contacts shared"
+	}
+	first := contacts[0]
+	return utils.FormatContactSummary(first.DisplayName, first.PhoneNumber, true)
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
@@ -393,7 +438,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 		return
 	}
 
-	data, ok := payload["payload"].(map[string]interface{})
+	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		logrus.Error("Chatwoot: Invalid payload format (missing 'payload' object)")
 		return
