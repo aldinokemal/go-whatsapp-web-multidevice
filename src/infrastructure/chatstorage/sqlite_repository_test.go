@@ -3,6 +3,7 @@ package chatstorage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -177,6 +178,9 @@ func TestStoreSentMessageWithContextRequiresDeviceInContext(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error when storing sent message without device context")
+	}
+	if !errors.Is(err, domainChatStorage.ErrMissingDeviceContext) {
+		t.Fatalf("expected missing device context error, got %v", err)
 	}
 }
 
