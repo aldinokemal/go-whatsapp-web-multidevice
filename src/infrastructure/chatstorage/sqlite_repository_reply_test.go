@@ -66,6 +66,56 @@ func TestCreateMessageStoresReplyContext(t *testing.T) {
 	}
 }
 
+func TestCreateMessageStoresReplyContextFromQuotedCaption(t *testing.T) {
+	db := openReplyTestSQLiteDB(t)
+	repo := &SQLiteRepository{db: db}
+	if err := repo.InitializeSchema(); err != nil {
+		t.Fatalf("InitializeSchema() error = %v", err)
+	}
+
+	deviceID := "device-1"
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("1234567890", types.DefaultUserServer),
+				Sender:   types.NewJID("5551234567", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "wamid-incoming-caption-reply",
+			Timestamp: time.Date(2026, time.March, 3, 10, 2, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: protoString("reply text"),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID: protoString("wamid-caption-original"),
+					QuotedMessage: &waE2E.Message{
+						ImageMessage: &waE2E.ImageMessage{
+							Caption: protoString("original caption"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+	if err := repo.CreateMessage(ctx, evt); err != nil {
+		t.Fatalf("CreateMessage() error = %v", err)
+	}
+
+	stored, err := repo.GetMessageByID("wamid-incoming-caption-reply")
+	if err != nil {
+		t.Fatalf("GetMessageByID() error = %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected stored message, got nil")
+	}
+	if stored.QuotedBody != "original caption" {
+		t.Fatalf("expected quoted_body %q, got %q", "original caption", stored.QuotedBody)
+	}
+}
+
 func TestStoreSentMessageWithContextStoresReplyContext(t *testing.T) {
 	db := openReplyTestSQLiteDB(t)
 	repo := &SQLiteRepository{db: db}
