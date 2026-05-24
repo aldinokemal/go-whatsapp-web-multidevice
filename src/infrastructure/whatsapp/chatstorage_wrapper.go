@@ -112,6 +112,9 @@ func (r *deviceChatStorage) DeleteMessageByDevice(deviceID, id, chatJID string) 
 }
 
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
+	if _, ok := DeviceFromContext(ctx); !ok && r.deviceID != "" {
+		ctx = ContextWithDevice(ctx, NewDeviceInstance(r.deviceID, nil, nil))
+	}
 	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp, msg)
 }
 

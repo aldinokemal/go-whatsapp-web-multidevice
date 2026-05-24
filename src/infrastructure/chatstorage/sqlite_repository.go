@@ -1285,6 +1285,9 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
 		deviceID = client.Store.ID.ToNonAD().String()
 	}
+	if deviceID == "" {
+		return fmt.Errorf("device_id required: missing device in context: %w", domainChatStorage.ErrMissingDeviceContext)
+	}
 
 	// Normalize recipient JID (convert @lid to @s.whatsapp.net)
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)

@@ -1,7 +1,9 @@
 package chatstorage
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -156,6 +158,29 @@ func TestSQLiteRepositoryDeletesReactionsWithMessagesAndDevices(t *testing.T) {
 	}
 	if got := countMessageReactions(t, repo); got != 0 {
 		t.Fatalf("expected device cleanup to delete reactions, got %d", got)
+	}
+}
+
+func TestStoreSentMessageWithContextRequiresDeviceInContext(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "6289605618749@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.May, 22, 10, 0, 0, 0, time.UTC)
+
+	err := repo.StoreSentMessageWithContext(
+		context.Background(),
+		"msg-sent-1",
+		deviceID,
+		chatJID,
+		"hello from api",
+		now,
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected error when storing sent message without device context")
+	}
+	if !errors.Is(err, domainChatStorage.ErrMissingDeviceContext) {
+		t.Fatalf("expected missing device context error, got %v", err)
 	}
 }
 
