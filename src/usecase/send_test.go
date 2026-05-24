@@ -2,9 +2,13 @@ package usecase
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"go.mau.fi/whatsmeow"
 )
 
 func TestWithoutCancelPreservesDeviceContext(t *testing.T) {
@@ -59,5 +63,23 @@ func TestResolveDocumentMIME(t *testing.T) {
 				t.Fatalf("resolveDocumentMIME() = %q, want %q", got, tt.wantMIME)
 			}
 		})
+	}
+}
+
+func TestNormalizeSendErrorMapsReachoutTimelock(t *testing.T) {
+	err := normalizeSendError(errors.Join(whatsmeow.ErrServerReturnedError, errors.New("server returned error 463")))
+
+	genericErr, ok := err.(pkgError.GenericError)
+	if !ok {
+		t.Fatalf("expected generic error, got %T", err)
+	}
+	if got := genericErr.ErrCode(); got != "WA_REACHOUT_TIMELOCK" {
+		t.Fatalf("expected WA_REACHOUT_TIMELOCK code, got %q", got)
+	}
+	if got := genericErr.StatusCode(); got != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, got)
+	}
+	if got := genericErr.Error(); got != "WhatsApp rejected this send due to reachout timelock or privacy-token state. Try sending to an existing conversation, have the recipient message you first, and make sure WhatsApp privacy tokens are persisted." {
+		t.Fatalf("unexpected error message: %q", got)
 	}
 }

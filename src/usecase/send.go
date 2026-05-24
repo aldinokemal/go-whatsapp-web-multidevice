@@ -54,7 +54,7 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
 	ts, err := client.SendMessage(ctx, recipient, msg)
 	if err != nil {
-		return whatsmeow.SendResponse{}, err
+		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
 
 	// Store the sent message using chatstorage
@@ -79,6 +79,16 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	}()
 
 	return ts, nil
+}
+
+func normalizeSendError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, whatsmeow.ErrServerReturnedError) && strings.Contains(err.Error(), "463") {
+		return pkgError.ErrWaReachoutTimelock
+	}
+	return err
 }
 
 func (service serviceSend) SendText(ctx context.Context, request domainSend.MessageRequest) (response domainSend.GenericResponse, err error) {
