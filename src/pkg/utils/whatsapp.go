@@ -734,7 +734,7 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			}
 			if ci := ExtractContextInfo(editedMessage); ci != nil {
 				message.RepliedId = ci.GetStanzaID()
-				message.QuotedMessage = ci.GetQuotedMessage().GetConversation()
+				message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
 			}
 			return message
 		}
@@ -742,7 +742,7 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 
 	if ci := ExtractContextInfo(msg); ci != nil {
 		message.RepliedId = ci.GetStanzaID()
-		message.QuotedMessage = ci.GetQuotedMessage().GetConversation()
+		message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
 	}
 
 	return message
