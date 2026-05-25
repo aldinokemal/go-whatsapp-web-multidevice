@@ -45,6 +45,14 @@ var (
 	WhatsappAccountValidation                  = true
 	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
 
+	// WhatsappProxy is forwarded to whatsmeow's *Client.SetProxyAddress before
+	// Connect. Accepts SOCKS5/HTTP/HTTPS schemes, e.g.
+	// "socks5://user:pass@host:1080" or "http://host:8080". Empty = direct
+	// (no proxy). Useful for self-hosted deployments behind DPI / network
+	// egress restrictions where standard HTTP_PROXY env vars do not apply
+	// to the WhatsApp WebSocket dialer.
+	WhatsappProxy = ""
+
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
 	ChatStorageEnableWAL         = true
