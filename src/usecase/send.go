@@ -50,9 +50,24 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
-// wrapSendMessage wraps the message sending process with message ID saving
+// wrapSendMessage wraps the message sending process with message ID saving.
+// On WhatsApp error 463 (NackCallerReachoutTimelocked), it performs a WA Web-like
+// pre-warm sequence (presence available + subscribe + composing/paused chatstate)
+// and retries the send once. This mirrors the behavior of the official WhatsApp
+// Web client when opening a new chat and gives the server an opportunity to
+// (re-)issue privacy tokens before failing for cold contacts.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
 	ts, err := client.SendMessage(ctx, recipient, msg)
+	if err != nil && isReachoutTimelockError(err) {
+		logrus.Warnf("Send to %s rejected with WhatsApp error 463; running pre-warm sequence and retrying once", recipient.String())
+		prewarmRecipientForSend(ctx, client, recipient)
+		ts, err = client.SendMessage(ctx, recipient, msg)
+		if err != nil {
+			logrus.Warnf("Retry send to %s after pre-warm still failed: %v", recipient.String(), err)
+		} else {
+			logrus.Infof("Retry send to %s after pre-warm succeeded", recipient.String())
+		}
+	}
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
@@ -81,11 +96,66 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	return ts, nil
 }
 
+// isReachoutTimelockError reports whether the error indicates the WhatsApp
+// server returned error 463 (NackCallerReachoutTimelocked), which surfaces when
+// privacy tokens for the recipient are missing/expired or the recipient is a
+// cold contact.
+func isReachoutTimelockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, whatsmeow.ErrServerReturnedError) && strings.Contains(err.Error(), "463")
+}
+
+// prewarmRecipientForSend mimics the chat-open sequence that the official
+// WhatsApp Web client performs before sending the first message in a thread.
+// It is best-effort: failures of individual steps are logged but do not abort
+// the surrounding retry. Skipped for non-user JIDs (groups, broadcasts,
+// newsletters, status) where the sequence does not apply.
+func prewarmRecipientForSend(ctx context.Context, client *whatsmeow.Client, recipient types.JID) {
+	if client == nil {
+		return
+	}
+	switch recipient.Server {
+	case types.DefaultUserServer, types.HiddenUserServer:
+	default:
+		return
+	}
+
+	// Use a fresh context with timeout so an upstream cancellation does not
+	// turn this best-effort step into a hard failure. Preserve device scoping.
+	warmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if client.Store != nil && client.Store.PushName != "" {
+		if err := client.SendPresence(warmCtx, types.PresenceAvailable); err != nil {
+			logrus.Debugf("Pre-warm: SendPresence(available) for %s failed: %v", recipient.String(), err)
+		}
+	}
+	if err := client.SubscribePresence(warmCtx, recipient); err != nil {
+		logrus.Debugf("Pre-warm: SubscribePresence for %s failed: %v", recipient.String(), err)
+	}
+	if err := client.SendChatPresence(warmCtx, recipient, types.ChatPresenceComposing, types.ChatPresenceMedia("")); err != nil {
+		logrus.Debugf("Pre-warm: SendChatPresence(composing) for %s failed: %v", recipient.String(), err)
+	}
+
+	// Brief pause lets the server process the chatstate before we send the
+	// next stanza. Mirrors observed WA Web timing.
+	select {
+	case <-warmCtx.Done():
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	if err := client.SendChatPresence(warmCtx, recipient, types.ChatPresencePaused, types.ChatPresenceMedia("")); err != nil {
+		logrus.Debugf("Pre-warm: SendChatPresence(paused) for %s failed: %v", recipient.String(), err)
+	}
+}
+
 func normalizeSendError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, whatsmeow.ErrServerReturnedError) && strings.Contains(err.Error(), "463") {
+	if isReachoutTimelockError(err) {
 		return pkgError.ErrWaReachoutTimelock
 	}
 	return err
