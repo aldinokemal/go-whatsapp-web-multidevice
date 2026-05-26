@@ -3,7 +3,6 @@ package usecase
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"mime"
@@ -58,13 +57,15 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	}
 
 	// Store the sent message using chatstorage
+	/*
 	senderJID := ""
 	if client.Store.ID != nil {
 		senderJID = client.Store.ID.String()
 	}
+	*/
 
-	// Store message asynchronously with timeout
-	// Use a goroutine to avoid blocking the send operation
+	// Bypass storing sent message to keep the gateway completely stateless
+	/*
 	go func() {
 		storeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -77,6 +78,7 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 			}
 		}
 	}()
+	*/
 
 	return ts, nil
 }

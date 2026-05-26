@@ -11,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -25,18 +26,26 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 		evt.Message,
 	)
 
-	if isReactionMessage(evt) {
-		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
-			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+	// Handle stateless ID Checker commands (/get_chat_id or !get_chat_id)
+	if !evt.Info.IsFromMe {
+		msgText := strings.TrimSpace(strings.ToLower(utils.ExtractMessageTextFromProto(evt.Message)))
+		if msgText == "/get_chat_id" || msgText == "!get_chat_id" {
+			chatID := evt.Info.Chat.String()
+			replyMsg := fmt.Sprintf("🛡️ *IWANA ID Checker*\n\nCHAT ID: `%s`", chatID)
+			
+			_, err := client.SendMessage(ctx, evt.Info.Chat, &waE2E.Message{
+				Conversation: &replyMsg,
+			})
+			if err != nil {
+				log.Errorf("Failed to reply with Group JID: %v", err)
+			}
 		}
-
-		handleWebhookForward(ctx, evt, client)
-		return
 	}
 
-	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
-		// Log storage errors to avoid silent failures that could lead to data loss
-		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+	// Bypass saving to database entirely for stateless operation
+	if isReactionMessage(evt) {
+		handleWebhookForward(ctx, evt, client)
+		return
 	}
 
 	// Handle image message if present
@@ -45,8 +54,8 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// Auto-mark message as read if configured
 	handleAutoMarkRead(ctx, evt, client)
 
-	// Handle auto-reply if configured
-	handleAutoReply(ctx, evt, chatStorageRepo, client)
+	// Handle auto-reply if configured (pass nil repo to keep it stateless)
+	handleAutoReply(ctx, evt, nil, client)
 
 	// Forward to webhook if configured
 	handleWebhookForward(ctx, evt, client)

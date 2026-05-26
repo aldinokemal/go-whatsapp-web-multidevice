@@ -54,7 +54,8 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.ChatPresence:
 		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
-		handleHistorySync(ctx, evt, chatStorageRepo, client)
+		// Bypass history sync processing to keep gateway lightweight and stateless
+		// handleHistorySync(ctx, evt, chatStorageRepo, client)
 	case *events.AppState:
 		handleAppState(ctx, evt, instance.JID(), client)
 	case *events.GroupInfo:
