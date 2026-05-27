@@ -154,7 +154,6 @@ func (s *presencePulseScheduler) startPulseIfDue(ctx context.Context, device pre
 		return false
 	}
 
-	s.lastPulse[device.id] = now
 	s.inFlight[device.id] = true
 
 	go s.runPulse(ctx, device)
@@ -172,6 +171,9 @@ func (s *presencePulseScheduler) runPulse(ctx context.Context, device presencePu
 		logrus.WithError(err).Warnf("[PRESENCE_PULSE] failed to mark device %s as available", device.id)
 		return
 	}
+	s.mu.Lock()
+	s.lastPulse[device.id] = s.now()
+	s.mu.Unlock()
 	logrus.Infof("[PRESENCE_PULSE] marked device %s as available", device.id)
 
 	if !s.sleep(ctx, s.duration) {

@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -203,6 +204,32 @@ func TestPresencePulseDoesNotRunBeforeInterval(t *testing.T) {
 	now = now.Add(24*time.Hour - time.Second)
 	if scheduler.startPulseIfDue(context.Background(), device) {
 		t.Fatal("expected pulse before interval to be skipped")
+	}
+}
+
+func TestPresencePulseCanRetryAfterAvailablePresenceFails(t *testing.T) {
+	client := newFakePresencePulseClient()
+	sendErr := errors.New("send failed")
+	client.sendErr = sendErr
+
+	scheduler := newPresencePulseScheduler(fakePresencePulseSource{}, 24*time.Hour, time.Minute, time.Minute)
+	scheduler.sleep = func(context.Context, time.Duration) bool { return true }
+	device := presencePulseDevice{id: "device-1", client: client}
+
+	if !scheduler.startPulseIfDue(context.Background(), device) {
+		t.Fatal("expected first pulse to start")
+	}
+	if got := waitForPresenceCall(t, client.callCh); got != types.PresenceAvailable {
+		t.Fatalf("first presence = %q, want %q", got, types.PresenceAvailable)
+	}
+	waitForNoPulseInFlight(t, scheduler, device.id)
+
+	client.sendErr = nil
+	if !scheduler.startPulseIfDue(context.Background(), device) {
+		t.Fatal("expected retry after failed available presence")
+	}
+	if got := waitForPresenceCall(t, client.callCh); got != types.PresenceAvailable {
+		t.Fatalf("retry presence = %q, want %q", got, types.PresenceAvailable)
 	}
 }
 
