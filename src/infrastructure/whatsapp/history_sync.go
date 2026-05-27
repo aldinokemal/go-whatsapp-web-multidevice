@@ -12,6 +12,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -233,6 +234,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 			// Extract message content and media info
 			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
 			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
+			repliedToID, quotedBody := extractReplyContext(msg.GetMessage())
 
 			// Skip if there's no content and no media
 			if content == "" && mediaType == "" {
@@ -260,6 +262,8 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				FileSHA256:    fileSHA256,
 				FileEncSHA256: fileEncSHA256,
 				FileLength:    fileLength,
+				RepliedToID:   repliedToID,
+				QuotedBody:    quotedBody,
 			}
 
 			messageBatch = append(messageBatch, message)
@@ -291,6 +295,19 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 	}
 
 	return nil
+}
+
+func extractReplyContext(msg *waE2E.Message) (repliedToID, quotedBody string) {
+	if msg == nil {
+		return "", ""
+	}
+
+	ci := utils.ExtractContextInfo(utils.UnwrapMessage(msg))
+	if ci == nil {
+		return "", ""
+	}
+
+	return ci.GetStanzaID(), utils.ExtractMessageTextFromProto(ci.GetQuotedMessage())
 }
 
 // processPushNames processes push names from history sync to update chat names
