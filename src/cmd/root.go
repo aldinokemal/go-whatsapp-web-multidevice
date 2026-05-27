@@ -146,6 +146,19 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	if viper.IsSet("whatsapp_presence_pulse_enabled") {
+		config.WhatsappPresencePulseEnabled = viper.GetBool("whatsapp_presence_pulse_enabled")
+	}
+	if viper.IsSet("whatsapp_presence_pulse_interval") {
+		if interval := viper.GetDuration("whatsapp_presence_pulse_interval"); interval > 0 {
+			config.WhatsappPresencePulseInterval = interval
+		}
+	}
+	if viper.IsSet("whatsapp_presence_pulse_duration") {
+		if duration := viper.GetDuration("whatsapp_presence_pulse_duration"); duration > 0 {
+			config.WhatsappPresencePulseDuration = duration
+		}
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
@@ -233,7 +246,7 @@ func initFlags() {
 		&config.DBKeysURI,
 		"db-keys-uri", "",
 		config.DBKeysURI,
-		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared&_foreign_keys=on"`,
+		`the database uri to store the optional keys cache (by default, we'll use the same database uri). avoid in-memory storage in production. database uri --db-keys-uri <string> | example: --db-keys-uri="file:storages/whatsapp-keys.db?_foreign_keys=on"`,
 	)
 
 	// WhatsApp flags
@@ -296,6 +309,24 @@ func initFlags() {
 		"presence-on-connect", "",
 		config.WhatsappPresenceOnConnect,
 		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappPresencePulseEnabled,
+		"presence-pulse-enabled", "",
+		config.WhatsappPresencePulseEnabled,
+		`enable daily presence pulse --presence-pulse-enabled <true/false> | example: --presence-pulse-enabled=true`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseInterval,
+		"presence-pulse-interval", "",
+		config.WhatsappPresencePulseInterval,
+		`presence pulse interval --presence-pulse-interval <duration> | example: --presence-pulse-interval=24h`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseDuration,
+		"presence-pulse-duration", "",
+		config.WhatsappPresencePulseDuration,
+		`duration to stay available during a presence pulse --presence-pulse-duration <duration> | example: --presence-pulse-duration=5m`,
 	)
 
 	// Chatwoot flags

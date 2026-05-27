@@ -1,9 +1,40 @@
 package whatsapp
 
 import (
+	"errors"
 	"testing"
 	"time"
+
+	"go.mau.fi/whatsmeow/store"
 )
+
+func TestApplyKeyCacheStorePreservesPrivacyTokens(t *testing.T) {
+	primaryStore := &store.NoopStore{Error: errors.New("primary")}
+	keyCacheStore := &store.NoopStore{Error: errors.New("keys")}
+	device := &store.Device{}
+	device.SetAllStores(primaryStore)
+
+	applyKeyCacheStore(device, keyCacheStore)
+
+	if device.Identities != keyCacheStore {
+		t.Fatal("expected identities to use key cache store")
+	}
+	if device.Sessions != keyCacheStore {
+		t.Fatal("expected sessions to use key cache store")
+	}
+	if device.PreKeys != keyCacheStore {
+		t.Fatal("expected prekeys to use key cache store")
+	}
+	if device.SenderKeys != keyCacheStore {
+		t.Fatal("expected sender keys to use key cache store")
+	}
+	if device.MsgSecrets != keyCacheStore {
+		t.Fatal("expected message secrets to use key cache store")
+	}
+	if device.PrivacyTokens != primaryStore {
+		t.Fatal("expected privacy tokens to stay on primary store")
+	}
+}
 
 func TestListDevices_SortsByCreatedAtAscending(t *testing.T) {
 	manager := &DeviceManager{

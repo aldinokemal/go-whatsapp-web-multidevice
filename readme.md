@@ -106,6 +106,10 @@ Download:
   - `available` — mark as online (suppresses phone notifications)
   - `unavailable` — register pushname without going online (default, preserves phone notifications)
   - `none` — skip presence entirely (pushname won't be registered, contacts may see "-" as name)
+- Daily presence pulse
+  - `--presence-pulse-enabled=true` or `WHATSAPP_PRESENCE_PULSE_ENABLED=true` (default: `true`)
+  - `--presence-pulse-interval=24h` controls how often each connected device is pulsed
+  - `--presence-pulse-duration=5m` controls how long the account stays `available` before returning to `unavailable`
 - Webhook for received message
   - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
   - `-w="http://yourwebhook.site/handler"`
@@ -199,6 +203,7 @@ To use environment variables:
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
 | `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db?_foreign_keys=on` | `DB_URI=postgres://user:pass@host/db`         |
+| `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
@@ -208,6 +213,9 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
+| `WHATSAPP_PRESENCE_PULSE_ENABLED`       | Enable daily available/unavailable presence pulse             | `true`                                       | `WHATSAPP_PRESENCE_PULSE_ENABLED=false`       |
+| `WHATSAPP_PRESENCE_PULSE_INTERVAL`      | Interval between presence pulses                              | `24h`                                        | `WHATSAPP_PRESENCE_PULSE_INTERVAL=24h`        |
+| `WHATSAPP_PRESENCE_PULSE_DURATION`      | Duration to stay available during each pulse                  | `5m`                                         | `WHATSAPP_PRESENCE_PULSE_DURATION=5m`         |
 | `CHATWOOT_ENABLED`                      | Enable Chatwoot integration                                   | `false`                                      | `CHATWOOT_ENABLED=true`                       |
 | `CHATWOOT_URL`                          | Chatwoot instance URL                                         | -                                            | `CHATWOOT_URL=https://app.chatwoot.com`       |
 | `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
