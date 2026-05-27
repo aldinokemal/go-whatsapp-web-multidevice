@@ -50,9 +50,12 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
-// wrapSendMessage wraps the message sending process with message ID saving
+// wrapSendMessage sends the message and stores it asynchronously on success.
+// The send goes through whatsapp.SendMessageWithReachoutRetry, which retries
+// once on WhatsApp error 463 after a SubscribePresence pre-warm — see
+// infrastructure/whatsapp/send_retry.go for the protocol-level rationale.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg)
+	ts, err := whatsapp.SendMessageWithReachoutRetry(ctx, client, recipient, msg)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
@@ -85,7 +88,7 @@ func normalizeSendError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, whatsmeow.ErrServerReturnedError) && strings.Contains(err.Error(), "463") {
+	if whatsapp.IsReachoutTimelockError(err) {
 		return pkgError.ErrWaReachoutTimelock
 	}
 	return err

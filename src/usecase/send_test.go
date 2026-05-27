@@ -79,7 +79,7 @@ func TestNormalizeSendErrorMapsReachoutTimelock(t *testing.T) {
 	if got := genericErr.StatusCode(); got != http.StatusTooManyRequests {
 		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, got)
 	}
-	if got := genericErr.Error(); got != "WhatsApp rejected this send due to reachout timelock or privacy-token state. Try sending to an existing conversation, have the recipient message you first, and make sure WhatsApp privacy tokens are persisted." {
+	if got := genericErr.Error(); got != string(pkgError.ErrWaReachoutTimelock) {
 		t.Fatalf("unexpected error message: %q", got)
 	}
 }
