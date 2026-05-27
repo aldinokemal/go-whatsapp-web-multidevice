@@ -34,8 +34,12 @@ func (r *recordingChatStorageRepo) GetChats(*domainChatStorage.ChatFilter) ([]*d
 func (r *recordingChatStorageRepo) DeleteChat(string) error                               { return nil }
 func (r *recordingChatStorageRepo) DeleteChatByDevice(string, string) error               { return nil }
 func (r *recordingChatStorageRepo) StoreMessage(*domainChatStorage.Message) error         { return nil }
+func (r *recordingChatStorageRepo) StoreMessageEdit(*domainChatStorage.MessageEdit) error { return nil }
 func (r *recordingChatStorageRepo) StoreMessagesBatch([]*domainChatStorage.Message) error { return nil }
 func (r *recordingChatStorageRepo) GetMessageByID(string) (*domainChatStorage.Message, error) {
+	return nil, nil
+}
+func (r *recordingChatStorageRepo) GetMessageEdits(string, string) ([]*domainChatStorage.MessageEdit, error) {
 	return nil, nil
 }
 func (r *recordingChatStorageRepo) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {

@@ -33,6 +33,9 @@ func mcpServer(_ *cobra.Command, _ []string) {
 	// Set auto reconnect checking with a valid client reference
 	startAutoReconnectCheckerIfClientAvailable()
 
+	// Set daily presence pulse scheduler when enabled
+	startPresencePulseSchedulerIfEnabled()
+
 	// Create MCP server with capabilities
 	mcpServer := server.NewMCPServer(
 		"WhatsApp Web Multidevice MCP Server",
