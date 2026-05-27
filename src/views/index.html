@@ -165,6 +165,16 @@
         <chat-messages></chat-messages>
     </div>
 
+    {{ if .ChatwootEnabled }}
+    <div class="ui horizontal divider">
+        Chatwoot
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <chatwoot-config :connected="connected_devices"></chatwoot-config>
+    </div>
+    {{ end }}
+
 </div>
 <script>
     window.TYPEGROUP = "@g.us";
@@ -249,6 +259,7 @@
     import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
     import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
     import DeviceManager from "{{ .AppBasePath }}/components/DeviceManager.js";
+    import ChatwootConfig from "{{ .AppBasePath }}/components/ChatwootConfig.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -278,7 +289,7 @@
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager, ChatDisappearingManager, ChatList, ChatMessages,
-            DeviceManager
+            DeviceManager, ChatwootConfig
         },
         delimiters: ['[[', ']]'],
         data() {

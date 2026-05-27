@@ -32,6 +32,11 @@ var (
 	defaultClient     *Client
 	defaultClientOnce sync.Once
 
+	// globalRegistry holds the process-wide multi-device client registry.
+	// It is set once at boot (cmd) and read by the forward/webhook paths,
+	// matching the package's existing global-singleton style (GetDefaultClient).
+	globalRegistry *ClientRegistry
+
 	// sentMessageIDs tracks Chatwoot message IDs created by our API to prevent
 	// echo loops: WhatsApp msg → synced to Chatwoot → Chatwoot webhook fires →
 	// would re-send to WhatsApp without this guard.
@@ -47,6 +52,12 @@ func GetDefaultClient() *Client {
 	})
 	return defaultClient
 }
+
+// SetGlobalRegistry installs the process-wide client registry. Called once at boot.
+func SetGlobalRegistry(r *ClientRegistry) { globalRegistry = r }
+
+// GetGlobalRegistry returns the process-wide client registry, or nil if unset.
+func GetGlobalRegistry() *ClientRegistry { return globalRegistry }
 
 func MarkMessageAsSent(messageID int) {
 	if messageID == 0 {
@@ -290,6 +301,179 @@ func (c *Client) UpdateContactName(contactID int, name string) error {
 		return fmt.Errorf("failed to update contact: status %d body %s", resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+// UpdateMessageStatus updates the delivery/read status of a message in an API
+// channel conversation. This uses Chatwoot's message update endpoint, which is
+// undocumented in the public API reference but exists in routes.rb
+// (resources :messages includes :update) and is restricted to API inboxes.
+// status is one of "sent", "delivered", "read", "failed".
+func (c *Client) UpdateMessageStatus(conversationID, messageID int, status string) error {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages/%d", c.BaseURL, c.AccountID, conversationID, messageID)
+
+	jsonPayload, err := json.Marshal(map[string]any{"status": status})
+	if err != nil {
+		return fmt.Errorf("failed to marshal status payload: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update message status: status %d body %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// ListInboxes returns all inboxes in the configured account.
+func (c *Client) ListInboxes() ([]Inbox, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/inboxes", c.BaseURL, c.AccountID)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to list inboxes: status %d body %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Payload []Inbox `json:"payload"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.Payload, nil
+}
+
+// FindInboxByName returns the inbox whose name matches (case-insensitive), or (nil, nil).
+func (c *Client) FindInboxByName(name string) (*Inbox, error) {
+	inboxes, err := c.ListInboxes()
+	if err != nil {
+		return nil, err
+	}
+	for i := range inboxes {
+		if strings.EqualFold(inboxes[i].Name, name) {
+			return &inboxes[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// CreateInbox creates an API channel inbox with the given name and webhook URL.
+func (c *Client) CreateInbox(name, webhookURL string) (*Inbox, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/inboxes", c.BaseURL, c.AccountID)
+
+	payload := map[string]any{
+		"name": name,
+		"channel": map[string]any{
+			"type":        "api",
+			"webhook_url": webhookURL,
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal inbox payload: %w", err)
+	}
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("failed to create inbox: status %d body %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Chatwoot returns the inbox object directly; some versions wrap it in "payload".
+	var inbox Inbox
+	if err := json.Unmarshal(bodyBytes, &inbox); err == nil && inbox.ID != 0 {
+		return &inbox, nil
+	}
+	var wrapped struct {
+		Payload Inbox `json:"payload"`
+	}
+	if err := json.Unmarshal(bodyBytes, &wrapped); err == nil && wrapped.Payload.ID != 0 {
+		return &wrapped.Payload, nil
+	}
+	return nil, fmt.Errorf("failed to decode inbox response (no valid ID found): %s", string(bodyBytes))
+}
+
+// FindOrCreateInbox returns an existing inbox matching name, or creates a new
+// API channel inbox with the given webhook URL. Idempotent on inbox name.
+func (c *Client) FindOrCreateInbox(name, webhookURL string) (*Inbox, error) {
+	existing, err := c.FindInboxByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
+	}
+	return c.CreateInbox(name, webhookURL)
+}
+
+// UpdateInboxWebhook sets the callback (webhook) URL on an API channel inbox so
+// Chatwoot delivers agent replies to this GoWA server. Used to auto-register the
+// webhook when a per-device mapping is created or updated.
+func (c *Client) UpdateInboxWebhook(inboxID int, webhookURL string) error {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/inboxes/%d", c.BaseURL, c.AccountID, inboxID)
+
+	payload := map[string]any{
+		"channel": map[string]any{
+			"webhook_url": webhookURL,
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal inbox webhook payload: %w", err)
+	}
+
+	req, err := http.NewRequest("PATCH", endpoint, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update inbox webhook: status %d body %s", resp.StatusCode, string(body))
+	}
 	return nil
 }
 

@@ -39,29 +39,50 @@ func NewChatwootHandler(
 func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	logrus.Debugf("Chatwoot Webhook raw body: %s", string(c.Body()))
 
-	// Resolve device for outbound messages
-	instance, resolvedID, err := h.DeviceManager.ResolveDevice(config.ChatwootDeviceID)
-	if err != nil {
-		logrus.Errorf("Chatwoot Webhook: Failed to resolve device: %v", err)
-		return c.Status(fiber.StatusServiceUnavailable).JSON(utils.ResponseData{
-			Status:  fiber.StatusServiceUnavailable,
-			Code:    "DEVICE_NOT_AVAILABLE",
-			Message: fmt.Sprintf("No device available for Chatwoot: %v. Configure CHATWOOT_DEVICE_ID or ensure one device is registered.", err),
-		})
-	}
-	logrus.Debugf("Chatwoot Webhook: Using device %s", resolvedID)
-
-	// Set device context for send operations
-	c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
-
+	// Parse the payload first so we can route by inbox_id (multi-device).
 	var payload chatwoot.WebhookPayload
 	if err := c.BodyParser(&payload); err != nil {
 		return utils.ResponseError(c, "Invalid payload")
 	}
 
+	// Resolve device for outbound messages: prefer the device mapped to this
+	// webhook's inbox, fall back to the global CHATWOOT_DEVICE_ID.
+	var (
+		instance   *whatsapp.DeviceInstance
+		resolvedID string
+		err        error
+	)
+	if reg := chatwoot.GetGlobalRegistry(); reg != nil {
+		if _, deviceID, lookupErr := reg.GetClientForInbox(payload.Account.ID, payload.Conversation.InboxID); lookupErr == nil && deviceID != "" {
+			instance, resolvedID, err = h.DeviceManager.ResolveDevice(deviceID)
+		}
+	}
+	if instance == nil {
+		instance, resolvedID, err = h.DeviceManager.ResolveDevice(config.ChatwootDeviceID)
+	}
+	if err != nil || instance == nil {
+		logrus.Errorf("Chatwoot Webhook: Failed to resolve device: %v", err)
+		return c.Status(fiber.StatusServiceUnavailable).JSON(utils.ResponseData{
+			Status:  fiber.StatusServiceUnavailable,
+			Code:    "DEVICE_NOT_AVAILABLE",
+			Message: fmt.Sprintf("No device available for Chatwoot: %v. Configure CHATWOOT_DEVICE_ID or a per-inbox mapping.", err),
+		})
+	}
+	logrus.Debugf("Chatwoot Webhook: Using device %s (inbox %d)", resolvedID, payload.Conversation.InboxID)
+
+	// Set device context for send operations
+	c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
+
 	contact := payload.Conversation.Meta.Sender
 	logrus.Debugf("Chatwoot Webhook: event=%s message_type=%s contact_id=%d contact_phone=%s",
 		payload.Event, payload.MessageType, contact.ID, contact.PhoneNumber)
+
+	// Typing indicator: agent typing in Chatwoot -> "typing…" presence in WhatsApp,
+	// emulating WhatsApp Web. Handled before the message_created filter below.
+	if payload.Event == "conversation_typing_on" || payload.Event == "conversation_typing_off" {
+		h.handleTypingPresence(c, payload)
+		return c.SendStatus(fiber.StatusOK)
+	}
 
 	if payload.Event != "message_created" {
 		return c.SendStatus(fiber.StatusOK)
@@ -80,32 +101,10 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	customAttrs := contact.CustomAttributes
-	var destination string
-	if val, ok := customAttrs["waha_whatsapp_jid"]; ok {
-		if strVal, ok := val.(string); ok {
-			destination = strVal
-		}
-	}
-	if destination == "" && contact.PhoneNumber != "" {
-		destination = contact.PhoneNumber
-	}
-
+	destination, isGroup := resolveWhatsAppDestination(contact)
 	if destination == "" {
 		logrus.Warnf("Chatwoot Webhook: No destination phone for contact ID %d", contact.ID)
 		return c.SendStatus(fiber.StatusOK)
-	}
-
-	// Check if this is a group message (JID ends with @g.us)
-	isGroup := utils.IsGroupJID(destination)
-
-	// Clean up the destination for WhatsApp sending
-	destination = utils.CleanPhoneForWhatsApp(destination)
-
-	// For private chats, strip the @s.whatsapp.net suffix if present
-	// For groups, keep the full JID (including @g.us)
-	if !isGroup {
-		destination = utils.ExtractPhoneFromJID(destination)
 	}
 
 	logrus.Debugf("Chatwoot Webhook: Sending to destination=%s isGroup=%v", destination, isGroup)
@@ -113,9 +112,14 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
 		for _, attachment := range payload.Attachments {
-			if err := h.handleAttachment(c, destination, attachment, payload.Content); err != nil {
+			waMsgID, err := h.handleAttachment(c, destination, attachment, payload.Content)
+			if err != nil {
 				logrus.Errorf("Chatwoot Webhook: Failed to send attachment %d: %v", attachment.ID, err)
+				continue
 			}
+			// Map the sent WhatsApp message to this Chatwoot message so later
+			// delivery/read receipts can update its status (the ✓/✓✓/read ticks).
+			chatwoot.TrackOutgoingMessage(waMsgID, payload.Conversation.ID, payload.ID)
 		}
 		// Return early after sending attachments - caption was already included
 		return c.SendStatus(fiber.StatusOK)
@@ -128,7 +132,7 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		}
 		req.Phone = destination
 
-		_, err := h.SendUsecase.SendText(c.Context(), req)
+		resp, err := h.SendUsecase.SendText(c.UserContext(), req)
 		if err != nil {
 			// Log with more context but still return 200 to prevent Chatwoot retries
 			logrus.WithFields(logrus.Fields{
@@ -138,13 +142,17 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 			}).Error("Chatwoot Webhook: Failed to send message (returning 200 to prevent retry)")
 			return c.SendStatus(fiber.StatusOK)
 		}
+		// Track for delivery/read status sync via WhatsApp receipts.
+		chatwoot.TrackOutgoingMessage(resp.MessageID, payload.Conversation.ID, payload.ID)
 		logrus.Infof("Chatwoot Webhook: Sent text message to %s", destination)
 	}
 
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatwoot.Attachment, caption string) error {
+// handleAttachment sends one Chatwoot attachment to WhatsApp and returns the
+// resulting WhatsApp message ID (for delivery/read status tracking).
+func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatwoot.Attachment, caption string) (string, error) {
 	switch att.FileType {
 	case "image":
 		req := domainSend.ImageRequest{
@@ -152,11 +160,11 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 			Caption:     caption,
 			ImageURL:    &att.DataURL,
 		}
-		_, err := h.SendUsecase.SendImage(c.Context(), req)
+		resp, err := h.SendUsecase.SendImage(c.UserContext(), req)
 		if err == nil {
 			logrus.Infof("Chatwoot Webhook: Sent image attachment to %s", phone)
 		}
-		return err
+		return resp.MessageID, err
 
 	case "audio":
 		req := domainSend.AudioRequest{
@@ -164,10 +172,10 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 			AudioURL:    &att.DataURL,
 			PTT:         true, // Send as PTT (Voice Note) for better mobile experience
 		}
-		_, err := h.SendUsecase.SendAudio(c.Context(), req)
+		resp, err := h.SendUsecase.SendAudio(c.UserContext(), req)
 		if err == nil {
 			logrus.Infof("Chatwoot Webhook: Sent audio attachment to %s", phone)
-			return nil
+			return resp.MessageID, nil
 		}
 
 		logrus.Warnf("Chatwoot Webhook: Failed to send as audio (%v), retrying as file...", err)
@@ -177,11 +185,11 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 			FileURL:     &att.DataURL,
 			Caption:     caption,
 		}
-		_, err = h.SendUsecase.SendFile(c.Context(), reqFile)
+		fileResp, err := h.SendUsecase.SendFile(c.UserContext(), reqFile)
 		if err == nil {
 			logrus.Infof("Chatwoot Webhook: Sent audio as file attachment to %s", phone)
 		}
-		return err
+		return fileResp.MessageID, err
 
 	case "video":
 		req := domainSend.VideoRequest{
@@ -189,11 +197,11 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 			Caption:     caption,
 			VideoURL:    &att.DataURL,
 		}
-		_, err := h.SendUsecase.SendVideo(c.Context(), req)
+		resp, err := h.SendUsecase.SendVideo(c.UserContext(), req)
 		if err == nil {
 			logrus.Infof("Chatwoot Webhook: Sent video attachment to %s", phone)
 		}
-		return err
+		return resp.MessageID, err
 
 	default:
 		// Default to file for other types
@@ -202,11 +210,60 @@ func (h *ChatwootHandler) handleAttachment(c *fiber.Ctx, phone string, att chatw
 			FileURL:     &att.DataURL,
 			Caption:     caption,
 		}
-		_, err := h.SendUsecase.SendFile(c.Context(), req)
+		resp, err := h.SendUsecase.SendFile(c.UserContext(), req)
 		if err == nil {
 			logrus.Infof("Chatwoot Webhook: Sent file attachment to %s", phone)
 		}
-		return err
+		return resp.MessageID, err
+	}
+}
+
+// resolveWhatsAppDestination derives the WhatsApp send target from a Chatwoot
+// contact: the waha_whatsapp_jid custom attribute (preferred) or phone number,
+// cleaned for WhatsApp. Returns ("", false) when no usable destination exists.
+func resolveWhatsAppDestination(contact chatwoot.Contact) (string, bool) {
+	var destination string
+	if val, ok := contact.CustomAttributes["waha_whatsapp_jid"]; ok {
+		if strVal, ok := val.(string); ok {
+			destination = strVal
+		}
+	}
+	if destination == "" {
+		destination = contact.PhoneNumber
+	}
+	if destination == "" {
+		return "", false
+	}
+
+	isGroup := utils.IsGroupJID(destination)
+	destination = utils.CleanPhoneForWhatsApp(destination)
+	if !isGroup {
+		destination = utils.ExtractPhoneFromJID(destination)
+	}
+	return destination, isGroup
+}
+
+// handleTypingPresence mirrors a Chatwoot agent's typing state to WhatsApp as a
+// chat presence (composing/paused), so the contact sees "typing…" like on
+// WhatsApp Web. Best-effort: failures are logged, never surfaced. Skips private
+// notes (which must not notify the contact) and group conversations.
+func (h *ChatwootHandler) handleTypingPresence(c *fiber.Ctx, payload chatwoot.WebhookPayload) {
+	if payload.IsPrivate {
+		return
+	}
+	destination, isGroup := resolveWhatsAppDestination(payload.Conversation.Meta.Sender)
+	if destination == "" || isGroup {
+		return
+	}
+
+	action := "start"
+	if payload.Event == "conversation_typing_off" {
+		action = "stop"
+	}
+
+	req := domainSend.ChatPresenceRequest{Phone: destination, Action: action}
+	if _, err := h.SendUsecase.SendChatPresence(c.UserContext(), req); err != nil {
+		logrus.Debugf("Chatwoot Webhook: failed to send typing presence to %s: %v", destination, err)
 	}
 }
 
@@ -241,18 +298,6 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get Chatwoot client
-	cwClient := chatwoot.GetDefaultClient()
-	if !cwClient.IsConfigured() {
-		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
-			Status:  fiber.StatusBadRequest,
-			Code:    "CHATWOOT_NOT_CONFIGURED",
-			Message: "Chatwoot is not configured. Set CHATWOOT_URL, CHATWOOT_API_TOKEN, CHATWOOT_ACCOUNT_ID, and CHATWOOT_INBOX_ID.",
-		})
-	}
-
-	// Get or create sync service
-	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo)
 	waClient := instance.GetClient()
 
 	// Use JID as the storage device ID since chats are stored with the full JID
@@ -261,6 +306,25 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	if storageDeviceID == "" {
 		storageDeviceID = resolvedID
 	}
+
+	// Resolve the Chatwoot client for this device (per-inbox), falling back to
+	// the env-var default singleton when no per-device config exists.
+	cwClient := chatwoot.GetDefaultClient()
+	if reg := chatwoot.GetGlobalRegistry(); reg != nil && storageDeviceID != "" {
+		if client, lookupErr := reg.GetClientForDevice(storageDeviceID); lookupErr == nil {
+			cwClient = client
+		}
+	}
+	if !cwClient.IsConfigured() {
+		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+			Status:  fiber.StatusBadRequest,
+			Code:    "CHATWOOT_NOT_CONFIGURED",
+			Message: "Chatwoot is not configured. Set CHATWOOT_URL, CHATWOOT_API_TOKEN, CHATWOOT_ACCOUNT_ID, and CHATWOOT_INBOX_ID.",
+		})
+	}
+
+	// Get or create sync service (the client is passed per SyncHistory call)
+	syncService := chatwoot.GetSyncService(h.ChatStorageRepo)
 
 	// Check if already running
 	if syncService.IsRunning(storageDeviceID) {
@@ -284,7 +348,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	// Start async sync
 	go func() {
 		ctx := context.Background()
-		progress, err := syncService.SyncHistory(ctx, storageDeviceID, waClient, opts)
+		progress, err := syncService.SyncHistory(ctx, storageDeviceID, cwClient, waClient, opts)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed for device %s: %v", storageDeviceID, err)
 		} else {

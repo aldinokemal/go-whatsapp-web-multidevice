@@ -18,9 +18,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// SyncService handles message history synchronization to Chatwoot
+// SyncService handles message history synchronization to Chatwoot.
+// The Chatwoot client is supplied per SyncHistory call (not stored), so a single
+// shared service can drive multiple devices, each routed to its own inbox.
 type SyncService struct {
-	client          *Client
 	chatStorageRepo domainChatStorage.IChatStorageRepository
 
 	// Track sync progress per device
@@ -30,11 +31,9 @@ type SyncService struct {
 
 // NewSyncService creates a new sync service instance
 func NewSyncService(
-	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
 ) *SyncService {
 	return &SyncService{
-		client:          client,
 		chatStorageRepo: chatStorageRepo,
 		progressMap:     make(map[string]*SyncProgress),
 	}
@@ -63,8 +62,9 @@ func (s *SyncService) IsRunning(deviceID string) bool {
 	return false
 }
 
-// SyncHistory performs the initial message history sync to Chatwoot
-func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
+// SyncHistory performs the initial message history sync to Chatwoot using the
+// supplied client (which carries the target account/inbox for this device).
+func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, client *Client, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
 	// Atomic check-and-set to prevent race condition
 	progress := NewSyncProgress(deviceID)
 	s.progressMu.Lock()
@@ -105,7 +105,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 
 		progress.UpdateChat(chat.JID)
 
-		err := s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
+		err := s.syncChat(ctx, deviceID, client, chat, sinceTime, waClient, opts, progress)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
 			progress.IncrementFailedChats()
@@ -126,6 +126,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 func (s *SyncService) syncChat(
 	ctx context.Context,
 	deviceID string,
+	client *Client,
 	chat *domainChatStorage.Chat,
 	sinceTime time.Time,
 	waClient *whatsmeow.Client,
@@ -148,14 +149,14 @@ func (s *SyncService) syncChat(
 		contactName = utils.ExtractPhoneFromJID(chat.JID)
 	}
 
-	contact, err := s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
+	contact, err := client.FindOrCreateContact(contactName, chat.JID, isGroup)
 	if err != nil {
 		return fmt.Errorf("failed to create contact: %w", err)
 	}
 	logrus.Debugf("Chatwoot Sync: Contact ID: %d", contact.ID)
 
 	// 2. Find or create conversation
-	conversation, err := s.client.FindOrCreateConversation(contact.ID)
+	conversation, err := client.FindOrCreateConversation(contact.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create conversation: %w", err)
 	}
@@ -191,7 +192,7 @@ func (s *SyncService) syncChat(
 			return err
 		}
 
-		err := s.syncMessage(ctx, conversation.ID, msg, waClient, opts, isGroup)
+		err := s.syncMessage(ctx, client, conversation.ID, msg, waClient, opts, isGroup)
 		if err != nil {
 			logrus.Warnf("Chatwoot Sync: Failed to sync message %s: %v", msg.ID, err)
 			progress.IncrementFailedMessages()
@@ -212,6 +213,7 @@ func (s *SyncService) syncChat(
 // syncMessage syncs a single message to Chatwoot
 func (s *SyncService) syncMessage(
 	ctx context.Context,
+	client *Client,
 	conversationID int,
 	msg *domainChatStorage.Message,
 	waClient *whatsmeow.Client,
@@ -257,7 +259,7 @@ func (s *SyncService) syncMessage(
 
 	// Send to Chatwoot and register the returned ID in the dedup cache so the
 	// resulting webhook event is recognized as "ours" and not forwarded back to WhatsApp.
-	msgID, err := s.client.CreateMessage(conversationID, content, messageType, attachments)
+	msgID, err := client.CreateMessage(conversationID, content, messageType, attachments)
 
 	for _, fp := range attachments {
 		if err := os.Remove(fp); err != nil {
@@ -385,11 +387,10 @@ var (
 
 // GetSyncService returns a shared sync service instance
 func GetSyncService(
-	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
 ) *SyncService {
 	globalSyncServiceOnce.Do(func() {
-		globalSyncService = NewSyncService(client, chatStorageRepo)
+		globalSyncService = NewSyncService(chatStorageRepo)
 	})
 	return globalSyncService
 }

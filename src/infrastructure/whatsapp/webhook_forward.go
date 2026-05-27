@@ -222,7 +222,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 
 func shouldForwardEventToChatwoot(eventName string) bool {
 	switch eventName {
-	case "message", "message.reaction":
+	case "message", "message.reaction", "message.ack":
 		return true
 	default:
 		return false
@@ -236,7 +236,12 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	if isEventWhitelisted(eventName) {
 		return true
 	}
-	return eventName == "message.reaction" && isEventWhitelisted("message")
+	// message.reaction and message.ack ride along when "message" is whitelisted,
+	// so delivery/read status sync works without an explicit ack subscription.
+	if eventName == "message.reaction" || eventName == "message.ack" {
+		return isEventWhitelisted("message")
+	}
+	return false
 }
 
 func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
@@ -432,7 +437,21 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 
 func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
 	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
+
+	// Resolve the client for the device that received this message. Falls back
+	// to the env-var default singleton when no per-device registry/config exists.
 	cw := chatwoot.GetDefaultClient()
+	if reg := chatwoot.GetGlobalRegistry(); reg != nil {
+		if deviceID, _ := payload["device_id"].(string); deviceID != "" {
+			client, err := reg.GetClientForDevice(deviceID)
+			if err != nil {
+				logrus.Warnf("Chatwoot: no config for device %s: %v", deviceID, err)
+				return
+			}
+			cw = client
+		}
+	}
+
 	if !cw.IsConfigured() {
 		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
 		return
@@ -441,6 +460,13 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		logrus.Error("Chatwoot: Invalid payload format (missing 'payload' object)")
+		return
+	}
+
+	// Delivery/read receipts update the status of a previously synced message
+	// rather than creating a new one.
+	if eventName == "message.ack" {
+		handleChatwootMessageAck(cw, data)
 		return
 	}
 
@@ -467,6 +493,61 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
 		logrus.Errorf("Chatwoot: %v", err)
+	}
+}
+
+// handleChatwootMessageAck maps a WhatsApp delivery/read receipt to the Chatwoot
+// message it corresponds to and updates that message's status, so the ✓/✓✓/read
+// ticks in Chatwoot reflect real WhatsApp delivery state.
+func handleChatwootMessageAck(cw *chatwoot.Client, data map[string]any) {
+	receiptType, _ := data["receipt_type"].(string)
+	status := chatwootStatusFromReceipt(receiptType)
+	if status == "" {
+		return // not a delivered/read receipt we care about
+	}
+
+	for _, waMsgID := range receiptMessageIDs(data) {
+		convID, msgID, ok := chatwoot.ResolveTrackedMessage(waMsgID)
+		if !ok {
+			continue // not a message we synced/sent
+		}
+		if err := cw.UpdateMessageStatus(convID, msgID, status); err != nil {
+			logrus.Warnf("Chatwoot: failed to update message %d status to %s: %v", msgID, status, err)
+			continue
+		}
+		logrus.Infof("Chatwoot: message %d marked as %s (wa id %s)", msgID, status, waMsgID)
+	}
+}
+
+// chatwootStatusFromReceipt maps a WhatsApp receipt type to a Chatwoot message
+// status, or "" when the receipt should be ignored.
+func chatwootStatusFromReceipt(receiptType string) string {
+	switch receiptType {
+	case "delivered":
+		return "delivered"
+	case "read", "read-self", "played", "played-self":
+		return "read"
+	default:
+		return ""
+	}
+}
+
+// receiptMessageIDs extracts the WhatsApp message IDs from a receipt payload,
+// tolerating the slice types it may carry through the in-memory payload map.
+func receiptMessageIDs(data map[string]any) []string {
+	switch ids := data["ids"].(type) {
+	case []string: // types.MessageID is an alias of string
+		return ids
+	case []any:
+		out := make([]string, 0, len(ids))
+		for _, v := range ids {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

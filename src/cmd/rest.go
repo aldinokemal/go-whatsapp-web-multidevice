@@ -135,6 +135,18 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Device management routes (no device_id required)
 	rest.InitRestDevice(apiGroup, deviceUsecase)
 
+	// Chatwoot mapping CRUD are admin/config routes (not device-scoped), so they
+	// must be registered BEFORE DeviceMiddleware — otherwise that middleware would
+	// reject them with DEVICE_ID_REQUIRED when no device header is present.
+	if config.ChatwootEnabled {
+		chatwootConfigHandler := rest.NewChatwootConfigHandler(chatwootConfigRepo, chatwootRegistry, dm)
+		apiGroup.Get("/chatwoot/configs", chatwootConfigHandler.List)
+		apiGroup.Get("/chatwoot/configs/:device_id", chatwootConfigHandler.Get)
+		apiGroup.Post("/chatwoot/configs", chatwootConfigHandler.Create)
+		apiGroup.Put("/chatwoot/configs/:device_id", chatwootConfigHandler.Update)
+		apiGroup.Delete("/chatwoot/configs/:device_id", chatwootConfigHandler.Delete)
+	}
+
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
@@ -152,8 +164,9 @@ func restServer(_ *cobra.Command, _ []string) {
 			"AppVersion":     config.AppVersion,
 			"AppBasePath":    config.AppBasePath,
 			"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
-			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			"MaxFileSize":     humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+			"MaxVideoSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			"ChatwootEnabled": config.ChatwootEnabled,
 		})
 	})
 

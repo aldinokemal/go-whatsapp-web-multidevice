@@ -15,6 +15,7 @@ import (
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainChatwoot "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatwoot"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
@@ -22,6 +23,7 @@ import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
+	chatwootinfra "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -43,6 +45,10 @@ var (
 	// Chat Storage
 	chatStorageDB   *sql.DB
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+
+	// Chatwoot multi-device config (shares the chatStorageDB connection)
+	chatwootConfigRepo domainChatwoot.IDeviceConfigRepository
+	chatwootRegistry   *chatwootinfra.ClientRegistry
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
@@ -99,6 +105,9 @@ func initEnvConfig() {
 	}
 	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
 		config.AppBasePath = envBasePath
+	}
+	if envPublicURL := viper.GetString("app_public_url"); envPublicURL != "" {
+		config.AppPublicURL = envPublicURL
 	}
 	if envTrustedProxies := viper.GetString("app_trusted_proxies"); envTrustedProxies != "" {
 		proxies := strings.Split(envTrustedProxies, ",")
@@ -227,6 +236,12 @@ func initFlags() {
 		"base-path", "",
 		config.AppBasePath,
 		`base path for subpath deployment --base-path <string> | example: --base-path="/gowa"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppPublicURL,
+		"public-url", "",
+		config.AppPublicURL,
+		`public base URL used to auto-register the Chatwoot webhook --public-url <string> | example: --public-url="https://gowa.example.com"`,
 	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.AppTrustedProxies,
@@ -377,6 +392,60 @@ func initChatStorage() (*sql.DB, error) {
 	return db, nil
 }
 
+// initChatwootConfig sets up the per-device Chatwoot config repository. When
+// Chatwoot is enabled via env vars but no per-device config exists yet, it
+// transparently migrates the legacy global CHATWOOT_* settings into a single
+// row so existing single-device deployments keep working unchanged.
+func initChatwootConfig() {
+	if !config.ChatwootEnabled {
+		return
+	}
+
+	chatwootConfigRepo = chatwootinfra.NewDeviceConfigRepository(chatStorageDB)
+	if err := chatwootConfigRepo.Migrate(); err != nil {
+		logrus.Errorf("Chatwoot: failed to migrate device config table: %v", err)
+		return
+	}
+
+	// Transparent migration: seed from env vars only when the table is empty
+	// and the legacy globals point at a usable device + inbox.
+	existing, err := chatwootConfigRepo.GetAll()
+	if err != nil {
+		logrus.Errorf("Chatwoot: failed to read device configs: %v", err)
+		return
+	}
+	if len(existing) > 0 || config.ChatwootDeviceID == "" || config.ChatwootInboxID == 0 {
+		return
+	}
+
+	seed := &domainChatwoot.DeviceConfig{
+		DeviceID:       config.ChatwootDeviceID,
+		ChatwootURL:    config.ChatwootURL,
+		APIToken:       config.ChatwootAPIToken,
+		AccountID:      config.ChatwootAccountID,
+		InboxID:        config.ChatwootInboxID,
+		Enabled:        true,
+		ImportMessages: config.ChatwootImportMessages,
+		DaysLimit:      config.ChatwootDaysLimitImportMessages,
+	}
+	if err := chatwootConfigRepo.Save(seed); err != nil {
+		logrus.Errorf("Chatwoot: failed to seed device config from env vars: %v", err)
+		return
+	}
+	logrus.Infof("Chatwoot: seeded device config for %s -> inbox %d from env vars", seed.DeviceID, seed.InboxID)
+}
+
+// initChatwootRegistry builds the process-wide client registry from the config
+// repository and installs it as the package global used by the forward/webhook
+// paths. Safe to skip when Chatwoot is disabled.
+func initChatwootRegistry() {
+	if !config.ChatwootEnabled || chatwootConfigRepo == nil {
+		return
+	}
+	chatwootRegistry = chatwootinfra.NewClientRegistry(chatwootConfigRepo)
+	chatwootinfra.SetGlobalRegistry(chatwootRegistry)
+}
+
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
@@ -399,6 +468,10 @@ func initApp() {
 
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
 	chatStorageRepo.InitializeSchema()
+
+	// Chatwoot per-device config persistence (reuses the chatStorageDB connection).
+	initChatwootConfig()
+	initChatwootRegistry()
 
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
 	var keysDB *sqlstore.Container

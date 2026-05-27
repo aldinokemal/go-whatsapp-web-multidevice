@@ -16,6 +16,11 @@ type Conversation struct {
 	Status    string `json:"status"`
 }
 
+type Inbox struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type Message struct {
 	ID          int    `json:"id"`
 	Content     string `json:"content"`
@@ -50,6 +55,7 @@ type WebhookPayload struct {
 	MessageType  string              `json:"message_type"`
 	Content      string              `json:"content"`
 	Private      bool                `json:"private"`
+	IsPrivate    bool                `json:"is_private"` // typing events use is_private
 	Account      Account             `json:"account"`
 	Conversation ConversationWebhook `json:"conversation"`
 	Sender       Contact             `json:"sender"`
@@ -65,8 +71,9 @@ type Attachment struct {
 }
 
 type ConversationWebhook struct {
-	ID   int              `json:"id"`
-	Meta ConversationMeta `json:"meta"`
+	ID      int              `json:"id"`
+	InboxID int              `json:"inbox_id"`
+	Meta    ConversationMeta `json:"meta"`
 }
 
 type ConversationMeta struct {
