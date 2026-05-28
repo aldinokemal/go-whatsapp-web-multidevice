@@ -7,8 +7,13 @@ Write-Host "==========================================================" -Foregro
 Write-Host "      AUTOMATION RELEASE SCRIPT - ENGINE_GOWA" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Check Git status
-Write-Host "[INFO] Memeriksa status perubahan file..." -ForegroundColor Yellow
+# 1. Get current Git branch
+$branch = git branch --show-current
+if ([string]::IsNullOrEmpty($branch)) {
+    $branch = "main"
+}
+
+Write-Host "[INFO] Memeriksa status perubahan file pada branch '$branch'..." -ForegroundColor Yellow
 $status = git status --porcelain
 if ([string]::IsNullOrEmpty($status)) {
     Write-Host "[SUCCESS] Tidak ada perubahan file lokal yang terdeteksi. Melanjutkan ke menu tagging..." -ForegroundColor Green
@@ -34,10 +39,10 @@ if ([string]::IsNullOrEmpty($status)) {
         Exit
     }
     
-    Write-Host "[INFO] Mengirim commit ke GitHub Fork (origin main)..." -ForegroundColor Yellow
-    git push origin main
+    Write-Host "[INFO] Mengirim commit ke GitHub Fork (origin $branch)..." -ForegroundColor Yellow
+    git push origin $branch
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Gagal mengirim commit ke GitHub! Silakan jalankan 'git pull origin main' terlebih dahulu untuk menyelaraskan berkas lokal Anda." -ForegroundColor Red
+        Write-Host "[ERROR] Gagal mengirim commit ke GitHub! Silakan jalankan 'git pull origin $branch' terlebih dahulu untuk menyelaraskan berkas lokal Anda." -ForegroundColor Red
         Exit
     }
     Write-Host "[SUCCESS] Commit berhasil terunggah!" -ForegroundColor Green
