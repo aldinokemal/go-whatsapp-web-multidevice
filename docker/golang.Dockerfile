@@ -17,7 +17,10 @@ RUN go build -ldflags="-w -s" -o /app/whatsapp
 ## STEP 2 build a smaller image
 #############################
 FROM alpine:3.23
-RUN apk add --no-cache ffmpeg libwebp-tools poppler-utils tzdata su-exec
+# mailcap provides /etc/mime.types so Go's mime.TypeByExtension resolves audio
+# (.ogg) and video (.mp4); without it Chatwoot receives application/octet-stream
+# and renders voice notes/videos as plain download links instead of players.
+RUN apk add --no-cache ffmpeg libwebp-tools poppler-utils tzdata su-exec mailcap
 
 # BusyBox adduser rejects uid == gid when that gid already exists as a group; use distinct ids.
 # Host bind mounts (if entrypoint cannot chown): chown -R 20001:20000 storages statics
