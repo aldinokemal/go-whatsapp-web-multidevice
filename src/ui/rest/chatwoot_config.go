@@ -242,7 +242,7 @@ func (h *ChatwootConfigHandler) resolveInbox(cfg *domainChatwoot.DeviceConfig, i
 		cfg.InboxID = existing.ID
 		return false, nil
 	}
-	created, err := client.CreateInbox(inboxName, webhookCallbackURL())
+	created, err := client.CreateInbox(inboxName, webhookCallbackURL(cfg.DeviceID))
 	if err != nil {
 		return false, err
 	}
@@ -270,24 +270,30 @@ func (h *ChatwootConfigHandler) Delete(c *fiber.Ctx) error {
 }
 
 // webhookCallbackURL returns the public callback URL Chatwoot should POST to,
-// derived from APP_PUBLIC_URL (+ base path). Empty when APP_PUBLIC_URL is unset.
-func webhookCallbackURL() string {
+// derived from APP_PUBLIC_URL (+ base path), with the device_id appended as a
+// query parameter so Chatwoot echoes it back on every webhook and GoWA can
+// resolve which device the event belongs to. Empty when APP_PUBLIC_URL is unset.
+func webhookCallbackURL(deviceID string) string {
 	if config.AppPublicURL == "" {
 		return ""
 	}
-	return strings.TrimRight(config.AppPublicURL, "/") + config.AppBasePath + "/chatwoot/webhook"
+	base := strings.TrimRight(config.AppPublicURL, "/") + config.AppBasePath + "/chatwoot/webhook"
+	if deviceID == "" {
+		return base
+	}
+	return base + "?device_id=" + url.QueryEscape(deviceID)
 }
 
 // withWebhookURL wraps a config with its derived webhook callback URL.
 func withWebhookURL(cfg *domainChatwoot.DeviceConfig) chatwootConfigResponse {
-	return chatwootConfigResponse{DeviceConfig: cfg, WebhookURL: webhookCallbackURL()}
+	return chatwootConfigResponse{DeviceConfig: cfg, WebhookURL: webhookCallbackURL(cfg.DeviceID)}
 }
 
 // autoRegisterWebhook best-effort registers the GoWA callback URL on the
 // Chatwoot inbox for this config. Non-blocking: failures are logged, not
 // returned, so the mapping is still saved. No-op when APP_PUBLIC_URL is unset.
 func autoRegisterWebhook(cfg *domainChatwoot.DeviceConfig) {
-	cbURL := webhookCallbackURL()
+	cbURL := webhookCallbackURL(cfg.DeviceID)
 	if cbURL == "" {
 		logrus.Debug("Chatwoot: APP_PUBLIC_URL not set, skipping webhook auto-registration")
 		return
