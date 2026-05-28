@@ -65,8 +65,10 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		}
 	}
 
-	// Resolve device only for events we actually process: prefer the device
-	// mapped to this webhook's inbox, fall back to the global CHATWOOT_DEVICE_ID.
+	// Resolve device only for events we actually process. Resolution order:
+	// the device mapped to this webhook's inbox, then the device_id carried on
+	// the webhook URL (?device_id=<JID>, set at inbox registration), then the
+	// global CHATWOOT_DEVICE_ID env default.
 	var (
 		instance   *whatsapp.DeviceInstance
 		resolvedID string
@@ -75,6 +77,11 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	if reg := chatwoot.GetGlobalRegistry(); reg != nil {
 		if _, deviceID, lookupErr := reg.GetClientForInbox(payload.Account.ID, payload.Conversation.InboxID); lookupErr == nil && deviceID != "" {
 			instance, resolvedID, err = h.DeviceManager.ResolveDevice(deviceID)
+		}
+	}
+	if instance == nil {
+		if queryDeviceID := c.Query("device_id"); queryDeviceID != "" {
+			instance, resolvedID, err = h.DeviceManager.ResolveDevice(queryDeviceID)
 		}
 	}
 	if instance == nil {
