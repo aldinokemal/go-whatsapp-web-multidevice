@@ -432,7 +432,7 @@ func initChatwootConfig() {
 		logrus.Errorf("Chatwoot: failed to seed device config from env vars: %v", err)
 		return
 	}
-	logrus.Infof("Chatwoot: seeded device config for %s -> inbox %d from env vars", seed.DeviceID, seed.InboxID)
+	logrus.Infof("Chatwoot: seeded device config from env vars for inbox %d", seed.InboxID)
 }
 
 // initChatwootRegistry builds the process-wide client registry from the config

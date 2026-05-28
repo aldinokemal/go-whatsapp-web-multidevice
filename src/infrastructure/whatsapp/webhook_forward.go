@@ -445,10 +445,10 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 		if deviceID, _ := payload["device_id"].(string); deviceID != "" {
 			client, err := reg.GetClientForDevice(deviceID)
 			if err != nil {
-				logrus.Warnf("Chatwoot: no config for device %s: %v", deviceID, err)
-				return
+				logrus.Warnf("Chatwoot: no config for device %s, using default client: %v", deviceID, err)
+			} else {
+				cw = client
 			}
-			cw = client
 		}
 	}
 

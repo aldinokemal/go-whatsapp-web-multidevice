@@ -39,6 +39,8 @@ func (r *DeviceConfigRepository) Migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_device_configs_inbox
 			ON chatwoot_device_configs(account_id, inbox_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_chatwoot_device_configs_inbox_unique
+			ON chatwoot_device_configs(account_id, inbox_id) WHERE enabled = 1`,
 	}
 	for _, stmt := range stmts {
 		if _, err := r.db.Exec(stmt); err != nil {
@@ -53,6 +55,35 @@ func (r *DeviceConfigRepository) Save(cfg *domainChatwoot.DeviceConfig) error {
 	if cfg == nil || cfg.DeviceID == "" {
 		return fmt.Errorf("chatwoot device config: device_id is required")
 	}
+	if cfg.ChatwootURL == "" {
+		return fmt.Errorf("chatwoot device config: chatwoot_url is required")
+	}
+	if cfg.APIToken == "" {
+		return fmt.Errorf("chatwoot device config: api_token is required")
+	}
+	if cfg.AccountID == 0 {
+		return fmt.Errorf("chatwoot device config: account_id is required")
+	}
+	if cfg.InboxID == 0 {
+		return fmt.Errorf("chatwoot device config: inbox_id is required")
+	}
+
+	// Enforce one enabled device per (account, inbox). The partial unique index
+	// would reject this anyway, but a pre-check yields a clearer error message.
+	if cfg.Enabled {
+		var otherDeviceID string
+		switch err := r.db.QueryRow(`
+			SELECT device_id FROM chatwoot_device_configs
+			WHERE account_id = ? AND inbox_id = ? AND enabled = 1 AND device_id <> ?
+			LIMIT 1
+		`, cfg.AccountID, cfg.InboxID, cfg.DeviceID).Scan(&otherDeviceID); {
+		case err == nil:
+			return fmt.Errorf("chatwoot device config: inbox %d in account %d is already mapped to enabled device %s", cfg.InboxID, cfg.AccountID, otherDeviceID)
+		case err != sql.ErrNoRows:
+			return fmt.Errorf("chatwoot device config conflict check: %w", err)
+		}
+	}
+
 	_, err := r.db.Exec(`
 		INSERT INTO chatwoot_device_configs
 			(device_id, chatwoot_url, api_token, account_id, inbox_id, enabled, import_messages, days_limit, updated_at)

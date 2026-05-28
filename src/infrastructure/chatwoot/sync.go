@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,9 +63,16 @@ func (s *SyncService) IsRunning(deviceID string) bool {
 	return false
 }
 
+// ErrNilClient is returned when a sync is attempted without a Chatwoot client.
+var ErrNilClient = errors.New("chatwoot: client is nil")
+
 // SyncHistory performs the initial message history sync to Chatwoot using the
 // supplied client (which carries the target account/inbox for this device).
 func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, client *Client, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
+	if client == nil {
+		return nil, ErrNilClient
+	}
+
 	// Atomic check-and-set to prevent race condition
 	progress := NewSyncProgress(deviceID)
 	s.progressMu.Lock()
@@ -133,6 +141,10 @@ func (s *SyncService) syncChat(
 	opts SyncOptions,
 	progress *SyncProgress,
 ) error {
+	if client == nil {
+		return ErrNilClient
+	}
+
 	isGroup := strings.HasSuffix(chat.JID, "@g.us")
 
 	// Skip groups if not configured

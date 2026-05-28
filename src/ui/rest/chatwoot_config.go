@@ -229,6 +229,7 @@ func (h *ChatwootConfigHandler) autoResolveDeviceID() (string, *utils.ResponseDa
 // creates a new API channel inbox (with the webhook URL). Returns whether a new
 // inbox was created.
 func (h *ChatwootConfigHandler) resolveInbox(cfg *domainChatwoot.DeviceConfig, inboxName string) (bool, error) {
+	inboxName = strings.TrimSpace(inboxName)
 	if cfg.InboxID != 0 || inboxName == "" {
 		return false, nil
 	}

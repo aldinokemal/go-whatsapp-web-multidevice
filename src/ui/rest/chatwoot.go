@@ -45,8 +45,28 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		return utils.ResponseError(c, "Invalid payload")
 	}
 
-	// Resolve device for outbound messages: prefer the device mapped to this
-	// webhook's inbox, fall back to the global CHATWOOT_DEVICE_ID.
+	// Filter events BEFORE resolving a device so ignored events are acknowledged
+	// cheaply. Only the typing indicator and outgoing, non-private, non-echo
+	// message_created events are processed; everything else gets a 200 OK.
+	isTyping := payload.Event == "conversation_typing_on" || payload.Event == "conversation_typing_off"
+	if !isTyping {
+		if payload.Event != "message_created" {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		if payload.MessageType != "outgoing" {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		if payload.Private {
+			return c.SendStatus(fiber.StatusOK)
+		}
+		if chatwoot.IsMessageSentByUs(payload.ID) {
+			logrus.Debugf("Chatwoot Webhook: Skipping echo message %d (created by our API)", payload.ID)
+			return c.SendStatus(fiber.StatusOK)
+		}
+	}
+
+	// Resolve device only for events we actually process: prefer the device
+	// mapped to this webhook's inbox, fall back to the global CHATWOOT_DEVICE_ID.
 	var (
 		instance   *whatsapp.DeviceInstance
 		resolvedID string
@@ -73,33 +93,16 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	// Set device context for send operations
 	c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
 
-	contact := payload.Conversation.Meta.Sender
-	logrus.Debugf("Chatwoot Webhook: event=%s message_type=%s contact_id=%d contact_phone=%s",
-		payload.Event, payload.MessageType, contact.ID, contact.PhoneNumber)
-
 	// Typing indicator: agent typing in Chatwoot -> "typing…" presence in WhatsApp,
-	// emulating WhatsApp Web. Handled before the message_created filter below.
-	if payload.Event == "conversation_typing_on" || payload.Event == "conversation_typing_off" {
+	// emulating WhatsApp Web.
+	if isTyping {
 		h.handleTypingPresence(c, payload)
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	if payload.Event != "message_created" {
-		return c.SendStatus(fiber.StatusOK)
-	}
-
-	if payload.MessageType != "outgoing" {
-		return c.SendStatus(fiber.StatusOK)
-	}
-
-	if payload.Private {
-		return c.SendStatus(fiber.StatusOK)
-	}
-
-	if chatwoot.IsMessageSentByUs(payload.ID) {
-		logrus.Debugf("Chatwoot Webhook: Skipping echo message %d (created by our API)", payload.ID)
-		return c.SendStatus(fiber.StatusOK)
-	}
+	contact := payload.Conversation.Meta.Sender
+	logrus.Debugf("Chatwoot Webhook: event=%s message_type=%s contact_id=%d contact_phone=%s",
+		payload.Event, payload.MessageType, contact.ID, contact.PhoneNumber)
 
 	destination, isGroup := resolveWhatsAppDestination(contact)
 	if destination == "" {
@@ -119,7 +122,9 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 			}
 			// Map the sent WhatsApp message to this Chatwoot message so later
 			// delivery/read receipts can update its status (the ✓/✓✓/read ticks).
-			chatwoot.TrackOutgoingMessage(waMsgID, payload.Conversation.ID, payload.ID)
+			if waMsgID != "" {
+				chatwoot.TrackOutgoingMessage(waMsgID, payload.Conversation.ID, payload.ID)
+			}
 		}
 		// Return early after sending attachments - caption was already included
 		return c.SendStatus(fiber.StatusOK)
@@ -143,7 +148,9 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 			return c.SendStatus(fiber.StatusOK)
 		}
 		// Track for delivery/read status sync via WhatsApp receipts.
-		chatwoot.TrackOutgoingMessage(resp.MessageID, payload.Conversation.ID, payload.ID)
+		if resp.MessageID != "" {
+			chatwoot.TrackOutgoingMessage(resp.MessageID, payload.Conversation.ID, payload.ID)
+		}
 		logrus.Infof("Chatwoot Webhook: Sent text message to %s", destination)
 	}
 
