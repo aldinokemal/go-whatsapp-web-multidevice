@@ -270,26 +270,28 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 
 func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
 	reaction, _ := data["reaction"].(string)
-	reactedMessageID, _ := data["reacted_message_id"].(string)
 
-	actor := "Someone"
-	if fromName != "" {
-		actor = fromName
-	} else if from, ok := data["from"].(string); ok && from != "" {
-		actor = utils.ExtractPhoneFromJID(from)
-	}
-
-	if reactedMessageID != "" {
-		if reaction == "" {
-			return fmt.Sprintf("%s removed a reaction from message %s", actor, reactedMessageID)
+	// In a group the conversation is shared, so lead with who reacted. In a 1:1
+	// chat the actor is the contact itself, so the name would be redundant. The
+	// reacted message is threaded via in_reply_to_external_id (set in
+	// forwardToChatwoot), so the raw WhatsApp message ID is no longer embedded.
+	prefix := ""
+	if isGroup {
+		actor := fromName
+		if actor == "" {
+			if from, ok := data["from"].(string); ok && from != "" {
+				actor = utils.ExtractPhoneFromJID(from)
+			}
 		}
-		return fmt.Sprintf("%s reacted %s to message %s", actor, reaction, reactedMessageID)
+		if actor != "" {
+			prefix = actor + " "
+		}
 	}
 
 	if reaction == "" {
-		return fmt.Sprintf("%s removed a reaction", actor)
+		return strings.TrimSpace(prefix + "removed a reaction")
 	}
-	return fmt.Sprintf("%s reacted %s", actor, reaction)
+	return strings.TrimSpace(prefix + "reacted " + reaction)
 }
 
 func chatwootMessageTypeFromPayload(data map[string]any) string {
@@ -535,6 +537,11 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 	info.WAMessageID, _ = data["id"].(string)
 	info.ReplyToExternalID, _ = data["replied_to_id"].(string)
+	// A reaction has no quoted message; thread it to the message it reacted to so
+	// Chatwoot shows the reaction against the original message instead of a raw ID.
+	if eventName == "message.reaction" {
+		info.ReplyToExternalID, _ = data["reacted_message_id"].(string)
+	}
 
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
