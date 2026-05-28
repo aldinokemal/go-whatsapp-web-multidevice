@@ -84,6 +84,14 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, client *
 	s.progressMap[deviceID] = progress
 	s.progressMu.Unlock()
 
+	// Mark the device as syncing for the full duration. While set, HandleWebhook
+	// skips every outgoing message_created event for this device: the sync creates
+	// those messages (incl. media/voice notes) via the Chatwoot API, and echoing
+	// them back would duplicate them on WhatsApp. defer guarantees the flag clears
+	// even on early return or panic.
+	SyncInProgress(deviceID)
+	defer SyncComplete(deviceID)
+
 	progress.SetRunning()
 
 	logrus.Infof("Chatwoot Sync: Starting history sync for device %s (days: %d, media: %v, groups: %v)",
@@ -389,6 +397,40 @@ func getExtensionForMediaType(mediaType, filename string) string {
 	default:
 		return ""
 	}
+}
+
+// syncingDevices marks devices with an active history sync. While set, the
+// Chatwoot webhook handler skips ALL outgoing message_created events for the
+// device: the sync creates those messages (text, media, voice notes) via the
+// Chatwoot API, and forwarding them back would duplicate them on WhatsApp. This
+// removes any timing dependency on the per-message MarkMessageAsSent dedup, which
+// an attachment webhook can race.
+var syncingDevices sync.Map // key: deviceID (JID), value: struct{}
+
+// SyncInProgress marks a device as having an active history sync.
+func SyncInProgress(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	syncingDevices.Store(deviceID, struct{}{})
+}
+
+// SyncComplete clears the active-sync marker for a device.
+func SyncComplete(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	syncingDevices.Delete(deviceID)
+}
+
+// IsSyncInProgress reports whether a history sync is currently running for the
+// device. HandleWebhook uses it to suppress echoes of sync-created messages.
+func IsSyncInProgress(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	_, ok := syncingDevices.Load(deviceID)
+	return ok
 }
 
 // Global sync service instance for REST endpoints

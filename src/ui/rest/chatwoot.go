@@ -100,6 +100,19 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
+	// While a history sync is running for this device, it is the sole source of
+	// outgoing messages (it creates them in Chatwoot, which echoes them back here).
+	// Skip them to avoid re-sending — and duplicating — synced media/voice notes.
+	// Keyed by JID, identical to the sync's progress key (see SyncHistory handler).
+	syncDeviceID := instance.JID()
+	if syncDeviceID == "" {
+		syncDeviceID = resolvedID
+	}
+	if chatwoot.IsSyncInProgress(syncDeviceID) {
+		logrus.Infof("Chatwoot Webhook: Skipping outgoing message %d — history sync in progress for device %s", payload.ID, syncDeviceID)
+		return c.SendStatus(fiber.StatusOK)
+	}
+
 	contact := payload.Conversation.Meta.Sender
 	logrus.Debugf("Chatwoot Webhook: event=%s message_type=%s contact_id=%d contact_phone=%s",
 		payload.Event, payload.MessageType, contact.ID, contact.PhoneNumber)

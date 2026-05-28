@@ -22,8 +22,10 @@ import (
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	domainWebhook "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	chatwootinfra "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	webhookinfra "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -49,6 +51,10 @@ var (
 	// Chatwoot multi-device config (shares the chatStorageDB connection)
 	chatwootConfigRepo domainChatwoot.IDeviceConfigRepository
 	chatwootRegistry   *chatwootinfra.ClientRegistry
+
+	// Per-device webhook config (shares the chatStorageDB connection)
+	webhookConfigRepo domainWebhook.IDeviceWebhookRepository
+	webhookRegistry   *webhookinfra.WebhookRegistry
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
@@ -446,6 +452,20 @@ func initChatwootRegistry() {
 	chatwootinfra.SetGlobalRegistry(chatwootRegistry)
 }
 
+// initWebhookConfig sets up per-device webhook persistence and its registry. It
+// is always enabled: a device without per-device config falls back to the global
+// WHATSAPP_WEBHOOK list, so no env seeding is needed.
+func initWebhookConfig() {
+	webhookConfigRepo = webhookinfra.NewDeviceWebhookRepository(chatStorageDB)
+	if err := webhookConfigRepo.Migrate(); err != nil {
+		logrus.Errorf("Webhook: failed to migrate device webhook config table: %v", err)
+		webhookConfigRepo = nil
+		return
+	}
+	webhookRegistry = webhookinfra.NewWebhookRegistry(webhookConfigRepo)
+	webhookinfra.SetGlobalRegistry(webhookRegistry)
+}
+
 func initApp() {
 	if config.AppDebug {
 		config.WhatsappLogLevel = "DEBUG"
@@ -472,6 +492,9 @@ func initApp() {
 	// Chatwoot per-device config persistence (reuses the chatStorageDB connection).
 	initChatwootConfig()
 	initChatwootRegistry()
+
+	// Per-device webhook config persistence (reuses the chatStorageDB connection).
+	initWebhookConfig()
 
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
 	var keysDB *sqlstore.Container

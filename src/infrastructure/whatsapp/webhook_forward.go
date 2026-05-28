@@ -9,13 +9,18 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainWebhook "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	webhookregistry "github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/webhook"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
 )
 
-var submitWebhookFn = submitWebhook
+var (
+	submitWebhookFn       = submitWebhook
+	submitDeviceWebhookFn = submitWebhookWithOptions
+)
 
 // mutexShardCount is the number of mutex shards for contact synchronization.
 // Using a fixed array avoids memory growth from sync.Map while still providing
@@ -72,7 +77,11 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+	// When the receiving device owns per-device webhooks, enter the webhook path
+	// regardless of the global event whitelist so per-webhook event filters are
+	// authoritative for that device.
+	hasDeviceWebhooks := len(deviceWebhooksForPayload(payload)) > 0
+	webhookAllowed := hasDeviceWebhooks || len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
@@ -95,6 +104,13 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 }
 
 func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
+	// Per-device webhooks take precedence: a device with its own config is routed
+	// only to its targets. Devices without per-device config fall back to the
+	// global WHATSAPP_WEBHOOK list below (backward compatible).
+	if cfgs := deviceWebhooksForPayload(payload); len(cfgs) > 0 {
+		return forwardToDeviceWebhooks(ctx, payload, eventName, cfgs)
+	}
+
 	total := len(config.WhatsappWebhook)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
 
@@ -126,6 +142,71 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 	}
 
 	return nil
+}
+
+// deviceWebhooksForPayload returns the per-device webhook configs bound to the
+// device that received this event, or nil when there is no registry, no
+// device_id in the payload, or no configs for the device.
+func deviceWebhooksForPayload(payload map[string]any) []domainWebhook.DeviceWebhookConfig {
+	reg := webhookregistry.GetGlobalRegistry()
+	if reg == nil {
+		return nil
+	}
+	deviceID, _ := payload["device_id"].(string)
+	if deviceID == "" {
+		return nil
+	}
+	return reg.GetWebhooksForDevice(deviceID)
+}
+
+// forwardToDeviceWebhooks delivers the payload to a device's own webhook targets,
+// applying each target's event filter, HMAC secret and custom headers. It mirrors
+// forwardToWebhooks' aggregation: an error is returned only when every eligible
+// target fails. Targets whose event filter excludes this event are skipped.
+func forwardToDeviceWebhooks(ctx context.Context, payload map[string]any, eventName string, cfgs []domainWebhook.DeviceWebhookConfig) error {
+	var (
+		failed    []string
+		successes int
+		eligible  int
+	)
+	for _, cfg := range cfgs {
+		if !webhookEventAllowed(cfg.Events, eventName) {
+			continue
+		}
+		eligible++
+		if err := submitDeviceWebhookFn(ctx, payload, cfg.WebhookURL, cfg.Secret, cfg.Headers); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", cfg.WebhookURL, err))
+			logrus.Warnf("Failed forwarding %s to device webhook %s: %v", eventName, cfg.WebhookURL, err)
+			continue
+		}
+		successes++
+	}
+
+	if eligible == 0 {
+		logrus.Debugf("Event %s not subscribed by any per-device webhook", eventName)
+		return nil
+	}
+
+	logrus.Infof("Forwarded %s to %d/%d per-device webhook(s)", eventName, successes, eligible)
+	if len(failed) > 0 && successes == 0 {
+		return fmt.Errorf("all %d per-device webhook(s) failed for %s: %s", eligible, eventName, strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// webhookEventAllowed reports whether eventName passes a per-webhook event filter.
+// An empty filter means "all events". Matching is case-insensitive, mirroring
+// isEventWhitelisted.
+func webhookEventAllowed(events []string, eventName string) bool {
+	if len(events) == 0 {
+		return true
+	}
+	for _, allowed := range events {
+		if strings.EqualFold(strings.TrimSpace(allowed), eventName) {
+			return true
+		}
+	}
+	return false
 }
 
 // chatwootContactInfo holds extracted contact information for Chatwoot sync

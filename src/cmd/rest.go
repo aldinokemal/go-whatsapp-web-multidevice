@@ -147,6 +147,18 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup.Delete("/chatwoot/configs/:device_id", chatwootConfigHandler.Delete)
 	}
 
+	// Per-device webhook config CRUD (admin/config routes, not device-scoped), so
+	// they must also be registered BEFORE DeviceMiddleware. Writes refresh the
+	// registry so changes take effect without a restart.
+	if webhookConfigRepo != nil {
+		webhookConfigHandler := rest.NewWebhookConfigHandler(webhookConfigRepo, webhookRegistry, dm)
+		apiGroup.Get("/webhook/configs", webhookConfigHandler.List)
+		apiGroup.Get("/webhook/configs/:device_id", webhookConfigHandler.GetByDevice)
+		apiGroup.Post("/webhook/configs", webhookConfigHandler.Create)
+		apiGroup.Put("/webhook/configs/:id", webhookConfigHandler.Update)
+		apiGroup.Delete("/webhook/configs/:id", webhookConfigHandler.Delete)
+	}
+
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
