@@ -59,6 +59,16 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		if payload.Private {
 			return c.SendStatus(fiber.StatusOK)
 		}
+		// A non-empty source_id means we synced this message from WhatsApp (we stamp
+		// the WhatsApp message ID as source_id); agent messages typed in Chatwoot
+		// have none. Skip the former so WhatsApp-originated messages (incl. reactions
+		// and own-device/cross-inbox echoes) are never re-sent to WhatsApp. This is
+		// race-free, unlike IsMessageSentByUs which depends on MarkMessageAsSent
+		// having run before the webhook arrives.
+		if payload.SourceID != "" {
+			logrus.Debugf("Chatwoot Webhook: Skipping echo of WhatsApp-synced message (source_id=%s)", payload.SourceID)
+			return c.SendStatus(fiber.StatusOK)
+		}
 		if chatwoot.IsMessageSentByUs(payload.ID) {
 			logrus.Debugf("Chatwoot Webhook: Skipping echo message %d (created by our API)", payload.ID)
 			return c.SendStatus(fiber.StatusOK)

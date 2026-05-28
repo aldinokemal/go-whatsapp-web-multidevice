@@ -62,6 +62,7 @@ type WebhookPayload struct {
 	Content           string                   `json:"content"`
 	Private           bool                     `json:"private"`
 	IsPrivate         bool                     `json:"is_private"` // typing events use is_private
+	SourceID          string                   `json:"source_id"`  // set by us = WhatsApp msg id when we synced it
 	Account           Account                  `json:"account"`
 	Conversation      ConversationWebhook      `json:"conversation"`
 	Sender            Contact                  `json:"sender"`
