@@ -469,6 +469,12 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 		return
 	}
 
+	// Skip non-conversational message types (newsletters, status broadcasts)
+	if chatID, _ := data["chat_id"].(string); strings.HasSuffix(chatID, "@newsletter") || chatID == "status@broadcast" {
+		logrus.Debugf("Chatwoot: Skipping non-conversational message (chat_id: %s)", chatID)
+		return
+	}
+
 	// Delivery/read receipts update the status of a previously synced message
 	// rather than creating a new one.
 	if eventName == "message.ack" {
