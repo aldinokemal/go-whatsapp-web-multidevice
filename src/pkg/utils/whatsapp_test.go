@@ -78,6 +78,11 @@ func TestExtractPhoneFromVCard(t *testing.T) {
 			want:  "+1 555 0100",
 		},
 		{
+			name:  "FoldedLine",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD",
+			want:  "+5511998913283",
+		},
+		{
 			name:  "NoTelLine",
 			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nEND:VCARD",
 			want:  "",
@@ -111,6 +116,7 @@ func TestFormatContactSummary(t *testing.T) {
 		{name: "SingleNameOnly", dName: "Alice", phone: "", plural: false, want: "Contact: Alice"},
 		{name: "SinglePhoneOnly", dName: "", phone: "+62 812", plural: false, want: "Contact: +62 812"},
 		{name: "SingleEmpty", dName: "", phone: "", plural: false, want: "Contact shared"},
+		{name: "SingleWhitespaceOnly", dName: " ", phone: " ", plural: false, want: "Contact shared"},
 		{name: "PluralNameAndPhone", dName: "Alice", phone: "+62 812", plural: true, want: "Contacts: Alice (+62 812)"},
 		{name: "PluralEmpty", dName: "", phone: "", plural: true, want: "Contacts shared"},
 	}
@@ -126,19 +132,62 @@ func TestFormatContactSummary(t *testing.T) {
 }
 
 func TestExtractMessageTextFromProtoContactMessage(t *testing.T) {
-	name := "Alice"
-	vcard := "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
-	msg := &waE2E.Message{
-		ContactMessage: &waE2E.ContactMessage{
-			DisplayName: &name,
-			Vcard:       &vcard,
+	phoneVCard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alice\r\nTEL;type=Mobile:\r\n +62 812 3456 7890\r\nEND:VCARD"
+
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "NameAndPhone",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr("Alice"),
+					Vcard:       strPtr(phoneVCard),
+				},
+			},
+			want: "Contact: Alice (+62 812 3456 7890)",
+		},
+		{
+			name: "NameOnly",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr("Alice"),
+					Vcard:       strPtr(""),
+				},
+			},
+			want: "Contact: Alice",
+		},
+		{
+			name: "PhoneOnly",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr(""),
+					Vcard:       strPtr(phoneVCard),
+				},
+			},
+			want: "Contact: +62 812 3456 7890",
+		},
+		{
+			name: "Neither",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr(""),
+					Vcard:       strPtr(""),
+				},
+			},
+			want: "Contact shared",
 		},
 	}
 
-	got := ExtractMessageTextFromProto(msg)
-	want := "Contact: Alice (+62 812 3456 7890)"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -191,4 +240,8 @@ func TestExtractMessageTextFromProtoContactsArrayMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func strPtr(value string) *string {
+	return &value
 }

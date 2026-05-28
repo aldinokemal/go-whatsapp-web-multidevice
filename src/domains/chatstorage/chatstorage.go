@@ -37,6 +37,19 @@ type Message struct {
 	UpdatedAt        time.Time  `db:"updated_at"`
 }
 
+// MessageEdit represents a single edit applied to an existing WhatsApp message.
+type MessageEdit struct {
+	OriginalMessageID string    `db:"original_message_id"`
+	EditEventID       string    `db:"edit_event_id"`
+	ChatJID           string    `db:"chat_jid"`
+	DeviceID          string    `db:"device_id"`
+	Editor            string    `db:"editor"`
+	PreviousContent   string    `db:"previous_content"`
+	NewContent        string    `db:"new_content"`
+	EditedAt          time.Time `db:"edited_at"`
+	CreatedAt         time.Time `db:"created_at"`
+}
+
 // MediaInfo represents downloadable media information
 type MediaInfo struct {
 	MessageID     string

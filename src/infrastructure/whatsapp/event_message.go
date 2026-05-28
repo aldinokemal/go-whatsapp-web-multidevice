@@ -107,6 +107,21 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 		payload["from_name"] = pushname
 	}
 
+	// Modern WhatsApp clients (LID-migrated accounts on recent app builds) wrap
+	// message edits in a SecretEncryptedMessage with encType=MESSAGE_EDIT instead
+	// of sending them as a plain ProtocolMessage{MESSAGE_EDIT}. Decrypt those
+	// here using whatsmeow's existing helper, then fall through to the standard
+	// MESSAGE_EDIT extraction path using the decrypted inner Message.
+	if sem := msg.GetSecretEncryptedMessage(); sem != nil &&
+		sem.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT &&
+		client != nil {
+		if decrypted, err := client.DecryptSecretEncryptedMessage(ctx, evt); err != nil {
+			logrus.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s: %v", evt.Info.ID, err)
+		} else if decrypted != nil {
+			msg = utils.UnwrapMessage(decrypted)
+		}
+	}
+
 	// Check for protocol messages (revoke, edit)
 	if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		protocolType := protocolMessage.GetType().String()

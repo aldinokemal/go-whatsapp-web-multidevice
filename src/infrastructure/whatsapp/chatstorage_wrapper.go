@@ -80,12 +80,27 @@ func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) err
 	return r.base.StoreMessage(message)
 }
 
+func (r *deviceChatStorage) StoreMessageEdit(edit *domainChatStorage.MessageEdit) error {
+	if edit != nil && edit.DeviceID == "" {
+		edit.DeviceID = r.deviceID
+	}
+	return r.base.StoreMessageEdit(edit)
+}
+
 func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	return r.base.StoreMessagesBatch(messages)
 }
 
 func (r *deviceChatStorage) GetMessageByID(id string) (*domainChatStorage.Message, error) {
 	return r.base.GetMessageByID(id)
+}
+
+func (r *deviceChatStorage) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetMessageEdits(originalMessageID, targetDeviceID)
 }
 
 func (r *deviceChatStorage) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
@@ -112,6 +127,9 @@ func (r *deviceChatStorage) DeleteMessageByDevice(deviceID, id, chatJID string) 
 }
 
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
+	if _, ok := DeviceFromContext(ctx); !ok && r.deviceID != "" {
+		ctx = ContextWithDevice(ctx, NewDeviceInstance(r.deviceID, nil, nil))
+	}
 	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp, msg)
 }
 
