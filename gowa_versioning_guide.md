@@ -18,75 +18,51 @@ Modul `engine_goWA` menggunakan format penamaan versi standar industri: **`vMAJO
 
 ---
 
-## 2. Alur Kerja Rilis Versi Baru (Step-by-Step)
+## 2. Aturan Penting Go Modules: Subdirectory Tagging (`src/vX.Y.Z`)
+
+> [!IMPORTANT]
+> **Aturan Subdirektori Go Modules:**
+> Karena file `go.mod` di repositori `engine_goWA` berada di dalam subdirektori **`src/`** (bukan di root folder), sistem kompilasi Go mewajibkan seluruh Git tag untuk **diberikan awalan folder tersebut**.
+> * **SALAH**: `v8.5.2` (Go compiler tidak akan mendeteksi modul Anda).
+> * **BENAR**: **`src/v8.5.2`** (Go compiler mengenali modul di dalam subdirektori `/src` secara sempurna).
+> 
+> *Script otomatis `./release.ps1` yang telah kami sediakan secara cerdas akan langsung menangani format awalan `src/` ini di balik layar.*
+
+---
+
+## 3. Alur Kerja Rilis Versi Baru (Step-by-Step)
 
 Ikuti 5 langkah terstruktur ini setiap kali Anda ingin merilis versi baru mesin WhatsApp:
 
 ### Langkah 1: Kembangkan & Uji Coba Lokal
 1. Lakukan modifikasi kode di folder `engine_goWA/src`.
-2. Uji langsung secara lokal menggunakan backend utama (memanfaatkan direktif `replace` di `go.mod`).
-3. Pastikan semuanya berjalan lancar dan stabil di laptop Anda.
+2. Uji langsung secara lokal menggunakan backend utama (memanfaatkan direktif `replace` lokal di `go.mod`).
 
-### Langkah 2: Commit & Push Kode ke GitHub Fork Anda
-Buka terminal di folder **`engine_goWA`**:
-```bash
-# 1. Cek perubahan file
-git status
-
-# 2. Tambahkan perubahan ke staging area
-git add .
-
-# 3. Lakukan commit dengan pesan deskriptif
-git commit -m "feat: add send document endpoint and fix memory leak"
-
-# 4. Push commit tersebut ke branch main fork Anda di GitHub
-git push origin main
+### Langkah 2: Jalankan Script Otomatis `release.ps1`
+Buka terminal PowerShell di folder **`engine_goWA`** dan jalankan:
+```powershell
+./release.ps1
 ```
+*Script akan memandu Anda secara interaktif untuk melakukan Git commit, push ke GitHub, menghitung versi kenaikan (SemVer), melakukan tagging berawalan `src/`, dan mempublikasikannya ke repositori GitHub fork Anda.*
 
-### Langkah 3: Tentukan & Buat Tag Versi Baru
-Sebelum membuat tag, cek daftar tag versi yang sudah ada di repositori untuk menentukan nomor versi selanjutnya:
-```bash
-# 1. Ambil daftar tag terbaru dari GitHub
-git fetch --tags
-
-# 2. Tampilkan semua tag yang ada
-git tag -l
-```
-*Misalkan tag terakhir adalah `v1.1.0`, dan Anda menambahkan fitur baru (Minor), maka versi selanjutnya adalah `v1.2.0`.*
-
-Jalankan perintah pembuatan tag di terminal folder **`engine_goWA`**:
-```bash
-# 3. Buat tag lokal baru
-git tag v1.2.0
-
-# 4. Dorong tag tersebut ke GitHub fork Anda
-git push origin v1.2.0
-```
-
-### Langkah 4: Terapkan Versi Baru di Backend Utama (`masanas_wa_gateway`)
-Setelah tag rilis sukses terunggah di GitHub, saatnya memperbarui dependensi di backend utama Anda:
+### Langkah 3: Terapkan Versi Baru di Backend Utama (`masanas_wa_gateway`)
+Setelah tag rilis sukses terunggah (misal versi `v8.5.2` dengan tag `src/v8.5.2`):
 
 1. Buka berkas `masanas_wa_gateway/go.mod`.
-2. **Komentari sementara** direktif `replace` Anda (tambahkan `//` di awal):
+2. Ubah baris `replace` yang mengarah ke lokal Anda menjadi **mengarah ke modul GitHub fork Anda** dengan tag versi yang baru:
    ```go
-   // replace github.com/aldinokemal/go-whatsapp-web-multidevice => ../engine_goWA/src
+   replace github.com/aldinokemal/go-whatsapp-web-multidevice => github.com/viantow/engine-goWA/src v8.5.2
    ```
-3. Buka terminal di folder `masanas_wa_gateway`, lalu jalankan perintah `go get` dengan menyertakan tag versi baru Anda secara spesifik:
+3. Buka terminal di folder `masanas_wa_gateway` dan jalankan:
    ```bash
-   go get github.com/viantow/engine-goWA/src@v1.2.0
-   ```
-   *(Go compiler otomatis akan mengunduh kode rilis `v1.2.0` dari GitHub fork Anda).*
-4. Lakukan kompilasi produksi bersih untuk memverifikasi kestabilannya:
-   ```bash
+   go mod tidy
    go build -o main.exe ./cmd/app/main.go
    ```
-
-### Langkah 5: Kembali ke Mode Development
-Jika kompilasi produksi sukses dan stabil, Anda bisa mengaktifkan kembali direktif `replace` lokal Anda di `go.mod` (hapus tanda `//` komentar) untuk melanjutkan pengembangan harian dengan instan.
+   *(Go compiler otomatis akan mengunduh kode rilis `v8.5.2` dari GitHub fork Anda dan mengkompilasi file rilis `main.exe` yang bersih).*
 
 ---
 
-## 3. Cara Menjaga Sinkronisasi dengan Pengembang Asli (Upstream)
+## 4. Cara Menjaga Sinkronisasi dengan Pengembang Asli (Upstream)
 
 Sesekali, developer asli (`aldinokemal`) akan merilis update penting untuk mengatasi perubahan protokol WhatsApp API (Meta). Anda harus menarik update tersebut ke fork Anda agar mesin WhatsApp Anda tetap berfungsi normal.
 
@@ -103,8 +79,7 @@ git merge upstream/main
 # 4. Push hasil penggabungan ke GitHub fork Anda
 git push origin main
 
-# 5. Buat tag PATCH baru untuk menandai update WhatsApp ini (misal v1.2.1)
-git tag v1.2.1
-git push origin v1.2.1
+# 5. Buat tag PATCH baru untuk menandai update WhatsApp ini (misal v8.5.3 dengan tag src/v8.5.3)
+# (Sangat direkomendasikan menjalankan ./release.ps1 untuk kalkulasi tag otomatis ini)
 ```
-Dengan versi tag `v1.2.1` baru ini, Anda tinggal menjalankan `go get .../src@v1.2.1` di backend utama Anda untuk mendapatkan perbaikan WhatsApp terbaru secara instan.
+Dengan versi tag `v8.5.3` baru ini, Anda tinggal memperbarui baris `replace` di `masanas_wa_gateway/go.mod` ke `v8.5.3` dan menjalankan `go mod tidy`!

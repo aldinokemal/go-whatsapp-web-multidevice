@@ -55,8 +55,8 @@ if ($null -eq $latestTag -or $latestTag -eq "") {
     Write-Host "[SUCCESS] Tag versi terakhir terdeteksi: $latestTag" -ForegroundColor Green
 }
 
-# Parse version numbers (assuming vX.Y.Z)
-$versionClean = $latestTag.TrimStart('v')
+# Parse version numbers (assuming src/vX.Y.Z or vX.Y.Z)
+$versionClean = $latestTag.Replace("src/", "").TrimStart('v')
 $parts = $versionClean.Split('.')
 if ($parts.Length -lt 3) {
     $parts = @("1", "0", "0")
@@ -109,20 +109,24 @@ if ($confirm.ToLower() -ne "y") {
     Exit
 }
 
-Write-Host "[INFO] Membuat tag lokal $newTag ..." -ForegroundColor Yellow
-git tag $newTag
+# Go Subdirectory Module Tagging Convention requires "src/vX.Y.Z"
+$gitTag = "src/" + $newTag
 
-Write-Host "[INFO] Mengirim tag $newTag ke GitHub Fork..." -ForegroundColor Yellow
-git push origin $newTag
+Write-Host "[INFO] Membuat tag lokal $gitTag ..." -ForegroundColor Yellow
+git tag $gitTag
+
+Write-Host "[INFO] Mengirim tag $gitTag ke GitHub Fork..." -ForegroundColor Yellow
+git push origin $gitTag
 
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "🎉 Rilis Sukses! Versi $newTag Telah Terbit." -ForegroundColor Green
+Write-Host "🎉 Rilis Sukses! Versi $newTag ($gitTag) Telah Terbit." -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Untuk memperbarui di aplikasi utama (masanas_wa_gateway):" -ForegroundColor Cyan
-Write-Host "1. Nonaktifkan (komentari) direktif 'replace' di go.mod."
-Write-Host "2. Jalankan perintah berikut di terminal masanas_wa_gateway:" -ForegroundColor Cyan
-Write-Host "   go get github.com/viantow/engine-goWA/src@$newTag" -ForegroundColor Yellow
+Write-Host "1. Buka berkas go.mod pada masanas_wa_gateway."
+Write-Host "2. Ubah baris 'replace' lama menjadi versi tag baru Anda:" -ForegroundColor Cyan
+Write-Host "   replace github.com/aldinokemal/go-whatsapp-web-multidevice => github.com/viantow/engine-goWA/src $newTag" -ForegroundColor Yellow
+Write-Host "3. Jalankan perintah berikut di terminal masanas_wa_gateway:" -ForegroundColor Cyan
 Write-Host "   go mod tidy" -ForegroundColor Yellow
 Write-Host "   go build -o main.exe ./cmd/app/main.go" -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Green
