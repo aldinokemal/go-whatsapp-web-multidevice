@@ -16,19 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// submitWebhook delivers a payload to a single global webhook URL, signing it
-// with the global WHATSAPP_WEBHOOK_SECRET. It is the backward-compatible entry
-// point; per-device delivery uses submitWebhookWithOptions directly.
 func submitWebhook(ctx context.Context, payload map[string]any, url string) error {
-	return submitWebhookWithOptions(ctx, payload, url, config.WhatsappWebhookSecret, nil)
-}
-
-// submitWebhookWithOptions delivers a payload to a webhook URL, signing it with
-// the given secret and attaching optional custom headers. When secret is empty
-// it falls back to the global WHATSAPP_WEBHOOK_SECRET. Custom headers are applied
-// first; Content-Type and the HMAC signature header are then forced so they
-// cannot be overridden.
-func submitWebhookWithOptions(ctx context.Context, payload map[string]any, url, secret string, headers map[string]string) error {
 	// Configure HTTP client with optional TLS skip verification
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -50,17 +38,12 @@ func submitWebhookWithOptions(ctx context.Context, payload map[string]any, url, 
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 
-	if secret == "" {
-		secret = config.WhatsappWebhookSecret
-	}
-	signature, err := utils.GetMessageDigestOrSignature(postBody, []byte(secret))
+	secretKey := []byte(config.WhatsappWebhookSecret)
+	signature, err := utils.GetMessageDigestOrSignature(postBody, secretKey)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create signature %v", err))
 	}
 
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Hub-Signature-256", fmt.Sprintf("sha256=%s", signature))
 
