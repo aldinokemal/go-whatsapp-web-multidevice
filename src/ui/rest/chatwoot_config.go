@@ -313,6 +313,6 @@ func (h *ChatwootConfigHandler) internalError(c *fiber.Ctx, err error) error {
 	logrus.Errorf("Chatwoot config: %v", err)
 	return c.Status(fiber.StatusInternalServerError).JSON(utils.ResponseData{
 		Code:    "INTERNAL_ERROR",
-		Message: err.Error(),
+		Message: "Internal server error",
 	})
 }
