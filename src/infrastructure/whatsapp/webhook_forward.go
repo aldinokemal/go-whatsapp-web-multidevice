@@ -133,11 +133,12 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 
 // chatwootContactInfo holds extracted contact information for Chatwoot sync
 type chatwootContactInfo struct {
-	Identifier string
-	Name       string
-	IsGroup    bool
-	FromName   string
-	IsFromMe   bool
+	Identifier  string
+	Name        string
+	IsGroup     bool
+	FromName    string
+	IsFromMe    bool
+	WAMessageID string
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -453,6 +454,14 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	}
 	chatwoot.MarkMessageAsSent(msgID)
 
+	// Track outgoing messages by their WhatsApp ID so later delivery/read receipts
+	// (events.Receipt -> message.ack) update this Chatwoot message's status ticks.
+	// Covers messages sent from the linked phone app and via the REST API; messages
+	// sent from Chatwoot are tracked separately by the webhook handler.
+	if info.IsFromMe && info.WAMessageID != "" {
+		chatwoot.TrackOutgoingMessage(info.WAMessageID, conversation.ID, msgID)
+	}
+
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
 	return nil
 }
@@ -523,6 +532,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 		content, attachments = buildChatwootMessageContent(data, info.IsGroup, info.FromName)
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
+	info.WAMessageID, _ = data["id"].(string)
 
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
