@@ -119,6 +119,7 @@ func (r *DeviceConfigRepository) GetByInboxID(accountID, inboxID int) (*domainCh
 		SELECT id, device_id, chatwoot_url, api_token, account_id, inbox_id, enabled, import_messages, days_limit
 		FROM chatwoot_device_configs
 		WHERE account_id = ? AND inbox_id = ? AND enabled = 1
+		ORDER BY updated_at DESC, id ASC
 		LIMIT 1
 	`, accountID, inboxID)
 	return scanConfig(row)

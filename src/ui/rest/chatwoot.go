@@ -318,7 +318,19 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	// the env-var default singleton when no per-device config exists.
 	cwClient := chatwoot.GetDefaultClient()
 	if reg := chatwoot.GetGlobalRegistry(); reg != nil && storageDeviceID != "" {
-		if client, lookupErr := reg.GetClientForDevice(storageDeviceID); lookupErr == nil {
+		client, lookupErr := reg.GetClientForDevice(storageDeviceID)
+		switch {
+		case lookupErr != nil:
+			// Lookup failed; keep the env-var default client as a fallback.
+		case client == nil:
+			// Device has an explicit config that is disabled: respect it instead
+			// of falling back to the default client.
+			return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+				Status:  fiber.StatusBadRequest,
+				Code:    "CHATWOOT_DISABLED",
+				Message: "Chatwoot is disabled for this device.",
+			})
+		default:
 			cwClient = client
 		}
 	}

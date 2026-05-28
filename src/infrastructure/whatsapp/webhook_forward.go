@@ -444,9 +444,15 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	if reg := chatwoot.GetGlobalRegistry(); reg != nil {
 		if deviceID, _ := payload["device_id"].(string); deviceID != "" {
 			client, err := reg.GetClientForDevice(deviceID)
-			if err != nil {
+			switch {
+			case err != nil:
 				logrus.Warnf("Chatwoot: no config for device %s, using default client: %v", deviceID, err)
-			} else {
+			case client == nil:
+				// Device has an explicit config that is disabled: respect it and
+				// skip forwarding rather than falling back to the default client.
+				logrus.Infof("Chatwoot: device %s is disabled, skipping forward", deviceID)
+				return
+			default:
 				cw = client
 			}
 		}

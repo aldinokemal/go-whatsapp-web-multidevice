@@ -50,7 +50,13 @@ func (r *ClientRegistry) GetClientForDevice(deviceID string) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		if cfg != nil && cfg.Enabled {
+		if cfg != nil {
+			// A config row exists but is explicitly disabled: respect that
+			// decision and signal "no client" rather than falling back to the
+			// env-var default, which would silently re-enable the device.
+			if !cfg.Enabled {
+				return nil, nil
+			}
 			client := NewClientFromConfig(cfg)
 			r.mu.Lock()
 			r.clients[deviceID] = client

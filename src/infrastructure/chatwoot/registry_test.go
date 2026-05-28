@@ -72,7 +72,13 @@ func TestRegistryRefresh(t *testing.T) {
 	if err := reg.Refresh(); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if _, err := reg.GetClientForDevice("628111@s.whatsapp.net"); err != ErrNoConfig {
-		t.Fatalf("expected ErrNoConfig after disable+refresh, got %v", err)
+	// An explicitly disabled device returns (nil, nil): it must NOT fall back to
+	// the env-var default, so callers can tell "disabled" apart from "absent".
+	client, err := reg.GetClientForDevice("628111@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("expected nil error for disabled device, got %v", err)
+	}
+	if client != nil {
+		t.Fatalf("expected nil client for disabled device, got %+v", client)
 	}
 }
