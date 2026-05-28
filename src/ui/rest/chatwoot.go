@@ -97,8 +97,10 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	}
 	logrus.Debugf("Chatwoot Webhook: Using device %s (inbox %d)", resolvedID, payload.Conversation.InboxID)
 
-	// Set device context for send operations
-	c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
+	// Set device context for send operations. Also flag the context to skip the
+	// outgoing Chatwoot forward: these sends originate from Chatwoot (agent reply),
+	// so re-syncing them would duplicate the message back into the conversation.
+	c.SetUserContext(whatsapp.ContextWithSkipChatwootForward(whatsapp.ContextWithDevice(c.UserContext(), instance)))
 
 	// Typing indicator: agent typing in Chatwoot -> "typing…" presence in WhatsApp,
 	// emulating WhatsApp Web.

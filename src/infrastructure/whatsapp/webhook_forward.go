@@ -12,7 +12,10 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 var submitWebhookFn = submitWebhook
@@ -195,13 +198,32 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		content = fromName + ": " + content
 	}
 
-	// Extract media attachments
+	// Extract media attachments. Auto-downloaded media is either a bare path
+	// string or, when it carries a caption, a map{path, caption} (see
+	// buildAutoDownloadPayload) — handle both so captioned media still attaches.
 	mediaFields := []string{"image", "audio", "video", "document", "sticker", "video_note"}
 	for _, field := range mediaFields {
-		if mediaData, ok := data[field]; ok {
-			if path, ok := mediaData.(string); ok && path != "" {
-				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+		mediaData, ok := data[field]
+		if !ok {
+			continue
+		}
+		switch m := mediaData.(type) {
+		case string:
+			if m != "" {
+				attachments = append(attachments, m)
+				logrus.Infof("Chatwoot: Found %s attachment at %s", field, m)
+			}
+		case map[string]any:
+			path, _ := m["path"].(string)
+			if path == "" {
+				continue
+			}
+			attachments = append(attachments, path)
+			logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+			if content == "" {
+				if caption, ok := m["caption"].(string); ok {
+					content = caption
+				}
 			}
 		}
 	}
@@ -506,6 +528,50 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
 		logrus.Errorf("Chatwoot: %v", err)
 	}
+}
+
+// ForwardSentMessageToChatwoot syncs a message sent via this app's REST API to
+// Chatwoot as an outgoing message. API sends call client.SendMessage directly and
+// do NOT loop back as an events.Message, so the normal event-driven forward never
+// sees them. We synthesize the equivalent event and forward to Chatwoot only (not
+// to configured HTTP webhooks). No-op when Chatwoot is off or when the send
+// originated from Chatwoot itself (agent reply), to avoid duplicating it.
+func ForwardSentMessageToChatwoot(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, messageID string, ts time.Time) {
+	if !config.ChatwootEnabled {
+		return
+	}
+	if shouldSkipChatwootForward(ctx) {
+		return
+	}
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return
+	}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			ID:        messageID,
+			Timestamp: ts,
+			MessageSource: types.MessageSource{
+				Chat:     recipient,
+				Sender:   client.Store.ID.ToNonAD(),
+				IsFromMe: true,
+			},
+		},
+		Message: msg,
+	}
+
+	webhookEvent, err := createWebhookEvent(ctx, client, evt)
+	if err != nil {
+		logrus.Warnf("Chatwoot: failed to build outgoing payload for %s: %v", messageID, err)
+		return
+	}
+
+	payload := map[string]any{
+		"event":     webhookEvent.Event,
+		"device_id": webhookEvent.DeviceID,
+		"payload":   webhookEvent.Payload,
+	}
+	forwardToChatwoot(ctx, payload, webhookEvent.Event)
 }
 
 // handleChatwootMessageAck maps a WhatsApp delivery/read receipt to the Chatwoot

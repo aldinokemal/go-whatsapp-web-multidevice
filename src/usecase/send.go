@@ -81,6 +81,16 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 		}
 	}()
 
+	// Forward the outgoing message to Chatwoot (best-effort). API sends don't loop
+	// back as events.Message, so without this they never reach Chatwoot. Detach from
+	// request cancellation but preserve context values (device + skip flag). Longer
+	// timeout than storage because it may re-download media to attach it.
+	go func() {
+		fwdCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		whatsapp.ForwardSentMessageToChatwoot(fwdCtx, client, recipient, msg, ts.ID, ts.Timestamp)
+	}()
+
 	return ts, nil
 }
 
