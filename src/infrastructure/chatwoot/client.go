@@ -586,17 +586,21 @@ func (c *Client) FindOrCreateConversation(contactID int) (*Conversation, error) 
 	return c.CreateConversation(contactID)
 }
 
-func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string) (int, error) {
+func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string, sourceID, inReplyToExternalID string) (int, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages", c.BaseURL, c.AccountID, conversationID)
 
 	if len(attachments) > 0 {
-		return c.createMessageWithAttachments(endpoint, content, messageType, attachments)
+		return c.createMessageWithAttachments(endpoint, content, messageType, attachments, sourceID, inReplyToExternalID)
 	}
 
 	payload := CreateMessageRequest{
 		Content:     content,
 		MessageType: messageType,
 		Private:     false,
+		SourceID:    sourceID,
+	}
+	if inReplyToExternalID != "" {
+		payload.ContentAttributes = map[string]any{"in_reply_to_external_id": inReplyToExternalID}
 	}
 
 	jsonPayload, err := json.Marshal(payload)
@@ -633,13 +637,21 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 	return 0, nil
 }
 
-func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string) (int, error) {
+func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string, sourceID, inReplyToExternalID string) (int, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	_ = writer.WriteField("content", content)
 	_ = writer.WriteField("message_type", messageType)
 	_ = writer.WriteField("private", "false")
+	if sourceID != "" {
+		_ = writer.WriteField("source_id", sourceID)
+	}
+	if inReplyToExternalID != "" {
+		// Rails parses bracketed multipart fields into a nested hash, so this
+		// becomes content_attributes[in_reply_to_external_id].
+		_ = writer.WriteField("content_attributes[in_reply_to_external_id]", inReplyToExternalID)
+	}
 
 	for _, filePath := range attachments {
 		// Process each file in a closure to ensure proper cleanup of file handles

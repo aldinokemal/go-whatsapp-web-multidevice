@@ -159,6 +159,13 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		}
 		req.Phone = destination
 
+		// If the agent replied to a specific message, mirror it as a WhatsApp
+		// quote. in_reply_to_external_id is the quoted message's source_id, which
+		// we stamp as the WhatsApp message ID when syncing — so it round-trips.
+		if extID := payload.ContentAttributes.InReplyToExternalID; extID != "" {
+			req.ReplyMessageID = &extID
+		}
+
 		resp, err := h.SendUsecase.SendText(c.UserContext(), req)
 		if err != nil {
 			// Log with more context but still return 200 to prevent Chatwoot retries

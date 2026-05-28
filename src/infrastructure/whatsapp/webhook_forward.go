@@ -133,12 +133,13 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 
 // chatwootContactInfo holds extracted contact information for Chatwoot sync
 type chatwootContactInfo struct {
-	Identifier  string
-	Name        string
-	IsGroup     bool
-	FromName    string
-	IsFromMe    bool
-	WAMessageID string
+	Identifier        string
+	Name              string
+	IsGroup           bool
+	FromName          string
+	IsFromMe          bool
+	WAMessageID       string
+	ReplyToExternalID string
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -448,7 +449,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments)
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, info.WAMessageID, info.ReplyToExternalID)
 	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
@@ -533,6 +534,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 	info.WAMessageID, _ = data["id"].(string)
+	info.ReplyToExternalID, _ = data["replied_to_id"].(string)
 
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {

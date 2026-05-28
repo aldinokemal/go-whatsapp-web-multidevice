@@ -279,7 +279,7 @@ func (s *SyncService) syncMessage(
 
 	// Send to Chatwoot and register the returned ID in the dedup cache so the
 	// resulting webhook event is recognized as "ours" and not forwarded back to WhatsApp.
-	msgID, err := client.CreateMessage(conversationID, content, messageType, attachments)
+	msgID, err := client.CreateMessage(conversationID, content, messageType, attachments, msg.ID, "")
 
 	for _, fp := range attachments {
 		if err := os.Remove(fp); err != nil {
