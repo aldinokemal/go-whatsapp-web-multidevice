@@ -290,6 +290,16 @@ func (h *ChatwootHandler) handleTypingPresence(c *fiber.Ctx, payload chatwoot.We
 		action = "stop"
 	}
 
+	// WhatsApp only shows the "typing…" indicator while the device is marked
+	// available/online. The presence pulse keeps it available only for short
+	// windows, so explicitly mark available right before a typing-start —
+	// otherwise the composing presence is sent but never displayed to the contact.
+	if action == "start" {
+		if _, err := h.SendUsecase.SendPresence(c.UserContext(), domainSend.PresenceRequest{Type: "available"}); err != nil {
+			logrus.Debugf("Chatwoot Webhook: failed to mark device available for typing to %s: %v", destination, err)
+		}
+	}
+
 	req := domainSend.ChatPresenceRequest{Phone: destination, Action: action}
 	if _, err := h.SendUsecase.SendChatPresence(c.UserContext(), req); err != nil {
 		logrus.Debugf("Chatwoot Webhook: failed to send typing presence to %s: %v", destination, err)
