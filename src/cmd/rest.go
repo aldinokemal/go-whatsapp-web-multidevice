@@ -11,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/views"
 	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
@@ -33,6 +34,7 @@ var restCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(restCmd)
 }
+
 func restServer(_ *cobra.Command, _ []string) {
 	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
 	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
@@ -56,12 +58,12 @@ func restServer(_ *cobra.Command, _ []string) {
 	app.Static(config.AppBasePath+"/statics", "./statics")
 	app.Use(config.AppBasePath+"/components", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/components",
+		PathPrefix: "components",
 		Browse:     true,
 	}))
 	app.Use(config.AppBasePath+"/assets", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/assets",
+		PathPrefix: "assets",
 		Browse:     true,
 	}))
 
@@ -147,7 +149,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
-		return c.Render("views/index", fiber.Map{
+		err := c.Render("views/index", fiber.Map{
 			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
 			"AppBasePath":    config.AppBasePath,
@@ -155,6 +157,17 @@ func restServer(_ *cobra.Command, _ []string) {
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
+		if err != nil {
+			err = c.Render("index", fiber.Map{
+				"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+				"AppVersion":     config.AppVersion,
+				"AppBasePath":    config.AppBasePath,
+				"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
+				"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
+				"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
+			})
+		}
+		return err
 	})
 
 	go websocket.RunHub()
@@ -168,4 +181,12 @@ func restServer(_ *cobra.Command, _ []string) {
 	if err := app.Listen(config.AppHost + ":" + config.AppPort); err != nil {
 		logrus.Fatalln("Failed to start: ", err.Error())
 	}
+}
+
+// StartServer starts the Fiber REST server in-process directly using embedded resources
+func StartServer() {
+	EmbedIndex = views.EmbedIndex
+	EmbedViews = views.EmbedViews
+	initApp()
+	restServer(nil, nil)
 }
