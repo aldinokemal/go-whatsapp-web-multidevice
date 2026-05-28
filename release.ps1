@@ -29,9 +29,17 @@ if ([string]::IsNullOrEmpty($status)) {
     
     Write-Host "[INFO] Melakukan commit..." -ForegroundColor Yellow
     git commit -m "$commitMsg"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Gagal melakukan commit lokal!" -ForegroundColor Red
+        Exit
+    }
     
     Write-Host "[INFO] Mengirim commit ke GitHub Fork (origin main)..." -ForegroundColor Yellow
     git push origin main
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Gagal mengirim commit ke GitHub! Silakan jalankan 'git pull origin main' terlebih dahulu untuk menyelaraskan berkas lokal Anda." -ForegroundColor Red
+        Exit
+    }
     Write-Host "[SUCCESS] Commit berhasil terunggah!" -ForegroundColor Green
 }
 
@@ -114,9 +122,17 @@ $gitTag = "src/" + $newTag
 
 Write-Host "[INFO] Membuat tag lokal $gitTag ..." -ForegroundColor Yellow
 git tag $gitTag
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Gagal membuat tag lokal! (Kemungkinan tag tersebut sudah ada)." -ForegroundColor Red
+    Exit
+}
 
 Write-Host "[INFO] Mengirim tag $gitTag ke GitHub Fork..." -ForegroundColor Yellow
 git push origin $gitTag
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Gagal mengirim tag ke GitHub!" -ForegroundColor Red
+    Exit
+}
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "🎉 Rilis Sukses! Versi $newTag ($gitTag) Telah Terbit." -ForegroundColor Green
