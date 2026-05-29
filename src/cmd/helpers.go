@@ -21,7 +21,11 @@ func getValidWhatsAppClient() *whatsmeow.Client {
 // botStatusForSaas derives the SaaS bot status from the device manager for the
 // status heartbeat. "active" tracks LOGGED-IN (paired) state, not the transient
 // socket — an idle paired bot is still active, so this avoids the flap where an
-// idle device briefly reads as not-connected. Banned vs disconnected is not
+// idle device briefly reads as not-connected.
+//
+// It scans ALL device records (not DefaultDevice, which needs exactly one): a
+// re-pair can leave a stale logged-out record next to the live one, and as long
+// as ANY device is logged in the bot is working. Banned vs disconnected is not
 // distinguished here (both surface as "not working"); a future events.LoggedOut
 // handler can split them.
 func botStatusForSaas() (status string, phone string) {
@@ -29,25 +33,31 @@ func botStatusForSaas() (status string, phone string) {
 	if dm == nil {
 		return "disconnected", ""
 	}
-	inst := dm.DefaultDevice()
-	if inst == nil {
-		// 0 devices (never paired / logged out) or >1 (not single-device mode).
+	devices := dm.ListDevices()
+	if len(devices) == 0 {
 		return "pairing", ""
 	}
 
-	phone = inst.PhoneNumber()
-	if phone == "" {
-		phone = phoneFromJID(inst.JID())
-	}
-	if phone != "" && !strings.HasPrefix(phone, "+") {
-		phone = "+" + phone
+	var fallbackJID string
+	for _, inst := range devices {
+		if inst == nil {
+			continue
+		}
+		if inst.IsLoggedIn() {
+			p := inst.PhoneNumber()
+			if p == "" {
+				p = phoneFromJID(inst.JID())
+			}
+			return "active", normalizePhone(p)
+		}
+		if inst.JID() != "" {
+			fallbackJID = inst.JID()
+		}
 	}
 
-	if inst.IsLoggedIn() {
-		return "active", phone
-	}
-	if inst.JID() != "" {
-		return "disconnected", phone
+	// No device logged in. Distinguish "paired but offline" from "never paired".
+	if fallbackJID != "" {
+		return "disconnected", normalizePhone(phoneFromJID(fallbackJID))
 	}
 	return "pairing", ""
 }
@@ -59,6 +69,14 @@ func phoneFromJID(jid string) string {
 		return jid[:i]
 	}
 	return jid
+}
+
+// normalizePhone ensures a leading "+" on a bare digit string.
+func normalizePhone(p string) string {
+	if p != "" && !strings.HasPrefix(p, "+") {
+		return "+" + p
+	}
+	return p
 }
 
 // startAutoReconnectCheckerIfClientAvailable guards the reconnect checker behind a valid client reference.
