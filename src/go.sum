@@ -144,12 +144,12 @@ github.com/xyproto/randomstring v1.2.0/go.mod h1:rgmS5DeNXLivK7YprL0pY+lTuhNQW3i
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
-go.mau.fi/libsignal v0.2.1 h1:vRZG4EzTn70XY6Oh/pVKrQGuMHBkAWlGRC22/85m9L0=
-go.mau.fi/libsignal v0.2.1/go.mod h1:iVvjrHyfQqWajOUaMEsIfo3IqgVMrhWcPiiEzk7NgoU=
+go.mau.fi/libsignal v0.2.2 h1:QV+XdzQkm3x3aSG7FcqfGSZuFXz83pRZPBFaPygHbOU=
+go.mau.fi/libsignal v0.2.2/go.mod h1:CRlIQg2J8uYTfDFvNoO8/KcZjs5cey0vbc6oj/bssY0=
 go.mau.fi/util v0.9.9 h1:ujDeXCo07HBor5oQLyO1tHklupmqVmPgasc53d7q/NE=
 go.mau.fi/util v0.9.9/go.mod h1:pqt4Vcrt+5gcH/CgrHZg11qSx+b34o6mknGzOEA6waY=
-go.mau.fi/whatsmeow v0.0.0-20260525144132-563bcaa0f632 h1:ewBVzZW9EBFoxcZJnR8KCYCNXVHH9leNuF6V+pr8Keg=
-go.mau.fi/whatsmeow v0.0.0-20260525144132-563bcaa0f632/go.mod h1:SY+3c678dbtckGZF16M+sfEW8ZxTb9xkaKwhXueF5yE=
+go.mau.fi/whatsmeow v0.0.0-20260529101937-a7ea56383ec4 h1:PasY/1lMvmSeSxzXLxqgxf95pjwcnTeQ77t4ERiCbY8=
+go.mau.fi/whatsmeow v0.0.0-20260529101937-a7ea56383ec4/go.mod h1:9hto2r5yVE5yyNTRrZErKNSflGBKxIplUVXAD3EJFDE=
 go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
