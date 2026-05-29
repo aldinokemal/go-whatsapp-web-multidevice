@@ -98,7 +98,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// SaaS_Construction status heartbeat: report the bot's WhatsApp connection
 	// state every minute so the SaaS auto-detects pairing / unpairing / disconnect
 	// without a manual flip. No-op when SaaS integration is disabled.
-	saas.StartStatusReporter(getValidWhatsAppClient)
+	saas.StartStatusReporter(botStatusForSaas)
 
 	// Chatwoot webhook - registered BEFORE basic auth middleware
 	// This allows Chatwoot to send webhooks without authentication
