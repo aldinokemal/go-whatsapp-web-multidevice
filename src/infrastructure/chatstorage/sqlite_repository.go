@@ -1019,7 +1019,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	resolved, err := whatsapp.ResolveIncomingMessage(ctx, client, evt)
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to resolve incoming message %s: %w", evt.Info.ID, err)
 	}
 
 	if edit := whatsapp.ExtractMessageEdit(resolved); edit != nil {

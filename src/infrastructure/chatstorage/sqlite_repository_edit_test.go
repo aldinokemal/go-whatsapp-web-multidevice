@@ -171,7 +171,8 @@ func (suite *SQLiteRepositoryEditTestSuite) TestCreateMessageSecretEncryptedEdit
 	}
 
 	err := suite.repo.CreateMessage(suite.ctx, encryptedEdit)
-	require.NoError(suite.T(), err)
+	require.Error(suite.T(), err)
+	assert.ErrorIs(suite.T(), err, whatsapp.ErrSecretEditDecrypt)
 
 	got, err := suite.repo.GetMessageByID("MSG-SEC-ORIG")
 	require.NoError(suite.T(), err)
