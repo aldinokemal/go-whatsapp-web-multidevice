@@ -161,6 +161,26 @@ export default {
       if (message.media_type) return `[${message.media_type.toUpperCase()}]`;
       return "[No content]";
     },
+    applyMessageEdit(result) {
+      if (!result || !result.original_message_id) {
+        return;
+      }
+      const chatJid = result.chat_jid || "";
+      if (chatJid && this.formattedJid && chatJid !== this.formattedJid) {
+        return;
+      }
+      const message = this.messages.find(
+        (m) => m.id === result.original_message_id
+      );
+      if (!message) {
+        return;
+      }
+      const newContent = result.new_content ?? "";
+      message.content = newContent;
+      if ("text" in message) {
+        message.text = newContent;
+      }
+    },
     getMediaDisplay(message) {
       if (!message.media_type || !message.url || !message.id) {
         return null;

@@ -9,6 +9,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -37,6 +38,8 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
 		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+	} else {
+		broadcastMessageEditedIfApplicable(ctx, evt, client)
 	}
 
 	// Handle image message if present
@@ -109,28 +112,68 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 }
 
 func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	// Skip webhook for protocol messages that are internal sync messages
-	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
-		protocolType := protocolMessage.GetType().String()
-		// Only allow REVOKE and MESSAGE_EDIT through - skip all other protocol messages
-		// (HISTORY_SYNC_NOTIFICATION, APP_STATE_SYNC_KEY_SHARE, EPHEMERAL_SYNC_RESPONSE, etc.)
-		switch protocolType {
-		case "REVOKE", "MESSAGE_EDIT":
-			// These are meaningful user actions, allow webhook
-		default:
-			log.Debugf("Skipping webhook for protocol message type: %s", protocolType)
-			return
+	// Skip webhook for protocol messages that are internal sync messages.
+	// SecretEncrypted MESSAGE_EDIT has no top-level ProtocolMessage; always allow those through.
+	if !IsSecretEncryptedEdit(evt.Message) {
+		if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
+			protocolType := protocolMessage.GetType().String()
+			switch protocolType {
+			case "REVOKE", "MESSAGE_EDIT":
+				// meaningful user actions
+			default:
+				log.Debugf("Skipping webhook for protocol message type: %s", protocolType)
+				return
+			}
 		}
 	}
 
 	if (len(config.WhatsappWebhook) > 0 || config.ChatwootEnabled) &&
 		!strings.Contains(evt.Info.SourceString(), "broadcast") {
-		go func(e *events.Message, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func(parentCtx context.Context, e *events.Message, c *whatsmeow.Client) {
+			webhookCtx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 			defer cancel()
 			if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
 				logrus.Error("Failed forward to webhook: ", err)
 			}
-		}(evt, client)
+		}(ctx, evt, client)
+	}
+}
+
+func broadcastMessageEditedIfApplicable(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+	if evt == nil || evt.Message == nil || client == nil {
+		return
+	}
+
+	resolved, err := ResolveIncomingMessage(ctx, client, evt)
+	if err != nil {
+		return
+	}
+	edit := ExtractMessageEdit(resolved)
+	if edit == nil || edit.OriginalMessageID == "" {
+		return
+	}
+
+	deviceID := ""
+	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+
+	chatJID := NormalizeJIDFromLID(ctx, evt.Info.Chat, client).ToNonAD().String()
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code: "MESSAGE_EDITED",
+		Result: map[string]any{
+			"device_id":           deviceID,
+			"chat_jid":            chatJID,
+			"original_message_id": edit.OriginalMessageID,
+			"new_content":         ExtractEditBody(edit.Edited),
+			"edit_event_id":       evt.Info.ID,
+		},
 	}
 }

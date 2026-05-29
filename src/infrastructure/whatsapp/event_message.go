@@ -92,8 +92,6 @@ func createWebhookEvent(ctx context.Context, client *whatsmeow.Client, evt *even
 func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *events.Message) (string, map[string]any, error) {
 	payload := make(map[string]any)
 
-	msg := utils.UnwrapMessage(evt.Message)
-
 	// Common fields for all message types
 	payload["id"] = evt.Info.ID
 	payload["timestamp"] = evt.Info.Timestamp.Format(time.RFC3339)
@@ -107,19 +105,9 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 		payload["from_name"] = pushname
 	}
 
-	// Modern WhatsApp clients (LID-migrated accounts on recent app builds) wrap
-	// message edits in a SecretEncryptedMessage with encType=MESSAGE_EDIT instead
-	// of sending them as a plain ProtocolMessage{MESSAGE_EDIT}. Decrypt those
-	// here using whatsmeow's existing helper, then fall through to the standard
-	// MESSAGE_EDIT extraction path using the decrypted inner Message.
-	if sem := msg.GetSecretEncryptedMessage(); sem != nil &&
-		sem.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT &&
-		client != nil {
-		if decrypted, err := client.DecryptSecretEncryptedMessage(ctx, evt); err != nil {
-			logrus.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s: %v", evt.Info.ID, err)
-		} else if decrypted != nil {
-			msg = utils.UnwrapMessage(decrypted)
-		}
+	msg, err := ResolveIncomingMessage(ctx, client, evt)
+	if err != nil {
+		return "", nil, err
 	}
 
 	// Check for protocol messages (revoke, edit)
@@ -138,14 +126,12 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 			return EventTypeMessageRevoked, payload, nil
 
 		case "MESSAGE_EDIT":
-			if key := protocolMessage.GetKey(); key != nil {
-				payload["original_message_id"] = key.GetID()
-			}
-			if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
-				if editedText := editedMessage.GetExtendedTextMessage(); editedText != nil {
-					payload["body"] = editedText.GetText()
-				} else if editedConv := editedMessage.GetConversation(); editedConv != "" {
-					payload["body"] = editedConv
+			if edit := ExtractMessageEdit(msg); edit != nil {
+				if edit.OriginalMessageID != "" {
+					payload["original_message_id"] = edit.OriginalMessageID
+				}
+				if body := ExtractEditBody(edit.Edited); body != "" {
+					payload["body"] = body
 				}
 			}
 			return EventTypeMessageEdited, payload, nil

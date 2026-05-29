@@ -1017,7 +1017,12 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
 
-	if editMessage := extractEditedMessage(evt.Message); editMessage != nil {
+	resolved, err := whatsapp.ResolveIncomingMessage(ctx, client, evt)
+	if err != nil {
+		return nil
+	}
+
+	if edit := whatsapp.ExtractMessageEdit(resolved); edit != nil {
 		if existingChat == nil {
 			chat := &domainChatStorage.Chat{
 				DeviceID:        deviceID,
@@ -1030,7 +1035,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 			}
 		}
 
-		if err := r.storeEditedMessage(ctx, evt, deviceID, chatJID, sender, editMessage); err != nil {
+		if err := r.storeEditedMessage(ctx, evt, deviceID, chatJID, sender, edit); err != nil {
 			return err
 		}
 		return nil
@@ -1104,33 +1109,28 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	return r.StoreMessage(message)
 }
 
-func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
-	if msg == nil {
-		return nil
-	}
-	protocolMessage := msg.GetProtocolMessage()
-	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_MESSAGE_EDIT {
-		return nil
-	}
-	return protocolMessage.GetEditedMessage()
-}
-
-func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.Message, deviceID, chatJID, sender string, editedMessage *waE2E.Message) error {
-	if evt == nil || editedMessage == nil {
+func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.Message, deviceID, chatJID, sender string, parsedEdit *whatsapp.MessageEdit) error {
+	if evt == nil || parsedEdit == nil || parsedEdit.Edited == nil || parsedEdit.Protocol == nil {
 		return nil
 	}
 
-	protocolMessage := evt.Message.GetProtocolMessage()
-	if protocolMessage == nil {
-		return nil
-	}
-	key := protocolMessage.GetKey()
+	key := parsedEdit.Protocol.GetKey()
 	if key == nil || key.GetID() == "" {
+		if parsedEdit.OriginalMessageID == "" {
+			return nil
+		}
+	}
+
+	originalMessageID := parsedEdit.OriginalMessageID
+	if originalMessageID == "" && key != nil {
+		originalMessageID = key.GetID()
+	}
+	if originalMessageID == "" {
 		return nil
 	}
 
-	originalMessageID := key.GetID()
-	newContent := utils.ExtractMessageTextFromProto(editedMessage)
+	editedMessage := parsedEdit.Edited
+	newContent := whatsapp.ExtractEditBody(editedMessage)
 	now := time.Now()
 
 	existingMessage, err := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, originalMessageID)
@@ -1166,7 +1166,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		previousContent = currentMessage.Content
 	}
 
-	edit := &domainChatStorage.MessageEdit{
+	editRecord := &domainChatStorage.MessageEdit{
 		OriginalMessageID: originalMessageID,
 		EditEventID:       evt.Info.ID,
 		ChatJID:           chatJID,
@@ -1206,7 +1206,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		}
 	}
 
-	if err := r.storeMessageEditExec(tx, edit); err != nil {
+	if err := r.storeMessageEditExec(tx, editRecord); err != nil {
 		return fmt.Errorf("failed to store edit history for %s: %w", originalMessageID, err)
 	}
 

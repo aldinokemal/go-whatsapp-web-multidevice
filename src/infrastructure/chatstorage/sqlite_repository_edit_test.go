@@ -136,6 +136,53 @@ func (suite *SQLiteRepositoryEditTestSuite) TestCreateMessageStoresEditHistoryAn
 	}
 }
 
+func (suite *SQLiteRepositoryEditTestSuite) TestCreateMessageSecretEncryptedEditWithoutClientDoesNotInsertNewRow() {
+	original := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("123", types.DefaultUserServer),
+				IsFromMe: true,
+			},
+			ID:        "MSG-SEC-ORIG",
+			Timestamp: time.Now(),
+		},
+		Message: &waE2E.Message{
+			Conversation: editProtoString("before"),
+		},
+	}
+	require.NoError(suite.T(), suite.repo.CreateMessage(suite.ctx, original))
+
+	encryptedEdit := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("123", types.DefaultUserServer),
+				IsFromMe: true,
+			},
+			ID:        "MSG-SEC-EDIT",
+			Timestamp: time.Now(),
+		},
+		Message: &waE2E.Message{
+			SecretEncryptedMessage: &waE2E.SecretEncryptedMessage{
+				SecretEncType: waE2E.SecretEncryptedMessage_MESSAGE_EDIT.Enum(),
+			},
+		},
+	}
+
+	err := suite.repo.CreateMessage(suite.ctx, encryptedEdit)
+	require.NoError(suite.T(), err)
+
+	got, err := suite.repo.GetMessageByID("MSG-SEC-ORIG")
+	require.NoError(suite.T(), err)
+	require.NotNil(suite.T(), got)
+	assert.Equal(suite.T(), "before", got.Content)
+
+	editRow, err := suite.repo.GetMessageByID("MSG-SEC-EDIT")
+	require.NoError(suite.T(), err)
+	assert.Nil(suite.T(), editRow)
+}
+
 func TestSQLiteRepositoryEditTestSuite(t *testing.T) {
 	suite.Run(t, new(SQLiteRepositoryEditTestSuite))
 }

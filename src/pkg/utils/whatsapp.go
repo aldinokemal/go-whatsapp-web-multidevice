@@ -729,8 +729,10 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 		message.Text = extendedMessage.GetText()
 	} else if protocolMessage := msg.GetProtocolMessage(); protocolMessage != nil {
 		if editedMessage := protocolMessage.GetEditedMessage(); editedMessage != nil {
-			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil {
+			if extendedText := editedMessage.GetExtendedTextMessage(); extendedText != nil && extendedText.GetText() != "" {
 				message.Text = extendedText.GetText()
+			} else if conv := editedMessage.GetConversation(); conv != "" {
+				message.Text = conv
 			}
 			if ci := ExtractContextInfo(editedMessage); ci != nil {
 				message.RepliedId = ci.GetStanzaID()

@@ -409,6 +409,11 @@
                             }
                             break;
                         }
+                        case 'MESSAGE_EDITED':
+                            if (window.ChatMessagesComponent?.applyMessageEdit) {
+                                window.ChatMessagesComponent.applyMessageEdit(message.result);
+                            }
+                            break;
                         default:
                             console.log(message)
                     }
