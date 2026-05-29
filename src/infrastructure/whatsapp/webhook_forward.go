@@ -12,7 +12,10 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 var submitWebhookFn = submitWebhook
@@ -130,11 +133,13 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 
 // chatwootContactInfo holds extracted contact information for Chatwoot sync
 type chatwootContactInfo struct {
-	Identifier string
-	Name       string
-	IsGroup    bool
-	FromName   string
-	IsFromMe   bool
+	Identifier        string
+	Name              string
+	IsGroup           bool
+	FromName          string
+	IsFromMe          bool
+	WAMessageID       string
+	ReplyToExternalID string
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -195,13 +200,32 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		content = fromName + ": " + content
 	}
 
-	// Extract media attachments
+	// Extract media attachments. Auto-downloaded media is either a bare path
+	// string or, when it carries a caption, a map{path, caption} (see
+	// buildAutoDownloadPayload) — handle both so captioned media still attaches.
 	mediaFields := []string{"image", "audio", "video", "document", "sticker", "video_note"}
 	for _, field := range mediaFields {
-		if mediaData, ok := data[field]; ok {
-			if path, ok := mediaData.(string); ok && path != "" {
-				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+		mediaData, ok := data[field]
+		if !ok {
+			continue
+		}
+		switch m := mediaData.(type) {
+		case string:
+			if m != "" {
+				attachments = append(attachments, m)
+				logrus.Infof("Chatwoot: Found %s attachment at %s", field, m)
+			}
+		case map[string]any:
+			path, _ := m["path"].(string)
+			if path == "" {
+				continue
+			}
+			attachments = append(attachments, path)
+			logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+			if content == "" {
+				if caption, ok := m["caption"].(string); ok {
+					content = caption
+				}
 			}
 		}
 	}
@@ -222,7 +246,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 
 func shouldForwardEventToChatwoot(eventName string) bool {
 	switch eventName {
-	case "message", "message.reaction":
+	case "message", "message.reaction", "message.ack":
 		return true
 	default:
 		return false
@@ -236,31 +260,38 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	if isEventWhitelisted(eventName) {
 		return true
 	}
-	return eventName == "message.reaction" && isEventWhitelisted("message")
+	// message.reaction and message.ack ride along when "message" is whitelisted,
+	// so delivery/read status sync works without an explicit ack subscription.
+	if eventName == "message.reaction" || eventName == "message.ack" {
+		return isEventWhitelisted("message")
+	}
+	return false
 }
 
 func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
 	reaction, _ := data["reaction"].(string)
-	reactedMessageID, _ := data["reacted_message_id"].(string)
 
-	actor := "Someone"
-	if fromName != "" {
-		actor = fromName
-	} else if from, ok := data["from"].(string); ok && from != "" {
-		actor = utils.ExtractPhoneFromJID(from)
-	}
-
-	if reactedMessageID != "" {
-		if reaction == "" {
-			return fmt.Sprintf("%s removed a reaction from message %s", actor, reactedMessageID)
+	// In a group the conversation is shared, so lead with who reacted. In a 1:1
+	// chat the actor is the contact itself, so the name would be redundant. The
+	// reacted message is threaded via in_reply_to_external_id (set in
+	// forwardToChatwoot), so the raw WhatsApp message ID is no longer embedded.
+	prefix := ""
+	if isGroup {
+		actor := fromName
+		if actor == "" {
+			if from, ok := data["from"].(string); ok && from != "" {
+				actor = utils.ExtractPhoneFromJID(from)
+			}
 		}
-		return fmt.Sprintf("%s reacted %s to message %s", actor, reaction, reactedMessageID)
+		if actor != "" {
+			prefix = actor + " "
+		}
 	}
 
 	if reaction == "" {
-		return fmt.Sprintf("%s removed a reaction", actor)
+		return strings.TrimSpace(prefix + "removed a reaction")
 	}
-	return fmt.Sprintf("%s reacted %s", actor, reaction)
+	return strings.TrimSpace(prefix + "reacted " + reaction)
 }
 
 func chatwootMessageTypeFromPayload(data map[string]any) string {
@@ -420,11 +451,19 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments)
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, info.WAMessageID, info.ReplyToExternalID)
 	if err != nil {
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 	chatwoot.MarkMessageAsSent(msgID)
+
+	// Track outgoing messages by their WhatsApp ID so later delivery/read receipts
+	// (events.Receipt -> message.ack) update this Chatwoot message's status ticks.
+	// Covers messages sent from the linked phone app and via the REST API; messages
+	// sent from Chatwoot are tracked separately by the webhook handler.
+	if info.IsFromMe && info.WAMessageID != "" {
+		chatwoot.TrackOutgoingMessage(info.WAMessageID, conversation.ID, msgID)
+	}
 
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
 	return nil
@@ -432,7 +471,27 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 
 func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
 	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
+
+	// Resolve the client for the device that received this message. Falls back
+	// to the env-var default singleton when no per-device registry/config exists.
 	cw := chatwoot.GetDefaultClient()
+	if reg := chatwoot.GetGlobalRegistry(); reg != nil {
+		if deviceID, _ := payload["device_id"].(string); deviceID != "" {
+			client, err := reg.GetClientForDevice(deviceID)
+			switch {
+			case err != nil:
+				logrus.Warnf("Chatwoot: no config for device %s, using default client: %v", deviceID, err)
+			case client == nil:
+				// Device has an explicit config that is disabled: respect it and
+				// skip forwarding rather than falling back to the default client.
+				logrus.Infof("Chatwoot: device %s is disabled, skipping forward", deviceID)
+				return
+			default:
+				cw = client
+			}
+		}
+	}
+
 	if !cw.IsConfigured() {
 		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
 		return
@@ -441,6 +500,19 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		logrus.Error("Chatwoot: Invalid payload format (missing 'payload' object)")
+		return
+	}
+
+	// Skip non-conversational message types (newsletters, status broadcasts)
+	if chatID, _ := data["chat_id"].(string); strings.HasSuffix(chatID, "@newsletter") || chatID == "status@broadcast" {
+		logrus.Debugf("Chatwoot: Skipping non-conversational message (chat_id: %s)", chatID)
+		return
+	}
+
+	// Delivery/read receipts update the status of a previously synced message
+	// rather than creating a new one.
+	if eventName == "message.ack" {
+		handleChatwootMessageAck(cw, data)
 		return
 	}
 
@@ -463,10 +535,116 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 		content, attachments = buildChatwootMessageContent(data, info.IsGroup, info.FromName)
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
+	info.WAMessageID, _ = data["id"].(string)
+	info.ReplyToExternalID, _ = data["replied_to_id"].(string)
+	// A reaction has no quoted message; thread it to the message it reacted to so
+	// Chatwoot shows the reaction against the original message instead of a raw ID.
+	if eventName == "message.reaction" {
+		info.ReplyToExternalID, _ = data["reacted_message_id"].(string)
+	}
 
 	// Sync to Chatwoot
 	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
 		logrus.Errorf("Chatwoot: %v", err)
+	}
+}
+
+// ForwardSentMessageToChatwoot syncs a message sent via this app's REST API to
+// Chatwoot as an outgoing message. API sends call client.SendMessage directly and
+// do NOT loop back as an events.Message, so the normal event-driven forward never
+// sees them. We synthesize the equivalent event and forward to Chatwoot only (not
+// to configured HTTP webhooks). No-op when Chatwoot is off or when the send
+// originated from Chatwoot itself (agent reply), to avoid duplicating it.
+func ForwardSentMessageToChatwoot(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, messageID string, ts time.Time) {
+	if !config.ChatwootEnabled {
+		return
+	}
+	if shouldSkipChatwootForward(ctx) {
+		return
+	}
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return
+	}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			ID:        messageID,
+			Timestamp: ts,
+			MessageSource: types.MessageSource{
+				Chat:     recipient,
+				Sender:   client.Store.ID.ToNonAD(),
+				IsFromMe: true,
+			},
+		},
+		Message: msg,
+	}
+
+	webhookEvent, err := createWebhookEvent(ctx, client, evt)
+	if err != nil {
+		logrus.Warnf("Chatwoot: failed to build outgoing payload for %s: %v", messageID, err)
+		return
+	}
+
+	payload := map[string]any{
+		"event":     webhookEvent.Event,
+		"device_id": webhookEvent.DeviceID,
+		"payload":   webhookEvent.Payload,
+	}
+	forwardToChatwoot(ctx, payload, webhookEvent.Event)
+}
+
+// handleChatwootMessageAck maps a WhatsApp delivery/read receipt to the Chatwoot
+// message it corresponds to and updates that message's status, so the ✓/✓✓/read
+// ticks in Chatwoot reflect real WhatsApp delivery state.
+func handleChatwootMessageAck(cw *chatwoot.Client, data map[string]any) {
+	receiptType, _ := data["receipt_type"].(string)
+	status := chatwootStatusFromReceipt(receiptType)
+	if status == "" {
+		return // not a delivered/read receipt we care about
+	}
+
+	for _, waMsgID := range receiptMessageIDs(data) {
+		convID, msgID, ok := chatwoot.ResolveTrackedMessage(waMsgID)
+		if !ok {
+			continue // not a message we synced/sent
+		}
+		if err := cw.UpdateMessageStatus(convID, msgID, status); err != nil {
+			logrus.Warnf("Chatwoot: failed to update message %d status to %s: %v", msgID, status, err)
+			continue
+		}
+		logrus.Infof("Chatwoot: message %d marked as %s (wa id %s)", msgID, status, waMsgID)
+	}
+}
+
+// chatwootStatusFromReceipt maps a WhatsApp receipt type to a Chatwoot message
+// status, or "" when the receipt should be ignored.
+func chatwootStatusFromReceipt(receiptType string) string {
+	switch receiptType {
+	case "delivered":
+		return "delivered"
+	case "read", "read-self", "played", "played-self":
+		return "read"
+	default:
+		return ""
+	}
+}
+
+// receiptMessageIDs extracts the WhatsApp message IDs from a receipt payload,
+// tolerating the slice types it may carry through the in-memory payload map.
+func receiptMessageIDs(data map[string]any) []string {
+	switch ids := data["ids"].(type) {
+	case []string: // types.MessageID is an alias of string
+		return ids
+	case []any:
+		out := make([]string, 0, len(ids))
+		for _, v := range ids {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

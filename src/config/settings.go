@@ -15,7 +15,8 @@ var (
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
 	AppBasePath            = ""
-	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
+	AppPublicURL           = ""       // Public base URL of this GoWA server (e.g. "https://gowa.example.com"); used to auto-register the Chatwoot webhook callback
+	AppTrustedProxies      []string   // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 
 	McpPort = "8080"
 	McpHost = "localhost"

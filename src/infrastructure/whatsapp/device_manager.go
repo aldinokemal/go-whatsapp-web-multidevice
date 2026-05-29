@@ -114,6 +114,12 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 		if inst, ok := m.GetDevice(trimmedID); ok && inst != nil {
 			return inst, trimmedID, nil
 		}
+		// The device map is keyed by internal device ID, but Chatwoot configs and
+		// the inbox registry key by WhatsApp JID. Fall back to a JID match so a
+		// raw JID (e.g. "573...@s.whatsapp.net") still resolves to its instance.
+		if inst := m.deviceByJID(trimmedID); inst != nil {
+			return inst, inst.ID(), nil
+		}
 		return nil, trimmedID, fmt.Errorf("device %s not found", trimmedID)
 	}
 
@@ -122,6 +128,20 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 	}
 
 	return nil, "", fmt.Errorf("device id is required")
+}
+
+// deviceByJID returns the registered instance whose WhatsApp JID equals jid, or
+// nil. The device map is keyed by internal device ID, so JID lookups (used by
+// Chatwoot inbox routing) must scan instances.
+func (m *DeviceManager) deviceByJID(jid string) *DeviceInstance {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inst := range m.devices {
+		if inst.JID() == jid {
+			return inst
+		}
+	}
+	return nil
 }
 
 func (m *DeviceManager) RemoveDevice(id string) {

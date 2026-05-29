@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,9 +19,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// SyncService handles message history synchronization to Chatwoot
+// SyncService handles message history synchronization to Chatwoot.
+// The Chatwoot client is supplied per SyncHistory call (not stored), so a single
+// shared service can drive multiple devices, each routed to its own inbox.
 type SyncService struct {
-	client          *Client
 	chatStorageRepo domainChatStorage.IChatStorageRepository
 
 	// Track sync progress per device
@@ -30,11 +32,9 @@ type SyncService struct {
 
 // NewSyncService creates a new sync service instance
 func NewSyncService(
-	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
 ) *SyncService {
 	return &SyncService{
-		client:          client,
 		chatStorageRepo: chatStorageRepo,
 		progressMap:     make(map[string]*SyncProgress),
 	}
@@ -63,8 +63,16 @@ func (s *SyncService) IsRunning(deviceID string) bool {
 	return false
 }
 
-// SyncHistory performs the initial message history sync to Chatwoot
-func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
+// ErrNilClient is returned when a sync is attempted without a Chatwoot client.
+var ErrNilClient = errors.New("chatwoot: client is nil")
+
+// SyncHistory performs the initial message history sync to Chatwoot using the
+// supplied client (which carries the target account/inbox for this device).
+func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, client *Client, waClient *whatsmeow.Client, opts SyncOptions) (*SyncProgress, error) {
+	if client == nil {
+		return nil, ErrNilClient
+	}
+
 	// Atomic check-and-set to prevent race condition
 	progress := NewSyncProgress(deviceID)
 	s.progressMu.Lock()
@@ -75,6 +83,14 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 	}
 	s.progressMap[deviceID] = progress
 	s.progressMu.Unlock()
+
+	// Mark the device as syncing for the full duration. While set, HandleWebhook
+	// skips every outgoing message_created event for this device: the sync creates
+	// those messages (incl. media/voice notes) via the Chatwoot API, and echoing
+	// them back would duplicate them on WhatsApp. defer guarantees the flag clears
+	// even on early return or panic.
+	SyncInProgress(deviceID)
+	defer SyncComplete(deviceID)
 
 	progress.SetRunning()
 
@@ -105,7 +121,7 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 
 		progress.UpdateChat(chat.JID)
 
-		err := s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
+		err := s.syncChat(ctx, deviceID, client, chat, sinceTime, waClient, opts, progress)
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
 			progress.IncrementFailedChats()
@@ -126,12 +142,17 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 func (s *SyncService) syncChat(
 	ctx context.Context,
 	deviceID string,
+	client *Client,
 	chat *domainChatStorage.Chat,
 	sinceTime time.Time,
 	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	progress *SyncProgress,
 ) error {
+	if client == nil {
+		return ErrNilClient
+	}
+
 	isGroup := strings.HasSuffix(chat.JID, "@g.us")
 
 	// Skip groups if not configured
@@ -148,14 +169,14 @@ func (s *SyncService) syncChat(
 		contactName = utils.ExtractPhoneFromJID(chat.JID)
 	}
 
-	contact, err := s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
+	contact, err := client.FindOrCreateContact(contactName, chat.JID, isGroup)
 	if err != nil {
 		return fmt.Errorf("failed to create contact: %w", err)
 	}
 	logrus.Debugf("Chatwoot Sync: Contact ID: %d", contact.ID)
 
 	// 2. Find or create conversation
-	conversation, err := s.client.FindOrCreateConversation(contact.ID)
+	conversation, err := client.FindOrCreateConversation(contact.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create conversation: %w", err)
 	}
@@ -191,7 +212,7 @@ func (s *SyncService) syncChat(
 			return err
 		}
 
-		err := s.syncMessage(ctx, conversation.ID, msg, waClient, opts, isGroup)
+		err := s.syncMessage(ctx, client, conversation.ID, msg, waClient, opts, isGroup)
 		if err != nil {
 			logrus.Warnf("Chatwoot Sync: Failed to sync message %s: %v", msg.ID, err)
 			progress.IncrementFailedMessages()
@@ -212,6 +233,7 @@ func (s *SyncService) syncChat(
 // syncMessage syncs a single message to Chatwoot
 func (s *SyncService) syncMessage(
 	ctx context.Context,
+	client *Client,
 	conversationID int,
 	msg *domainChatStorage.Message,
 	waClient *whatsmeow.Client,
@@ -257,7 +279,7 @@ func (s *SyncService) syncMessage(
 
 	// Send to Chatwoot and register the returned ID in the dedup cache so the
 	// resulting webhook event is recognized as "ours" and not forwarded back to WhatsApp.
-	msgID, err := s.client.CreateMessage(conversationID, content, messageType, attachments)
+	msgID, err := client.CreateMessage(conversationID, content, messageType, attachments, msg.ID, "")
 
 	for _, fp := range attachments {
 		if err := os.Remove(fp); err != nil {
@@ -377,6 +399,40 @@ func getExtensionForMediaType(mediaType, filename string) string {
 	}
 }
 
+// syncingDevices marks devices with an active history sync. While set, the
+// Chatwoot webhook handler skips ALL outgoing message_created events for the
+// device: the sync creates those messages (text, media, voice notes) via the
+// Chatwoot API, and forwarding them back would duplicate them on WhatsApp. This
+// removes any timing dependency on the per-message MarkMessageAsSent dedup, which
+// an attachment webhook can race.
+var syncingDevices sync.Map // key: deviceID (JID), value: struct{}
+
+// SyncInProgress marks a device as having an active history sync.
+func SyncInProgress(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	syncingDevices.Store(deviceID, struct{}{})
+}
+
+// SyncComplete clears the active-sync marker for a device.
+func SyncComplete(deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	syncingDevices.Delete(deviceID)
+}
+
+// IsSyncInProgress reports whether a history sync is currently running for the
+// device. HandleWebhook uses it to suppress echoes of sync-created messages.
+func IsSyncInProgress(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+	_, ok := syncingDevices.Load(deviceID)
+	return ok
+}
+
 // Global sync service instance for REST endpoints
 var (
 	globalSyncService     *SyncService
@@ -385,11 +441,10 @@ var (
 
 // GetSyncService returns a shared sync service instance
 func GetSyncService(
-	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
 ) *SyncService {
 	globalSyncServiceOnce.Do(func() {
-		globalSyncService = NewSyncService(client, chatStorageRepo)
+		globalSyncService = NewSyncService(chatStorageRepo)
 	})
 	return globalSyncService
 }

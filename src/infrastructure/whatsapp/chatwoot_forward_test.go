@@ -111,17 +111,17 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "group reaction with sender name and target id",
+			name: "group reaction leads with sender name (message threaded, no raw id)",
 			payload: map[string]any{
 				"reaction":           "👍",
 				"reacted_message_id": "wamid-123",
 			},
 			isGroup:  true,
 			fromName: "Alice",
-			expected: "Alice reacted 👍 to message wamid-123",
+			expected: "Alice reacted 👍",
 		},
 		{
-			name: "direct reaction falls back to phone",
+			name: "direct reaction omits actor name (contact is the conversation)",
 			payload: map[string]any{
 				"reaction":           "🔥",
 				"reacted_message_id": "wamid-456",
@@ -129,17 +129,17 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 			},
 			isGroup:  false,
 			fromName: "",
-			expected: "628123456789 reacted 🔥 to message wamid-456",
+			expected: "reacted 🔥",
 		},
 		{
-			name: "reaction removal",
+			name: "reaction removal in group",
 			payload: map[string]any{
 				"reaction":           "",
 				"reacted_message_id": "wamid-789",
 			},
 			isGroup:  true,
 			fromName: "Bob",
-			expected: "Bob removed a reaction from message wamid-789",
+			expected: "Bob removed a reaction",
 		},
 		{
 			name: "group reaction falls back to sender jid when pushname missing",
@@ -150,7 +150,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 			},
 			isGroup:  true,
 			fromName: "",
-			expected: "628777000111 reacted 😂 to message wamid-999",
+			expected: "628777000111 reacted 😂",
 		},
 		{
 			name: "missing target id still produces readable text",

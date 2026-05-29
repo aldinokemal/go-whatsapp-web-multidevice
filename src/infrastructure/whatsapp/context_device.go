@@ -8,12 +8,34 @@ import (
 
 type deviceContextKey struct{}
 
+type skipChatwootForwardKey struct{}
+
 // ContextWithDevice stores a device instance into the provided context for per-request scoping.
 func ContextWithDevice(ctx context.Context, device *DeviceInstance) context.Context {
 	if ctx == nil {
 		return context.Background()
 	}
 	return context.WithValue(ctx, deviceContextKey{}, device)
+}
+
+// ContextWithSkipChatwootForward marks a context so messages sent under it are
+// NOT forwarded back to Chatwoot. Set by the Chatwoot webhook handler on agent
+// replies, which already originate from Chatwoot and would otherwise duplicate.
+func ContextWithSkipChatwootForward(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.WithValue(context.Background(), skipChatwootForwardKey{}, true)
+	}
+	return context.WithValue(ctx, skipChatwootForwardKey{}, true)
+}
+
+// shouldSkipChatwootForward reports whether the context was flagged to skip the
+// outgoing Chatwoot forward.
+func shouldSkipChatwootForward(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	skip, _ := ctx.Value(skipChatwootForwardKey{}).(bool)
+	return skip
 }
 
 // DeviceFromContext retrieves a device instance from context if present.
