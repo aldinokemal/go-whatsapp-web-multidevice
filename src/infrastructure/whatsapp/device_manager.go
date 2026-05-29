@@ -484,6 +484,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	client := whatsmeow.NewClient(storeDevice, newFilteredLogger(baseLogger))
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
+	client.ManualHistorySyncDownload = true
 
 	repo := inst.GetChatStorage()
 	if repo == nil {
