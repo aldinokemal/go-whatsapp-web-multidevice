@@ -2,13 +2,8 @@ package whatsapp
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"sync/atomic"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"go.mau.fi/whatsmeow"
@@ -17,44 +12,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-var historySyncID int32
-
-func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	if client == nil || client.Store == nil || client.Store.ID == nil {
-		log.Warnf("Skipping history sync handling: WhatsApp client not initialized")
-		return
-	}
-	id := atomic.AddInt32(&historySyncID, 1)
-	fileName := fmt.Sprintf("%s/history-%d-%s-%d-%s.json",
-		config.PathStorages,
-		startupTime,
-		client.Store.ID.String(),
-		id,
-		evt.Data.SyncType.String(),
-	)
-
-	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		log.Errorf("Failed to open file to write history sync: %v", err)
-		return
-	}
-	defer file.Close()
-
-	enc := json.NewEncoder(file)
-	enc.SetIndent("", "  ")
-	if err = enc.Encode(evt.Data); err != nil {
-		log.Errorf("Failed to write history sync: %v", err)
-		return
-	}
-
-	log.Infof("Wrote history sync to %s", fileName)
-
-	// Process history sync data to database
-	if chatStorageRepo != nil {
-		if err := processHistorySync(ctx, evt.Data, chatStorageRepo, client); err != nil {
-			log.Errorf("Failed to process history sync to database: %v", err)
-		}
-	}
+func handleHistorySync(_ context.Context, _ *events.HistorySync, _ domainChatStorage.IChatStorageRepository, _ *whatsmeow.Client) {
+	// No-op to bypass history sync and keep gateway stateless and lightweight
 }
 
 // processHistorySync processes history sync data and stores messages in the database

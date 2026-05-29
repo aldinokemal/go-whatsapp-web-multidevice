@@ -55,7 +55,7 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 }
 
 // createCallOfferPayload creates a webhook payload for incoming call events
-func createCallOfferPayload(ctx context.Context, evt *events.CallOffer, deviceID string, client *whatsmeow.Client, autoRejected bool) map[string]any {
+func createCallOfferPayload(_ context.Context, evt *events.CallOffer, deviceID string, _ *whatsmeow.Client, autoRejected bool) map[string]any {
 	body := make(map[string]any)
 	payload := make(map[string]any)
 

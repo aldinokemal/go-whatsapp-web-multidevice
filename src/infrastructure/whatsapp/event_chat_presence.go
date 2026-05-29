@@ -14,7 +14,7 @@ import (
 // handleChatPresence handles incoming chat presence (typing notification) events.
 // These events are emitted when a user starts or stops typing in a chat.
 // Note: WhatsApp only sends these updates when the client is marked as online.
-func handleChatPresence(ctx context.Context, evt *events.ChatPresence, deviceID string, client *whatsmeow.Client) {
+func handleChatPresence(_ context.Context, evt *events.ChatPresence, deviceID string, client *whatsmeow.Client) {
 	if evt.State == types.ChatPresenceComposing {
 		if evt.Media == types.ChatPresenceMediaAudio {
 			log.Infof("%s is recording audio in %s", evt.Sender.ToNonAD(), evt.Chat.ToNonAD())

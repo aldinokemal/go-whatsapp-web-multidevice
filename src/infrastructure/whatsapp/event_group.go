@@ -81,7 +81,7 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 }
 
 // handleJoinedGroup handles the event when the connected device is added to a new group
-func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) {
+func handleJoinedGroup(_ context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Joined group %s (reason: %s, type: %s)", evt.JID, evt.Reason, evt.Type)
 
 	if len(config.WhatsappWebhook) > 0 {

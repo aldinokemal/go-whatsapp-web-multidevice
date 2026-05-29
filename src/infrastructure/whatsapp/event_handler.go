@@ -54,8 +54,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.ChatPresence:
 		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
-		// Bypass history sync processing to keep gateway lightweight and stateless
-		// handleHistorySync(ctx, evt, chatStorageRepo, client)
+		handleHistorySync(ctx, evt, chatStorageRepo, client)
 	case *events.AppState:
 		handleAppState(ctx, evt, instance.JID(), client)
 	case *events.GroupInfo:
@@ -77,7 +76,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	instance.UpdateStateFromClient()
 }
 
-func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
+func handleDeleteForMe(_ context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
 	// Find the message to get its chat JID
@@ -153,7 +152,7 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 	syncKeysDevice(ctx, primaryDB, secondaryDB)
 }
 
-func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+func handleLoggedOut(_ context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
 
 	if client := instance.GetClient(); client != nil {
@@ -215,7 +214,7 @@ func handleStreamReplaced(_ context.Context) {
 	os.Exit(0)
 }
 
-func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
+func handleReceipt(_ context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
 	sendReceipt := false
 	switch evt.Type {
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
@@ -265,7 +264,7 @@ func handleAppState(_ context.Context, evt *events.AppState, deviceID string, cl
 	}
 }
 
-func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {
+func handleGroupInfo(_ context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {
 	// Only process events that have actual changes
 	hasChanges := len(evt.Join) > 0 || len(evt.Leave) > 0 || len(evt.Promote) > 0 || len(evt.Demote) > 0 ||
 		evt.Name != nil || evt.Topic != nil || evt.Locked != nil || evt.Announce != nil

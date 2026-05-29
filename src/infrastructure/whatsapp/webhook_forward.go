@@ -239,7 +239,7 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	return eventName == "message.reaction" && isEventWhitelisted("message")
 }
 
-func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
+func buildReactionChatwootContent(data map[string]any, _ bool, fromName string) string {
 	reaction, _ := data["reaction"].(string)
 	reactedMessageID, _ := data["reacted_message_id"].(string)
 
