@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestDetermineMediaExtension(t *testing.T) {
@@ -64,106 +62,186 @@ func TestDetermineMediaExtension(t *testing.T) {
 }
 
 func TestExtractPhoneFromVCard(t *testing.T) {
-	vcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nTEL;type=CELL;waid=628123456789:+628123456789\nEND:VCARD"
-
-	got := ExtractPhoneFromVCard(vcard)
-	if got != "+628123456789" {
-		t.Fatalf("ExtractPhoneFromVCard() = %q, want %q", got, "+628123456789")
-	}
-}
-
-func TestFormatContactText(t *testing.T) {
-	got := FormatContactText("Alice", "+628123456789")
-	want := "Contact: Alice (+628123456789)"
-	if got != want {
-		t.Fatalf("FormatContactText() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatContactsText(t *testing.T) {
-	got := FormatContactsText("Alice", "+628123456789", 2)
-	want := "Contacts: Alice (+628123456789) +2 more"
-	if got != want {
-		t.Fatalf("FormatContactsText() = %q, want %q", got, want)
-	}
-}
-
-func TestExtractMessageTextFromProtoContact(t *testing.T) {
-	msg := &waE2E.Message{
-		ContactMessage: &waE2E.ContactMessage{
-			DisplayName: proto.String("Alice"),
-			Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628123456789:+628123456789\nEND:VCARD"),
+	tests := []struct {
+		name  string
+		vcard string
+		want  string
+	}{
+		{
+			name:  "LFEndings",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD",
+			want:  "+62 812 3456 7890",
+		},
+		{
+			name:  "CRLFEndings",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bob\r\nTEL:+1 555 0100\r\nEND:VCARD",
+			want:  "+1 555 0100",
+		},
+		{
+			name:  "FoldedLine",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Julio\r\nTEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD",
+			want:  "+5511998913283",
+		},
+		{
+			name:  "NoTelLine",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nEND:VCARD",
+			want:  "",
+		},
+		{
+			name:  "Empty",
+			vcard: "",
+			want:  "",
 		},
 	}
 
-	got := ExtractMessageTextFromProto(msg)
-	want := "Contact: Alice (+628123456789)"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractPhoneFromVCard(tt.vcard)
+			if got != tt.want {
+				t.Fatalf("ExtractPhoneFromVCard() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestExtractMessageTextFromProtoContactsArray(t *testing.T) {
-	msg := &waE2E.Message{
-		ContactsArrayMessage: &waE2E.ContactsArrayMessage{
-			Contacts: []*waE2E.ContactMessage{
-				{
-					DisplayName: proto.String("Alice"),
-					Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628123456789:+628123456789\nEND:VCARD"),
-				},
-				{
-					DisplayName: proto.String("Bob"),
-					Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628987654321:+628987654321\nEND:VCARD"),
+func TestFormatContactSummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		dName  string
+		phone  string
+		plural bool
+		want   string
+	}{
+		{name: "SingleNameAndPhone", dName: "Alice", phone: "+62 812", plural: false, want: "Contact: Alice (+62 812)"},
+		{name: "SingleNameOnly", dName: "Alice", phone: "", plural: false, want: "Contact: Alice"},
+		{name: "SinglePhoneOnly", dName: "", phone: "+62 812", plural: false, want: "Contact: +62 812"},
+		{name: "SingleEmpty", dName: "", phone: "", plural: false, want: "Contact shared"},
+		{name: "SingleWhitespaceOnly", dName: " ", phone: " ", plural: false, want: "Contact shared"},
+		{name: "PluralNameAndPhone", dName: "Alice", phone: "+62 812", plural: true, want: "Contacts: Alice (+62 812)"},
+		{name: "PluralEmpty", dName: "", phone: "", plural: true, want: "Contacts shared"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatContactSummary(tt.dName, tt.phone, tt.plural)
+			if got != tt.want {
+				t.Fatalf("FormatContactSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoContactMessage(t *testing.T) {
+	phoneVCard := "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alice\r\nTEL;type=Mobile:\r\n +62 812 3456 7890\r\nEND:VCARD"
+
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "NameAndPhone",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr("Alice"),
+					Vcard:       strPtr(phoneVCard),
 				},
 			},
+			want: "Contact: Alice (+62 812 3456 7890)",
 		},
-	}
-
-	got := ExtractMessageTextFromProto(msg)
-	want := "Contacts: Alice (+628123456789) +1 more"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, want)
-	}
-}
-
-func TestExtractMessageTextFromEventContact(t *testing.T) {
-	evt := &events.Message{
-		Message: &waE2E.Message{
-			ContactMessage: &waE2E.ContactMessage{
-				DisplayName: proto.String("Alice"),
-				Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628123456789:+628123456789\nEND:VCARD"),
+		{
+			name: "NameOnly",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr("Alice"),
+					Vcard:       strPtr(""),
+				},
 			},
+			want: "Contact: Alice",
+		},
+		{
+			name: "PhoneOnly",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr(""),
+					Vcard:       strPtr(phoneVCard),
+				},
+			},
+			want: "Contact: +62 812 3456 7890",
+		},
+		{
+			name: "Neither",
+			msg: &waE2E.Message{
+				ContactMessage: &waE2E.ContactMessage{
+					DisplayName: strPtr(""),
+					Vcard:       strPtr(""),
+				},
+			},
+			want: "Contact shared",
 		},
 	}
 
-	got := ExtractMessageTextFromEvent(evt)
-	want := "👤 Contact: Alice (+628123456789)"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromEvent() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestExtractMessageTextFromEventContactsArray(t *testing.T) {
-	evt := &events.Message{
-		Message: &waE2E.Message{
-			ContactsArrayMessage: &waE2E.ContactsArrayMessage{
-				Contacts: []*waE2E.ContactMessage{
-					{
-						DisplayName: proto.String("Alice"),
-						Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628123456789:+628123456789\nEND:VCARD"),
+func TestExtractMessageTextFromProtoContactsArrayMessage(t *testing.T) {
+	bob := "Bob"
+	bobVcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Bob\nTEL:+1 555 0100\nEND:VCARD"
+	carol := "Carol"
+	carolVcard := "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nTEL:+1 555 0200\nEND:VCARD"
+
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "FirstContactWithNameAndPhone",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+					Contacts: []*waE2E.ContactMessage{
+						{DisplayName: &bob, Vcard: &bobVcard},
+						{DisplayName: &carol, Vcard: &carolVcard},
 					},
-					{
-						DisplayName: proto.String("Bob"),
-						Vcard:       proto.String("BEGIN:VCARD\nTEL;type=CELL;waid=628987654321:+628987654321\nEND:VCARD"),
-					},
 				},
 			},
+			want: "Contacts: Bob (+1 555 0100)",
+		},
+		{
+			name: "EmptyContactsArray",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{Contacts: nil},
+			},
+			want: "Contacts shared",
+		},
+		{
+			name: "FirstContactEmpty",
+			msg: &waE2E.Message{
+				ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+					Contacts: []*waE2E.ContactMessage{{}},
+				},
+			},
+			want: "Contacts shared",
 		},
 	}
 
-	got := ExtractMessageTextFromEvent(evt)
-	want := "👥 Contacts: Alice (+628123456789) +1 more"
-	if got != want {
-		t.Fatalf("ExtractMessageTextFromEvent() = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
 	}
+}
+
+func strPtr(value string) *string {
+	return &value
 }

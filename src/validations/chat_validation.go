@@ -78,7 +78,7 @@ func ValidateSetDisappearingTimer(ctx context.Context, request *domainChat.SetDi
 	return nil
 }
 
-func validateTimerValue(value interface{}) error {
+func validateTimerValue(value any) error {
 	timer, ok := value.(uint32)
 	if !ok {
 		return pkgError.ValidationError("timer_seconds must be a valid number")

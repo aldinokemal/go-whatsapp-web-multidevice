@@ -4229,6 +4229,11 @@ components:
           example: 'image'
           nullable: true
           description: Type of media (image, video, audio, document, etc.). Value `call` indicates a stored incoming call log.
+        reactions:
+          type: array
+          description: Emoji reactions attached to this message
+          items:
+            $ref: '#/components/schemas/ChatReaction'
         call_metadata:
           type: string
           example: '{"call_id":"ABC","auto_rejected":false}'
@@ -4258,6 +4263,27 @@ components:
           format: date-time
           example: '2024-01-15T10:30:00Z'
           description: Record last update timestamp
+
+    ChatReaction:
+      type: object
+      properties:
+        emoji:
+          type: string
+          example: '👍'
+          description: Emoji used in the reaction
+        sender_jid:
+          type: string
+          example: '628123456789@s.whatsapp.net'
+          description: JID of the user who reacted
+        is_from_me:
+          type: boolean
+          example: false
+          description: Whether the reaction was made by the current user
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:31:00Z'
+          description: When the reaction was received
 
     LabelChatResponse:
       type: object

@@ -194,3 +194,39 @@ func TestForwardPayloadToConfiguredWebhooks_WhitelistCaseInsensitive(t *testing.
 		t.Fatalf("expected 2 calls (case-insensitive match), got %d", called)
 	}
 }
+
+func TestExtractStructuredMessageContentWithContactPayload(t *testing.T) {
+	payload := map[string]any{
+		"contact": webhookContactPayload{
+			DisplayName: "Alice",
+			PhoneNumber: "+62 812 3456 7890",
+		},
+	}
+
+	got := extractStructuredMessageContent(payload)
+	want := "Contact: Alice (+62 812 3456 7890)"
+	if got != want {
+		t.Fatalf("extractStructuredMessageContent() = %q, want %q", got, want)
+	}
+}
+
+func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
+	payload := map[string]any{
+		"contacts_array": []webhookContactPayload{
+			{
+				DisplayName: "Alice",
+				PhoneNumber: "+62 812 3456 7890",
+			},
+			{
+				DisplayName: "Bob",
+				PhoneNumber: "+62 813 9876 5432",
+			},
+		},
+	}
+
+	got := extractStructuredMessageContent(payload)
+	want := "Contacts: Alice (+62 812 3456 7890)"
+	if got != want {
+		t.Fatalf("extractStructuredMessageContent() = %q, want %q", got, want)
+	}
+}

@@ -19,32 +19,7 @@ func (e LoginError) StatusCode() int {
 	return http.StatusBadRequest
 }
 
-type ReconnectError string
-
-func throwReconnectError(text string) GenericError {
-	return AuthError(text)
-}
-
-// Error for complying the error interface
-func (e ReconnectError) Error() string {
-	return string(e)
-}
-
-// ErrCode will return the error code based on the error data type
-func (e ReconnectError) ErrCode() string {
-	return "RECONNECT_ERROR"
-}
-
-// StatusCode will return the HTTP status code based on the error data type
-func (e ReconnectError) StatusCode() int {
-	return http.StatusBadRequest
-}
-
 type AuthError string
-
-func throwAuthError(text string) GenericError {
-	return AuthError(text)
-}
 
 func (err AuthError) Error() string {
 	return string(err)
@@ -62,10 +37,6 @@ func (err AuthError) StatusCode() int {
 
 type qrChannelError string
 
-func throwQrChannelError(text string) GenericError {
-	return qrChannelError(text)
-}
-
 func (err qrChannelError) Error() string {
 	return string(err)
 }
@@ -81,10 +52,6 @@ func (err qrChannelError) StatusCode() int {
 }
 
 type sessionSavedError string
-
-func throwSessionSavedError(text string) GenericError {
-	return sessionSavedError(text)
-}
 
 func (err sessionSavedError) Error() string {
 	return string(err)
@@ -102,9 +69,9 @@ func (err sessionSavedError) StatusCode() int {
 
 var (
 	ErrAlreadyLoggedIn = LoginError("you are already logged in.")
-	ErrNotConnected    = throwAuthError("you are not connect to services server, please reconnect")
-	ErrNotLoggedIn     = throwAuthError("you are not logged in")
-	ErrReconnect       = throwReconnectError("reconnect error")
-	ErrQrChannel       = throwQrChannelError("QR channel error")
-	ErrSessionSaved    = throwSessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
+	ErrNotConnected    = AuthError("you are not connect to services server, please reconnect")
+	ErrNotLoggedIn     = AuthError("you are not logged in")
+	ErrReconnect       = AuthError("reconnect error")
+	ErrQrChannel       = qrChannelError("QR channel error")
+	ErrSessionSaved    = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
 )

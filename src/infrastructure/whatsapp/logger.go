@@ -26,7 +26,7 @@ func newFilteredLogger(base waLog.Logger) waLog.Logger {
 	return &filteredLogger{base: base}
 }
 
-func (l *filteredLogger) Errorf(msg string, args ...interface{}) {
+func (l *filteredLogger) Errorf(msg string, args ...any) {
 	formatted := fmt.Sprintf(msg, args...)
 	if isWebsocketEOFError(formatted) {
 		l.base.Debugf("WebSocket closed after idle; auto-reconnecting within ~1s without interrupting message handling. Investigate only if reconnection keeps failing: %s", formatted)
@@ -36,15 +36,15 @@ func (l *filteredLogger) Errorf(msg string, args ...interface{}) {
 	l.base.Errorf(msg, args...)
 }
 
-func (l *filteredLogger) Warnf(msg string, args ...interface{}) {
+func (l *filteredLogger) Warnf(msg string, args ...any) {
 	l.base.Warnf(msg, args...)
 }
 
-func (l *filteredLogger) Infof(msg string, args ...interface{}) {
+func (l *filteredLogger) Infof(msg string, args ...any) {
 	l.base.Infof(msg, args...)
 }
 
-func (l *filteredLogger) Debugf(msg string, args ...interface{}) {
+func (l *filteredLogger) Debugf(msg string, args ...any) {
 	l.base.Debugf(msg, args...)
 }
 

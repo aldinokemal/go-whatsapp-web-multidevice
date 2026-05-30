@@ -70,8 +70,26 @@ func (e WaUploadMediaError) StatusCode() int {
 	return http.StatusInternalServerError
 }
 
+type WaReachoutTimelockError string
+
+// Error for complying the error interface
+func (e WaReachoutTimelockError) Error() string {
+	return string(e)
+}
+
+// ErrCode will return the error code based on the error data type
+func (e WaReachoutTimelockError) ErrCode() string {
+	return "WA_REACHOUT_TIMELOCK"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (e WaReachoutTimelockError) StatusCode() int {
+	return http.StatusTooManyRequests
+}
+
 const (
-	ErrInvalidJID        = InvalidJID("your JID is invalid")
-	ErrUserNotRegistered = InvalidJID("user is not registered")
-	ErrWaCLI             = WaCliError("your WhatsApp CLI is invalid or empty")
+	ErrInvalidJID         = InvalidJID("your JID is invalid")
+	ErrUserNotRegistered  = InvalidJID("user is not registered")
+	ErrWaCLI              = WaCliError("your WhatsApp CLI is invalid or empty")
+	ErrWaReachoutTimelock = WaReachoutTimelockError("WhatsApp rejected this send (error 463). This usually means the recipient is a cold contact (no prior conversation), the WhatsApp account is restricted to mobile-only by Meta, or privacy tokens are missing/expired. Try messaging this number from the official WhatsApp app once, ask the recipient to message you first, or wait a few minutes before retrying. An automatic pre-warm + retry has already been attempted by the server.")
 )
