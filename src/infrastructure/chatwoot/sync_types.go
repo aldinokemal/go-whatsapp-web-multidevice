@@ -47,10 +47,10 @@ type SyncOptions struct {
 
 // SyncRequest is the API request for triggering a sync
 type SyncRequest struct {
-	DeviceID     string `json:"device_id,omitempty"`
-	DaysLimit    int    `json:"days_limit,omitempty"`
-	IncludeMedia bool   `json:"include_media"`
-	IncludeGroups bool  `json:"include_groups"`
+	DeviceID      string `json:"device_id,omitempty"`
+	DaysLimit     int    `json:"days_limit,omitempty"`
+	IncludeMedia  bool   `json:"include_media"`
+	IncludeGroups bool   `json:"include_groups"`
 }
 
 // SyncResponse is the API response for sync operations

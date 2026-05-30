@@ -491,7 +491,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
-	client.AddEventHandler(func(rawEvt interface{}) {
+	client.AddEventHandler(func(rawEvt any) {
 		handler(ctx, inst, rawEvt)
 	})
 
@@ -591,12 +591,7 @@ func (m *DeviceManager) configureKeysStore(ctx context.Context, device *store.De
 	innerStore := sqlstore.NewSQLStore(m.keys, *device.ID)
 	syncKeysDevice(ctx, m.store, m.keys)
 
-	device.Identities = innerStore
-	device.Sessions = innerStore
-	device.PreKeys = innerStore
-	device.SenderKeys = innerStore
-	device.MsgSecrets = innerStore
-	device.PrivacyTokens = innerStore
+	applyKeyCacheStore(device, innerStore)
 	return nil
 }
 

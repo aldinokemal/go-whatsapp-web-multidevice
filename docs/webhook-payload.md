@@ -284,8 +284,9 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 Chat presence events are triggered when a contact starts or stops typing (or recording audio) in a chat.
 These events use the `chat_presence` event type and are useful for implementing message batching strategies.
 
-**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA automatically marks
-itself as online upon connection, so no additional configuration is needed.
+**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA defaults to
+`unavailable` on connection, but the daily presence pulse periodically marks connected devices as `available`
+and then returns them to `unavailable`.
 
 ### User Typing
 
@@ -851,7 +852,8 @@ When a user shares a single contact:
     "timestamp": "2025-07-13T11:10:19Z",
     "contact": {
       "displayName": "3Care",
-      "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;3Care;;;\nFN:3Care\nTEL;type=Mobile:+62 132\nEND:VCARD"
+      "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;3Care;;;\nFN:3Care\nTEL;type=Mobile:+62 132\nEND:VCARD",
+      "phone_number": "+62 132"
     }
   }
 }
@@ -874,11 +876,13 @@ When a user shares multiple contacts at once (via WhatsApp's multi-contact share
     "contacts_array": [
       {
         "displayName": "Alice",
-        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD"
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Alice;;;\nFN:Alice\nTEL;type=Mobile:+62 812 3456 7890\nEND:VCARD",
+        "phone_number": "+62 812 3456 7890"
       },
       {
         "displayName": "Bob",
-        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Bob;;;\nFN:Bob\nTEL;type=Mobile:+62 813 9876 5432\nEND:VCARD"
+        "vcard": "BEGIN:VCARD\nVERSION:3.0\nN:;Bob;;;\nFN:Bob\nTEL;type=Mobile:+62 813 9876 5432\nEND:VCARD",
+        "phone_number": "+62 813 9876 5432"
       }
     ]
   }

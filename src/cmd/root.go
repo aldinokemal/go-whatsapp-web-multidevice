@@ -23,10 +23,10 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -146,6 +146,19 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	if viper.IsSet("whatsapp_presence_pulse_enabled") {
+		config.WhatsappPresencePulseEnabled = viper.GetBool("whatsapp_presence_pulse_enabled")
+	}
+	if viper.IsSet("whatsapp_presence_pulse_interval") {
+		if interval := viper.GetDuration("whatsapp_presence_pulse_interval"); interval > 0 {
+			config.WhatsappPresencePulseInterval = interval
+		}
+	}
+	if viper.IsSet("whatsapp_presence_pulse_duration") {
+		if duration := viper.GetDuration("whatsapp_presence_pulse_duration"); duration > 0 {
+			config.WhatsappPresencePulseDuration = duration
+		}
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
@@ -233,7 +246,7 @@ func initFlags() {
 		&config.DBKeysURI,
 		"db-keys-uri", "",
 		config.DBKeysURI,
-		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared&_foreign_keys=on"`,
+		`the database uri to store the optional keys cache (by default, we'll use the same database uri). avoid in-memory storage in production. database uri --db-keys-uri <string> | example: --db-keys-uri="file:storages/whatsapp-keys.db?_foreign_keys=on"`,
 	)
 
 	// WhatsApp flags
@@ -297,6 +310,24 @@ func initFlags() {
 		config.WhatsappPresenceOnConnect,
 		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappPresencePulseEnabled,
+		"presence-pulse-enabled", "",
+		config.WhatsappPresencePulseEnabled,
+		`enable daily presence pulse --presence-pulse-enabled <true/false> | example: --presence-pulse-enabled=true`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseInterval,
+		"presence-pulse-interval", "",
+		config.WhatsappPresencePulseInterval,
+		`presence pulse interval --presence-pulse-interval <duration> | example: --presence-pulse-interval=24h`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseDuration,
+		"presence-pulse-duration", "",
+		config.WhatsappPresencePulseDuration,
+		`duration to stay available during a presence pulse --presence-pulse-duration <duration> | example: --presence-pulse-duration=5m`,
+	)
 
 	// Chatwoot flags
 	rootCmd.PersistentFlags().BoolVarP(
@@ -326,12 +357,9 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
-	connStr := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", config.ChatStorageURI)
-	if config.ChatStorageEnableForeignKeys {
-		connStr += "&_foreign_keys=on"
-	}
+	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
-	db, err := sql.Open("sqlite3", connStr)
+	db, err := sql.Open(sqlite.DriverName, connStr)
 	if err != nil {
 		return nil, err
 	}

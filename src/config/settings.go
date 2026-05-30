@@ -1,11 +1,13 @@
 package config
 
 import (
+	"time"
+
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 )
 
 var (
-	AppVersion             = "v8.4.0"
+	AppVersion             = "v8.6.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -23,7 +25,7 @@ var (
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
 
-	DBURI     = "file:storages/whatsapp.db?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000"
+	DBURI     = "file:storages/whatsapp.db"
 	DBKeysURI = ""
 
 	WhatsappAutoReplyMessage          string
@@ -44,6 +46,9 @@ var (
 	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
 	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
+	WhatsappPresencePulseEnabled               = true          // Periodically pulse presence available, then unavailable
+	WhatsappPresencePulseInterval              = 24 * time.Hour
+	WhatsappPresencePulseDuration              = 5 * time.Minute
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
