@@ -233,7 +233,7 @@ func initFlags() {
 		&config.DBKeysURI,
 		"db-keys-uri", "",
 		config.DBKeysURI,
-		`the database uri to store the keys database uri (by default, we'll use the same database uri). database uri --db-keys-uri <string> | example: --db-keys-uri="file::memory:?cache=shared&_foreign_keys=on"`,
+		`the database uri to store the optional keys cache (by default, we'll use the same database uri). avoid in-memory storage in production. database uri --db-keys-uri <string> | example: --db-keys-uri="file:storages/whatsapp-keys.db?_foreign_keys=on"`,
 	)
 
 	// WhatsApp flags

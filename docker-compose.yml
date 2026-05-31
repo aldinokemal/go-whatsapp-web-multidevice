@@ -10,9 +10,18 @@ services:
       dockerfile: ./docker/golang.Dockerfile
     restart: "on-failure"
     ports:
-      - "3000:3000"
+      # Host port 3001 → container 3000 so the SaaS dev server (which runs
+      # on Windows host port 3000) doesn't clash. SaaS calls the bot at
+      # http://localhost:3001/send/message; bot calls SaaS at
+      # http://host.docker.internal:3000/api/v1/webhooks/whatsapp.
+      - "3001:3000"
     env_file:
       - src/.env
+    # Lets the container reach the SaaS dev server running on the
+    # Windows/macOS host at http://host.docker.internal:3000. On Linux
+    # hosts, this entry is harmless and ignored.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persist WhatsApp + chat DBs; entrypoint chowns for gowauser (uid 20001, gid 20000) on start.
       - ./storages:/app/storages

@@ -1,0 +1,5 @@
+# Force LF line endings on shell scripts so Docker/Linux can exec them
+# from a Windows checkout. Default git on Windows otherwise translates
+# them to CRLF and the kernel rejects the shebang as "/bin/sh\r not found".
+*.sh text eol=lf
+docker/entrypoint.sh text eol=lf

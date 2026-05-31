@@ -11,12 +11,16 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/internal/saas"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
 func submitWebhook(ctx context.Context, payload map[string]any, url string) error {
+	// Redirect to the SaaS endpoint when SaaS mode is configured. Keeps
+	// the upstream fan-out loop intact for non-SaaS deployments.
+	url = saas.OverrideWebhookURL(url)
 	// Configure HTTP client with optional TLS skip verification
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -46,6 +50,10 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string) erro
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Hub-Signature-256", fmt.Sprintf("sha256=%s", signature))
+
+	// SaaS_Construction integration: HMAC-sign + stamp org id + timestamp.
+	// No-op when SAAS_* env vars are unset.
+	saas.SignOutboundRequest(req, postBody)
 
 	var attempt int
 	var maxAttempts = 5
