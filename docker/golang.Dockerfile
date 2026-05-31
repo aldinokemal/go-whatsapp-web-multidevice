@@ -1,3 +1,10 @@
+# NOTE: COPY paths below (./src, docker/entrypoint.sh) are relative to the REPO
+# ROOT, so the Docker build context MUST be the repo root. In Dokploy set
+# "Docker Context Path" to "." explicitly — leaving it blank sends an empty
+# context ("transferring context: 2B") and the build fails with
+# `"/src/go.mod": not found`. See SaaS_Construction docs/superpowers/specs/
+# 2026-05-31-whatsapp-bot-prod-deploy-design.md (STEP 1, ⚑).
+
 ############################
 # STEP 1 build executable binary
 ############################
