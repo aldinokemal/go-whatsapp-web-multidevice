@@ -50,6 +50,11 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
+func buildSentMessageStoreContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(ctx)
+	return context.WithTimeout(base, timeout)
+}
+
 // wrapSendMessage sends the message and stores it asynchronously on success.
 // The send goes through whatsapp.SendMessageWithReachoutRetry, which retries
 // once on WhatsApp error 463 after a SubscribePresence pre-warm — see
@@ -62,14 +67,14 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 
 	// Store the sent message using chatstorage
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.String()
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD().String()
 	}
 
 	// Store message asynchronously with timeout.
 	// Preserve device context (for device_id scoping) but detach from request cancellation.
 	go func() {
-		storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		storeCtx, cancel := buildSentMessageStoreContext(ctx, 2*time.Second)
 		defer cancel()
 
 		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, msg); err != nil {
