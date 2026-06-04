@@ -65,8 +65,9 @@ export default {
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
                 payload.append("ptt", this.ptt)
-                if (this.reply_message_id !== '') {
-                    payload.append("reply_message_id", this.reply_message_id)
+                const replyMessageID = this.reply_message_id.trim()
+                if (this.isShowAttributes() && replyMessageID !== '') {
+                    payload.append("reply_message_id", replyMessageID)
                 }
                 if (this.duration && this.duration > 0) {
                     payload.append("duration", this.duration)

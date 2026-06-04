@@ -84,12 +84,14 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	return ts, nil
 }
 
-func (service serviceSend) mergeReplyContext(contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
+func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
 	if replyMessageID == nil || *replyMessageID == "" {
 		return contextInfo
 	}
 
-	message, err := service.chatStorageRepo.GetMessageByID(*replyMessageID)
+	// Scope the reply lookup to the active device so a message ID from another
+	// device cannot be bound as quote context (see usecase AGENTS.md).
+	message, err := service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), *replyMessageID)
 	if err != nil {
 		logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *replyMessageID, err)
 		return contextInfo
@@ -172,7 +174,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 	}
 
-	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
+	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
@@ -331,7 +333,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.ImageMessage.ContextInfo = service.mergeReplyContext(msg.ImageMessage.ContextInfo, request.ReplyMessageID)
+	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
@@ -423,7 +425,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		}
 		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
+	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "📄 Document"
 	if fileName != "" {
@@ -883,7 +885,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.VideoMessage.ContextInfo = service.mergeReplyContext(msg.VideoMessage.ContextInfo, request.ReplyMessageID)
+	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "🎥 Video"
 	if request.Caption != "" {
@@ -1284,7 +1286,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		}
 		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.AudioMessage.ContextInfo = service.mergeReplyContext(msg.AudioMessage.ContextInfo, request.ReplyMessageID)
+	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID)
 
 	content := "🎵 Audio"
 

@@ -16,12 +16,14 @@ import (
 
 type replyMessageRepo struct {
 	domainChatStorage.IChatStorageRepository
-	message *domainChatStorage.Message
-	err     error
-	gotID   string
+	message     *domainChatStorage.Message
+	err         error
+	gotID       string
+	gotDeviceID string
 }
 
-func (r *replyMessageRepo) GetMessageByID(id string) (*domainChatStorage.Message, error) {
+func (r *replyMessageRepo) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+	r.gotDeviceID = deviceID
 	r.gotID = id
 	return r.message, r.err
 }
@@ -110,13 +112,18 @@ func TestMergeReplyContextAddsQuoteFields(t *testing.T) {
 	service := serviceSend{chatStorageRepo: repo}
 	contextInfo := &waE2E.ContextInfo{}
 
-	got := service.mergeReplyContext(contextInfo, &replyID)
+	deviceID := "6289605618749@s.whatsapp.net"
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+	got := service.mergeReplyContext(ctx, contextInfo, &replyID)
 
 	if got != contextInfo {
 		t.Fatal("expected existing context info to be reused")
 	}
 	if repo.gotID != replyID {
 		t.Fatalf("expected lookup for reply ID %q, got %q", replyID, repo.gotID)
+	}
+	if repo.gotDeviceID != deviceID {
+		t.Fatalf("expected device-scoped lookup for %q, got %q", deviceID, repo.gotDeviceID)
 	}
 	if got.GetStanzaID() != replyID {
 		t.Fatalf("expected stanza ID %q, got %q", replyID, got.GetStanzaID())
@@ -145,7 +152,7 @@ func TestMergeReplyContextPreservesExistingContext(t *testing.T) {
 		MentionedJID:    []string{"628999999999@s.whatsapp.net"},
 	}
 
-	got := service.mergeReplyContext(contextInfo, &replyID)
+	got := service.mergeReplyContext(context.Background(), contextInfo, &replyID)
 
 	if !got.GetIsForwarded() {
 		t.Fatal("expected forwarded flag to be preserved")
@@ -199,7 +206,7 @@ func TestMergeReplyContextLeavesExistingContextWhenReplyUnavailable(t *testing.T
 				err:     tt.err,
 			}}
 
-			got := service.mergeReplyContext(contextInfo, tt.replyID)
+			got := service.mergeReplyContext(context.Background(), contextInfo, tt.replyID)
 
 			if got != contextInfo {
 				t.Fatal("expected existing context info to be reused")
