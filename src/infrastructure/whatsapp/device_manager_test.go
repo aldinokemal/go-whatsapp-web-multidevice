@@ -261,6 +261,33 @@ func TestSyncKeysDeviceUsesValueEquality(t *testing.T) {
 	}
 }
 
+func TestSyncKeysDeviceMatchesAcrossADAndNonADFormats(t *testing.T) {
+	ctx := context.Background()
+	primaryStore := newTestSQLStore(t)
+	keysStore := newTestSQLStore(t)
+	adJID := types.NewADJID("6281666666666", types.WhatsAppDomain, 50)
+	nonADJID := adJID.ToNonAD()
+
+	primaryDevice := newTestStoreDevice(primaryStore, adJID, "primary")
+	keysDevice := newTestStoreDevice(keysStore, nonADJID, "keys")
+	if err := primaryDevice.Save(ctx); err != nil {
+		t.Fatalf("save primary device: %v", err)
+	}
+	if err := keysDevice.Save(ctx); err != nil {
+		t.Fatalf("save keys device: %v", err)
+	}
+
+	syncKeysDevice(ctx, primaryStore, keysStore, adJID)
+
+	devices, err := keysStore.GetAllDevices(ctx)
+	if err != nil {
+		t.Fatalf("get keys devices: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("expected keys DB to avoid duplicating AD and non-AD JIDs, got %d devices", len(devices))
+	}
+}
+
 func newTestSQLStore(t *testing.T) *sqlstore.Container {
 	t.Helper()
 

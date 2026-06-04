@@ -52,9 +52,9 @@ func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid typ
 		log.Errorf("Failed to get keys devices: %v", err)
 		return
 	}
-	targetJID := dev.ID.String()
+	targetJID := dev.ID.ToNonAD().String()
 	for _, existing := range devices {
-		if existing != nil && existing.ID != nil && existing.ID.String() == targetJID {
+		if existing != nil && existing.ID != nil && existing.ID.ToNonAD().String() == targetJID {
 			return
 		}
 	}
