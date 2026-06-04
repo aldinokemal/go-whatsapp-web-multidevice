@@ -84,6 +84,34 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	return ts, nil
 }
 
+func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
+	if replyMessageID == nil || *replyMessageID == "" {
+		return contextInfo
+	}
+
+	// Scope the reply lookup to the active device so a message ID from another
+	// device cannot be bound as quote context (see usecase AGENTS.md).
+	message, err := service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), *replyMessageID)
+	if err != nil {
+		logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *replyMessageID, err)
+		return contextInfo
+	}
+	if message == nil {
+		logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *replyMessageID)
+		return contextInfo
+	}
+
+	if contextInfo == nil {
+		contextInfo = &waE2E.ContextInfo{}
+	}
+	contextInfo.StanzaID = replyMessageID
+	contextInfo.Participant = proto.String(message.Sender)
+	contextInfo.QuotedMessage = &waE2E.Message{
+		Conversation: proto.String(message.Content),
+	}
+	return contextInfo
+}
+
 func normalizeSendError(err error) error {
 	if err == nil {
 		return nil
@@ -146,53 +174,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
 	}
 
-	// Reply message
-	if request.ReplyMessageID != nil && *request.ReplyMessageID != "" {
-		message, err := service.chatStorageRepo.GetMessageByID(*request.ReplyMessageID)
-		if err != nil {
-			logrus.Warnf("Error retrieving reply message ID %s: %v, continuing without reply context", *request.ReplyMessageID, err)
-		} else if message != nil { // Only set reply context if we found the message
-			// Ensure we use a full JID (user@server) for the Participant field
-			// Use the sender JID from storage as-is. Modern storage should already provide
-			// fully-qualified JIDs (e.g., user@s.whatsapp.net or group@g.us). Avoid mutating
-			// the JID here to prevent corrupting valid group or special JIDs.
-			participantJID := message.Sender
-
-			// Build base ContextInfo with reply details
-			ctxInfo := &waE2E.ContextInfo{
-				StanzaID:    request.ReplyMessageID,
-				Participant: proto.String(participantJID),
-				QuotedMessage: &waE2E.Message{
-					Conversation: proto.String(message.Content),
-				},
-			}
-
-			// Preserve forwarding flag if set
-			if request.BaseRequest.IsForwarded {
-				ctxInfo.IsForwarded = proto.Bool(true)
-				ctxInfo.ForwardingScore = proto.Uint32(100)
-			}
-
-			// Preserve disappearing message duration if provided
-			if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
-				ctxInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
-			} else {
-				ctxInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(participantJID))
-			}
-
-			// Preserve mentions
-			if len(parsedMentions) > 0 {
-				ctxInfo.MentionedJID = parsedMentions
-			}
-
-			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-				Text:        proto.String(request.Message),
-				ContextInfo: ctxInfo,
-			}
-		} else {
-			logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *request.ReplyMessageID)
-		}
-	}
+	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
@@ -351,6 +333,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
@@ -442,6 +425,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		}
 		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "📄 Document"
 	if fileName != "" {
@@ -901,6 +885,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "🎥 Video"
 	if request.Caption != "" {
@@ -1301,6 +1286,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		}
 		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID)
 
 	content := "🎵 Audio"
 

@@ -14,6 +14,7 @@ export default {
     data() {
         return {
             caption: '',
+            reply_message_id: '',
             type: window.TYPEUSER,
             phone: '',
             loading: false,
@@ -69,6 +70,10 @@ export default {
                 payload.append("caption", this.caption)
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
+                const replyMessageID = this.reply_message_id.trim()
+                if (this.isShowAttributes() && replyMessageID !== '') {
+                    payload.append("reply_message_id", replyMessageID)
+                }
                 if (this.duration && this.duration > 0) {
                     payload.append("duration", this.duration)
                 }
@@ -87,6 +92,7 @@ export default {
         },
         handleReset() {
             this.caption = '';
+            this.reply_message_id = '';
             this.phone = '';
             this.type = window.TYPEUSER;
             this.selectedFileName = null;
@@ -123,6 +129,12 @@ export default {
             <form class="ui form">
                 <FormRecipient v-model:type="type" v-model:phone="phone"/>
                 
+                <div class="field" v-if="isShowAttributes()">
+                    <label>Reply Message ID</label>
+                    <input v-model="reply_message_id" type="text"
+                           placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
+                           aria-label="reply_message_id">
+                </div>
                 <div class="field">
                     <label>Caption</label>
                     <textarea v-model="caption" placeholder="Type some caption (optional)..."
