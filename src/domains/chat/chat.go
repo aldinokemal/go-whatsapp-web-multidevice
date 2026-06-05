@@ -56,14 +56,15 @@ type ChatInfo struct {
 }
 
 type MessageInfo struct {
-	ID        string         `json:"id"`
-	ChatJID   string         `json:"chat_jid"`
-	SenderJID string         `json:"sender_jid"`
-	Content   string         `json:"content"`
-	Timestamp string         `json:"timestamp"`
-	IsFromMe  bool           `json:"is_from_me"`
-	MediaType string         `json:"media_type"`
-	Reactions []ReactionInfo `json:"reactions,omitempty"`
+	ID                string         `json:"id"`
+	ChatJID           string         `json:"chat_jid"`
+	SenderJID         string         `json:"sender_jid"`
+	SenderDisplayName string         `json:"sender_display_name,omitempty"`
+	Content           string         `json:"content"`
+	Timestamp         string         `json:"timestamp"`
+	IsFromMe          bool           `json:"is_from_me"`
+	MediaType         string         `json:"media_type"`
+	Reactions         []ReactionInfo `json:"reactions,omitempty"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
 	CallMetadata string `json:"call_metadata,omitempty"`
 	Filename     string `json:"filename"`

@@ -56,7 +56,7 @@ func TestShouldForwardEventToChatwoot(t *testing.T) {
 	}{
 		{name: "message supported", eventName: "message", expected: true},
 		{name: "message reaction supported", eventName: "message.reaction", expected: true},
-		{name: "message edited unsupported", eventName: "message.edited", expected: false},
+		{name: "message edited supported", eventName: "message.edited", expected: true},
 		{name: "message revoked unsupported", eventName: "message.revoked", expected: false},
 	}
 
@@ -91,6 +91,13 @@ func TestIsEventWhitelistedForChatwoot(t *testing.T) {
 		config.WhatsappWebhookEvents = []string{"message"}
 		if !isEventWhitelistedForChatwoot("message.reaction") {
 			t.Fatal("expected message.reaction to be allowed for Chatwoot when message is whitelisted")
+		}
+	})
+
+	t.Run("message whitelist also allows edits for chatwoot", func(t *testing.T) {
+		config.WhatsappWebhookEvents = []string{"message"}
+		if !isEventWhitelistedForChatwoot("message.edited") {
+			t.Fatal("expected message.edited to be allowed for Chatwoot when message is whitelisted")
 		}
 	})
 

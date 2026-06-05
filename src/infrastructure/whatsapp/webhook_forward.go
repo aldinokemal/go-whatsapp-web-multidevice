@@ -222,7 +222,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 
 func shouldForwardEventToChatwoot(eventName string) bool {
 	switch eventName {
-	case "message", "message.reaction":
+	case "message", "message.reaction", "message.edited":
 		return true
 	default:
 		return false
@@ -236,7 +236,12 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	if isEventWhitelisted(eventName) {
 		return true
 	}
-	return eventName == "message.reaction" && isEventWhitelisted("message")
+	switch eventName {
+	case "message.reaction", "message.edited":
+		return isEventWhitelisted("message")
+	default:
+		return false
+	}
 }
 
 func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
