@@ -86,24 +86,34 @@ func GetDefaultClient() *Client {
 	return defaultClient
 }
 
-func MarkMessageAsSent(messageID int) {
+// echoKey partitions the echo-dedup cache by Chatwoot account so the same
+// numeric message id in two different accounts cannot collide. Without this, a
+// message we sent in account A could suppress a genuine agent reply that
+// happens to have the same id in account B (the reply would be dropped).
+type echoKey struct {
+	AccountID int
+	MessageID int
+}
+
+func MarkMessageAsSent(accountID, messageID int) {
 	if messageID == 0 {
 		return
 	}
-	sentMessageIDs.Store(messageID, time.Now())
+	sentMessageIDs.Store(echoKey{AccountID: accountID, MessageID: messageID}, time.Now())
 }
 
-func IsMessageSentByUs(messageID int) bool {
+func IsMessageSentByUs(accountID, messageID int) bool {
 	if messageID == 0 {
 		return false
 	}
-	val, ok := sentMessageIDs.Load(messageID)
+	key := echoKey{AccountID: accountID, MessageID: messageID}
+	val, ok := sentMessageIDs.Load(key)
 	if !ok {
 		return false
 	}
 	storedAt := val.(time.Time)
 	if time.Since(storedAt) > sentMessageIDsTTL {
-		sentMessageIDs.Delete(messageID)
+		sentMessageIDs.Delete(key)
 		return false
 	}
 	// Don't delete on check — Chatwoot may fire multiple webhook events

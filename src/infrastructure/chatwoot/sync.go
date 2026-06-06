@@ -612,7 +612,7 @@ func (s *SyncService) syncMessageWithOptions(
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 
-	MarkMessageAsSent(msgID)
+	MarkMessageAsSent(s.client.AccountID, msgID)
 	if msgID != 0 && msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
 		if err := s.chatStorageRepo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
 			DeviceID:                     msg.DeviceID,

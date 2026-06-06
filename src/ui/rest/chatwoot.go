@@ -247,7 +247,7 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	if chatwoot.IsMessageSentByUs(payload.ID) {
+	if chatwoot.IsMessageSentByUs(payload.Account.ID, payload.ID) {
 		logrus.Debugf("Chatwoot Webhook: Skipping echo message %d (created by our API)", payload.ID)
 		return c.SendStatus(fiber.StatusOK)
 	}
