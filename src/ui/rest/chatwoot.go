@@ -273,6 +273,22 @@ func (h *ChatwootHandler) legacyChatwootMode() bool {
 	return count == 0
 }
 
+// resolveChatwootForDevice resolves the Chatwoot client/config for a device id
+// (or JID) via the registry. Returns nil when the registry is uninitialized or
+// the device has no usable config.
+func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.ResolvedConfig {
+	reg := chatwoot.GetClientRegistry()
+	if reg == nil {
+		return nil
+	}
+	rc, err := reg.Resolve(deviceID)
+	if err != nil {
+		logrus.Errorf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
+		return nil
+	}
+	return rc
+}
+
 // HandleWebhook is the shared (legacy / single-webhook) Chatwoot endpoint. The
 // device is resolved from the payload (conversation link, contact attrs, inbox
 // map, or env fallback).
@@ -726,18 +742,19 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get Chatwoot client
-	cwClient := chatwoot.GetDefaultClient()
-	if !cwClient.IsConfigured() {
+	// Resolve the per-device Chatwoot client (legacy/env client when the config
+	// table is empty). Sync runs against this device's own Chatwoot destination.
+	resolved := h.resolveChatwootForDevice(resolvedID)
+	if resolved == nil || resolved.Client == nil || !resolved.Client.IsConfigured() {
 		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
 			Status:  fiber.StatusBadRequest,
 			Code:    "CHATWOOT_NOT_CONFIGURED",
-			Message: "Chatwoot is not configured. Set CHATWOOT_URL, CHATWOOT_API_TOKEN, CHATWOOT_ACCOUNT_ID, and CHATWOOT_INBOX_ID.",
+			Message: "Chatwoot is not configured for this device. Set per-device config via /devices/:device_id/chatwoot/config or the CHATWOOT_* env vars.",
 		})
 	}
 
-	// Get or create sync service
-	syncService := chatwoot.GetSyncService(cwClient, h.ChatStorageRepo)
+	// Get or create the per-device sync service.
+	syncService := chatwoot.GetSyncServiceForDevice(chatwoot.SyncServiceKeyFor(resolved), resolved.Client, h.ChatStorageRepo, resolved.ConfigID == 0)
 	waClient := instance.GetClient()
 
 	// Use JID as the storage device ID since chats are stored with the full JID
@@ -818,7 +835,9 @@ func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
 		storageDeviceID = resolvedID
 	}
 
-	syncService := chatwoot.GetDefaultSyncService()
+	// Look up this device's sync service (legacy key when no per-device config).
+	syncKey := chatwoot.SyncServiceKeyFor(h.resolveChatwootForDevice(resolvedID))
+	syncService := chatwoot.LookupSyncServiceForDevice(syncKey)
 	if syncService == nil {
 		return c.JSON(utils.ResponseData{
 			Status:  200,

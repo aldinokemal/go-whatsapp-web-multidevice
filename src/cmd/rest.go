@@ -209,13 +209,10 @@ func restServer(_ *cobra.Command, _ []string) {
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
 			logrus.Warnf("HTTP server shutdown: %v", err)
 		}
-		// Release the Chatwoot direct-Postgres importer pool if one was
-		// opened. Safe when Chatwoot is disabled or the pool was never
-		// initialized — GetDefaultSyncService() returns nil.
-		if svc := chatwoot.GetDefaultSyncService(); svc != nil {
-			if err := svc.Close(); err != nil {
-				logrus.Warnf("Chatwoot sync close: %v", err)
-			}
+		// Release any Chatwoot direct-Postgres importer pools opened by per-device
+		// sync services. Safe when Chatwoot is disabled or none were initialized.
+		if err := chatwoot.CloseAllSyncServices(); err != nil {
+			logrus.Warnf("Chatwoot sync close: %v", err)
 		}
 		if chatStorageDB != nil {
 			if err := chatStorageDB.Close(); err != nil {
