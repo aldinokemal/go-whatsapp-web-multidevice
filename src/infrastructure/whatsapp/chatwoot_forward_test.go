@@ -83,8 +83,8 @@ func TestBuildChatwootForwardMessageLink(t *testing.T) {
 
 	link := buildChatwootForwardMessageLink(
 		"device-a@s.whatsapp.net",
-		42,  // configID
-		3,   // accountID
+		42, // configID
+		3,  // accountID
 		data,
 		chatwoot.MessageOptions{SourceID: "WAID:wa-live-1"},
 		&chatwootSyncResult{MessageID: 123, ConversationID: 456, InboxID: 789},

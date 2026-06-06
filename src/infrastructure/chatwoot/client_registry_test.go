@@ -36,7 +36,7 @@ func TestClientRegistryResolveByDeviceIDAndJID(t *testing.T) {
 	}
 	repo := &fakeConfigRepo{
 		byIdentifier: map[string]*domainChatStorage.ChatwootDeviceConfig{
-			"busine":            cfg,
+			"busine":             cfg,
 			"628@s.whatsapp.net": cfg,
 		},
 		count: 1,
