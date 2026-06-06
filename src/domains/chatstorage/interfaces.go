@@ -39,12 +39,22 @@ type IChatStorageRepository interface {
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
 	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
-	GetLatestChatwootMessageLinkByConversation(conversationID int) (*ChatwootMessageLink, error)
+	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*ChatwootMessageLink, error)
 	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
+	CountChatwootMessageLinksByConfig(configID int64) (int, error)
 	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
 	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
 	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
 	MarkChatwootForwardEventDone(id int64) error
+
+	// Chatwoot per-device configuration (multi-device / multi-inbox routing)
+	SaveChatwootDeviceConfig(cfg *ChatwootDeviceConfig) error
+	GetChatwootDeviceConfig(deviceID string) (*ChatwootDeviceConfig, error)
+	GetChatwootDeviceConfigByIdentifier(identifier string) (*ChatwootDeviceConfig, error)
+	GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*ChatwootDeviceConfig, error)
+	ListChatwootDeviceConfigs() ([]*ChatwootDeviceConfig, error)
+	DeleteChatwootDeviceConfig(deviceID string) error
+	CountChatwootDeviceConfigs() (int, error)
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)

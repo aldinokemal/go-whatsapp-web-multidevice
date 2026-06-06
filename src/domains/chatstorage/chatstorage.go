@@ -66,6 +66,31 @@ type ChatwootMessageLink struct {
 	IsRead                       bool      `db:"is_read"`
 	CreatedAt                    time.Time `db:"created_at"`
 	UpdatedAt                    time.Time `db:"updated_at"`
+	// ChatwootConfigID is the id of the chatwoot_device_configs row this link
+	// belongs to. 0 means the legacy/env config (single-account). It scopes
+	// reverse routing so conversation/message ids cannot collide across accounts.
+	ChatwootConfigID int64 `db:"chatwoot_config_id"`
+	// ChatwootAccountID is the resolved Chatwoot account id, denormalized so the
+	// conversation lookup can be account-scoped without a join. 0 = legacy.
+	ChatwootAccountID int `db:"chatwoot_account_id"`
+}
+
+// ChatwootDeviceConfig is the per-device Chatwoot destination (URL + account +
+// inbox + token). It enables routing each WhatsApp device to its own Chatwoot
+// inbox. DeviceID is the user-facing device id; DeviceJID mirrors the WhatsApp
+// storage JID so the registry can resolve a client from either identity (the
+// forward/link paths key on the JID, the REST/reverse paths on the device id).
+type ChatwootDeviceConfig struct {
+	ID          int64     `db:"id"`
+	DeviceID    string    `db:"device_id"`
+	DeviceJID   string    `db:"device_jid"`
+	ChatwootURL string    `db:"chatwoot_url"`
+	AccountID   int       `db:"account_id"`
+	InboxID     int       `db:"inbox_id"`
+	APIToken    string    `db:"api_token"`
+	Enabled     bool      `db:"enabled"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
 }
 
 // ChatwootForwardEvent is a durable retry record for a live WhatsApp event

@@ -190,7 +190,7 @@ func chatwootContactAttrString(attrs map[string]any, key string) string {
 
 func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPayload) chatwootWebhookRoute {
 	if h != nil && h.ChatStorageRepo != nil && payload.Conversation.ID != 0 {
-		link, err := h.ChatStorageRepo.GetLatestChatwootMessageLinkByConversation(payload.Conversation.ID)
+		link, err := h.ChatStorageRepo.GetLatestChatwootMessageLinkByConversation(payload.Conversation.ID, payload.Account.ID)
 		if err != nil {
 			logrus.Errorf("Chatwoot Webhook: Failed to lookup conversation route %d: %v", payload.Conversation.ID, err)
 		} else if link != nil && strings.TrimSpace(link.DeviceID) != "" && strings.TrimSpace(link.WhatsAppChatJID) != "" {

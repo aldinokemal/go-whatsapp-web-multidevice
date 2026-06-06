@@ -157,8 +157,40 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
-func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID)
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID)
+}
+
+func (r *deviceChatStorage) CountChatwootMessageLinksByConfig(configID int64) (int, error) {
+	return r.base.CountChatwootMessageLinksByConfig(configID)
+}
+
+func (r *deviceChatStorage) SaveChatwootDeviceConfig(cfg *domainChatStorage.ChatwootDeviceConfig) error {
+	return r.base.SaveChatwootDeviceConfig(cfg)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfig(deviceID string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfig(deviceID)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfigByIdentifier(identifier)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfigByInbox(accountID, inboxID)
+}
+
+func (r *deviceChatStorage) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.ListChatwootDeviceConfigs()
+}
+
+func (r *deviceChatStorage) DeleteChatwootDeviceConfig(deviceID string) error {
+	return r.base.DeleteChatwootDeviceConfig(deviceID)
+}
+
+func (r *deviceChatStorage) CountChatwootDeviceConfigs() (int, error) {
+	return r.base.CountChatwootDeviceConfigs()
 }
 
 func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {

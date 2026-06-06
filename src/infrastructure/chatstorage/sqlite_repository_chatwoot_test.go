@@ -233,7 +233,7 @@ func TestSQLiteRepositoryGetsLatestChatwootMessageLinkByConversation(t *testing.
 		}
 	}
 
-	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID)
+	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID, 0)
 	if err != nil {
 		t.Fatalf("lookup latest conversation link: %v", err)
 	}

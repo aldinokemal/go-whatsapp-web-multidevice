@@ -42,7 +42,7 @@ type chatwootRouteTestRepo struct {
 	link *domainChatStorage.ChatwootMessageLink
 }
 
-func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
 	if r.link == nil || r.link.ChatwootConversationID != conversationID {
 		return nil, nil
 	}
