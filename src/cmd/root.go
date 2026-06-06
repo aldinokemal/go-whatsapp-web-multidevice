@@ -209,14 +209,7 @@ func initEnvConfig() {
 		config.ChatwootWebhookSecret = envChatwootWebhookSecret
 	}
 	if envChatwootAllowedHosts := viper.GetString("chatwoot_allowed_hosts"); envChatwootAllowedHosts != "" {
-		parts := strings.Split(envChatwootAllowedHosts, ",")
-		hosts := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				hosts = append(hosts, trimmed)
-			}
-		}
-		config.ChatwootAllowedHosts = hosts
+		config.ChatwootAllowedHosts = splitCommaTrimmed(envChatwootAllowedHosts)
 	}
 	// Chatwoot conversation handling settings
 	if viper.IsSet("chatwoot_reopen_conversation") {
@@ -226,14 +219,7 @@ func initEnvConfig() {
 		config.ChatwootConversationPending = viper.GetBool("chatwoot_conversation_pending")
 	}
 	if envChatwootIgnoreJids := viper.GetString("chatwoot_ignore_jids"); envChatwootIgnoreJids != "" {
-		parts := strings.Split(envChatwootIgnoreJids, ",")
-		jids := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				jids = append(jids, trimmed)
-			}
-		}
-		config.ChatwootIgnoreJids = jids
+		config.ChatwootIgnoreJids = splitCommaTrimmed(envChatwootIgnoreJids)
 	}
 	// Chatwoot outbound signature settings
 	if viper.IsSet("chatwoot_sign_msg") {
@@ -603,4 +589,17 @@ func Execute(embedIndex embed.FS, embedViews embed.FS) {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// splitCommaTrimmed splits a comma-separated env value into trimmed, non-empty
+// entries. Shared by the Chatwoot ignore-jids and allowed-hosts settings.
+func splitCommaTrimmed(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

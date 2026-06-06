@@ -324,16 +324,7 @@ func (h *ChatwootHandler) HandleDeviceWebhook(c *fiber.Ctx) error {
 	}
 
 	deviceID := strings.TrimSpace(c.Params("device_id"))
-	reg := chatwoot.GetClientRegistry()
-	if reg == nil {
-		logrus.Warn("Chatwoot Webhook: client registry not initialized; cannot route per-device webhook")
-		return c.SendStatus(fiber.StatusOK)
-	}
-	rc, err := reg.Resolve(deviceID)
-	if err != nil {
-		logrus.Errorf("Chatwoot Webhook: failed to resolve device %q for per-device webhook: %v", deviceID, err)
-		return c.SendStatus(fiber.StatusOK)
-	}
+	rc := h.resolveChatwootForDevice(deviceID)
 	if rc == nil || rc.Client == nil {
 		logrus.Warnf("Chatwoot Webhook: no Chatwoot config for device %q on per-device webhook", deviceID)
 		return c.SendStatus(fiber.StatusOK)

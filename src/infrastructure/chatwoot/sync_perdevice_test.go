@@ -39,8 +39,8 @@ func TestPerDeviceSyncServicesAreDistinct(t *testing.T) {
 	if !legacy.allowPgImport {
 		t.Fatal("legacy service should allow pg import")
 	}
-	if GetDefaultSyncService() != legacy {
-		t.Fatal("GetDefaultSyncService should return the legacy-keyed service")
+	if LookupSyncServiceForDevice(legacySyncServiceKey) != legacy {
+		t.Fatal("legacy-keyed lookup should return the legacy sync service")
 	}
 }
 

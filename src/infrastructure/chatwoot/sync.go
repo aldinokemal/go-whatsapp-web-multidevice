@@ -837,11 +837,6 @@ func LookupSyncServiceForDevice(key string) *SyncService {
 	return syncServices[key]
 }
 
-// GetDefaultSyncService returns the legacy/env sync service if it was created.
-func GetDefaultSyncService() *SyncService {
-	return LookupSyncServiceForDevice(legacySyncServiceKey)
-}
-
 // CloseAllSyncServices closes every per-device sync service, releasing any
 // direct-Postgres importer pools. Returns the first error encountered.
 func CloseAllSyncServices() error {
