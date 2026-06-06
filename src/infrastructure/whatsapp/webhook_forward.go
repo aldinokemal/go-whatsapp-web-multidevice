@@ -18,8 +18,17 @@ import (
 )
 
 var (
-	submitWebhookFn     = submitWebhook
-	getChatwootClientFn = chatwoot.GetDefaultClient
+	submitWebhookFn = submitWebhook
+	// getChatwootClientFn resolves the per-device Chatwoot destination for the
+	// forward path. Returns (nil, nil) when the device has no usable config
+	// (caller fails-fast / skips). Overridable in tests.
+	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
+		reg := chatwoot.GetClientRegistry()
+		if reg == nil {
+			return nil, nil
+		}
+		return reg.Resolve(deviceID)
+	}
 )
 
 // mutexShardCount is the number of mutex shards for contact synchronization.
@@ -563,7 +572,7 @@ func chatwootLinkStorageFromContext(ctx context.Context) (string, domainChatStor
 	return deviceID, instance.GetChatStorage()
 }
 
-func buildChatwootForwardMessageLink(deviceID string, data map[string]any, opts chatwoot.MessageOptions, result *chatwootSyncResult) *domainChatStorage.ChatwootMessageLink {
+func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID int, data map[string]any, opts chatwoot.MessageOptions, result *chatwootSyncResult) *domainChatStorage.ChatwootMessageLink {
 	if result == nil || deviceID == "" || result.MessageID == 0 {
 		return nil
 	}
@@ -584,6 +593,8 @@ func buildChatwootForwardMessageLink(deviceID string, data map[string]any, opts 
 		SourceID:                     opts.SourceID,
 		Direction:                    chatwootMessageTypeFromPayload(data),
 		IsRead:                       false,
+		ChatwootConfigID:             configID,
+		ChatwootAccountID:            accountID,
 	}
 }
 
@@ -778,13 +789,21 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 }
 
 func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
-	cw := getChatwootClientFn()
-	if cw == nil {
-		logrus.Warn("Chatwoot: Client is not initialized")
+	resolved, err := getChatwootClientFn(deviceID)
+	if err != nil {
+		// Transient resolution failure (e.g. storage error): let the caller retry.
+		logrus.Warnf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
+		return err
+	}
+	if resolved == nil || resolved.Client == nil {
+		// No Chatwoot config maps to this device (and env fallback does not apply).
+		// Skip silently — this is fail-fast, not an error to retry.
+		logrus.Debugf("Chatwoot: no Chatwoot config for device %s; skipping forward", deviceID)
 		return nil
 	}
+	cw := resolved.Client
 	if !cw.IsConfigured() {
-		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
+		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars or device config)")
 		return nil
 	}
 
@@ -874,7 +893,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		return err
 	}
 	if eventName == "message" && linkRepo != nil {
-		if link := buildChatwootForwardMessageLink(deviceID, data, msgOpts, result); link != nil {
+		if link := buildChatwootForwardMessageLink(deviceID, resolved.ConfigID, cw.AccountID, data, msgOpts, result); link != nil {
 			if err := linkRepo.UpsertChatwootMessageLink(link); err != nil {
 				logrus.Errorf("Chatwoot: Failed to store message link for %s: %v", link.WhatsAppMessageID, err)
 			}
