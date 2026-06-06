@@ -3,11 +3,25 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 )
+
+type chatwootForwardQueueTestRepo struct {
+	domainChatStorage.IChatStorageRepository
+	events []*domainChatStorage.ChatwootForwardEvent
+}
+
+func (r *chatwootForwardQueueTestRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	cloned := *event
+	r.events = append(r.events, &cloned)
+	return nil
+}
 
 func TestForwardPayloadToConfiguredWebhooks_NoWebhooksConfigured(t *testing.T) {
 	ctx := context.Background()
@@ -192,6 +206,54 @@ func TestForwardPayloadToConfiguredWebhooks_WhitelistCaseInsensitive(t *testing.
 	}
 	if called != 2 {
 		t.Fatalf("expected 2 calls (case-insensitive match), got %d", called)
+	}
+}
+
+func TestEnqueueChatwootForwardRetryStoresTransientMessageFailure(t *testing.T) {
+	repo := &chatwootForwardQueueTestRepo{}
+	payload := map[string]any{
+		"payload": map[string]any{
+			"id":      "wa-queue-1",
+			"chat_id": "628123456789@s.whatsapp.net",
+		},
+	}
+
+	queued := enqueueChatwootForwardRetry(repo, "device-a@s.whatsapp.net", "message", payload, &chatwoot.HTTPStatusError{
+		StatusCode: http.StatusInternalServerError,
+		Op:         "create message",
+		Body:       "unavailable",
+	})
+	if !queued {
+		t.Fatal("expected transient Chatwoot failure to be queued")
+	}
+	if len(repo.events) != 1 {
+		t.Fatalf("queued events = %d, want 1", len(repo.events))
+	}
+	event := repo.events[0]
+	if event.DeviceID != "device-a@s.whatsapp.net" || event.EventName != "message" || event.WhatsAppMessageID != "wa-queue-1" {
+		t.Fatalf("unexpected queued event: %+v", event)
+	}
+	if !strings.Contains(event.PayloadJSON, "wa-queue-1") || event.NextAttemptAt.IsZero() {
+		t.Fatalf("queued event missing payload/next attempt: %+v", event)
+	}
+}
+
+func TestEnqueueChatwootForwardRetrySkipsPermanentFailure(t *testing.T) {
+	repo := &chatwootForwardQueueTestRepo{}
+	payload := map[string]any{
+		"payload": map[string]any{"id": "wa-permanent"},
+	}
+
+	queued := enqueueChatwootForwardRetry(repo, "device-a@s.whatsapp.net", "message", payload, &chatwoot.HTTPStatusError{
+		StatusCode: http.StatusBadRequest,
+		Op:         "create message",
+		Body:       "bad payload",
+	})
+	if queued {
+		t.Fatal("permanent Chatwoot failure should not be queued")
+	}
+	if len(repo.events) != 0 {
+		t.Fatalf("queued events = %d, want 0", len(repo.events))
 	}
 }
 

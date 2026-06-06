@@ -250,6 +250,9 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ?", jid); err != nil {
 		return err
 	}
+	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ?", jid); err != nil {
+		return err
+	}
 
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
@@ -278,6 +281,9 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
 		return err
 	}
 
@@ -693,6 +699,9 @@ func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
 	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
+	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
 	return err
 }
@@ -702,7 +711,220 @@ func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) e
 	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
 		return err
 	}
+	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
+	return err
+}
+
+// UpsertChatwootMessageLink records the stable mapping between a WhatsApp
+// message and the Chatwoot row created for it.
+func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	if link == nil {
+		return fmt.Errorf("chatwoot message link is required")
+	}
+	if strings.TrimSpace(link.DeviceID) == "" {
+		return fmt.Errorf("device_id is required for chatwoot message link")
+	}
+	if strings.TrimSpace(link.WhatsAppMessageID) == "" {
+		return fmt.Errorf("wa_message_id is required for chatwoot message link")
+	}
+
+	now := time.Now()
+	if link.CreatedAt.IsZero() {
+		link.CreatedAt = now
+	}
+	link.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET wa_chat_jid = ?, chatwoot_message_id = ?, chatwoot_conversation_id = ?,
+		    chatwoot_inbox_id = ?, chatwoot_contact_inbox_source_id = ?, source_id = ?,
+		    direction = ?, is_read = ?, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
+		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
+		link.Direction, link.IsRead, link.UpdatedAt, link.DeviceID, link.WhatsAppMessageID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO chatwoot_message_links (
+				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+				chatwoot_conversation_id, chatwoot_inbox_id,
+				chatwoot_contact_inbox_source_id, source_id, direction,
+				is_read, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, link.DeviceID, link.WhatsAppMessageID, link.WhatsAppChatJID,
+			link.ChatwootMessageID, link.ChatwootConversationID, link.ChatwootInboxID,
+			link.ChatwootContactInboxSourceID, link.SourceID, link.Direction,
+			link.IsRead, link.CreatedAt, link.UpdatedAt)
+	}
+	return err
+}
+
+func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_message_id = ?
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, waMessageID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND chatwoot_message_id = ?
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, chatwootMessageID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE chatwoot_conversation_id = ?
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, waChatJID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	if event == nil || strings.TrimSpace(event.DeviceID) == "" || strings.TrimSpace(event.EventName) == "" || strings.TrimSpace(event.WhatsAppMessageID) == "" || strings.TrimSpace(event.PayloadJSON) == "" {
+		return fmt.Errorf("chatwoot forward event requires device id, event name, whatsapp message id, and payload")
+	}
+
+	now := time.Now()
+	if event.NextAttemptAt.IsZero() {
+		event.NextAttemptAt = now
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = now
+	}
+	event.UpdatedAt = now
+
+	_, err := r.db.Exec(`
+		INSERT INTO chatwoot_forward_queue (
+			device_id, event_name, wa_message_id, payload_json,
+			attempts, last_error, next_attempt_at, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, event_name, wa_message_id) DO UPDATE SET
+			payload_json = excluded.payload_json,
+			last_error = excluded.last_error,
+			next_attempt_at = excluded.next_attempt_at,
+			updated_at = excluded.updated_at
+	`, event.DeviceID, event.EventName, event.WhatsAppMessageID, event.PayloadJSON,
+		event.Attempts, event.LastError, event.NextAttemptAt, event.CreatedAt, event.UpdatedAt)
+	return err
+}
+
+func (r *SQLiteRepository) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := r.db.Query(`
+		SELECT id, device_id, event_name, wa_message_id, payload_json,
+			attempts, last_error, next_attempt_at, created_at, updated_at
+		FROM chatwoot_forward_queue
+		WHERE next_attempt_at <= ?
+		ORDER BY next_attempt_at ASC, id ASC
+		LIMIT ?
+	`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]*domainChatStorage.ChatwootForwardEvent, 0)
+	for rows.Next() {
+		event := &domainChatStorage.ChatwootForwardEvent{}
+		if err := rows.Scan(
+			&event.ID, &event.DeviceID, &event.EventName, &event.WhatsAppMessageID,
+			&event.PayloadJSON, &event.Attempts, &event.LastError, &event.NextAttemptAt,
+			&event.CreatedAt, &event.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (r *SQLiteRepository) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("chatwoot forward event id is required")
+	}
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_forward_queue
+		SET attempts = attempts + 1,
+			last_error = ?,
+			next_attempt_at = ?,
+			updated_at = ?
+		WHERE id = ?
+	`, lastError, nextAttemptAt, time.Now(), id)
+	return err
+}
+
+func (r *SQLiteRepository) MarkChatwootForwardEventDone(id int64) error {
+	if id == 0 {
+		return fmt.Errorf("chatwoot forward event id is required")
+	}
+	_, err := r.db.Exec(`DELETE FROM chatwoot_forward_queue WHERE id = ?`, id)
 	return err
 }
 
@@ -733,6 +955,17 @@ func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*d
 		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived,
 	)
 	return chat, err
+}
+
+func (r *SQLiteRepository) scanChatwootMessageLink(scanner interface{ Scan(...any) error }) (*domainChatStorage.ChatwootMessageLink, error) {
+	link := &domainChatStorage.ChatwootMessageLink{}
+	err := scanner.Scan(
+		&link.DeviceID, &link.WhatsAppMessageID, &link.WhatsAppChatJID,
+		&link.ChatwootMessageID, &link.ChatwootConversationID, &link.ChatwootInboxID,
+		&link.ChatwootContactInboxSourceID, &link.SourceID, &link.Direction,
+		&link.IsRead, &link.CreatedAt, &link.UpdatedAt,
+	)
+	return link, err
 }
 
 // GetChatMessageCount returns the number of messages in a chat
@@ -788,6 +1021,16 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 		return fmt.Errorf("failed to delete message edits: %w", err)
 	}
 
+	_, err = tx.Exec("DELETE FROM chatwoot_message_links")
+	if err != nil {
+		return fmt.Errorf("failed to delete chatwoot message links: %w", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM chatwoot_forward_queue")
+	if err != nil {
+		return fmt.Errorf("failed to delete chatwoot forward queue: %w", err)
+	}
+
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
@@ -821,6 +1064,14 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 
 	if _, err := tx.Exec(`DELETE FROM message_edits WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device message edits: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM chatwoot_message_links WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device chatwoot message links: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM chatwoot_forward_queue WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device chatwoot forward queue: %w", err)
 	}
 
 	// Delete messages after dependent rows via direct device_id filter.
@@ -1803,5 +2054,54 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 22: Index edit history by edit time
 		`CREATE INDEX IF NOT EXISTS idx_message_edits_edited_at ON message_edits(edited_at)`,
+
+		// Migration 23: Map WhatsApp messages to Chatwoot messages for idempotency and status sync
+		`CREATE TABLE IF NOT EXISTS chatwoot_message_links (
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			wa_message_id VARCHAR(255) NOT NULL,
+			wa_chat_jid VARCHAR(255) NOT NULL DEFAULT '',
+			chatwoot_message_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_conversation_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_inbox_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_contact_inbox_source_id VARCHAR(255) NOT NULL DEFAULT '',
+			source_id VARCHAR(255) NOT NULL DEFAULT '',
+			direction VARCHAR(20) NOT NULL DEFAULT '',
+			is_read BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (device_id, wa_message_id)
+		)`,
+
+		// Migration 24: Lookup Chatwoot webhooks by device and Chatwoot message id
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_chatwoot_id ON chatwoot_message_links(device_id, chatwoot_message_id)`,
+
+		// Migration 25: Lookup Chatwoot links by source id for replay/idempotency diagnostics
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_source_id ON chatwoot_message_links(device_id, source_id)`,
+
+		// Migration 26: Resolve Chatwoot webhook replies by conversation before falling back to contact attributes
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation ON chatwoot_message_links(chatwoot_conversation_id, updated_at)`,
+
+		// Migration 27: Serve GetLatestUnreadChatwootMessageLinkByChat (mark-as-read
+		// hot path) from an index. Covers the WHERE equality columns plus the
+		// ORDER BY (updated_at, created_at) so SQLite resolves LIMIT 1 without a scan/sort.
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_unread ON chatwoot_message_links(device_id, wa_chat_jid, direction, is_read, updated_at, created_at)`,
+
+		// Migration 28: Persist live Chatwoot forward retries across restarts
+		`CREATE TABLE IF NOT EXISTS chatwoot_forward_queue (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			event_name VARCHAR(80) NOT NULL DEFAULT '',
+			wa_message_id VARCHAR(255) NOT NULL DEFAULT '',
+			payload_json TEXT NOT NULL DEFAULT '',
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			next_attempt_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(device_id, event_name, wa_message_id)
+		)`,
+
+		// Migration 29: Fetch due Chatwoot retry jobs in stable order
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_forward_queue_due ON chatwoot_forward_queue(next_attempt_at, id)`,
 	}
 }

@@ -69,6 +69,17 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 	return instance, ok
 }
 
+func (m *DeviceManager) getDeviceByJID(jid string) (*DeviceInstance, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inst := range m.devices {
+		if inst != nil && inst.JID() == jid {
+			return inst, true
+		}
+	}
+	return nil, false
+}
+
 // IsHealthy returns true if the device manager is initialized and has a valid store connection.
 // Note: This is a service initialization check, not a live connectivity check.
 // Returning true indicates the internal store is ready, but does not guarantee
@@ -113,6 +124,9 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 	if trimmedID != "" {
 		if inst, ok := m.GetDevice(trimmedID); ok && inst != nil {
 			return inst, trimmedID, nil
+		}
+		if inst, ok := m.getDeviceByJID(trimmedID); ok && inst != nil {
+			return inst, inst.ID(), nil
 		}
 		return nil, trimmedID, fmt.Errorf("device %s not found", trimmedID)
 	}

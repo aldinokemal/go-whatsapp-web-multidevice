@@ -1,6 +1,6 @@
 # DOMAINS
 
-Generated: 2026-06-05
+Generated: 2026-06-06
 
 ## OVERVIEW
 
@@ -23,6 +23,7 @@ domains/
 | Add reply field | `send/text.go`, media request DTOs | Optional `ReplyMessageID *string` serializes as `reply_message_id`. |
 | Add usecase contract | `<domain>/interfaces.go` | Return the domain interface from `usecase.New*Service`. |
 | Add chat storage method | `chatstorage/interfaces.go` | Also update concrete repository and WhatsApp storage wrapper. |
+| Add Chatwoot storage state | `chatstorage/chatstorage.go`, `chatstorage/interfaces.go` | Link and retry queue contracts must remain device-scoped. |
 | Add response field | Matching DTO file | Check REST/MCP serialization expectations before renaming JSON fields. |
 
 ## CONVENTIONS
@@ -32,6 +33,7 @@ domains/
 - Chat filters use pointer booleans, for example `*bool`, when "not set" differs from `false`.
 - Storage entities carry `DeviceID`; preserve it through chat/message/edit flows.
 - `GetMessageByIDAndDevice` is the device-scoped ID lookup for user/device-isolated flows.
+- `ChatwootMessageLink` and `ChatwootForwardEvent` are storage contracts, not Chatwoot API DTOs.
 - Existing contracts expose whatsmeow types in places. Keep that local to contracts that already need protocol details.
 
 ## ANTI-PATTERNS

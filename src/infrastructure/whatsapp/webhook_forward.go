@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"strings"
@@ -9,13 +10,17 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
 )
 
-var submitWebhookFn = submitWebhook
+var (
+	submitWebhookFn     = submitWebhook
+	getChatwootClientFn = chatwoot.GetDefaultClient
+)
 
 // mutexShardCount is the number of mutex shards for contact synchronization.
 // Using a fixed array avoids memory growth from sync.Map while still providing
@@ -135,6 +140,16 @@ type chatwootContactInfo struct {
 	IsGroup    bool
 	FromName   string
 	IsFromMe   bool
+	// ChatJID is the full WhatsApp chat JID. It is used as the conversation's
+	// contact_inbox source_id so Chatwoot's contact endpoints (read receipts)
+	// can resolve the conversation, matching the value stored on message links.
+	ChatJID string
+}
+
+type chatwootSyncResult struct {
+	MessageID      int
+	ConversationID int
+	InboxID        int
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -152,10 +167,27 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 		return nil, fmt.Errorf("empty 'from' field")
 	}
 
+	// System JIDs (status broadcasts and the WhatsApp service account) carry
+	// no useful conversation context for an agent inbox — relaying them would
+	// create a "Status" contact and a flood of status-update messages in
+	// Chatwoot for every contact who posts a status. We filter these out
+	// here for both incoming and outgoing flows.
+	if utils.IsSystemBroadcastJID(chatID) || utils.IsSystemBroadcastJID(from) {
+		return nil, fmt.Errorf("skipping system/broadcast JID chat=%s from=%s", chatID, from)
+	}
+
+	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
+	// always-ignored system JIDs — supports exact JIDs and the "@g.us" /
+	// "@s.whatsapp.net" / "@lid" address-space wildcards.
+	if utils.MatchesIgnoredJID(chatID, config.ChatwootIgnoreJids) || utils.MatchesIgnoredJID(from, config.ChatwootIgnoreJids) {
+		return nil, fmt.Errorf("skipping ignored JID chat=%s from=%s", chatID, from)
+	}
+
 	isGroup := utils.IsGroupJID(chatID)
 	info := &chatwootContactInfo{
 		IsGroup:  isGroup,
 		FromName: fromName,
+		ChatJID:  chatID,
 	}
 
 	if isGroup {
@@ -166,10 +198,10 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 		}
 		logrus.Infof("Chatwoot: Detected group message, using group contact: %s", info.Name)
 	} else if isFromMe {
-		info.Identifier = utils.ExtractPhoneFromJID(chatID)
+		info.Identifier = chatwootIdentifierForJID(chatID)
 		info.Name = info.Identifier
 	} else {
-		info.Identifier = utils.ExtractPhoneFromJID(from)
+		info.Identifier = chatwootIdentifierForJID(from)
 		info.Name = fromName
 		if info.Name == "" {
 			info.Name = info.Identifier
@@ -179,11 +211,63 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 	return info, nil
 }
 
+// chatwootIdentifierForJID returns the value to pass as the Chatwoot contact
+// identifier for a 1:1 chat. For @lid (privacy-masked) JIDs the full JID is
+// preserved so the Chatwoot client at client.go:FindContactByIdentifier
+// takes its identifier-based branch (HasSuffix "@lid"); for ordinary
+// @s.whatsapp.net JIDs the suffix is stripped so the client takes its
+// phone-normalization branch. Without this distinction, an @lid sender
+// whose LID->phone resolution fails earlier in the pipeline would arrive
+// here as e.g. "1234abcde@lid", get its suffix stripped to "1234abcde",
+// and then be misclassified as a phone number — creating a Chatwoot
+// contact with a garbage phone_number that subsequent messages from the
+// same @lid sender cannot find.
+func chatwootIdentifierForJID(jid string) string {
+	if strings.HasSuffix(jid, "@lid") {
+		return jid
+	}
+	return utils.ExtractPhoneFromJID(jid)
+}
+
+// extractMediaPath returns the on-disk path for a media field in the
+// webhook payload, handling both shapes that buildAutoDownloadPayload can
+// emit: a bare string (no caption) or a map with a "path" key (when a
+// caption rode along). Returns "" when neither shape applies — including
+// when WhatsappAutoDownloadMedia is disabled and the field carries only
+// {"url", ...} (Chatwoot can't render a remote URL as an attachment, so
+// we skip rather than POST a URL it can't fetch).
+func extractMediaPath(mediaData any) string {
+	switch v := mediaData.(type) {
+	case string:
+		return v
+	case map[string]any:
+		if path, ok := v["path"].(string); ok {
+			return path
+		}
+	}
+	return ""
+}
+
 // buildChatwootMessageContent extracts message body and attachments from the payload.
 // For group messages, prepends the sender name to the content.
 func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName string) (content string, attachments []string) {
+	// Group sender attribution: label inbound participant messages so agents can
+	// tell who spoke. Skip our own outgoing messages (the label would be the
+	// operator's own pushname) and fall back to the participant's phone when no
+	// pushname is available, matching the reaction path.
+	fromMe := chatwootMessageTypeFromPayload(data) == "outgoing"
+	senderLabel := fromName
+	if senderLabel == "" {
+		if from, ok := data["from"].(string); ok {
+			senderLabel = utils.ExtractPhoneFromJID(from)
+		}
+	}
+	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
+
 	if body, ok := data["body"].(string); ok && body != "" {
-		content = body
+		// Translate WhatsApp formatting (*bold*, _italic_, ~strike~) into the
+		// GitHub-flavored markdown Chatwoot renders so emphasis survives the hop.
+		content = utils.WhatsAppToChatwootMarkdown(body)
 	}
 
 	if content == "" {
@@ -191,19 +275,30 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 
 	// For group messages, prepend sender name to content
-	if isGroup && fromName != "" && content != "" {
-		content = fromName + ": " + content
+	if prefixGroupSender && content != "" {
+		content = senderLabel + ": " + content
 	}
 
-	// Extract media attachments
+	// Extract media attachments. The producer side (buildAutoDownloadPayload
+	// in event_message.go) emits a string path when the media has no caption
+	// and a {"path", "caption"} map when it does — the latter case applies
+	// to image, video, and document fields, where WhatsApp lets the user
+	// attach a body alongside the media. Without the map branch, captioned
+	// images/videos/documents land in Chatwoot as a text caption with NO
+	// attached file, since the string assertion silently fails. audio and
+	// sticker are always plain strings, so the original branch covers them.
 	mediaFields := []string{"image", "audio", "video", "document", "sticker", "video_note"}
 	for _, field := range mediaFields {
-		if mediaData, ok := data[field]; ok {
-			if path, ok := mediaData.(string); ok && path != "" {
-				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
-			}
+		mediaData, ok := data[field]
+		if !ok || mediaData == nil {
+			continue
 		}
+		path := extractMediaPath(mediaData)
+		if path == "" {
+			continue
+		}
+		attachments = append(attachments, path)
+		logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
 	}
 
 	// Handle empty content
@@ -213,8 +308,8 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 
 	// For group messages with attachments but no text, still prepend sender name
-	if isGroup && fromName != "" && content == "" && len(attachments) > 0 {
-		content = fromName + ": (media)"
+	if prefixGroupSender && content == "" && len(attachments) > 0 {
+		content = senderLabel + ": (media)"
 	}
 
 	return content, attachments
@@ -224,6 +319,15 @@ func shouldForwardEventToChatwoot(eventName string) bool {
 	switch eventName {
 	case "message", "message.reaction":
 		return true
+	case "message.ack":
+		return config.ChatwootMessageRead
+	case "message.edited":
+		return config.ChatwootForwardEdits
+	case "message.revoked", "message.deleted":
+		// Either feature needs the event: ChatwootForwardDeletes posts a
+		// tombstone note, ChatwootMessageDelete hard-deletes the linked Chatwoot
+		// message. They are independent and gated separately downstream.
+		return config.ChatwootForwardDeletes || config.ChatwootMessageDelete
 	default:
 		return false
 	}
@@ -236,10 +340,17 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	if isEventWhitelisted(eventName) {
 		return true
 	}
-	return eventName == "message.reaction" && isEventWhitelisted("message")
+	// Derived message sub-events (reactions, edits, deletes) ride along when the
+	// base "message" event is whitelisted, so operators don't have to enumerate
+	// every sub-event to get them mirrored to Chatwoot.
+	switch eventName {
+	case "message.reaction", "message.ack", "message.edited", "message.revoked", "message.deleted":
+		return isEventWhitelisted("message")
+	}
+	return false
 }
 
-func buildReactionChatwootContent(data map[string]any, isGroup bool, fromName string) string {
+func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	reaction, _ := data["reaction"].(string)
 	reactedMessageID, _ := data["reacted_message_id"].(string)
 
@@ -396,7 +507,7 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string) error {
+func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions) (*chatwootSyncResult, error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
 	mu.Lock()
@@ -404,14 +515,14 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	contact, err := cw.FindOrCreateContact(info.Name, info.Identifier, info.IsGroup)
 	if err != nil {
 		mu.Unlock()
-		return fmt.Errorf("failed to find/create contact for %s: %w", info.Identifier, err)
+		return nil, fmt.Errorf("failed to find/create contact for %s: %w", info.Identifier, err)
 	}
 	logrus.Infof("Chatwoot: Contact ID: %d", contact.ID)
 
-	conversation, err := cw.FindOrCreateConversation(contact.ID)
+	conversation, err := cw.FindOrCreateConversation(contact.ID, info.ChatJID)
 	mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
+		return nil, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
 	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
 
@@ -420,54 +531,445 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments)
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, opts)
 	if err != nil {
-		return fmt.Errorf("failed to create message: %w", err)
+		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
 	chatwoot.MarkMessageAsSent(msgID)
 
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
-	return nil
+	return &chatwootSyncResult{
+		MessageID:      msgID,
+		ConversationID: conversation.ID,
+		InboxID:        cw.InboxID,
+	}, nil
 }
 
-func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
-	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
-	cw := chatwoot.GetDefaultClient()
+func chatwootLinkStorageFromContext(ctx context.Context) (string, domainChatStorage.IChatStorageRepository) {
+	instance, ok := DeviceFromContext(ctx)
+	if !ok || instance == nil {
+		return "", nil
+	}
+
+	deviceID := instance.JID()
+	if deviceID == "" {
+		if client := instance.GetClient(); client != nil && client.Store != nil && client.Store.ID != nil {
+			deviceID = client.Store.ID.ToNonAD().String()
+		}
+	}
+	if deviceID == "" {
+		deviceID = instance.ID()
+	}
+	return deviceID, instance.GetChatStorage()
+}
+
+func buildChatwootForwardMessageLink(deviceID string, data map[string]any, opts chatwoot.MessageOptions, result *chatwootSyncResult) *domainChatStorage.ChatwootMessageLink {
+	if result == nil || deviceID == "" || result.MessageID == 0 {
+		return nil
+	}
+	waMessageID, _ := data["id"].(string)
+	if waMessageID == "" {
+		return nil
+	}
+	chatJID, _ := data["chat_id"].(string)
+
+	return &domainChatStorage.ChatwootMessageLink{
+		DeviceID:                     deviceID,
+		WhatsAppMessageID:            waMessageID,
+		WhatsAppChatJID:              chatJID,
+		ChatwootMessageID:            result.MessageID,
+		ChatwootConversationID:       result.ConversationID,
+		ChatwootInboxID:              result.InboxID,
+		ChatwootContactInboxSourceID: chatJID,
+		SourceID:                     opts.SourceID,
+		Direction:                    chatwootMessageTypeFromPayload(data),
+		IsRead:                       false,
+	}
+}
+
+func extractReceiptMessageIDs(data map[string]any) []string {
+	rawIDs, ok := data["ids"]
+	if !ok {
+		return nil
+	}
+
+	switch ids := rawIDs.(type) {
+	case []string:
+		return ids
+	case []any:
+		result := make([]string, 0, len(ids))
+		for _, raw := range ids {
+			if id, ok := raw.(string); ok && id != "" {
+				result = append(result, id)
+			}
+		}
+		return result
+	case string:
+		if ids == "" {
+			return nil
+		}
+		return []string{ids}
+	default:
+		return nil
+	}
+}
+
+func deleteTargetMessageID(eventName string, data map[string]any) string {
+	switch eventName {
+	case "message.revoked":
+		if id, _ := data["revoked_message_id"].(string); id != "" {
+			return id
+		}
+	case "message.deleted":
+		if id, _ := data["deleted_message_id"].(string); id != "" {
+			return id
+		}
+		if id, _ := data["id"].(string); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, data map[string]any) {
+	receiptType, _ := data["receipt_type"].(string)
+	if receiptType != string(types.ReceiptTypeRead) && receiptType != string(types.ReceiptTypeReadSelf) {
+		return
+	}
+	if deviceID == "" || linkRepo == nil {
+		logrus.Warn("Chatwoot: Cannot sync read receipt without message-link storage")
+		return
+	}
+
+	for _, messageID := range extractReceiptMessageIDs(data) {
+		link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, messageID)
+		if err != nil {
+			logrus.Errorf("Chatwoot: Failed to lookup read receipt link for %s: %v", messageID, err)
+			continue
+		}
+		if link == nil || link.ChatwootConversationID == 0 {
+			continue
+		}
+
+		sourceID := link.ChatwootContactInboxSourceID
+		if sourceID == "" {
+			sourceID = link.WhatsAppChatJID
+		}
+		if sourceID == "" {
+			logrus.Debugf("Chatwoot: Skipping read receipt %s without contact inbox source", messageID)
+			continue
+		}
+		if err := cw.UpdateLastSeen(link.ChatwootConversationID, sourceID); err != nil {
+			logrus.Errorf("Chatwoot: Failed to update last seen for message %s: %v", messageID, err)
+			continue
+		}
+		link.IsRead = true
+		if err := linkRepo.UpsertChatwootMessageLink(link); err != nil {
+			logrus.Errorf("Chatwoot: Failed to mark link read for %s: %v", messageID, err)
+		}
+	}
+}
+
+func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, eventName string, data map[string]any) bool {
+	if !config.ChatwootMessageDelete || deviceID == "" || linkRepo == nil {
+		return false
+	}
+
+	targetID := deleteTargetMessageID(eventName, data)
+	if targetID == "" {
+		return false
+	}
+
+	link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, targetID)
+	if err != nil {
+		logrus.Errorf("Chatwoot: Failed to lookup delete link for %s: %v", targetID, err)
+		return false
+	}
+	if link == nil || link.ChatwootConversationID == 0 || link.ChatwootMessageID == 0 {
+		return false
+	}
+
+	if err := cw.DeleteMessage(link.ChatwootConversationID, link.ChatwootMessageID); err != nil {
+		logrus.Errorf("Chatwoot: Failed to delete Chatwoot message %d for WhatsApp %s: %v", link.ChatwootMessageID, targetID, err)
+		return false
+	}
+	return true
+}
+
+func chatwootForwardMessageID(payload map[string]any) string {
+	data, ok := payload["payload"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	messageID, _ := data["id"].(string)
+	return strings.TrimSpace(messageID)
+}
+
+func chatwootForwardRetryDelay(attempts int) time.Duration {
+	if attempts < 0 {
+		attempts = 0
+	}
+	delay := time.Minute
+	for i := 0; i < attempts; i++ {
+		delay *= 2
+		if delay >= time.Hour {
+			return time.Hour
+		}
+	}
+	return delay
+}
+
+func truncateChatwootForwardError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if len(msg) > 2000 {
+		return msg[:2000]
+	}
+	return msg
+}
+
+// isRetryableChatwootForwardEvent reports whether a forward event is durable
+// enough to enqueue for retry on a transient failure. Base messages and their
+// edit/delete/reaction sub-events all carry a unique WhatsApp message id, so the
+// retry queue can replay them and dedup correctly. Read receipts (message.ack)
+// are intentionally excluded — they are best-effort and self-heal on the next
+// receipt.
+func isRetryableChatwootForwardEvent(eventName string) bool {
+	switch eventName {
+	case "message", "message.edited", "message.revoked", "message.deleted", "message.reaction":
+		return true
+	default:
+		return false
+	}
+}
+
+func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageRepository, deviceID, eventName string, payload map[string]any, syncErr error) bool {
+	if !isRetryableChatwootForwardEvent(eventName) || linkRepo == nil || strings.TrimSpace(deviceID) == "" || !chatwoot.Retryable(syncErr) {
+		return false
+	}
+
+	messageID := chatwootForwardMessageID(payload)
+	if messageID == "" {
+		return false
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		logrus.Errorf("Chatwoot: Failed to serialize retry payload for %s: %v", messageID, err)
+		return false
+	}
+
+	event := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          deviceID,
+		EventName:         eventName,
+		WhatsAppMessageID: messageID,
+		PayloadJSON:       string(payloadJSON),
+		LastError:         truncateChatwootForwardError(syncErr),
+		NextAttemptAt:     time.Now().Add(chatwootForwardRetryDelay(0)),
+	}
+	if err := linkRepo.EnqueueChatwootForwardEvent(event); err != nil {
+		logrus.Errorf("Chatwoot: Failed to enqueue retry for %s: %v", messageID, err)
+		return false
+	}
+	logrus.Warnf("Chatwoot: Queued retry for WhatsApp message %s after transient failure", messageID)
+	return true
+}
+
+func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
+	cw := getChatwootClientFn()
+	if cw == nil {
+		logrus.Warn("Chatwoot: Client is not initialized")
+		return nil
+	}
 	if !cw.IsConfigured() {
 		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
-		return
+		return nil
 	}
 
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		logrus.Error("Chatwoot: Invalid payload format (missing 'payload' object)")
-		return
+		return nil
+	}
+
+	switch eventName {
+	case "message.ack":
+		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, data)
+		return nil
+	case "message.revoked", "message.deleted":
+		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, eventName, data) {
+			return nil
+		}
+		// The hard delete was attempted (or there was no link to delete). The
+		// tombstone note that follows is a separate feature; only fall through to
+		// it when note forwarding is enabled, so ChatwootMessageDelete alone never
+		// posts a note the operator disabled.
+		if !config.ChatwootForwardDeletes {
+			return nil
+		}
 	}
 
 	// Extract contact information
 	info, err := extractChatwootContactInfo(ctx, data)
 	if err != nil {
 		logrus.Warnf("Chatwoot: Skipping message: %v", err)
-		return
+		return nil
 	}
 
-	// Build message content
+	// Build message content. msgOpts threads WhatsApp identifiers into Chatwoot:
+	// SourceID stamps the live message with WAID:<id> (unifying dedup with the
+	// importer and anchoring future replies); ContentAttributes.in_reply_to_external_id
+	// threads reactions/edits/deletes/replies onto the message they reference.
 	var (
 		content     string
 		attachments []string
+		msgOpts     chatwoot.MessageOptions
 	)
 	switch eventName {
 	case "message.reaction":
-		content = buildReactionChatwootContent(data, info.IsGroup, info.FromName)
+		content = buildReactionChatwootContent(data, info.FromName)
+		if rid, _ := data["reacted_message_id"].(string); rid != "" {
+			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+		}
+	case "message.edited", "message.revoked", "message.deleted":
+		var threadID string
+		content, threadID = buildEditDeleteChatwootContent(eventName, data, info.IsGroup, info.FromName)
+		if content == "" {
+			logrus.Debugf("Chatwoot: Skipping %s with no renderable content", eventName)
+			return nil
+		}
+		if threadID != "" {
+			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + threadID}
+		}
 	default:
 		content, attachments = buildChatwootMessageContent(data, info.IsGroup, info.FromName)
+		if id, _ := data["id"].(string); id != "" {
+			msgOpts.SourceID = "WAID:" + id
+		}
+		if rid, _ := data["replied_to_id"].(string); rid != "" {
+			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 
 	// Sync to Chatwoot
-	if err := syncMessageToChatwoot(cw, info, content, attachments); err != nil {
-		logrus.Errorf("Chatwoot: %v", err)
+	if eventName == "message" && deviceID != "" && linkRepo != nil {
+		if waMessageID, _ := data["id"].(string); waMessageID != "" {
+			existing, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
+			if err != nil {
+				logrus.Errorf("Chatwoot: Failed to lookup message link for %s: %v", waMessageID, err)
+				return err
+			}
+			if existing != nil && existing.ChatwootMessageID != 0 {
+				logrus.Debugf("Chatwoot: Skipping already-linked message %s -> %d", waMessageID, existing.ChatwootMessageID)
+				return nil
+			}
+		}
 	}
+
+	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
+	if err != nil {
+		return err
+	}
+	if eventName == "message" && linkRepo != nil {
+		if link := buildChatwootForwardMessageLink(deviceID, data, msgOpts, result); link != nil {
+			if err := linkRepo.UpsertChatwootMessageLink(link); err != nil {
+				logrus.Errorf("Chatwoot: Failed to store message link for %s: %v", link.WhatsAppMessageID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
+	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
+	deviceID, linkRepo := chatwootLinkStorageFromContext(ctx)
+	if err := syncPayloadToChatwoot(ctx, payload, eventName, deviceID, linkRepo); err != nil {
+		logrus.Errorf("Chatwoot: %v", err)
+		enqueueChatwootForwardRetry(linkRepo, deviceID, eventName, payload, err)
+	}
+}
+
+func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageRepository, event *domainChatStorage.ChatwootForwardEvent) error {
+	if event == nil {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		return fmt.Errorf("decode retry payload %d: %w", event.ID, err)
+	}
+	return syncPayloadToChatwoot(context.Background(), payload, event.EventName, event.DeviceID, repo)
+}
+
+func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageRepository) {
+	if repo == nil {
+		return
+	}
+	events, err := repo.ListDueChatwootForwardEvents(time.Now(), 20)
+	if err != nil {
+		logrus.Errorf("Chatwoot: Failed to list retry queue: %v", err)
+		return
+	}
+	for _, event := range events {
+		if err := processChatwootForwardRetryEvent(repo, event); err != nil {
+			nextAttempt := time.Now().Add(chatwootForwardRetryDelay(event.Attempts + 1))
+			if markErr := repo.MarkChatwootForwardEventFailed(event.ID, truncateChatwootForwardError(err), nextAttempt); markErr != nil {
+				logrus.Errorf("Chatwoot: Failed to reschedule retry job %d: %v", event.ID, markErr)
+			}
+			logrus.Warnf("Chatwoot: Retry job %d failed, next attempt at %s: %v", event.ID, nextAttempt.Format(time.RFC3339), err)
+			continue
+		}
+		if err := repo.MarkChatwootForwardEventDone(event.ID); err != nil {
+			logrus.Errorf("Chatwoot: Failed to delete completed retry job %d: %v", event.ID, err)
+		}
+	}
+}
+
+var chatwootForwardRetryWorkerOnce sync.Once
+
+func StartChatwootForwardRetryWorker(repo domainChatStorage.IChatStorageRepository) {
+	if repo == nil || !config.ChatwootEnabled {
+		return
+	}
+	chatwootForwardRetryWorkerOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				processDueChatwootForwardRetries(repo)
+				<-ticker.C
+			}
+		}()
+	})
+}
+
+// buildEditDeleteChatwootContent renders a WhatsApp edit or delete event into a
+// Chatwoot note and the WhatsApp id of the message it refers to (for threading).
+// Edits carry the new text in "body"; deletes/revokes carry only the original
+// message id. Returns ("", "") when there is nothing to render.
+func buildEditDeleteChatwootContent(eventName string, data map[string]any, isGroup bool, fromName string) (content, threadID string) {
+	switch eventName {
+	case "message.edited":
+		threadID, _ = data["original_message_id"].(string)
+		body, _ := data["body"].(string)
+		body = utils.WhatsAppToChatwootMarkdown(strings.TrimSpace(body))
+		if isGroup && fromName != "" && body != "" {
+			body = fromName + ": " + body
+		}
+		if body == "" {
+			return "✏️ _(message edited)_", threadID
+		}
+		return "✏️ **Edited:** " + body, threadID
+	case "message.revoked":
+		threadID, _ = data["revoked_message_id"].(string)
+		return "🗑️ _This message was deleted._", threadID
+	case "message.deleted":
+		threadID, _ = data["deleted_message_id"].(string)
+		return "🗑️ _This message was deleted._", threadID
+	}
+	return "", ""
 }
 
 // isEventWhitelisted checks if the given event name is in the configured whitelist

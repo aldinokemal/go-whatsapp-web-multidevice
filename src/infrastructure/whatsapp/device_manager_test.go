@@ -110,6 +110,29 @@ func TestListDevices_SingleDevice(t *testing.T) {
 	}
 }
 
+func TestResolveDeviceFindsManualDeviceByJID(t *testing.T) {
+	manager := &DeviceManager{
+		devices: make(map[string]*DeviceInstance),
+	}
+	instance := &DeviceInstance{
+		id:        "support-phone",
+		jid:       "628123456789@s.whatsapp.net",
+		createdAt: time.Now(),
+	}
+	manager.devices[instance.id] = instance
+
+	resolved, resolvedID, err := manager.ResolveDevice("628123456789@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("ResolveDevice by JID returned error: %v", err)
+	}
+	if resolved != instance {
+		t.Fatal("ResolveDevice by JID returned the wrong instance")
+	}
+	if resolvedID != "support-phone" {
+		t.Fatalf("resolvedID = %q, want support-phone", resolvedID)
+	}
+}
+
 func TestListDevices_SameCreatedAt(t *testing.T) {
 	manager := &DeviceManager{
 		devices: make(map[string]*DeviceInstance),

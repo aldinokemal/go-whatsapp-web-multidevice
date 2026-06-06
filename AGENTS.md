@@ -1,8 +1,8 @@
 # PROJECT KNOWLEDGE BASE
 
-Generated: 2026-06-05
-Commit: c83de24
-Branch: main
+Generated: 2026-06-06
+Commit: 8c4ea8f
+Branch: fix/chatwoot-postgres
 
 ## OVERVIEW
 
@@ -25,6 +25,7 @@ go-whatsapp-web-multidevice/
 |   |   |-- whatsapp/            # Device manager, events, presence pulse, JID utilities
 |   |   |-- chatstorage/         # chat/message/device SQL repository
 |   |   `-- chatwoot/            # Chatwoot REST sync and direct PG import
+|   |       `-- pgimport/        # Direct Chatwoot Postgres importer; see child AGENTS
 |   |-- views/                   # Embedded Vue 3 plain JS UI
 |   |-- statics/                 # Runtime media, QR codes, send items
 |   `-- storages/                # Runtime SQLite DBs and history dumps
@@ -45,10 +46,12 @@ go-whatsapp-web-multidevice/
 | Handle WhatsApp event | `src/infrastructure/whatsapp/event_*.go` | Register the concrete event in `event_handler.go`. |
 | Presence behavior | `src/infrastructure/whatsapp/event_handler.go`, `presence_pulse.go`, `src/cmd/helpers.go` | Connect-time and scheduled pulse presence. |
 | Add chat storage method | `src/domains/chatstorage/interfaces.go`, `sqlite_repository.go`, `chatstorage_wrapper.go` | Update domain, repository, and wrapper together. |
-| Add DB migration | `src/infrastructure/chatstorage/sqlite_repository.go` `getMigrations()` | Append only. Current list has 22 migrations. |
+| Add DB migration | `src/infrastructure/chatstorage/sqlite_repository.go` `getMigrations()` | Append only. Current list has 29 migrations. |
 | Add UI component | `src/views/components/`, `src/views/index.html` | Plain JS modules, no `.vue` single-file components. |
 | Device management | `src/infrastructure/whatsapp/device_manager.go` | Central registry and purge/load/create logic. |
 | Chatwoot integration | `src/infrastructure/chatwoot/` and `src/ui/rest/chatwoot.go` | REST sync, public webhook, optional direct Postgres import. |
+| Direct Chatwoot import | `src/infrastructure/chatwoot/pgimport/` | Direct Chatwoot schema writes; see child AGENTS. |
+| Chatwoot link/retry state | `src/infrastructure/chatstorage/sqlite_repository.go`, `src/infrastructure/whatsapp/webhook_forward.go` | Message links, read/delete sync, and persistent forward retries. |
 | CLI flags / config | `src/cmd/root.go`, `src/config/settings.go`, `src/.env.example` | Flags and env mutate config package globals. |
 | Shared helpers | `src/pkg/utils/`, `src/pkg/error/`, `src/pkg/sqlite/` | Utilities, aliased package errors, and CGO/purego SQLite driver selection. |
 | Docker/release | `docker/golang.Dockerfile`, `.github/workflows/*.yaml` | Multi-arch Docker, tag/manual workflows, generated GoReleaser configs. |
@@ -62,10 +65,12 @@ go-whatsapp-web-multidevice/
 | `DeviceManager` | struct | `src/infrastructure/whatsapp/device_manager.go` | Owns active device registry and persisted device records. |
 | `DeviceInstance` | struct | `src/infrastructure/whatsapp/device_instance.go` | Wraps per-device ID, JID, client, state, and storage. |
 | `IChatStorageRepository` | interface | `src/domains/chatstorage/interfaces.go` | Storage contract for chats, messages, edits, calls, stats, schema, and device records. |
-| `SQLiteRepository` | struct | `src/infrastructure/chatstorage/sqlite_repository.go` | Implements chat storage and inline migrations. |
+| `SQLiteRepository` | struct | `src/infrastructure/chatstorage/sqlite_repository.go` | Implements chat storage, Chatwoot link/retry state, and inline migrations. |
 | `deviceChatStorage` | wrapper | `src/infrastructure/whatsapp/chatstorage_wrapper.go` | Injects or enforces device scoping for event-side storage access. |
 | `StartPresencePulseScheduler` | function | `src/infrastructure/whatsapp/presence_pulse.go` | Periodically marks connected devices available, then unavailable. |
+| `StartChatwootForwardRetryWorker` | function | `src/infrastructure/whatsapp/webhook_forward.go` | Replays queued WhatsApp-to-Chatwoot forward failures. |
 | `NormalizeJIDFromLID` | function | `src/infrastructure/whatsapp/jid_utils.go` | Converts `@lid` JIDs to phone JIDs where whatsmeow can resolve them. |
+| `pgimport.Importer` | struct | `src/infrastructure/chatwoot/pgimport/conn.go` | Direct Chatwoot Postgres importer for historical messages. |
 | `DeviceMiddleware` | middleware | `src/ui/rest/middleware/device.go` | Resolves `X-Device-Id` or `device_id` and injects device context. |
 | `ContextWithDefaultDevice` | helper | `src/ui/mcp/helpers/context.go` | MCP equivalent of REST device middleware for default/only device. |
 
@@ -82,6 +87,8 @@ go-whatsapp-web-multidevice/
 - MCP handlers do not receive `X-Device-Id`; they resolve the default/only device via `ContextWithDefaultDevice`.
 - Optional boolean filters use `*bool` so nil means "not provided".
 - Tests are colocated as `*_test.go`, mostly table-driven with `testify/assert` and occasional `testify/suite`.
+- Tests that mutate config, package globals, or background worker state should stay serial and restore state with `defer`.
+- Chatwoot direct Postgres import is for history. Live forwarding still uses REST plus link/retry storage.
 
 ## ANTI-PATTERNS
 
@@ -92,6 +99,7 @@ go-whatsapp-web-multidevice/
 - Do not insert migrations in the middle of `getMigrations()`; append new entries only.
 - Do not remove the `evt.Sender.Device != 0` receipt check; it prevents duplicate webhook deliveries from linked devices.
 - Do not put generated/runtime media, QR codes, SQLite DBs, `.env`, or history dumps into source-oriented docs or commits unless explicitly requested.
+- Do not treat Chatwoot direct Postgres import as the live forwarding path; keep REST media handling and direct DB idempotency separate.
 
 ## UNIQUE STYLES
 
