@@ -137,12 +137,25 @@ func init() {
 	}()
 }
 
+// NewClient builds the Chatwoot client from the global CHATWOOT_* env config.
+// It is used for the legacy/env "single config" mode (no per-device config rows).
 func NewClient() *Client {
+	return NewClientFromConfig(config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID)
+}
+
+// NewClientFromConfig builds a Chatwoot client for a specific destination. The
+// base URL is canonicalized; a stored per-device URL is already validated, so a
+// canonicalization error here falls back to a trimmed value rather than failing.
+func NewClientFromConfig(baseURL, apiToken string, accountID, inboxID int) *Client {
+	canonical, err := CanonicalizeChatwootURL(baseURL)
+	if err != nil {
+		canonical = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	}
 	return &Client{
-		BaseURL:   strings.TrimRight(config.ChatwootURL, "/"),
-		APIToken:  config.ChatwootAPIToken,
-		AccountID: config.ChatwootAccountID,
-		InboxID:   config.ChatwootInboxID,
+		BaseURL:   canonical,
+		APIToken:  apiToken,
+		AccountID: accountID,
+		InboxID:   inboxID,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
