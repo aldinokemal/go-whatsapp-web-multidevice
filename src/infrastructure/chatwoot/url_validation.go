@@ -12,6 +12,10 @@ import (
 // maxChatwootURLLen caps the stored Chatwoot URL length.
 const maxChatwootURLLen = 512
 
+// lookupIP resolves a hostname to its IP addresses. It is a package var so tests
+// can stub DNS without network access.
+var lookupIP = net.LookupIP
+
 // CanonicalizeChatwootURL normalizes a Chatwoot base URL into a stable form so
 // the UNIQUE(chatwoot_url, account_id, inbox_id) constraint treats equivalent
 // URLs as equal. It lowercases the scheme and host, drops the default port,
@@ -60,13 +64,37 @@ func CanonicalizeChatwootURL(raw string) (string, error) {
 	return scheme + "://" + hostPort + path, nil
 }
 
-// ValidateChatwootURL canonicalizes the URL and then rejects it on SSRF grounds:
-// no http(s) scheme, embedded credentials, the literal host "localhost", or a
-// host that is an IP literal in a private/loopback/link-local/unspecified range
-// (which also covers the cloud metadata address 169.254.169.254). When
-// config.ChatwootAllowedHosts is non-empty, the host must additionally appear in
-// that allowlist. Hostnames are NOT resolved to IPs here (DNS rebinding is out
-// of scope for v1); the allowlist is the strong control for untrusted callers.
+// chatwootHostAllowlisted reports whether host is in the configured allowlist.
+// An empty allowlist means "no allowlist configured" (returns false).
+func chatwootHostAllowlisted(host string) bool {
+	for _, h := range config.ChatwootAllowedHosts {
+		if strings.EqualFold(strings.TrimSpace(h), host) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDisallowedSSRFIP reports whether an IP is one we refuse to let a per-device
+// Chatwoot client talk to: loopback, RFC1918/ULA private, link-local (which
+// includes the cloud metadata address 169.254.169.254), or the unspecified
+// address.
+func isDisallowedSSRFIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// ValidateChatwootURL canonicalizes the URL and rejects it on SSRF grounds.
+//
+// When config.ChatwootAllowedHosts is set, the host MUST match the allowlist —
+// and a matching host is trusted (the operator's explicit escape hatch for a
+// self-hosted Chatwoot on a private network).
+//
+// Otherwise the host is resolved (literal IP or via DNS) and rejected if ANY
+// resulting address is loopback/private/link-local/metadata/unspecified, and the
+// literal name "localhost" is rejected outright. DNS rebinding (a host that
+// flips to an internal IP after this check) is additionally caught at connect
+// time by the guarded transport on per-device clients (see ssrfGuardedHTTPClient).
 func ValidateChatwootURL(raw string) error {
 	canonical, err := CanonicalizeChatwootURL(raw)
 	if err != nil {
@@ -76,29 +104,32 @@ func ValidateChatwootURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("invalid chatwoot url: %w", err)
 	}
-
 	host := strings.ToLower(u.Hostname())
+
+	if len(config.ChatwootAllowedHosts) > 0 {
+		if chatwootHostAllowlisted(host) {
+			return nil
+		}
+		return fmt.Errorf("chatwoot url host %q is not in the allowed hosts list", host)
+	}
+
 	if host == "localhost" {
 		return fmt.Errorf("chatwoot url host %q is not allowed", host)
 	}
 
+	var ips []net.IP
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			return fmt.Errorf("chatwoot url host %q resolves to a disallowed (private/loopback/link-local) address", host)
+		ips = []net.IP{ip}
+	} else {
+		resolved, err := lookupIP(host)
+		if err != nil {
+			return fmt.Errorf("chatwoot url host %q could not be resolved: %w", host, err)
 		}
+		ips = resolved
 	}
-
-	if len(config.ChatwootAllowedHosts) > 0 {
-		allowed := false
-		for _, h := range config.ChatwootAllowedHosts {
-			if strings.EqualFold(strings.TrimSpace(h), host) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("chatwoot url host %q is not in the allowed hosts list", host)
+	for _, ip := range ips {
+		if isDisallowedSSRFIP(ip) {
+			return fmt.Errorf("chatwoot url host %q resolves to a disallowed (private/loopback/link-local) address", host)
 		}
 	}
 	return nil

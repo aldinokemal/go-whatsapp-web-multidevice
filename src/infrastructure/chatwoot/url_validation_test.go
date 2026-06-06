@@ -1,6 +1,9 @@
 package chatwoot
 
 import (
+	"fmt"
+	"net"
+	"net/http"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -46,6 +49,21 @@ func TestCanonicalizeChatwootURL(t *testing.T) {
 }
 
 func TestValidateChatwootURL_SSRF(t *testing.T) {
+	// Stub DNS so resolution is deterministic and hermetic (no network).
+	orig := lookupIP
+	t.Cleanup(func() { lookupIP = orig })
+	lookupIP = func(host string) ([]net.IP, error) {
+		switch host {
+		case "app.chatwoot.com", "chat.example.com":
+			return []net.IP{net.ParseIP("203.0.113.10")}, nil // public
+		case "internal.example.com":
+			return []net.IP{net.ParseIP("10.0.0.5")}, nil // resolves to private (SSRF via DNS)
+		case "rebind.example.com":
+			return []net.IP{net.ParseIP("203.0.113.7"), net.ParseIP("127.0.0.1")}, nil // one bad IP
+		}
+		return nil, fmt.Errorf("no such host: %s", host)
+	}
+
 	reject := []string{
 		"http://127.0.0.1",
 		"http://localhost",
@@ -57,6 +75,9 @@ func TestValidateChatwootURL_SSRF(t *testing.T) {
 		"http://0.0.0.0",
 		"ftp://example.com",
 		"https://user:pass@example.com",
+		"https://internal.example.com", // hostname resolving to a private IP
+		"https://rebind.example.com",   // any resolved IP private -> reject
+		"https://nonexistent.invalid",  // unresolvable
 	}
 	for _, u := range reject {
 		if err := ValidateChatwootURL(u); err == nil {
@@ -73,6 +94,32 @@ func TestValidateChatwootURL_SSRF(t *testing.T) {
 		if err := ValidateChatwootURL(u); err != nil {
 			t.Errorf("ValidateChatwootURL(%q) = %v, want accept", u, err)
 		}
+	}
+}
+
+// TestChatwootClientSSRFGuardWiring verifies per-device clients get the
+// connect-time SSRF guard by default, the env client does not, and an explicit
+// allowlist disables the guard (the operator opted into trusting those hosts).
+func TestChatwootClientSSRFGuardWiring(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+
+	config.ChatwootAllowedHosts = nil
+	if c := NewClientFromConfig("https://x.example.com", "t", 1, 1); c.HTTPClient.Transport == nil {
+		t.Error("per-device client without allowlist should be SSRF-guarded (Transport set)")
+	}
+	if c := NewClient(); c.HTTPClient.Transport != nil {
+		t.Error("env client should NOT be SSRF-guarded (trusted, may be internal)")
+	}
+
+	config.ChatwootAllowedHosts = []string{"x.example.com"}
+	if c := NewClientFromConfig("https://x.example.com", "t", 1, 1); c.HTTPClient.Transport != nil {
+		t.Error("per-device client WITH allowlist should not be guarded (allowlist is the control)")
+	}
+
+	// Sanity: the guard transport is a real *http.Transport.
+	if _, ok := any(ssrfGuardedTransport()).(*http.Transport); !ok {
+		t.Error("ssrfGuardedTransport should return an *http.Transport")
 	}
 }
 

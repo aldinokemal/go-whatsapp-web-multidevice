@@ -43,6 +43,10 @@ type SyncService struct {
 	// per-device configs (which may target different Chatwoot databases) use the
 	// REST import path instead.
 	allowPgImport bool
+
+	// configID is the chatwoot_device_configs row id this service syncs for (0 =
+	// legacy/env). Stamped onto message links so reverse routing is config-scoped.
+	configID int64
 }
 
 // NewSyncService creates a new sync service instance
@@ -636,6 +640,13 @@ func (s *SyncService) syncMessageWithOptions(
 			SourceID:                     msgOpts.SourceID,
 			Direction:                    messageType,
 			IsRead:                       false,
+			// Scope the link to this service's Chatwoot account/config so reverse
+			// routing stays account-scoped. Without this, a REST history-sync link
+			// would default to account 0 and match the legacy wildcard in
+			// GetLatestChatwootMessageLinkByConversation, allowing cross-account
+			// mis-routing when conversation ids collide across accounts.
+			ChatwootConfigID:  s.configID,
+			ChatwootAccountID: s.client.AccountID,
 		}); err != nil {
 			return fmt.Errorf("failed to store chatwoot message link: %w", err)
 		}
@@ -797,6 +808,7 @@ func GetSyncServiceForDevice(
 	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
 	allowPgImport bool,
+	configID int64,
 ) *SyncService {
 	syncServicesMu.RLock()
 	if s, ok := syncServices[key]; ok {
@@ -812,6 +824,7 @@ func GetSyncServiceForDevice(
 	}
 	s := NewSyncService(client, chatStorageRepo)
 	s.allowPgImport = allowPgImport
+	s.configID = configID
 	syncServices[key] = s
 	return s
 }
@@ -914,7 +927,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 		return // already triggered this process for this device
 	}
 
-	syncService := GetSyncServiceForDevice(SyncServiceKeyFor(rc), rc.Client, chatStorageRepo, rc.ConfigID == 0)
+	syncService := GetSyncServiceForDevice(SyncServiceKeyFor(rc), rc.Client, chatStorageRepo, rc.ConfigID == 0, rc.ConfigID)
 
 	go func() {
 		opts := DefaultSyncOptions()

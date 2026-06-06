@@ -754,7 +754,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	}
 
 	// Get or create the per-device sync service.
-	syncService := chatwoot.GetSyncServiceForDevice(chatwoot.SyncServiceKeyFor(resolved), resolved.Client, h.ChatStorageRepo, resolved.ConfigID == 0)
+	syncService := chatwoot.GetSyncServiceForDevice(chatwoot.SyncServiceKeyFor(resolved), resolved.Client, h.ChatStorageRepo, resolved.ConfigID == 0, resolved.ConfigID)
 	waClient := instance.GetClient()
 
 	// Use JID as the storage device ID since chats are stored with the full JID

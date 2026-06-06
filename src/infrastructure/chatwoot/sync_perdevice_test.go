@@ -13,8 +13,8 @@ func TestPerDeviceSyncServicesAreDistinct(t *testing.T) {
 	c1 := NewClientFromConfig("https://a.example.com", "t", 1, 1)
 	c2 := NewClientFromConfig("https://b.example.com", "t", 2, 2)
 
-	s1 := GetSyncServiceForDevice("devA", c1, nil, false)
-	s2 := GetSyncServiceForDevice("devB", c2, nil, false)
+	s1 := GetSyncServiceForDevice("devA", c1, nil, false, 1)
+	s2 := GetSyncServiceForDevice("devB", c2, nil, false, 2)
 
 	if s1 == s2 {
 		t.Fatal("expected distinct sync services per device")
@@ -22,15 +22,20 @@ func TestPerDeviceSyncServicesAreDistinct(t *testing.T) {
 	if s1.client != c1 || s2.client != c2 {
 		t.Fatal("each sync service must hold its own device client")
 	}
+	// configID must be stamped so REST history-sync links are account/config
+	// scoped (else reverse routing could cross accounts).
+	if s1.configID != 1 || s2.configID != 2 {
+		t.Fatalf("configID not threaded: s1=%d s2=%d", s1.configID, s2.configID)
+	}
 	// Same key returns the cached instance.
-	if again := GetSyncServiceForDevice("devA", c1, nil, false); again != s1 {
+	if again := GetSyncServiceForDevice("devA", c1, nil, false, 1); again != s1 {
 		t.Fatal("GetSyncServiceForDevice should be idempotent per key")
 	}
 	// Per-device services must not enable direct-Postgres import; legacy may.
 	if s1.allowPgImport {
 		t.Fatal("per-device service must not allow pg import")
 	}
-	legacy := GetSyncServiceForDevice(legacySyncServiceKey, c1, nil, true)
+	legacy := GetSyncServiceForDevice(legacySyncServiceKey, c1, nil, true, 0)
 	if !legacy.allowPgImport {
 		t.Fatal("legacy service should allow pg import")
 	}

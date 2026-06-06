@@ -114,7 +114,7 @@ func TestChatwootConfigCRUDFlow(t *testing.T) {
 
 	// Create.
 	resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
-		`{"chatwoot_url":"https://chat.example.com/","account_id":1,"inbox_id":5,"api_token":"super-secret-token"}`)
+		`{"chatwoot_url":"https://203.0.113.10/","account_id":1,"inbox_id":5,"api_token":"super-secret-token"}`)
 	if resp.StatusCode != fiber.StatusOK {
 		t.Fatalf("create status = %d body=%s", resp.StatusCode, body)
 	}
@@ -122,7 +122,7 @@ func TestChatwootConfigCRUDFlow(t *testing.T) {
 	if stored == nil || stored.APIToken != "super-secret-token" {
 		t.Fatalf("token not stored raw: %+v", stored)
 	}
-	if stored.ChatwootURL != "https://chat.example.com" { // canonicalized (trailing slash removed)
+	if stored.ChatwootURL != "https://203.0.113.10" { // canonicalized (trailing slash removed)
 		t.Fatalf("url not canonicalized: %q", stored.ChatwootURL)
 	}
 
@@ -140,7 +140,7 @@ func TestChatwootConfigCRUDFlow(t *testing.T) {
 
 	// Update with empty token keeps the stored secret.
 	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
-		`{"chatwoot_url":"https://chat.example.com","account_id":1,"inbox_id":5,"enabled":false}`)
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"enabled":false}`)
 	if resp.StatusCode != fiber.StatusOK {
 		t.Fatalf("update status = %d body=%s", resp.StatusCode, body)
 	}
@@ -177,19 +177,19 @@ func TestChatwootConfigRejectsRoutingEditWithLinks(t *testing.T) {
 
 	// Create config (id 1) and pretend it has linked conversations.
 	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
-		`{"chatwoot_url":"https://a.example.com","account_id":1,"inbox_id":5,"api_token":"t"}`)
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"t"}`)
 	store.linkCount[store.configs["dev"].ID] = 3
 
 	// Changing the inbox (routing identity) must be rejected with 409.
 	resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
-		`{"chatwoot_url":"https://a.example.com","account_id":1,"inbox_id":9,"api_token":"t"}`)
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":9,"api_token":"t"}`)
 	if resp.StatusCode != fiber.StatusConflict {
 		t.Fatalf("routing edit status = %d body=%s, want 409", resp.StatusCode, body)
 	}
 
 	// Rotating only the token (same routing identity) is allowed.
 	resp, _ = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
-		`{"chatwoot_url":"https://a.example.com","account_id":1,"inbox_id":5,"api_token":"rotated"}`)
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"rotated"}`)
 	if resp.StatusCode != fiber.StatusOK {
 		t.Fatalf("token rotation status = %d, want 200", resp.StatusCode)
 	}

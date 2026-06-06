@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -139,27 +141,62 @@ func init() {
 
 // NewClient builds the Chatwoot client from the global CHATWOOT_* env config.
 // It is used for the legacy/env "single config" mode (no per-device config rows).
+// The env client is operator-trusted and may legitimately point at an internal
+// Chatwoot (e.g. the same Docker network), so it is NOT SSRF-guarded.
 func NewClient() *Client {
-	return NewClientFromConfig(config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID)
+	return newChatwootClient(config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID, false)
 }
 
-// NewClientFromConfig builds a Chatwoot client for a specific destination. The
-// base URL is canonicalized; a stored per-device URL is already validated, so a
-// canonicalization error here falls back to a trimmed value rather than failing.
+// NewClientFromConfig builds a Chatwoot client for a specific (per-device)
+// destination from an operator-supplied config. The base URL is canonicalized
+// (a stored, already-validated URL falls back to a trimmed value on error). The
+// HTTP client is SSRF-guarded at connect time unless an explicit host allowlist
+// is configured (CHATWOOT_ALLOWED_HOSTS), which is the operator's opt-in to
+// trust specific hosts — including internal ones.
 func NewClientFromConfig(baseURL, apiToken string, accountID, inboxID int) *Client {
+	return newChatwootClient(baseURL, apiToken, accountID, inboxID, len(config.ChatwootAllowedHosts) == 0)
+}
+
+func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGuard bool) *Client {
 	canonical, err := CanonicalizeChatwootURL(baseURL)
 	if err != nil {
 		canonical = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	if ssrfGuard {
+		httpClient.Transport = ssrfGuardedTransport()
+	}
 	return &Client{
-		BaseURL:   canonical,
-		APIToken:  apiToken,
-		AccountID: accountID,
-		InboxID:   inboxID,
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+		BaseURL:    canonical,
+		APIToken:   apiToken,
+		AccountID:  accountID,
+		InboxID:    inboxID,
+		HTTPClient: httpClient,
+	}
+}
+
+// ssrfGuardedTransport returns an HTTP transport whose dialer rejects, at
+// connect time, any connection to a loopback/private/link-local/metadata
+// address. Checking post-resolution (via Dialer.Control) closes the DNS
+// rebinding window left open by validating the URL's host once up front.
+func ssrfGuardedTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				host = address
+			}
+			if ip := net.ParseIP(host); ip != nil && isDisallowedSSRFIP(ip) {
+				return fmt.Errorf("chatwoot: blocked connection to disallowed address %s", address)
+			}
+			return nil
 		},
 	}
+	t.DialContext = dialer.DialContext
+	return t
 }
 
 func (c *Client) IsConfigured() bool {
