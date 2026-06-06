@@ -208,6 +208,16 @@ func initEnvConfig() {
 	if envChatwootWebhookSecret := viper.GetString("chatwoot_webhook_secret"); envChatwootWebhookSecret != "" {
 		config.ChatwootWebhookSecret = envChatwootWebhookSecret
 	}
+	if envChatwootAllowedHosts := viper.GetString("chatwoot_allowed_hosts"); envChatwootAllowedHosts != "" {
+		parts := strings.Split(envChatwootAllowedHosts, ",")
+		hosts := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				hosts = append(hosts, trimmed)
+			}
+		}
+		config.ChatwootAllowedHosts = hosts
+	}
 	// Chatwoot conversation handling settings
 	if viper.IsSet("chatwoot_reopen_conversation") {
 		config.ChatwootReopenConversation = viper.GetBool("chatwoot_reopen_conversation")
@@ -454,6 +464,12 @@ func initFlags() {
 		"chatwoot-webhook-secret", "",
 		config.ChatwootWebhookSecret,
 		`shared secret required for incoming Chatwoot webhooks --chatwoot-webhook-secret <string> | example: --chatwoot-webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootAllowedHosts,
+		"chatwoot-allowed-hosts", "",
+		config.ChatwootAllowedHosts,
+		`comma-separated allowlist of Chatwoot hosts a per-device config may target (hardens SSRF surface; empty = allow any public host) --chatwoot-allowed-hosts <list> | example: --chatwoot-allowed-hosts="app.chatwoot.com,chat.example.com"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootReopenConversation,

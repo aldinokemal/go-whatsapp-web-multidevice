@@ -110,12 +110,20 @@ func restServer(_ *cobra.Command, _ []string) {
 		}
 		whatsapp.StartChatwootForwardRetryWorker(chatStorageRepo)
 
+		// Initialize the per-device Chatwoot client registry. Resolves each
+		// device's Chatwoot destination from chatwoot_device_configs, falling back
+		// to the CHATWOOT_* env config only while that table is empty.
+		chatwoot.InitClientRegistry(chatStorageRepo)
+
 		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"
 		if config.AppBasePath != "" {
 			webhookPath = config.AppBasePath + webhookPath
 		}
 		app.Post(webhookPath, chatwootHandler.HandleWebhook)
+		// Per-device webhook: each device's Chatwoot inbox is configured to POST
+		// here so agent replies route deterministically to the right device.
+		app.Post(webhookPath+"/:device_id", chatwootHandler.HandleDeviceWebhook)
 	}
 
 	if len(config.AppBasicAuthCredential) > 0 {
@@ -157,10 +165,15 @@ func restServer(_ *cobra.Command, _ []string) {
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
 
-	// Chatwoot sync routes - require authentication (webhook is registered earlier without auth)
+	// Chatwoot sync + per-device config routes - require authentication (the
+	// webhooks are registered earlier without auth).
 	if config.ChatwootEnabled {
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
+		apiGroup.Get("/chatwoot/configs", chatwootHandler.ListChatwootConfigs)
+		apiGroup.Get("/devices/:device_id/chatwoot/config", chatwootHandler.GetChatwootConfig)
+		apiGroup.Put("/devices/:device_id/chatwoot/config", chatwootHandler.UpsertChatwootConfig)
+		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
