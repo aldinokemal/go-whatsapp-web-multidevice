@@ -806,23 +806,44 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 	return link, err
 }
 
-func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
+	// single-account mode). The `? = 1` guard keeps this a single query: when the
+	// flag is 0 the OR branch is never satisfied and the match is exact-account.
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
-		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR chatwoot_account_id = 0)
+		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`
 
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID))
+	legacyZero := 0
+	if allowLegacyZero {
+		legacyZero = 1
+	}
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return link, err
+}
+
+// BackfillChatwootMessageLinkAccount stamps accountID onto links whose account id
+// is still 0 (pre-migration legacy links), returning the number of rows updated.
+// Idempotent: rows already carrying a non-zero account id are left untouched.
+func (r *SQLiteRepository) BackfillChatwootMessageLinkAccount(accountID int) (int64, error) {
+	if accountID == 0 {
+		return 0, nil
+	}
+	res, err := r.db.Exec(`UPDATE chatwoot_message_links SET chatwoot_account_id = ? WHERE chatwoot_account_id = 0`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {

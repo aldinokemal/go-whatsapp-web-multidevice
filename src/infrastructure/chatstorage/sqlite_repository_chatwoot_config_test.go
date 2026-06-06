@@ -155,7 +155,7 @@ func TestSQLiteRepositoryConversationLookupIsAccountScoped(t *testing.T) {
 		}
 	}
 
-	got, err := repo.GetLatestChatwootMessageLinkByConversation(5, 2)
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(5, 2, false)
 	if err != nil || got == nil {
 		t.Fatalf("scoped lookup: %v (%v)", err, got)
 	}

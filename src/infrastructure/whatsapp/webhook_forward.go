@@ -20,12 +20,15 @@ import (
 var (
 	submitWebhookFn = submitWebhook
 	// getChatwootClientFn resolves the per-device Chatwoot destination for the
-	// forward path. Returns (nil, nil) when the device has no usable config
-	// (caller fails-fast / skips). Overridable in tests.
+	// forward path. Returns (nil, nil) when the device simply has no usable config
+	// (caller skips silently). Returns ErrClientRegistryUnavailable when the
+	// registry has not been initialized yet — a distinct condition that must NOT
+	// be mistaken for "no config", or a due retry would be marked done and a live
+	// forward dropped without delivery. Overridable in tests.
 	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
 		reg := chatwoot.GetClientRegistry()
 		if reg == nil {
-			return nil, nil
+			return nil, chatwoot.ErrClientRegistryUnavailable
 		}
 		return reg.Resolve(deviceID)
 	}

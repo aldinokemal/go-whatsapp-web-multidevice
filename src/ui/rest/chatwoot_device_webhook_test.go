@@ -31,7 +31,7 @@ func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByInbox(accountID, inboxI
 	return nil, nil
 }
 
-func (r *deviceWebhookTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *deviceWebhookTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
 	return nil, nil
 }
 

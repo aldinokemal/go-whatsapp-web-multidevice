@@ -39,10 +39,15 @@ func withChatwootWebhookSecret(t *testing.T, secret string) {
 
 type chatwootRouteTestRepo struct {
 	domainChatStorage.IChatStorageRepository
-	link *domainChatStorage.ChatwootMessageLink
+	link  *domainChatStorage.ChatwootMessageLink
+	count int
 }
 
-func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *chatwootRouteTestRepo) CountChatwootDeviceConfigs() (int, error) {
+	return r.count, nil
+}
+
+func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
 	if r.link == nil || r.link.ChatwootConversationID != conversationID {
 		return nil, nil
 	}

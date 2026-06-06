@@ -803,6 +803,13 @@ var (
 // GetSyncServiceForDevice returns (creating on first use) the sync service for a
 // device key, bound to the given client. allowPgImport enables direct-Postgres
 // import and must be true only for the legacy/env config.
+//
+// A cached service is reused only while its client still addresses the same
+// destination with the same credentials. When a per-device config is rewritten
+// (token rotation, routing edit) the registry hands back a freshly built client,
+// so the cached service is rebuilt rather than continuing to use the stale one
+// until process restart. The previous service is left for any in-flight sync to
+// finish on; per-device services hold no pooled resources to close.
 func GetSyncServiceForDevice(
 	key string,
 	client *Client,
@@ -811,7 +818,7 @@ func GetSyncServiceForDevice(
 	configID int64,
 ) *SyncService {
 	syncServicesMu.RLock()
-	if s, ok := syncServices[key]; ok {
+	if s, ok := syncServices[key]; ok && sameChatwootClient(s.client, client) {
 		syncServicesMu.RUnlock()
 		return s
 	}
@@ -819,7 +826,7 @@ func GetSyncServiceForDevice(
 
 	syncServicesMu.Lock()
 	defer syncServicesMu.Unlock()
-	if s, ok := syncServices[key]; ok {
+	if s, ok := syncServices[key]; ok && sameChatwootClient(s.client, client) {
 		return s
 	}
 	s := NewSyncService(client, chatStorageRepo)
@@ -827,6 +834,18 @@ func GetSyncServiceForDevice(
 	s.configID = configID
 	syncServices[key] = s
 	return s
+}
+
+// sameChatwootClient reports whether two clients target the same Chatwoot
+// destination with the same credentials. A nil client only matches another nil.
+func sameChatwootClient(a, b *Client) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.BaseURL == b.BaseURL &&
+		a.APIToken == b.APIToken &&
+		a.AccountID == b.AccountID &&
+		a.InboxID == b.InboxID
 }
 
 // LookupSyncServiceForDevice returns the existing sync service for a key without

@@ -60,6 +60,11 @@ func Retryable(err error) bool {
 	if err == nil {
 		return false
 	}
+	// A nil registry is a wiring/startup condition, not transient: surface it
+	// loudly rather than enqueuing retries that would only fail the same way.
+	if errors.Is(err, ErrClientRegistryUnavailable) {
+		return false
+	}
 	var httpErr *HTTPStatusError
 	if errors.As(err, &httpErr) {
 		return httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= 500

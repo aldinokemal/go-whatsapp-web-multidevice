@@ -1,11 +1,21 @@
 package chatwoot
 
 import (
+	"errors"
 	"strings"
 	"sync"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
+
+// ErrClientRegistryUnavailable is returned when a Chatwoot forward is attempted
+// before the process-wide client registry has been initialized. It is a wiring/
+// startup condition, not a transient network failure, so callers surface it
+// loudly instead of treating a nil registry as "device has no config" and
+// silently dropping the message: the retry worker reschedules the job (rather
+// than marking it done and deleting it), and the live forward path logs without
+// enqueuing a doomed retry (Retryable reports false for it).
+var ErrClientRegistryUnavailable = errors.New("chatwoot: client registry not initialized")
 
 // ResolvedConfig is the outcome of resolving a device (or inbox) to a Chatwoot
 // destination. ConfigID is the chatwoot_device_configs row id, or 0 for the

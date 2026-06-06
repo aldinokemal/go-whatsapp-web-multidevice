@@ -157,8 +157,12 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
-func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID)
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero)
+}
+
+func (r *deviceChatStorage) BackfillChatwootMessageLinkAccount(accountID int) (int64, error) {
+	return r.base.BackfillChatwootMessageLinkAccount(accountID)
 }
 
 func (r *deviceChatStorage) CountChatwootMessageLinksByConfig(configID int64) (int, error) {

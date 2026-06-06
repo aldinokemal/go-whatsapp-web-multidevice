@@ -100,20 +100,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	// is stateless and shared with the authenticated sync routes registered below.
 	var chatwootHandler *rest.ChatwootHandler
 	if config.ChatwootEnabled {
-		// Auto-provision the Chatwoot inbox (create or reuse) when enabled, so
-		// CHATWOOT_INBOX_ID is resolved before any message is forwarded. Failures
-		// are logged but non-fatal — the operator can still set the inbox manually.
-		if config.ChatwootAutoCreate {
-			if err := chatwoot.EnsureInbox(chatwoot.GetDefaultClient()); err != nil {
-				logrus.Errorf("Chatwoot auto-create failed: %v", err)
-			}
-		}
-		whatsapp.StartChatwootForwardRetryWorker(chatStorageRepo)
-
-		// Initialize the per-device Chatwoot client registry. Resolves each
-		// device's Chatwoot destination from chatwoot_device_configs, falling back
-		// to the CHATWOOT_* env config only while that table is empty.
-		chatwoot.InitClientRegistry(chatStorageRepo)
+		// Auto-provision the inbox, install the per-device client registry, then
+		// start the retry worker (registry before worker — see initChatwootForwarding).
+		initChatwootForwarding(chatStorageRepo)
 
 		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"

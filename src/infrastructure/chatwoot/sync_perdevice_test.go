@@ -44,6 +44,33 @@ func TestPerDeviceSyncServicesAreDistinct(t *testing.T) {
 	}
 }
 
+func TestSyncServiceRebuiltOnClientChange(t *testing.T) {
+	t.Cleanup(func() { _ = CloseAllSyncServices() })
+
+	orig := GetSyncServiceForDevice("devRot", NewClientFromConfig("https://a.example.com", "old-token", 1, 1), nil, false, 1)
+
+	// An equivalent client (same destination + credentials, different pointer)
+	// must reuse the cached service — identity is by value, not pointer.
+	same := GetSyncServiceForDevice("devRot", NewClientFromConfig("https://a.example.com", "old-token", 1, 1), nil, false, 1)
+	if same != orig {
+		t.Fatal("equivalent client should reuse the cached sync service")
+	}
+
+	// A rotated token is a different client identity: the cached service must be
+	// rebuilt rather than continuing to use the stale (revoked) token.
+	rotated := NewClientFromConfig("https://a.example.com", "new-token", 1, 1)
+	got := GetSyncServiceForDevice("devRot", rotated, nil, false, 1)
+	if got == orig {
+		t.Fatal("rotated token should rebuild the sync service")
+	}
+	if got.client != rotated {
+		t.Fatal("rebuilt sync service must bind the new client")
+	}
+	if LookupSyncServiceForDevice("devRot") != got {
+		t.Fatal("cache should now hold the rebuilt service")
+	}
+}
+
 func TestPgImporterGatedByAllowPgImport(t *testing.T) {
 	prev := config.ChatwootImportDBURI
 	config.ChatwootImportDBURI = "postgresql://user:pass@localhost:5432/chatwoot"

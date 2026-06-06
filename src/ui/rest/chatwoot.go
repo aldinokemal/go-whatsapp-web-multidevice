@@ -208,9 +208,15 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 		InboxID:   payload.Conversation.InboxID,
 	}
 
+	// Legacy single-account mode also unlocks the account-id=0 wildcard for the
+	// conversation lookup below (and the env device fallback in step 4). In
+	// per-device mode it must stay false, or a colliding conversation id from
+	// another account could match a legacy (account 0) link and misroute.
+	legacy := h.legacyChatwootMode()
+
 	// 1) Account-scoped conversation link.
 	if h != nil && h.ChatStorageRepo != nil && payload.Conversation.ID != 0 {
-		link, err := h.ChatStorageRepo.GetLatestChatwootMessageLinkByConversation(payload.Conversation.ID, payload.Account.ID)
+		link, err := h.ChatStorageRepo.GetLatestChatwootMessageLinkByConversation(payload.Conversation.ID, payload.Account.ID, legacy)
 		if err != nil {
 			logrus.Errorf("Chatwoot Webhook: Failed to lookup conversation route %d: %v", payload.Conversation.ID, err)
 		} else if link != nil && strings.TrimSpace(link.DeviceID) != "" && strings.TrimSpace(link.WhatsAppChatJID) != "" {
@@ -249,7 +255,7 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	}
 
 	// 4) Legacy env fallback, only while there are no per-device configs.
-	if h.legacyChatwootMode() {
+	if legacy {
 		route.DeviceID = config.ChatwootDeviceID
 	} else {
 		logrus.Warnf("Chatwoot Webhook: no device mapping for conversation %d (account=%d inbox=%d); failing fast to avoid cross-inbox delivery",
