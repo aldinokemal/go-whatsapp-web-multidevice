@@ -3,10 +3,13 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -198,4 +201,130 @@ func TestSendMessageWithReachoutRetry_SubscribeFailureDoesNotAbortRetry(t *testi
 	if sendCalls != 2 {
 		t.Fatalf("expected 2 send attempts, got %d", sendCalls)
 	}
+}
+
+func TestSendMessageWithReachoutRetry_WaitsForPrivacyTokenBeforeRetry(t *testing.T) {
+	origSend := sendMessageFn
+	origSub := subscribePresenceFn
+	defer func() {
+		sendMessageFn = origSend
+		subscribePresenceFn = origSub
+	}()
+
+	recipient := types.JID{User: "12345", Server: types.DefaultUserServer}
+	tokenStore := &memoryPrivacyTokenStore{}
+	client := &whatsmeow.Client{
+		Store: &store.Device{
+			PrivacyTokens: tokenStore,
+		},
+	}
+
+	var sendCalls int
+	sendMessageFn = func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, _ *waE2E.Message) (whatsmeow.SendResponse, error) {
+		sendCalls++
+		if sendCalls == 1 {
+			return whatsmeow.SendResponse{}, reachoutErr()
+		}
+		token, err := client.Store.PrivacyTokens.GetPrivacyToken(ctx, recipient)
+		if err != nil {
+			return whatsmeow.SendResponse{}, err
+		}
+		if token == nil {
+			return whatsmeow.SendResponse{}, reachoutErr()
+		}
+		return whatsmeow.SendResponse{ID: "msg-after-token"}, nil
+	}
+	subscribePresenceFn = func(context.Context, *whatsmeow.Client, types.JID) error {
+		go func() {
+			time.Sleep(25 * time.Millisecond)
+			_ = tokenStore.PutPrivacyTokens(context.Background(), store.PrivacyToken{
+				User:      recipient,
+				Token:     []byte("token"),
+				Timestamp: time.Now(),
+			})
+		}()
+		return nil
+	}
+
+	resp, err := SendMessageWithReachoutRetry(context.Background(), client, recipient, &waE2E.Message{})
+	if err != nil {
+		t.Fatalf("expected retry to wait for token and succeed, got %v", err)
+	}
+	if resp.ID != "msg-after-token" {
+		t.Fatalf("expected retry response after token, got %q", resp.ID)
+	}
+	if sendCalls != 2 {
+		t.Fatalf("expected 2 send attempts, got %d", sendCalls)
+	}
+}
+
+func TestSendMessageWithReachoutRetry_RetriesWhenPrivacyTokenNeverAppears(t *testing.T) {
+	origSend := sendMessageFn
+	origSub := subscribePresenceFn
+	origWait := reachoutPrivacyTokenWait
+	origPoll := reachoutPrivacyTokenPollPeriod
+	defer func() {
+		sendMessageFn = origSend
+		subscribePresenceFn = origSub
+		reachoutPrivacyTokenWait = origWait
+		reachoutPrivacyTokenPollPeriod = origPoll
+	}()
+
+	reachoutPrivacyTokenWait = 20 * time.Millisecond
+	reachoutPrivacyTokenPollPeriod = 5 * time.Millisecond
+
+	recipient := types.JID{User: "12345", Server: types.DefaultUserServer}
+	client := &whatsmeow.Client{
+		Store: &store.Device{
+			PrivacyTokens: &memoryPrivacyTokenStore{},
+		},
+	}
+
+	var sendCalls int
+	sendMessageFn = func(context.Context, *whatsmeow.Client, types.JID, *waE2E.Message) (whatsmeow.SendResponse, error) {
+		sendCalls++
+		return whatsmeow.SendResponse{}, reachoutErr()
+	}
+	subscribePresenceFn = func(context.Context, *whatsmeow.Client, types.JID) error {
+		return nil
+	}
+
+	_, err := SendMessageWithReachoutRetry(context.Background(), client, recipient, &waE2E.Message{})
+	if !errors.Is(err, whatsmeow.ErrServerReturnedError) {
+		t.Fatalf("expected original reachout error after retry, got %v", err)
+	}
+	if sendCalls != 2 {
+		t.Fatalf("expected 2 send attempts, got %d", sendCalls)
+	}
+}
+
+type memoryPrivacyTokenStore struct {
+	mu     sync.RWMutex
+	tokens map[types.JID]store.PrivacyToken
+}
+
+func (s *memoryPrivacyTokenStore) PutPrivacyTokens(_ context.Context, tokens ...store.PrivacyToken) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tokens == nil {
+		s.tokens = make(map[types.JID]store.PrivacyToken)
+	}
+	for _, token := range tokens {
+		s.tokens[token.User.ToNonAD()] = token
+	}
+	return nil
+}
+
+func (s *memoryPrivacyTokenStore) GetPrivacyToken(_ context.Context, user types.JID) (*store.PrivacyToken, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	token, ok := s.tokens[user.ToNonAD()]
+	if !ok {
+		return nil, nil
+	}
+	return &token, nil
+}
+
+func (s *memoryPrivacyTokenStore) DeleteExpiredPrivacyTokens(context.Context, time.Time) (int64, error) {
+	return 0, nil
 }
