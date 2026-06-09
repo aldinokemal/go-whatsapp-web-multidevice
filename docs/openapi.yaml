@@ -183,7 +183,11 @@ paths:
                         description: Whether the device is logged in to WhatsApp
                       device_id:
                         type: string
-                        description: The device ID
+                        description: Session ID registered via POST /devices
+                        example: 'org_2'
+                      jid:
+                        type: string
+                        description: WhatsApp JID of the logged-in account (empty until login)
                         example: '6289685028129@s.whatsapp.net'
         '400':
           description: Bad Request
@@ -3659,7 +3663,12 @@ components:
                 example: 'Aldino Kemal'
               device:
                 type: string
-                example: '628960561XXX.0:64@s.whatsapp.net'
+                description: Session ID registered via POST /devices (stable across restarts)
+                example: 'org_2'
+              jid:
+                type: string
+                description: WhatsApp JID of the logged-in account (empty until login)
+                example: '628960561XXX@s.whatsapp.net'
 
     # Device Management Schemas (v8)
     DeviceListResponse:

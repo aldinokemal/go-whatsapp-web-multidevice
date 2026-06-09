@@ -292,3 +292,93 @@ func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
 		t.Fatalf("extractStructuredMessageContent() = %q, want %q", got, want)
 	}
 }
+
+// TestAddWebhookSessionID pins the issue #578 enrichment: webhook payloads gain a
+// session_id derived from their device_id (JID) so multi-tenant consumers can map
+// an event back to the session they registered, while device_id stays the JID.
+func TestAddWebhookSessionID(t *testing.T) {
+	orig := sessionIDForJIDFn
+	defer func() { sessionIDForJIDFn = orig }()
+
+	t.Run("injects session_id resolved from device_id", func(t *testing.T) {
+		sessionIDForJIDFn = func(jid string) string {
+			if jid == "556283088170@s.whatsapp.net" {
+				return "org_2"
+			}
+			return ""
+		}
+		payload := map[string]any{"device_id": "556283088170@s.whatsapp.net"}
+		addWebhookSessionID(payload)
+		if payload["session_id"] != "org_2" {
+			t.Fatalf("expected session_id=org_2, got %v", payload["session_id"])
+		}
+		// device_id must remain the JID (backward-compatible).
+		if payload["device_id"] != "556283088170@s.whatsapp.net" {
+			t.Fatalf("device_id must be unchanged, got %v", payload["device_id"])
+		}
+	})
+
+	t.Run("no session_id when JID is unmapped", func(t *testing.T) {
+		sessionIDForJIDFn = func(string) string { return "" }
+		payload := map[string]any{"device_id": "unknown@s.whatsapp.net"}
+		addWebhookSessionID(payload)
+		if _, ok := payload["session_id"]; ok {
+			t.Fatalf("expected no session_id for unmapped JID, got %v", payload["session_id"])
+		}
+	})
+
+	t.Run("does not overwrite an existing session_id", func(t *testing.T) {
+		sessionIDForJIDFn = func(string) string { return "resolved" }
+		payload := map[string]any{"device_id": "x@s.whatsapp.net", "session_id": "preset"}
+		addWebhookSessionID(payload)
+		if payload["session_id"] != "preset" {
+			t.Fatalf("expected existing session_id to be preserved, got %v", payload["session_id"])
+		}
+	})
+}
+
+// TestSessionIDForJIDEmpty pins the empty-JID guard: it must short-circuit to ""
+// before touching the device manager, regardless of global manager state.
+func TestSessionIDForJIDEmpty(t *testing.T) {
+	if got := sessionIDForJID(""); got != "" {
+		t.Fatalf("expected empty session id for empty jid, got %q", got)
+	}
+}
+
+// TestForwardPayloadInjectsSessionID verifies the session id is enriched in the
+// real forward path before reaching the webhook submitter.
+func TestForwardPayloadInjectsSessionID(t *testing.T) {
+	ctx := context.Background()
+
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://test.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	origResolve := sessionIDForJIDFn
+	sessionIDForJIDFn = func(jid string) string {
+		if jid == "556283088170@s.whatsapp.net" {
+			return "org_2"
+		}
+		return ""
+	}
+	defer func() { sessionIDForJIDFn = origResolve }()
+
+	var captured map[string]any
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string) error {
+		captured = payload
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	payload := map[string]any{"event": "message", "device_id": "556283088170@s.whatsapp.net"}
+	if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "message"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected submitWebhookFn to be invoked")
+	}
+	if captured["session_id"] != "org_2" {
+		t.Fatalf("expected forwarded payload session_id=org_2, got %v", captured["session_id"])
+	}
+}
