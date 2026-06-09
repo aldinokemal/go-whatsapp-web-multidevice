@@ -16,6 +16,11 @@ import (
 // unhealthy socket cannot stall the retry. One round-trip's worth of slack.
 const reachoutSubscribeTimeout = 3 * time.Second
 
+var (
+	reachoutPrivacyTokenWait       = 2 * time.Second
+	reachoutPrivacyTokenPollPeriod = 50 * time.Millisecond
+)
+
 // Seams for unit tests. Mirrors the submitWebhookFn pattern in webhook_forward.go.
 var (
 	sendMessageFn = func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message) (whatsmeow.SendResponse, error) {
@@ -67,6 +72,12 @@ func SendMessageWithReachoutRetry(ctx context.Context, client *whatsmeow.Client,
 	}
 	cancel()
 
+	if waitForReachoutPrivacyToken(ctx, client, recipient) {
+		logrus.Debugf("Privacy token for %s became available before retry", recipient.String())
+	} else {
+		logrus.Debugf("Retrying send to %s without an observed privacy token", recipient.String())
+	}
+
 	resp, err = sendMessageFn(ctx, client, recipient, msg)
 	if err != nil {
 		logrus.Warnf("Retry send to %s after pre-warm still failed: %v", recipient.String(), err)
@@ -80,4 +91,40 @@ func SendMessageWithReachoutRetry(ctx context.Context, client *whatsmeow.Client,
 // Error 463 does not apply to group/broadcast/newsletter/legacy-server JIDs.
 func isUserJID(jid types.JID) bool {
 	return jid.Server == types.DefaultUserServer || jid.Server == types.HiddenUserServer
+}
+
+func waitForReachoutPrivacyToken(ctx context.Context, client *whatsmeow.Client, recipient types.JID) bool {
+	if client == nil || client.Store == nil || client.Store.PrivacyTokens == nil {
+		return false
+	}
+
+	waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reachoutPrivacyTokenWait)
+	defer cancel()
+
+	if hasReachoutPrivacyToken(waitCtx, client, recipient) {
+		return true
+	}
+
+	ticker := time.NewTicker(reachoutPrivacyTokenPollPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			return false
+		case <-ticker.C:
+			if hasReachoutPrivacyToken(waitCtx, client, recipient) {
+				return true
+			}
+		}
+	}
+}
+
+func hasReachoutPrivacyToken(ctx context.Context, client *whatsmeow.Client, recipient types.JID) bool {
+	token, err := client.Store.PrivacyTokens.GetPrivacyToken(ctx, recipient.ToNonAD())
+	if err != nil {
+		logrus.Debugf("Failed to check privacy token for %s before retry: %v", recipient.String(), err)
+		return false
+	}
+	return token != nil && len(token.Token) > 0
 }

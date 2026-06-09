@@ -129,6 +129,7 @@ All webhook payloads follow a consistent top-level structure:
 {
   "event": "message",
   "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
   "payload": {
     // Event-specific fields
   }
@@ -137,11 +138,12 @@ All webhook payloads follow a consistent top-level structure:
 
 ### Top-Level Fields
 
-| **Field**   | **Type** | **Description**                                                                                                     |
-|-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
-| `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
-| `payload`   | object   | Event-specific payload data                                                                                         |
+| **Field**    | **Type** | **Description**                                                                                                     |
+|--------------|----------|---------------------------------------------------------------------------------------------------------------------|
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
+| `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
+| `payload`    | object   | Event-specific payload data                                                                                         |
 
 ### Common Payload Fields
 

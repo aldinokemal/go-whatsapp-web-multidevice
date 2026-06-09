@@ -173,7 +173,7 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 	return &Client{
 		BaseURL:    canonical,
-		APIToken:   apiToken,
+		APIToken:   strings.TrimSpace(apiToken),
 		AccountID:  accountID,
 		InboxID:    inboxID,
 		HTTPClient: httpClient,

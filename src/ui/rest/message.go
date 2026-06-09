@@ -1,6 +1,12 @@
 package rest
 
 import (
+	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -167,13 +173,11 @@ func (controller *Message) DownloadMedia(c *fiber.Ctx) error {
 	request.Phone = c.Query("phone")
 	utils.SanitizePhone(&request.Phone)
 
-	ctx := c.UserContext()
-	if device, ok := c.Locals("device").(*whatsapp.DeviceInstance); ok {
-		ctx = whatsapp.ContextWithDevice(ctx, device)
-	}
-
-	response, err := controller.Service.DownloadMedia(ctx, request)
+	response, err := controller.Service.DownloadMedia(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
+	if response.FileURL == "" {
+		response.FileURL = publicStaticFileURL(c, response.FilePath)
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -181,4 +185,30 @@ func (controller *Message) DownloadMedia(c *fiber.Ctx) error {
 		Message: response.Status,
 		Results: response,
 	})
+}
+
+func publicStaticFileURL(c *fiber.Ctx, filePath string) string {
+	staticPath := publicStaticPath(filePath)
+	if staticPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s%s%s", c.Protocol(), c.Hostname(), config.AppBasePath, staticPath)
+}
+
+func publicStaticPath(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+
+	normalizedPath := filepath.FromSlash(strings.ReplaceAll(filePath, "\\", "/"))
+	rel, err := filepath.Rel("statics", normalizedPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return "/statics/" + strings.Join(parts, "/")
 }

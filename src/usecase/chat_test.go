@@ -97,3 +97,32 @@ func (r *chatUsecaseRepoStub) GetChatMessageCount(string) (int64, error) {
 func (r *chatUsecaseRepoStub) CreateReaction(context.Context, *events.Message) error {
 	return nil
 }
+
+// TestChatDisplayName pins the chat-list name fallback (issue #675): a stored
+// name is returned verbatim, but an empty name must never leak to the API as a
+// blank string — it falls back to a JID-derived label so the sender stays
+// identifiable.
+func TestChatDisplayName(t *testing.T) {
+	cases := []struct {
+		name string
+		jid  string
+		in   string
+		want string
+	}{
+		{"keeps non-empty 1:1 name", "628123456789@s.whatsapp.net", "Alice", "Alice"},
+		{"empty 1:1 falls back to phone", "628123456789@s.whatsapp.net", "", "628123456789"},
+		{"empty group falls back to Group id", "120363999000111@g.us", "", "Group 120363999000111"},
+		{"keeps non-empty group name", "120363999000111@g.us", "Family", "Family"},
+		{"empty newsletter falls back to Newsletter id", "120363111@newsletter", "", "Newsletter 120363111"},
+		{"empty lid falls back to lid local part", "1234567890abcd@lid", "", "1234567890abcd"},
+		{"empty status broadcast titled Status not local part", "status@broadcast", "", "Status"},
+		{"keeps non-empty status broadcast name", "status@broadcast", "Status", "Status"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := chatDisplayName(tc.jid, tc.in); got != tc.want {
+				t.Fatalf("chatDisplayName(%q, %q) = %q, want %q", tc.jid, tc.in, got, tc.want)
+			}
+		})
+	}
+}
