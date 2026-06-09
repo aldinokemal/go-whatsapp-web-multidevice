@@ -48,23 +48,34 @@ func TestNewClient_TrimsTrailingSlashAndMapsConfig(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name    string
-		url     string
-		wantURL string
+		name      string
+		url       string
+		token     string
+		wantURL   string
+		wantToken string
 	}{
 		// The trailing slash matters: endpoints are built with
 		// fmt.Sprintf("%s/api/v1/...") so a stray slash would yield a
 		// double-slash path. TrimRight removes any run of trailing slashes.
-		{"single trailing slash", "https://chatwoot.example.com/", "https://chatwoot.example.com"},
-		{"multiple trailing slashes", "https://chatwoot.example.com///", "https://chatwoot.example.com"},
-		{"no trailing slash", "https://chatwoot.example.com", "https://chatwoot.example.com"},
-		{"empty url stays empty", "", ""},
+		{"single trailing slash", "https://chatwoot.example.com/", "tok-123", "https://chatwoot.example.com", "tok-123"},
+		{"multiple trailing slashes", "https://chatwoot.example.com///", "tok-123", "https://chatwoot.example.com", "tok-123"},
+		{"no trailing slash", "https://chatwoot.example.com", "tok-123", "https://chatwoot.example.com", "tok-123"},
+		{"empty url stays empty", "", "tok-123", "", "tok-123"},
+		// Tokens/URLs from Docker secret files, .env lines, or shell heredocs
+		// commonly carry surrounding whitespace or a trailing newline. An
+		// untrimmed token yields a malformed "api_access_token" header and a
+		// 401 from Chatwoot (issue #674); a newline on the URL survives the
+		// slash trim and corrupts every endpoint. Both must be trimmed.
+		{"token with trailing newline", "https://chatwoot.example.com", "tok-123\n", "https://chatwoot.example.com", "tok-123"},
+		{"token with surrounding spaces", "https://chatwoot.example.com", "  tok-123  ", "https://chatwoot.example.com", "tok-123"},
+		{"url with trailing newline before slash", "https://chatwoot.example.com/\n", "tok-123", "https://chatwoot.example.com", "tok-123"},
+		{"url with surrounding whitespace", "  https://chatwoot.example.com/  ", "tok-123", "https://chatwoot.example.com", "tok-123"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			config.ChatwootURL = tc.url
-			config.ChatwootAPIToken = "tok-123"
+			config.ChatwootAPIToken = tc.token
 			config.ChatwootAccountID = 7
 			config.ChatwootInboxID = 9
 
@@ -73,8 +84,8 @@ func TestNewClient_TrimsTrailingSlashAndMapsConfig(t *testing.T) {
 			if c.BaseURL != tc.wantURL {
 				t.Errorf("BaseURL = %q, want %q", c.BaseURL, tc.wantURL)
 			}
-			if c.APIToken != "tok-123" {
-				t.Errorf("APIToken = %q, want tok-123", c.APIToken)
+			if c.APIToken != tc.wantToken {
+				t.Errorf("APIToken = %q, want %q", c.APIToken, tc.wantToken)
 			}
 			if c.AccountID != 7 {
 				t.Errorf("AccountID = %d, want 7", c.AccountID)
