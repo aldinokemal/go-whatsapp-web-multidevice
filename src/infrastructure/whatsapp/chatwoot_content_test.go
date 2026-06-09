@@ -243,6 +243,102 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 	})
 }
 
+// TestExtractChatwootContactInfoPrefersSavedAddressBookName pins the issue #688
+// fix: a 1:1 contact's Chatwoot name must prefer the operator's saved
+// address-book name (resolved from the WhatsApp contact store) over the event
+// pushname and the bare phone number, while still falling back cleanly when no
+// saved name exists. The contact-store lookup is stubbed via contactDisplayNameFn.
+func TestExtractChatwootContactInfoPrefersSavedAddressBookName(t *testing.T) {
+	ctx := context.Background()
+	orig := contactDisplayNameFn
+	defer func() { contactDisplayNameFn = orig }()
+
+	t.Run("incoming 1:1 prefers saved name over pushname", func(t *testing.T) {
+		contactDisplayNameFn = func(_ context.Context, jid string) string {
+			if jid == "628123456789@s.whatsapp.net" {
+				return "Saved Name"
+			}
+			return ""
+		}
+		info, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":      "628123456789@s.whatsapp.net",
+			"chat_id":   "628123456789@s.whatsapp.net",
+			"from_name": "Pushy",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.Name != "Saved Name" {
+			t.Fatalf("expected saved address-book name, got %q", info.Name)
+		}
+	})
+
+	t.Run("incoming 1:1 falls back to pushname when no saved name", func(t *testing.T) {
+		contactDisplayNameFn = func(context.Context, string) string { return "" }
+		info, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":      "628123456789@s.whatsapp.net",
+			"chat_id":   "628123456789@s.whatsapp.net",
+			"from_name": "Pushy",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.Name != "Pushy" {
+			t.Fatalf("expected fallback to pushname, got %q", info.Name)
+		}
+	})
+
+	t.Run("incoming 1:1 falls back to phone when no saved name and no pushname", func(t *testing.T) {
+		contactDisplayNameFn = func(context.Context, string) string { return "" }
+		info, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":    "628123456789@s.whatsapp.net",
+			"chat_id": "628123456789@s.whatsapp.net",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.Name != "628123456789" {
+			t.Fatalf("expected fallback to phone identifier, got %q", info.Name)
+		}
+	})
+
+	t.Run("outgoing 1:1 uses recipient saved name", func(t *testing.T) {
+		contactDisplayNameFn = func(_ context.Context, jid string) string {
+			if jid == "628999@s.whatsapp.net" {
+				return "Recipient Saved"
+			}
+			return ""
+		}
+		info, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":       "628000@s.whatsapp.net",
+			"chat_id":    "628999@s.whatsapp.net",
+			"is_from_me": true,
+			"from_name":  "Me",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.Name != "Recipient Saved" {
+			t.Fatalf("expected recipient saved name for outgoing, got %q", info.Name)
+		}
+	})
+
+	t.Run("outgoing 1:1 falls back to identifier when no saved name", func(t *testing.T) {
+		contactDisplayNameFn = func(context.Context, string) string { return "" }
+		info, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":       "628000@s.whatsapp.net",
+			"chat_id":    "628999@s.whatsapp.net",
+			"is_from_me": true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.Name != info.Identifier {
+			t.Fatalf("expected Name==Identifier for outgoing fallback, got Name=%q Identifier=%q", info.Name, info.Identifier)
+		}
+	})
+}
+
 // TestBuildChatwootMessageContent pins how a message payload is rendered into the
 // (content, attachments) pair Chatwoot receives. The media handling and group
 // sender-prefixing are the regression-prone parts: a dropped attachment or a
