@@ -31,11 +31,16 @@ func NewChatService(chatStorageRepo domainChatStorage.IChatStorageRepository) do
 // before a pushname/group subject is known (or with stale empty names), which
 // otherwise surfaces as a blank "name" in the chat list and makes the sender
 // impossible to identify (issue #675). The fallback mirrors the storage-layer
-// convention in GetChatNameWithPushName: phone number for 1:1, "Group <id>" /
-// "Newsletter <id>" for those address spaces.
+// convention in GetChatNameWithPushName: "Status" for status@broadcast, phone
+// number for 1:1, "Group <id>" / "Newsletter <id>" for those address spaces.
 func chatDisplayName(jid, name string) string {
 	if name != "" {
 		return name
+	}
+	// Mirror the storage-layer contract (GetChatNameWithPushNameByDevice):
+	// status@broadcast is always titled "Status", never its lowercase JID local part.
+	if jid == "status@broadcast" {
+		return "Status"
 	}
 	user := utils.ExtractPhoneFromJID(jid)
 	switch {

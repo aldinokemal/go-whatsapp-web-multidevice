@@ -115,6 +115,8 @@ func TestChatDisplayName(t *testing.T) {
 		{"keeps non-empty group name", "120363999000111@g.us", "Family", "Family"},
 		{"empty newsletter falls back to Newsletter id", "120363111@newsletter", "", "Newsletter 120363111"},
 		{"empty lid falls back to lid local part", "1234567890abcd@lid", "", "1234567890abcd"},
+		{"empty status broadcast titled Status not local part", "status@broadcast", "", "Status"},
+		{"keeps non-empty status broadcast name", "status@broadcast", "Status", "Status"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
