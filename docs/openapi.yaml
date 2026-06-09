@@ -1875,19 +1875,26 @@ paths:
                       status:
                         type: string
                         example: Media downloaded successfully
-                      mime_type:
+                      message_id:
                         type: string
-                        example: image/jpeg
+                        example: 3EB0ABC123456789
+                      media_type:
+                        type: string
+                        example: audio
+                      filename:
+                        type: string
+                        example: audio.ogg
+                      file_path:
+                        type: string
+                        description: Local server file path where the media was saved
+                        example: statics/media/6289685028129/2026-06-09/audio.ogg
+                      file_url:
+                        type: string
+                        description: Public URL for downloading the saved media when it is stored under the served statics directory
+                        example: http://localhost:3000/statics/media/6289685028129/2026-06-09/audio.ogg
                       file_size:
                         type: integer
                         example: 524288
-                      file_name:
-                        type: string
-                        example: image.jpg
-                      data:
-                        type: string
-                        format: byte
-                        description: Base64 encoded media data
         '400':
           description: Bad Request
           content:
