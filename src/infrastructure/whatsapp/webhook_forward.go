@@ -24,6 +24,10 @@ var (
 	// 1:1 JID from the WhatsApp contact store. It is a seam so tests can stub
 	// the lookup without a real client/store.
 	contactDisplayNameFn = lookupContactDisplayName
+	// sessionIDForJIDFn resolves the operator-facing session id (the device_id
+	// registered via POST /devices, e.g. "org_2") for a connected WhatsApp JID.
+	// It is a seam so tests can stub the device-manager lookup.
+	sessionIDForJIDFn = sessionIDForJID
 )
 
 // mutexShardCount is the number of mutex shards for contact synchronization.
@@ -89,6 +93,15 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		return nil
 	}
 
+	// Enrich the payload with the operator-facing session id so multi-tenant
+	// consumers can correlate a webhook (whose device_id is the WhatsApp JID)
+	// back to the session id they registered via POST /devices. Done here,
+	// synchronously, before the Chatwoot goroutine is spawned below, so the
+	// shared payload map is never mutated concurrently.
+	if webhookAllowed {
+		addWebhookSessionID(payload)
+	}
+
 	var err error
 	if webhookAllowed {
 		err = forwardToWebhooks(ctx, payload, eventName)
@@ -101,6 +114,41 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	return err
+}
+
+// addWebhookSessionID injects the operator-facing session id into a webhook
+// payload, derived from its device_id (the WhatsApp JID). It is a no-op when the
+// JID can't be mapped to a session (single-session deployments before login, or
+// JIDs not tracked by the device manager) or when session_id is already present,
+// keeping the change backward-compatible: device_id stays the JID.
+func addWebhookSessionID(payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	if _, exists := payload["session_id"]; exists {
+		return
+	}
+	jid, _ := payload["device_id"].(string)
+	if sessionID := sessionIDForJIDFn(jid); sessionID != "" {
+		payload["session_id"] = sessionID
+	}
+}
+
+// sessionIDForJID resolves the session id registered via POST /devices for a
+// connected WhatsApp JID, using the global device manager. Returns "" when no
+// manager or matching instance is available.
+func sessionIDForJID(jid string) string {
+	if jid == "" {
+		return ""
+	}
+	dm := GetDeviceManager()
+	if dm == nil {
+		return ""
+	}
+	if inst, ok := dm.getDeviceByJID(jid); ok && inst != nil {
+		return inst.ID()
+	}
+	return ""
 }
 
 func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
