@@ -12,7 +12,7 @@ Iteration 1 shipped #688 (PR #714, since **merged** to main as `9266165`). This 
 
 ### Root cause
 
-`ListChats` and `GetChatMessages` ([src/usecase/chat.go](src/usecase/chat.go)) mapped `chatInfo.Name = chat.Name` verbatim. `GetChats` reads the stored name straight from sqlite with no fallback, so a chat persisted before a pushname/group subject is known (or with a stale empty name) returns `"name": ""` to the API and the web UI — the row shows blank.
+`ListChats` and `GetChatMessages` ([src/usecase/chat.go](../src/usecase/chat.go)) mapped `chatInfo.Name = chat.Name` verbatim. `GetChats` reads the stored name straight from sqlite with no fallback, so a chat persisted before a pushname/group subject is known (or with a stale empty name) returns `"name": ""` to the API and the web UI — the row shows blank.
 
 ### Fix
 
