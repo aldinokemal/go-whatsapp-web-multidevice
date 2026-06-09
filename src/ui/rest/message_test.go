@@ -24,6 +24,11 @@ func TestPublicStaticPath(t *testing.T) {
 			want:     "",
 		},
 		{
+			name:     "path traversal",
+			filePath: "../../etc/passwd",
+			want:     "",
+		},
+		{
 			name:     "empty path",
 			filePath: "",
 			want:     "",

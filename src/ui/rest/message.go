@@ -173,12 +173,7 @@ func (controller *Message) DownloadMedia(c *fiber.Ctx) error {
 	request.Phone = c.Query("phone")
 	utils.SanitizePhone(&request.Phone)
 
-	ctx := c.UserContext()
-	if device, ok := c.Locals("device").(*whatsapp.DeviceInstance); ok {
-		ctx = whatsapp.ContextWithDevice(ctx, device)
-	}
-
-	response, err := controller.Service.DownloadMedia(ctx, request)
+	response, err := controller.Service.DownloadMedia(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 	if response.FileURL == "" {
 		response.FileURL = publicStaticFileURL(c, response.FilePath)
