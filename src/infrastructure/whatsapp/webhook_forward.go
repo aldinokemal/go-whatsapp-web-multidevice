@@ -459,6 +459,10 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
+	if poll, ok := data["poll"]; ok && poll != nil {
+		return structuredPollSummary(poll)
+	}
+
 	return ""
 }
 
@@ -504,6 +508,73 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 	}
 	first := contacts[0]
 	return utils.FormatContactSummary(first.DisplayName, first.PhoneNumber, true)
+}
+
+// structuredPollSummary builds the Chatwoot fallback text for any supported poll payload shape.
+func structuredPollSummary(poll any) string {
+	switch p := poll.(type) {
+	case *webhookPollPayload:
+		if p == nil {
+			return "Poll"
+		}
+		return structuredPollPayloadSummary(*p)
+	case webhookPollPayload:
+		return structuredPollPayloadSummary(p)
+	case map[string]any:
+		pollType, _ := p["type"].(string)
+		name, _ := p["name"].(string)
+		if name != "" {
+			switch pollType {
+			case "results":
+				return "Poll results: " + name
+			case "vote":
+				return "Poll vote: " + name
+			default:
+				return "Poll: " + name
+			}
+		}
+		if pollType == "vote" {
+			if id, _ := p["poll_creation_message_id"].(string); id != "" {
+				return "Poll vote: " + id
+			}
+			return "Poll vote"
+		}
+		if pollType == "results" {
+			return "Poll results"
+		}
+		if pollType == "add_option" {
+			return "Poll option added"
+		}
+		return "Poll"
+	default:
+		return "Poll"
+	}
+}
+
+// structuredPollPayloadSummary builds a short Chatwoot text summary from a normalized poll payload.
+func structuredPollPayloadSummary(poll webhookPollPayload) string {
+	switch poll.Type {
+	case "vote":
+		if poll.PollCreationMessageID != "" {
+			return "Poll vote: " + poll.PollCreationMessageID
+		}
+		return "Poll vote"
+	case "results":
+		if poll.Name != "" {
+			return "Poll results: " + poll.Name
+		}
+		return "Poll results"
+	case "add_option":
+		if poll.AddedOption != nil && poll.AddedOption.Name != "" {
+			return "Poll option added: " + poll.AddedOption.Name
+		}
+		return "Poll option added"
+	default:
+		if poll.Name != "" {
+			return "Poll: " + poll.Name
+		}
+		return "Poll"
+	}
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.

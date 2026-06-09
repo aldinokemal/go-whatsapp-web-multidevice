@@ -115,6 +115,109 @@ func TestBuildEventPayloadReactionWithoutKeyDoesNotPanic(t *testing.T) {
 	}
 }
 
+// TestBuildEventPayloadPollCreation verifies poll creation messages populate body and poll webhook fields.
+func TestBuildEventPayloadPollCreation(t *testing.T) {
+	selectableCount := uint32(1)
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "POLL1",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			PollCreationMessage: &waE2E.PollCreationMessage{
+				Name:                   protoString("Lunch?"),
+				SelectableOptionsCount: &selectableCount,
+				Options: []*waE2E.PollCreationMessage_Option{
+					{OptionName: protoString("Pizza"), OptionHash: protoString("hash-pizza")},
+					{OptionName: protoString("Sushi"), OptionHash: protoString("hash-sushi")},
+				},
+			},
+		},
+	}
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessage {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessage, eventType)
+	}
+	if got := payload["body"]; got != "Poll: Lunch?" {
+		t.Fatalf("expected poll body, got %v", got)
+	}
+
+	poll, ok := payload["poll"].(*webhookPollPayload)
+	if !ok {
+		t.Fatalf("expected poll payload, got %T", payload["poll"])
+	}
+	if poll.Type != "creation" {
+		t.Fatalf("expected poll creation type, got %s", poll.Type)
+	}
+	if poll.Name != "Lunch?" {
+		t.Fatalf("expected poll name, got %q", poll.Name)
+	}
+	if poll.SelectableOptionsCount != 1 {
+		t.Fatalf("expected selectable count 1, got %d", poll.SelectableOptionsCount)
+	}
+	if len(poll.Options) != 2 || poll.Options[0].Name != "Pizza" || poll.Options[1].Hash != "hash-sushi" {
+		t.Fatalf("unexpected poll options: %+v", poll.Options)
+	}
+}
+
+// TestBuildEventPayloadPollVote verifies poll vote messages include encrypted vote metadata without a client.
+func TestBuildEventPayloadPollVote(t *testing.T) {
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("123", types.DefaultUserServer),
+				Sender:   types.NewJID("456", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        "POLL-VOTE1",
+			Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			PollUpdateMessage: &waE2E.PollUpdateMessage{
+				PollCreationMessageKey: &waCommon.MessageKey{
+					RemoteJID: protoString("123@s.whatsapp.net"),
+					FromMe:    protoBool(false),
+					ID:        protoString("POLL1"),
+				},
+			},
+		},
+	}
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessage {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessage, eventType)
+	}
+	if got := payload["body"]; got != "Poll vote: POLL1" {
+		t.Fatalf("expected poll vote body, got %v", got)
+	}
+
+	poll, ok := payload["poll"].(*webhookPollPayload)
+	if !ok {
+		t.Fatalf("expected poll payload, got %T", payload["poll"])
+	}
+	if poll.Type != "vote" {
+		t.Fatalf("expected poll vote type, got %s", poll.Type)
+	}
+	if poll.PollCreationMessageID != "POLL1" {
+		t.Fatalf("expected poll creation id, got %q", poll.PollCreationMessageID)
+	}
+	if !poll.Encrypted {
+		t.Fatal("expected poll vote to be marked encrypted without a WhatsApp client")
+	}
+}
+
 func protoString(value string) *string {
 	return &value
 }
