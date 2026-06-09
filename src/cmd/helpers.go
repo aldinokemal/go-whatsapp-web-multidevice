@@ -23,14 +23,19 @@ import (
 // would make a due retry resolve to "no client" and be marked done (deleted)
 // without delivery. Initializing first closes that race; the env inbox
 // auto-create (when enabled) runs ahead of both so the legacy client has its
-// inbox id resolved before any forward.
+// inbox id resolved before any forward when no per-device configs exist.
 func initChatwootForwarding(repo domainChatStorage.IChatStorageRepository) {
 	if !config.ChatwootEnabled {
 		return
 	}
 	if config.ChatwootAutoCreate {
-		if err := chatwoot.EnsureInbox(chatwoot.GetDefaultClient()); err != nil {
-			logrus.Errorf("Chatwoot auto-create failed: %v", err)
+		count, err := repo.CountChatwootDeviceConfigs()
+		if err != nil {
+			logrus.Errorf("Chatwoot auto-create skipped: failed to count per-device configs: %v", err)
+		} else if count == 0 {
+			if err := chatwoot.EnsureInbox(chatwoot.GetDefaultClient()); err != nil {
+				logrus.Errorf("Chatwoot auto-create failed: %v", err)
+			}
 		}
 	}
 	// Stamp the env account id onto pre-migration legacy links (account id 0) so
