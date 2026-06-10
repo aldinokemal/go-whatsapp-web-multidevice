@@ -12,6 +12,7 @@ export default {
             loading: false,
             selectedFileName: null,
             is_forwarded: false,
+            reply_message_id: '',
             audio_url: null,
             duration: 0,
             ptt: false,
@@ -29,6 +30,9 @@ export default {
                     return false;
                 }
             }).modal('show');
+        },
+        isShowAttributes() {
+            return this.type !== window.TYPESTATUS;
         },
         isValidForm() {
             if (this.type !== window.TYPEUSER && !this.phone.trim()) {
@@ -61,6 +65,10 @@ export default {
                 payload.append("phone", this.phone_id)
                 payload.append("is_forwarded", this.is_forwarded)
                 payload.append("ptt", this.ptt)
+                const replyMessageID = this.reply_message_id.trim()
+                if (this.isShowAttributes() && replyMessageID !== '') {
+                    payload.append("reply_message_id", replyMessageID)
+                }
                 if (this.duration && this.duration > 0) {
                     payload.append("duration", this.duration)
                 }
@@ -90,6 +98,7 @@ export default {
             this.phone = '';
             this.type = window.TYPEUSER;
             this.is_forwarded = false;
+            this.reply_message_id = '';
             this.duration = 0;
             this.ptt = false;
             $("#file_audio").val('');
@@ -123,6 +132,12 @@ export default {
         <div class="content">
             <form class="ui form">
                 <FormRecipient v-model:type="type" v-model:phone="phone"/>
+                <div class="field" v-if="isShowAttributes()">
+                    <label>Reply Message ID</label>
+                    <input v-model="reply_message_id" type="text"
+                           placeholder="Optional: 57D29F74B7FC62F57D8AC2C840279B5B/3EB0288F008D32FCD0A424"
+                           aria-label="reply_message_id">
+                </div>
                 <div class="field">
                     <label>Is Forwarded</label>
                     <div class="ui toggle checkbox">

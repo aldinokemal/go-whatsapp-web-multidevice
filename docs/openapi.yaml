@@ -901,6 +901,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -970,6 +974,10 @@ paths:
                   type: string
                   example: https://example.com/audio.mp3
                   description: Audio URL to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1019,6 +1027,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 file:
                   type: string
                   format: binary
@@ -1126,6 +1138,10 @@ paths:
                   type: string
                   example: ini contoh caption video
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false

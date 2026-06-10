@@ -146,6 +146,19 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	if viper.IsSet("whatsapp_presence_pulse_enabled") {
+		config.WhatsappPresencePulseEnabled = viper.GetBool("whatsapp_presence_pulse_enabled")
+	}
+	if viper.IsSet("whatsapp_presence_pulse_interval") {
+		if interval := viper.GetDuration("whatsapp_presence_pulse_interval"); interval > 0 {
+			config.WhatsappPresencePulseInterval = interval
+		}
+	}
+	if viper.IsSet("whatsapp_presence_pulse_duration") {
+		if duration := viper.GetDuration("whatsapp_presence_pulse_duration"); duration > 0 {
+			config.WhatsappPresencePulseDuration = duration
+		}
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {
@@ -296,6 +309,24 @@ func initFlags() {
 		"presence-on-connect", "",
 		config.WhatsappPresenceOnConnect,
 		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappPresencePulseEnabled,
+		"presence-pulse-enabled", "",
+		config.WhatsappPresencePulseEnabled,
+		`enable daily presence pulse --presence-pulse-enabled <true/false> | example: --presence-pulse-enabled=true`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseInterval,
+		"presence-pulse-interval", "",
+		config.WhatsappPresencePulseInterval,
+		`presence pulse interval --presence-pulse-interval <duration> | example: --presence-pulse-interval=24h`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.WhatsappPresencePulseDuration,
+		"presence-pulse-duration", "",
+		config.WhatsappPresencePulseDuration,
+		`duration to stay available during a presence pulse --presence-pulse-duration <duration> | example: --presence-pulse-duration=5m`,
 	)
 
 	// Chatwoot flags
