@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 )
 
@@ -44,6 +46,9 @@ var (
 	WhatsappTypeLid                            = "@lid"
 	WhatsappAccountValidation                  = true
 	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
+	WhatsappPresencePulseEnabled               = true          // Periodically pulse presence available, then unavailable
+	WhatsappPresencePulseInterval              = 24 * time.Hour
+	WhatsappPresencePulseDuration              = 5 * time.Minute
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true

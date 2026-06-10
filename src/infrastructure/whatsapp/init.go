@@ -11,6 +11,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
@@ -32,32 +33,34 @@ var (
 	startupTime   = time.Now().Unix()
 )
 
-func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container) {
-	if keysDB == nil {
+func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid types.JID) {
+	if db == nil || keysDB == nil || jid.IsEmpty() {
 		return
 	}
 
-	dev, err := db.GetFirstDevice(ctx)
+	dev, err := findStoreDeviceByJID(ctx, db, jid)
 	if err != nil {
-		log.Errorf("Failed to get all devices: %v", err)
-	} else {
-		found := false
-		if devs, err := keysDB.GetAllDevices(ctx); err != nil {
-			log.Errorf("Failed to get all devices: %v", err)
-		} else {
-			for _, d := range devs {
-				if d.ID == dev.ID {
-					found = true
-					break
-				} else {
-					keysDB.DeleteDevice(ctx, d)
-				}
-			}
+		log.Errorf("Failed to find device for keys sync: %v", err)
+		return
+	}
+	if dev == nil || dev.ID == nil {
+		return
+	}
 
-			if !found {
-				keysDB.PutDevice(ctx, dev)
-			}
+	devices, err := keysDB.GetAllDevices(ctx)
+	if err != nil {
+		log.Errorf("Failed to get keys devices: %v", err)
+		return
+	}
+	targetJID := dev.ID.ToNonAD().String()
+	for _, existing := range devices {
+		if existing != nil && existing.ID != nil && existing.ID.ToNonAD().String() == targetJID {
+			return
 		}
+	}
+
+	if err := keysDB.PutDevice(ctx, dev); err != nil {
+		log.Errorf("Failed to sync keys device %s: %v", targetJID, err)
 	}
 }
 
@@ -87,7 +90,7 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	if keysContainer != nil && device.ID != nil {
 		innerStore := sqlstore.NewSQLStore(keysStoreContainer, *device.ID)
 
-		syncKeysDevice(ctx, primaryDB, keysContainer)
+		syncKeysDevice(ctx, primaryDB, keysContainer, *device.ID)
 		applyKeyCacheStore(device, innerStore)
 	}
 
