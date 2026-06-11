@@ -20,6 +20,15 @@
     <title>WhatsApp API {{ .AppVersion }}</title>
 </head>
 <body>
+<script>
+    (function() {
+        const theme = localStorage.getItem('theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.body.classList.add('dark-mode');
+        }
+    })();
+</script>
+
 <div id="splash-screen">
     <!-- Clean squircle logo without background wrapper -->
     <img src="{{ .AppBasePath }}/assets/gowa.svg" alt="GoWA Logo" class="splash-icon" id="main-logo">
@@ -36,8 +45,14 @@
                 
                 <span>WhatsApp API</span>
                 
-                <div class="version-label">
-                    {{ .AppVersion }}
+                <div class="header-actions" style="display: flex; align-items: center; gap: 10px; z-index: 10;">
+                    <button class="ui circular icon button theme-toggle-btn" @click="toggleTheme" title="Toggle Theme" style="background: rgba(255,255,255,0.15) !important; color: white !important; margin: 0; box-shadow: none !important;">
+                        <i class="moon icon" v-if="!darkMode" style="margin: 0 !important;"></i>
+                        <i class="sun icon" v-else style="margin: 0 !important;"></i>
+                    </button>
+                    <div class="version-label" style="margin-top: 0 !important;">
+                        {{ .AppVersion }}
+                    </div>
                 </div>
             </div>
         </h1>
@@ -287,6 +302,7 @@
                 connected_devices: null,
                 deviceList: [],
                 selectedDeviceId: '',
+                darkMode: document.body.classList.contains('dark-mode'),
             }
         },
         computed: {
@@ -299,6 +315,16 @@
             },
         },
         methods: {
+            toggleTheme() {
+                this.darkMode = !this.darkMode;
+                if (this.darkMode) {
+                    document.body.classList.add('dark-mode');
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    document.body.classList.remove('dark-mode');
+                    localStorage.setItem('theme', 'light');
+                }
+            },
             applyDeviceHeader(id) {
                 if (id) {
                     window.http.defaults.headers.common[DEVICE_ID_HEADER] = encodeURIComponent(id);

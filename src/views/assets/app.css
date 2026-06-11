@@ -15,6 +15,7 @@ body {
     background-color: var(--background-color) !important;
     color: var(--text-color) !important;
     font-family: "Helvetica Neue", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .container {
@@ -390,4 +391,354 @@ body {
         image-rendering: optimize-contrast;
         image-rendering: crisp-edges;
     }
+}
+
+/* Dark Mode variables */
+body.dark-mode {
+    --background-color: #0b141a; /* WhatsApp Web dark bg */
+    --message-background: #111b21;
+    --card-hover-color: #1d2a35;
+    --text-color: #e9edef;
+    --secondary-text-color: #8696a0;
+    --border-color: #222e35;
+    --input-background: #202c33;
+    --input-border: #2a3942;
+    --modal-background: #111b21;
+    --modal-actions-background: #202c33;
+    --divider-color: #222e35;
+    --toast-background: #111b21;
+}
+
+/* Dark Mode Elements Overrides */
+body.dark-mode {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.segment,
+body.dark-mode .ui.segments,
+body.dark-mode .ui.attached.segment {
+    background-color: var(--message-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+body.dark-mode .ui.segment .header,
+body.dark-mode .ui.segment .sub.header,
+body.dark-mode .ui.segment p,
+body.dark-mode .ui.segment label {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.segment .sub.header {
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.placeholder.segment {
+    background-color: var(--input-background) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.cards > .card {
+    background-color: var(--message-background) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+body.dark-mode .ui.cards > .card:hover {
+    background-color: var(--card-hover-color) !important;
+    box-shadow: 0 12px 24px rgba(0, 173, 216, 0.3) !important;
+}
+
+body.dark-mode .ui.card > .content > .header,
+body.dark-mode .ui.cards > .card > .content > .header {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.card > .content > .description,
+body.dark-mode .ui.cards > .card > .content > .description {
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.card > .extra.content,
+body.dark-mode .ui.cards > .card > .extra.content {
+    border-top: 1px solid var(--border-color) !important;
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.form label {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.form input:not([type]),
+body.dark-mode .ui.form input[type=text],
+body.dark-mode .ui.form input[type=password],
+body.dark-mode .ui.form input[type=email],
+body.dark-mode .ui.form input[type=number],
+body.dark-mode .ui.form input[type=search],
+body.dark-mode .ui.form input[type=url],
+body.dark-mode .ui.form input[type=tel],
+body.dark-mode .ui.form input[type=date],
+body.dark-mode .ui.form textarea,
+body.dark-mode .ui.input > input {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border: 2px solid var(--input-border) !important;
+}
+
+body.dark-mode .ui.form input:focus,
+body.dark-mode .ui.form textarea:focus,
+body.dark-mode .ui.input > input:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(0, 173, 216, 0.2) !important;
+}
+
+/* Modals */
+body.dark-mode .ui.modal {
+    background-color: var(--modal-background) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.dark-mode .ui.modal > .header {
+    background: var(--gradient-start) !important;
+    color: white !important;
+}
+
+body.dark-mode .ui.modal > .content {
+    background-color: var(--modal-background) !important;
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.modal > .actions {
+    background-color: var(--modal-actions-background) !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.modal > .content > .ui.segment {
+    background-color: var(--input-background) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* Lists and Items */
+body.dark-mode .ui.list > .item > .content {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.list > .item .header {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.list > .item .description {
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.relaxed.list > .item {
+    border-bottom: 1px solid var(--border-color) !important;
+    padding-bottom: 0.8em !important;
+    padding-top: 0.8em !important;
+}
+
+body.dark-mode .ui.relaxed.list > .item:last-child {
+    border-bottom: none !important;
+}
+
+/* Dividers */
+body.dark-mode .ui.divider:not(.horizontal) {
+    border-top: 1px solid var(--border-color) !important;
+    border-bottom: none !important;
+}
+
+body.dark-mode .ui.horizontal.divider {
+    color: var(--primary-color) !important;
+}
+
+body.dark-mode .ui.horizontal.divider::before,
+body.dark-mode .ui.horizontal.divider::after {
+    border-top: 1px solid var(--border-color) !important;
+}
+
+/* Info and Warning Messages */
+body.dark-mode .ui.info.message,
+body.dark-mode .ui.warning.message,
+body.dark-mode .ui.error.message,
+body.dark-mode .ui.message {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.info.message .header,
+body.dark-mode .ui.warning.message .header,
+body.dark-mode .ui.error.message .header,
+body.dark-mode .ui.message .header {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.info.message {
+    border-left: 5px solid var(--primary-color) !important;
+}
+
+body.dark-mode .ui.warning.message {
+    border-left: 5px solid #f2711c !important;
+}
+
+body.dark-mode .ui.error.message {
+    border-left: 5px solid #db2828 !important;
+}
+
+body.dark-mode .ui.success.message {
+    background-color: rgba(0, 173, 216, 0.1) !important;
+    border: 1px solid var(--border-color) !important;
+    border-left: 5px solid var(--primary-color) !important;
+    color: var(--primary-color) !important;
+}
+
+/* Buttons */
+body.dark-mode .ui.button:not(.primary):not(.red):not(.green):not(.blue):not(.theme-toggle-btn) {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.button:not(.primary):not(.red):not(.green):not(.blue):not(.theme-toggle-btn):hover {
+    background-color: var(--card-hover-color) !important;
+}
+
+body.dark-mode .ui.buttons .or {
+    background-color: var(--border-color) !important;
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.buttons .or::before {
+    color: var(--secondary-text-color) !important;
+}
+
+/* Toast styling override */
+body.dark-mode .ui.toast {
+    background-color: var(--toast-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.dark-mode .ui.toast .header {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.toast .content {
+    color: var(--secondary-text-color) !important;
+}
+
+/* Tables styling */
+body.dark-mode table.ui.table {
+    background-color: var(--message-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode table.ui.table th {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode table.ui.table td {
+    background-color: var(--message-background) !important;
+    color: var(--text-color) !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .dataTables_wrapper .dataTables_length,
+body.dark-mode .dataTables_wrapper .dataTables_filter,
+body.dark-mode .dataTables_wrapper .dataTables_info,
+body.dark-mode .dataTables_wrapper .dataTables_processing,
+body.dark-mode .dataTables_wrapper .dataTables_paginate {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button {
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+    background-color: var(--input-background) !important;
+}
+
+body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+body.dark-mode .dataTables_wrapper .dataTables_filter input {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border: 2px solid var(--input-border) !important;
+    border-radius: 8px !important;
+    padding: 6px 10px !important;
+}
+
+/* Accordion and tabs */
+body.dark-mode .ui.accordion .title {
+    color: var(--text-color) !important;
+}
+
+body.dark-mode .ui.accordion .content {
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.tabular.menu {
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.tabular.menu .item {
+    color: var(--secondary-text-color) !important;
+}
+
+body.dark-mode .ui.tabular.menu .active.item {
+    background-color: var(--message-background) !important;
+    color: var(--text-color) !important;
+    border-color: var(--border-color) !important;
+    border-bottom: none !important;
+}
+
+/* Dropdown styling */
+body.dark-mode .ui.selection.dropdown,
+body.dark-mode .ui.selection.active.dropdown,
+body.dark-mode .ui.selection.dropdown .menu {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.selection.dropdown .menu > .item {
+    background-color: var(--input-background) !important;
+    color: var(--text-color) !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.selection.dropdown .menu > .item:hover {
+    background-color: var(--card-hover-color) !important;
+}
+
+body.dark-mode .ui.dropdown .menu .active.item {
+    background-color: var(--card-hover-color) !important;
+    font-weight: bold !important;
+}
+
+body.dark-mode .ui.selection.dropdown > .text {
+    color: var(--text-color) !important;
+}
+
+/* ChatMessages list adjustments */
+body.dark-mode .ui.divided.items > .item {
+    background-color: var(--message-background) !important;
+    color: var(--text-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+body.dark-mode .ui.divided.items > .item[style*="background-color: rgb(248, 249, 250)"],
+body.dark-mode .ui.divided.items > .item[style*="background-color: #f8f9fa"] {
+    background-color: #0b222f !important; /* Sent message blue */
 }
