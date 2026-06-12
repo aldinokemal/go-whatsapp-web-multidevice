@@ -1225,12 +1225,13 @@ func TestCreateMessage_AttachmentMissingIDReturnsZero(t *testing.T) {
 // --- Echo dedup map (MarkMessageAsSent / IsMessageSentByUs) ----------------
 
 func TestEchoDedup_MapBehavior(t *testing.T) {
-	// MarkMessageAsSent(0) is a no-op and IsMessageSentByUs(0) is always
+	const acc = 1
+	// MarkMessageAsSent(_, 0) is a no-op and IsMessageSentByUs(_, 0) is always
 	// false: id 0 is the "no id" sentinel returned by CreateMessage and must
 	// never be treated as a tracked message.
-	MarkMessageAsSent(0)
-	if IsMessageSentByUs(0) {
-		t.Error("IsMessageSentByUs(0) = true, want false")
+	MarkMessageAsSent(acc, 0)
+	if IsMessageSentByUs(acc, 0) {
+		t.Error("IsMessageSentByUs(acc, 0) = true, want false")
 	}
 
 	// A real id, once marked, is recognized as ours. We use a large, fixed
@@ -1239,19 +1240,36 @@ func TestEchoDedup_MapBehavior(t *testing.T) {
 	// does not delete on read, so it stays true on a second check — Chatwoot
 	// fires multiple webhook events for one message.
 	const id = 987654321
-	if IsMessageSentByUs(id) {
+	if IsMessageSentByUs(acc, id) {
 		t.Fatalf("IsMessageSentByUs(%d) = true before marking, want false", id)
 	}
-	MarkMessageAsSent(id)
-	if !IsMessageSentByUs(id) {
+	MarkMessageAsSent(acc, id)
+	if !IsMessageSentByUs(acc, id) {
 		t.Fatalf("IsMessageSentByUs(%d) = false after marking, want true", id)
 	}
-	if !IsMessageSentByUs(id) {
+	if !IsMessageSentByUs(acc, id) {
 		t.Fatalf("IsMessageSentByUs(%d) = false on second check, want true (no delete-on-read)", id)
 	}
 
 	// An id that was never marked is not ours.
-	if IsMessageSentByUs(123456789) {
+	if IsMessageSentByUs(acc, 123456789) {
 		t.Error("IsMessageSentByUs(unknown) = true, want false")
+	}
+}
+
+// TestEchoDedup_AccountPartitioned guards multi-account routing: the same
+// numeric Chatwoot message id in two different accounts must not collide, or a
+// message we sent in account A would suppress a genuine agent reply with the
+// same id in account B (dropped reply).
+func TestEchoDedup_AccountPartitioned(t *testing.T) {
+	const id = 555111222
+	const accA, accB = 11, 22
+
+	MarkMessageAsSent(accA, id)
+	if !IsMessageSentByUs(accA, id) {
+		t.Fatalf("account A id %d should be ours after marking", id)
+	}
+	if IsMessageSentByUs(accB, id) {
+		t.Fatalf("account B id %d must NOT be considered ours (cross-account collision)", id)
 	}
 }

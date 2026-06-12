@@ -27,7 +27,9 @@ func TestPgImporterForSync_EmptyURIReturnsNil(t *testing.T) {
 	orig := config.ChatwootImportDBURI
 	defer func() { config.ChatwootImportDBURI = orig }()
 
+	// allowPgImport=true exercises the URI branch (the gate is tested separately).
 	s := NewSyncService(nil, nil)
+	s.allowPgImport = true
 
 	tests := []struct {
 		name string
@@ -70,6 +72,7 @@ func TestPgImporterForSync_ConfiguredURIRequiresAccountAndInbox(t *testing.T) {
 	config.ChatwootInboxID = 99
 
 	s := NewSyncService(nil, nil)
+	s.allowPgImport = true // legacy/env service: direct-Postgres import enabled
 	imp, err := s.pgImporterForSync(context.Background())
 	if err == nil {
 		t.Fatal("pgImporterForSync() error = nil, want configured import failure")

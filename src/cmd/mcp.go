@@ -27,6 +27,11 @@ func init() {
 }
 
 func mcpServer(_ *cobra.Command, _ []string) {
+	// Wire Chatwoot forwarding before connecting WhatsApp: the MCP server runs the
+	// same WhatsApp event pipeline as REST, so without the registry every forward
+	// would resolve to a nil client and be silently dropped.
+	initChatwootForwarding(chatStorageRepo)
+
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 
