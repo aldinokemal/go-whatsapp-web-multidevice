@@ -312,6 +312,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	case "image":
 		downloadableMsg = &waE2E.ImageMessage{
 			URL:           proto.String(message.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(message.URL)),
 			MediaKey:      message.MediaKey,
 			FileSHA256:    message.FileSHA256,
 			FileEncSHA256: message.FileEncSHA256,
@@ -320,6 +321,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	case "video":
 		downloadableMsg = &waE2E.VideoMessage{
 			URL:           proto.String(message.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(message.URL)),
 			MediaKey:      message.MediaKey,
 			FileSHA256:    message.FileSHA256,
 			FileEncSHA256: message.FileEncSHA256,
@@ -328,6 +330,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	case "audio":
 		downloadableMsg = &waE2E.AudioMessage{
 			URL:           proto.String(message.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(message.URL)),
 			MediaKey:      message.MediaKey,
 			FileSHA256:    message.FileSHA256,
 			FileEncSHA256: message.FileEncSHA256,
@@ -336,6 +339,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	case "document":
 		downloadableMsg = &waE2E.DocumentMessage{
 			URL:           proto.String(message.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(message.URL)),
 			MediaKey:      message.MediaKey,
 			FileSHA256:    message.FileSHA256,
 			FileEncSHA256: message.FileEncSHA256,
@@ -345,6 +349,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	case "sticker":
 		downloadableMsg = &waE2E.StickerMessage{
 			URL:           proto.String(message.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(message.URL)),
 			MediaKey:      message.MediaKey,
 			FileSHA256:    message.FileSHA256,
 			FileEncSHA256: message.FileEncSHA256,
