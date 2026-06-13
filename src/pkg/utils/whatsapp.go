@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -511,6 +512,41 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
+}
+
+// DeriveDirectPath converts a stored WhatsApp media URL (of the form
+// https://mmg.whatsapp.net{path}?{query}) into the "directPath" that
+// whatsmeow's Client.Download / DownloadMediaWithPath require.
+//
+// whatsmeow's Client.Download downloads ONLY from GetDirectPath(): it returns
+// ErrNoURLPresent ("no url present") when DirectPath is empty and never reads
+// the URL field. DownloadMediaWithPath additionally rejects any directPath
+// that does not start with "/", and it appends "&hash=..." directly after the
+// directPath, so the path must already carry its "?query". net/url's
+// RequestURI() returns EscapedPath()+"?"+RawQuery, which satisfies both
+// constraints for a real stored URL.
+//
+// Messages reconstructed from chat storage only carry the persisted url (the
+// messages table has no direct_path column), so callers derive the directPath
+// from that url at download time. This repairs already-stored messages without
+// a schema migration.
+//
+// It returns "" for empty, unparseable, or slash-less input; the caller then
+// surfaces whatsmeow's own clear error instead of a wrong download (no
+// behavioural regression versus leaving DirectPath empty).
+func DeriveDirectPath(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	directPath := u.RequestURI()
+	if !strings.HasPrefix(directPath, "/") {
+		return ""
+	}
+	return directPath
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix

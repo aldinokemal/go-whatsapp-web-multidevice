@@ -650,6 +650,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	case "image":
 		downloadable = &waE2E.ImageMessage{
 			URL:           proto.String(msg.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(msg.URL)),
 			MediaKey:      msg.MediaKey,
 			FileSHA256:    msg.FileSHA256,
 			FileEncSHA256: msg.FileEncSHA256,
@@ -658,6 +659,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	case "video":
 		downloadable = &waE2E.VideoMessage{
 			URL:           proto.String(msg.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(msg.URL)),
 			MediaKey:      msg.MediaKey,
 			FileSHA256:    msg.FileSHA256,
 			FileEncSHA256: msg.FileEncSHA256,
@@ -666,6 +668,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	case "audio", "ptt":
 		downloadable = &waE2E.AudioMessage{
 			URL:           proto.String(msg.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(msg.URL)),
 			MediaKey:      msg.MediaKey,
 			FileSHA256:    msg.FileSHA256,
 			FileEncSHA256: msg.FileEncSHA256,
@@ -674,6 +677,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	case "document":
 		downloadable = &waE2E.DocumentMessage{
 			URL:           proto.String(msg.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(msg.URL)),
 			MediaKey:      msg.MediaKey,
 			FileSHA256:    msg.FileSHA256,
 			FileEncSHA256: msg.FileEncSHA256,
@@ -682,6 +686,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	case "sticker":
 		downloadable = &waE2E.StickerMessage{
 			URL:           proto.String(msg.URL),
+			DirectPath:    proto.String(utils.DeriveDirectPath(msg.URL)),
 			MediaKey:      msg.MediaKey,
 			FileSHA256:    msg.FileSHA256,
 			FileEncSHA256: msg.FileEncSHA256,
