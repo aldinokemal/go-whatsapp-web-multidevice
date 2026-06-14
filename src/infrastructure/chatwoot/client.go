@@ -128,9 +128,15 @@ func init() {
 }
 
 func NewClient() *Client {
+	// Trim surrounding whitespace before normalizing. Tokens and URLs supplied
+	// via Docker secret files, .env lines, or shell heredocs routinely carry a
+	// trailing newline; an untrimmed token produces a malformed
+	// "api_access_token" header and Chatwoot answers every request with a 401
+	// ("You need to sign in or sign up before continuing"), and a trailing
+	// newline on the URL survives the slash trim and corrupts every endpoint.
 	return &Client{
-		BaseURL:   strings.TrimRight(config.ChatwootURL, "/"),
-		APIToken:  config.ChatwootAPIToken,
+		BaseURL:   strings.TrimRight(strings.TrimSpace(config.ChatwootURL), "/"),
+		APIToken:  strings.TrimSpace(config.ChatwootAPIToken),
 		AccountID: config.ChatwootAccountID,
 		InboxID:   config.ChatwootInboxID,
 		HTTPClient: &http.Client{

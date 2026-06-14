@@ -20,6 +20,14 @@ import (
 var (
 	submitWebhookFn     = submitWebhook
 	getChatwootClientFn = chatwoot.GetDefaultClient
+	// contactDisplayNameFn resolves the operator-saved address-book name for a
+	// 1:1 JID from the WhatsApp contact store. It is a seam so tests can stub
+	// the lookup without a real client/store.
+	contactDisplayNameFn = lookupContactDisplayName
+	// sessionIDForJIDFn resolves the operator-facing session id (the device_id
+	// registered via POST /devices, e.g. "org_2") for a connected WhatsApp JID.
+	// It is a seam so tests can stub the device-manager lookup.
+	sessionIDForJIDFn = sessionIDForJID
 )
 
 // mutexShardCount is the number of mutex shards for contact synchronization.
@@ -85,6 +93,15 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		return nil
 	}
 
+	// Enrich the payload with the operator-facing session id so multi-tenant
+	// consumers can correlate a webhook (whose device_id is the WhatsApp JID)
+	// back to the session id they registered via POST /devices. Done here,
+	// synchronously, before the Chatwoot goroutine is spawned below, so the
+	// shared payload map is never mutated concurrently.
+	if webhookAllowed {
+		addWebhookSessionID(payload)
+	}
+
 	var err error
 	if webhookAllowed {
 		err = forwardToWebhooks(ctx, payload, eventName)
@@ -97,6 +114,41 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	return err
+}
+
+// addWebhookSessionID injects the operator-facing session id into a webhook
+// payload, derived from its device_id (the WhatsApp JID). It is a no-op when the
+// JID can't be mapped to a session (single-session deployments before login, or
+// JIDs not tracked by the device manager) or when session_id is already present,
+// keeping the change backward-compatible: device_id stays the JID.
+func addWebhookSessionID(payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	if _, exists := payload["session_id"]; exists {
+		return
+	}
+	jid, _ := payload["device_id"].(string)
+	if sessionID := sessionIDForJIDFn(jid); sessionID != "" {
+		payload["session_id"] = sessionID
+	}
+}
+
+// sessionIDForJID resolves the session id registered via POST /devices for a
+// connected WhatsApp JID, using the global device manager. Returns "" when no
+// manager or matching instance is available.
+func sessionIDForJID(jid string) string {
+	if jid == "" {
+		return ""
+	}
+	dm := GetDeviceManager()
+	if dm == nil {
+		return ""
+	}
+	if inst, ok := dm.getDeviceByJID(jid); ok && inst != nil {
+		return inst.ID()
+	}
+	return ""
 }
 
 func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
@@ -199,10 +251,23 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 		logrus.Infof("Chatwoot: Detected group message, using group contact: %s", info.Name)
 	} else if isFromMe {
 		info.Identifier = chatwootIdentifierForJID(chatID)
-		info.Name = info.Identifier
+		// The contact is the recipient (chatID). Prefer the operator's saved
+		// address-book name so an operator-initiated chat isn't created with a
+		// bare phone number; there is no useful pushname for our own messages.
+		info.Name = contactDisplayNameFn(ctx, chatID)
+		if info.Name == "" {
+			info.Name = info.Identifier
+		}
 	} else {
 		info.Identifier = chatwootIdentifierForJID(from)
-		info.Name = fromName
+		// Prefer the operator's saved address-book name (FullName), then the
+		// sender's pushname from the event, then the bare phone/identifier.
+		// Using only the pushname meant a number the operator had saved under a
+		// real name still surfaced in Chatwoot as its phone number (issue #688).
+		info.Name = contactDisplayNameFn(ctx, from)
+		if info.Name == "" {
+			info.Name = fromName
+		}
 		if info.Name == "" {
 			info.Name = info.Identifier
 		}
@@ -227,6 +292,41 @@ func chatwootIdentifierForJID(jid string) string {
 		return jid
 	}
 	return utils.ExtractPhoneFromJID(jid)
+}
+
+// lookupContactDisplayName returns the operator-saved address-book name for a
+// 1:1 WhatsApp JID from the local contact store, preferring the saved FullName
+// over the contact's self-set pushname and business name (the same priority and
+// source used by the /user/my/contacts endpoint). It returns "" when no client
+// is available or the contact is unknown, letting callers fall back to the live
+// event pushname / phone number.
+func lookupContactDisplayName(ctx context.Context, jid string) string {
+	client := ClientFromContext(ctx)
+	if client == nil || client.Store == nil || client.Store.Contacts == nil {
+		return ""
+	}
+	parsed, err := types.ParseJID(jid)
+	if err != nil || parsed.IsEmpty() {
+		return ""
+	}
+	// The incoming context may already be canceled (this runs from a goroutine,
+	// mirroring getGroupName); use a fresh short deadline for the local read.
+	freshCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	contact, err := client.Store.Contacts.GetContact(freshCtx, parsed)
+	if err != nil || !contact.Found {
+		return ""
+	}
+	switch {
+	case contact.FullName != "":
+		return contact.FullName
+	case contact.PushName != "":
+		return contact.PushName
+	case contact.BusinessName != "":
+		return contact.BusinessName
+	default:
+		return ""
+	}
 }
 
 // extractMediaPath returns the on-disk path for a media field in the
