@@ -222,6 +222,61 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	return firstErr
 }
 
+// LogoutDeviceKeepSlot logs the device out of WhatsApp (clearing its session/keys)
+// but PRESERVES the device slot in the registry, so it keeps its id and display name
+// and can be re-paired later under the same id. Unlike PurgeDevice, it does not remove
+// the device record. Removing the slot entirely is the job of RemoveDevice (DELETE).
+func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID string) error {
+	if deviceID == "" {
+		return fmt.Errorf("device id is required")
+	}
+
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	var firstErr error
+	if cli := inst.GetClient(); cli != nil {
+		if cli.IsLoggedIn() {
+			// Logout unlinks the companion device on WhatsApp's side and deletes the
+			// whatsmeow session from the store, so the next login starts a fresh QR.
+			if err := cli.Logout(ctx); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] logout failed for device %s", deviceID)
+				firstErr = err
+			}
+		}
+		cli.Disconnect()
+	}
+
+	m.resetDeviceKeepSlot(deviceID)
+	return firstErr
+}
+
+// resetDeviceKeepSlot detaches the in-memory client and clears the persisted session
+// identity (jid) while keeping the device slot (id + display name) in both the
+// in-memory registry and the persisted device registry. EnsureClient rebuilds a
+// fresh client on the next login, so the slot can be re-paired under the same id.
+func (m *DeviceManager) resetDeviceKeepSlot(deviceID string) {
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		return
+	}
+	inst.ResetClient()
+
+	if m.storage != nil && strings.TrimSpace(deviceID) != "" {
+		if err := m.storage.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+			DeviceID:    deviceID,
+			DisplayName: inst.DisplayName(),
+			JID:         "",
+			CreatedAt:   inst.CreatedAt(),
+			UpdatedAt:   time.Now(),
+		}); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to persist logged-out device %s", deviceID)
+		}
+	}
+}
+
 // CreateDevice registers a new device placeholder so routes can be scoped strictly by device_id.
 func (m *DeviceManager) CreateDevice(ctx context.Context, requestedID string) (*DeviceInstance, error) {
 	if m == nil {
@@ -523,7 +578,9 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	})
 
 	inst.SetOnLoggedOut(func(deviceID string) {
-		m.RemoveDevice(deviceID)
+		// On remote logout (device unlinked from the phone) keep the slot so it can
+		// be re-paired under the same id, matching the explicit logout semantics.
+		m.resetDeviceKeepSlot(deviceID)
 	})
 
 	inst.SetClient(client)

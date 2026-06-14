@@ -7,6 +7,7 @@ import (
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 type serviceDevice struct {
@@ -56,11 +57,17 @@ func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string) (*domain
 	return &device, nil
 }
 
-func (s *serviceDevice) RemoveDevice(_ context.Context, deviceID string) error {
+func (s *serviceDevice) RemoveDevice(ctx context.Context, deviceID string) error {
 	if s.manager == nil {
 		return fmt.Errorf("device manager not initialized")
 	}
-	s.manager.RemoveDevice(deviceID)
+	// Deleting a device fully purges it: logs it out of WhatsApp, clears its session
+	// and chat data, then removes the slot from the registry. (Logout, in contrast,
+	// keeps the slot.) Purge removes the slot even if the WhatsApp logout reports
+	// warnings (e.g. an already-dead session), so don't fail the delete on those.
+	if err := s.manager.PurgeDevice(ctx, deviceID); err != nil {
+		logrus.WithError(err).Warnf("[DEVICE] purge for %s completed with warnings", deviceID)
+	}
 	return nil
 }
 
@@ -77,11 +84,12 @@ func (s *serviceDevice) LogoutDevice(ctx context.Context, deviceID string) error
 		return fmt.Errorf("device manager not initialized")
 	}
 
-	if err := s.manager.PurgeDevice(ctx, deviceID); err != nil {
+	if err := s.manager.LogoutDeviceKeepSlot(ctx, deviceID); err != nil {
 		return err
 	}
 
-	// Broadcast device removal so UI clients can refresh.
+	// Broadcast the logout so UI clients can refresh. The device slot is kept, so it
+	// still appears in the list (disconnected) and can be re-paired under the same id.
 	var devices []domainDevice.Device
 	if s.manager != nil {
 		for _, inst := range s.manager.ListDevices() {
@@ -91,8 +99,8 @@ func (s *serviceDevice) LogoutDevice(ctx context.Context, deviceID string) error
 	}
 
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    "DEVICE_REMOVED",
-		Message: fmt.Sprintf("Device %s logged out and removed", deviceID),
+		Code:    "DEVICE_LOGGED_OUT",
+		Message: fmt.Sprintf("Device %s logged out (slot kept)", deviceID),
 		Result: map[string]any{
 			"device_id": deviceID,
 			"devices":   devices,

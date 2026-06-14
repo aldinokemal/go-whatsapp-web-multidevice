@@ -164,22 +164,23 @@ func (service *serviceApp) Logout(ctx context.Context, deviceID string) error {
 		return fmt.Errorf("device manager not initialized")
 	}
 
-	if err := service.deviceManager.PurgeDevice(ctx, deviceID); err != nil {
-		logrus.WithError(err).Warnf("[LOGOUT][%s] purge completed with warnings", deviceID)
+	if err := service.deviceManager.LogoutDeviceKeepSlot(ctx, deviceID); err != nil {
+		logrus.WithError(err).Warnf("[LOGOUT][%s] logout completed with warnings", deviceID)
 		return err
 	}
 
-	// Broadcast device removal so UI can refresh without manual polling
+	// Broadcast the logout so the UI can refresh without manual polling. The slot is
+	// kept, so the device stays listed (disconnected) and can be re-paired by id.
 	var devices []domainApp.DevicesResponse
 	if list, err := service.FetchDevices(ctx); err == nil {
 		devices = list
 	} else {
-		logrus.WithError(err).Warn("[LOGOUT] failed to fetch devices after purge")
+		logrus.WithError(err).Warn("[LOGOUT] failed to fetch devices after logout")
 	}
 
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    "DEVICE_REMOVED",
-		Message: fmt.Sprintf("Device %s logged out and removed", deviceID),
+		Code:    "DEVICE_LOGGED_OUT",
+		Message: fmt.Sprintf("Device %s logged out (slot kept)", deviceID),
 		Result: map[string]any{
 			"device_id": deviceID,
 			"devices":   devices,

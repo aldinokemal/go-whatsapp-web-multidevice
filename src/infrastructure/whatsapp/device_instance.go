@@ -101,6 +101,19 @@ func (d *DeviceInstance) SetClient(client *whatsmeow.Client) {
 	d.state = domainDevice.DeviceStateDisconnected
 }
 
+// ResetClient detaches the WhatsApp client and clears the session-derived identity
+// (jid, phone number) so the slot can be re-paired with a fresh client on the next
+// login. The device id, display name and creation time are preserved, keeping the
+// slot in place after a logout.
+func (d *DeviceInstance) ResetClient() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.client = nil
+	d.jid = ""
+	d.phoneNumber = ""
+	d.state = domainDevice.DeviceStateDisconnected
+}
+
 // SetChatStorage swaps the chat storage repository for this device.
 func (d *DeviceInstance) SetChatStorage(repo domainChatStorage.IChatStorageRepository) {
 	d.mu.Lock()
