@@ -242,6 +242,162 @@ func TestExtractMessageTextFromProtoContactsArrayMessage(t *testing.T) {
 	}
 }
 
+func TestFormatLocationSummary(t *testing.T) {
+	tests := []struct {
+		name    string
+		locName string
+		address string
+		lat     float64
+		long    float64
+		want    string
+	}{
+		{
+			name:    "NameAndAddress",
+			locName: "Central Tower",
+			address: "1 Example Street",
+			lat:     -6.175392,
+			long:    106.827153,
+			want:    "Central Tower — 1 Example Street — https://maps.google.com/?q=-6.175392,106.827153",
+		},
+		{
+			name:    "NameOnly",
+			locName: "Central Tower",
+			address: "",
+			lat:     1.5,
+			long:    2.5,
+			want:    "Central Tower — https://maps.google.com/?q=1.5,2.5",
+		},
+		{
+			name:    "CoordinatesOnly",
+			locName: "",
+			address: "",
+			lat:     -6.2,
+			long:    106.8,
+			want:    "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name:    "WhitespaceNameAndAddressTrimmed",
+			locName: "  ",
+			address: "  ",
+			lat:     0,
+			long:    0,
+			want:    "https://maps.google.com/?q=0,0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatLocationSummary(tt.locName, tt.address, tt.lat, tt.long)
+			if got != tt.want {
+				t.Fatalf("FormatLocationSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoLocationMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "LocationWithNameAndAddress",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					Name:             strPtr("Central Tower"),
+					Address:          strPtr("1 Example Street"),
+					DegreesLatitude:  f64Ptr(-6.175392),
+					DegreesLongitude: f64Ptr(106.827153),
+				},
+			},
+			want: "Central Tower — 1 Example Street — https://maps.google.com/?q=-6.175392,106.827153",
+		},
+		{
+			name: "LocationCoordinatesOnly",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					DegreesLatitude:  f64Ptr(-6.2),
+					DegreesLongitude: f64Ptr(106.8),
+				},
+			},
+			want: "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationWithCaption",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					Caption:          strPtr("on the move"),
+					DegreesLatitude:  f64Ptr(-6.2),
+					DegreesLongitude: f64Ptr(106.8),
+				},
+			},
+			want: "on the move — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationCoordinatesOnly",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					DegreesLatitude:  f64Ptr(1.5),
+					DegreesLongitude: f64Ptr(2.5),
+				},
+			},
+			want: "https://maps.google.com/?q=1.5,2.5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoExtendedText(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "TextPresentWins",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr("look at this"),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "look at this",
+		},
+		{
+			name: "EmptyTextFallsBackToMatchedText",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr(""),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "https://example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func strPtr(value string) *string {
+	return &value
+}
+
+func f64Ptr(value float64) *float64 {
 	return &value
 }
