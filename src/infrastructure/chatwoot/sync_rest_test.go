@@ -94,12 +94,17 @@ func TestHasDownloadableChatwootMedia(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "media with direct path and key",
+			msg:  &domainChatStorage.Message{MediaType: "image", DirectPath: "/v/t62.7118-24/file.enc?ccb=11-4", MediaKey: []byte("key")},
+			want: true,
+		},
+		{
 			name: "text message",
 			msg:  &domainChatStorage.Message{Content: "hello"},
 			want: false,
 		},
 		{
-			name: "media without url",
+			name: "media without url or direct path",
 			msg:  &domainChatStorage.Message{MediaType: "image", MediaKey: []byte("key")},
 			want: false,
 		},
