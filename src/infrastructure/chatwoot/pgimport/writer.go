@@ -376,7 +376,7 @@ func (i *Importer) findOrCreateConversation(
 			 last_activity_at, waiting_since, created_at, updated_at)
 		VALUES
 			($1, $2, $3, $4, $5,
-			 gen_random_uuid()::text,
+			 gen_random_uuid(),
 			 '{}'::jsonb, '{}'::jsonb,
 			 $6, $6, $6, now())
 		RETURNING id
