@@ -232,7 +232,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 			// Extract message content and media info
 			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
-			mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
+			mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())
 
 			// Skip if there's no content and no media
 			if content == "" && mediaType == "" {
@@ -255,7 +255,8 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				IsFromMe:      isFromMe,
 				MediaType:     mediaType,
 				Filename:      filename,
-				URL:           url,
+				URL:           mediaURL,
+				DirectPath:    directPath,
 				MediaKey:      mediaKey,
 				FileSHA256:    fileSHA256,
 				FileEncSHA256: fileEncSHA256,
