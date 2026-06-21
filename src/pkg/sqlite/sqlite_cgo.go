@@ -20,7 +20,7 @@ func FormatChatStorageURI(baseURI string, enableWAL bool, enableFK bool) string 
 	q := u.Query()
 	if enableWAL {
 		q.Set("_journal_mode", "WAL")
-		q.Set("_busy_timeout", "5000")
+		q.Set("_busy_timeout", "30000")
 	}
 	if enableFK {
 		q.Set("_foreign_keys", "on")

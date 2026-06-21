@@ -112,6 +112,11 @@ func initEnvConfig() {
 	if envDBKEYSURI := viper.GetString("db_keys_uri"); envDBKEYSURI != "" {
 		config.DBKeysURI = envDBKEYSURI
 	}
+	if viper.IsSet("chat_storage_max_open_conns") {
+		if n := viper.GetInt("chat_storage_max_open_conns"); n > 0 {
+			config.ChatStorageMaxOpenConns = n
+		}
+	}
 
 	// WhatsApp settings
 	if envAutoReply := viper.GetString("whatsapp_auto_reply"); envAutoReply != "" {
@@ -520,8 +525,12 @@ func initChatStorage() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	maxConns := config.ChatStorageMaxOpenConns
+	if maxConns < 1 {
+		maxConns = 1
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
