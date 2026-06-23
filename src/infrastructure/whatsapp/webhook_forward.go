@@ -85,7 +85,8 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+	webhookAllowed := (len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)) &&
+		!shouldIgnoreWebhookJID(payload)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
@@ -114,6 +115,27 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	return err
+}
+
+// shouldIgnoreWebhookJID reports whether an event should be skipped for WHATSAPP_WEBHOOK
+// forwarding because its chat or sender JID matches WHATSAPP_WEBHOOK_IGNORE_JIDS (e.g. the
+// "@g.us" wildcard to drop all group traffic). The chat_id/from fields live in the nested
+// inner payload, so it descends one level. It is a no-op when the ignore list is empty, the
+// inner payload is absent, or no JID matches — so events without a JID and the default
+// (no list configured) keep forwarding unchanged. This only gates the generic webhook; the
+// Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
+func shouldIgnoreWebhookJID(payload map[string]any) bool {
+	if len(config.WhatsappWebhookIgnoreJids) == 0 {
+		return false
+	}
+	data, ok := payload["payload"].(map[string]any)
+	if !ok {
+		return false
+	}
+	chatID, _ := data["chat_id"].(string)
+	from, _ := data["from"].(string)
+	return utils.MatchesIgnoredJID(chatID, config.WhatsappWebhookIgnoreJids) ||
+		utils.MatchesIgnoredJID(from, config.WhatsappWebhookIgnoreJids)
 }
 
 // addWebhookSessionID injects the operator-facing session id into a webhook
