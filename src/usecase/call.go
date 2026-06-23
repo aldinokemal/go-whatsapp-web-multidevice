@@ -29,7 +29,8 @@ func (service serviceCall) RejectCall(ctx context.Context, callerJID string, cal
 		return pkgError.ErrWaCLI
 	}
 
-	parsedJID, err := utils.ValidateJidWithLogin(client, callerJID)
+	utils.MustLogin(client)
+	parsedJID, err := utils.ParseJID(callerJID)
 	if err != nil {
 		return err
 	}
@@ -38,10 +39,10 @@ func (service serviceCall) RejectCall(ctx context.Context, callerJID string, cal
 	defer cancel()
 
 	if err := client.RejectCall(rejectCtx, parsedJID, callID); err != nil {
-		logrus.Errorf("Failed to reject call from %s (CallID: %s): %v", callerJID, callID, err)
+		logrus.WithError(err).Error("Failed to reject call")
 		return fmt.Errorf("failed to reject call: %w", err)
 	}
 
-	logrus.Infof("Rejected call from %s (CallID: %s)", callerJID, callID)
+	logrus.Info("Rejected call successfully")
 	return nil
 }

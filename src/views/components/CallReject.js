@@ -9,7 +9,11 @@ export default {
     },
     computed: {
         caller_jid() {
-            return this.phone + window.TYPEUSER;
+            const trimmed = this.phone.trim().replace(/\s+/g, '');
+            if (trimmed.includes('@')) {
+                return trimmed;
+            }
+            return trimmed + window.TYPEUSER;
         }
     },
     methods: {
@@ -83,7 +87,7 @@ export default {
              Reject Incoming Call
         </div>
         <div class="content">
-            <form class="ui form">
+            <form class="ui form" @submit.prevent>
                 <div class="field">
                     <label>Caller Phone Number</label>
                     <input v-model="phone" type="text" placeholder="e.g. 628912345678"

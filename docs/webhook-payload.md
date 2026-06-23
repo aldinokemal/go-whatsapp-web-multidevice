@@ -659,7 +659,7 @@ In addition to auto-rejecting all calls, you can programmatically reject specifi
 **Endpoint:** `POST /call/reject`
 
 **Headers:**
-```
+```http
 X-Device-Id: <device_id>
 Content-Type: application/json
 ```

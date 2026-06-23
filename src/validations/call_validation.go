@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"strings"
 
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -9,6 +10,8 @@ import (
 )
 
 func ValidateRejectCall(ctx context.Context, callerJID string, callID string) error {
+	callerJID = strings.TrimSpace(callerJID)
+	callID = strings.TrimSpace(callID)
 	request := domainCall.RejectCallRequest{
 		CallerJID: callerJID,
 		CallID:    callID,
