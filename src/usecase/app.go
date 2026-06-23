@@ -160,6 +160,9 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 }
 
 func (service *serviceApp) Logout(ctx context.Context, deviceID string) error {
+	if err := validations.ValidateDeviceID(ctx, deviceID); err != nil {
+		return err
+	}
 	if service.deviceManager == nil {
 		return fmt.Errorf("device manager not initialized")
 	}

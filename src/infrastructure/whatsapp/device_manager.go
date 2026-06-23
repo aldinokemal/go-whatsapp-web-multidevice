@@ -148,6 +148,49 @@ func (m *DeviceManager) RemoveDevice(id string) {
 	}
 }
 
+// deleteStoreRowsForJID removes the whatsmeow device rows (primary + keys containers)
+// whose JID matches jid. Matching uses the NonAD form to mirror LoadExistingDevices,
+// where the devices table stores NonAD JIDs. It is idempotent — a row that is already
+// gone is simply not found — and an empty jid is a no-op (a slot that was never paired
+// has no store rows to delete).
+func (m *DeviceManager) deleteStoreRowsForJID(ctx context.Context, jid string) error {
+	if strings.TrimSpace(jid) == "" {
+		return nil
+	}
+
+	var firstErr error
+	deleteFrom := func(container *sqlstore.Container, label string) {
+		if container == nil {
+			return
+		}
+		devices, err := container.GetAllDevices(ctx)
+		if err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to enumerate %s devices for jid %s", label, jid)
+			firstErr = errors.Join(firstErr, err)
+			return
+		}
+		for _, dev := range devices {
+			if dev == nil || dev.ID == nil {
+				continue
+			}
+			if dev.ID.ToNonAD().String() != jid {
+				continue
+			}
+			if err := container.DeleteDevice(ctx, dev); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete jid %s from %s store", jid, label)
+				firstErr = errors.Join(firstErr, err)
+			}
+			break
+		}
+	}
+
+	deleteFrom(m.store, "primary")
+	if m.keys != nil && m.keys != m.store {
+		deleteFrom(m.keys, "keys")
+	}
+	return firstErr
+}
+
 // PurgeDevice cleanly logs out a device, removes its persisted records (store/keys),
 // deletes its chatstorage data, and removes it from the in-memory registry.
 func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error {
@@ -162,18 +205,22 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		}
 	}
 
-	// Attempt logout/disconnect if a client exists
+	// Resolve the device's WhatsApp JID before tearing anything down so we can delete
+	// its whatsmeow store rows by JID even when no live client is attached.
+	var jid string
 	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
+		jid = inst.JID()
 		if cli := inst.GetClient(); cli != nil {
+			// The WhatsApp unlink is best-effort: a dead/expired session may fail
+			// here, but that must not block local cleanup or fail the purge.
 			if err := cli.Logout(ctx); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] logout failed for device %s", deviceID)
-				recordErr(err)
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
 			}
 			cli.Disconnect()
 		}
 	}
 
-	// Delete chatstorage data for this device
+	// Delete chatstorage data for this device (local cleanup — surfaced on failure).
 	if m.storage != nil {
 		if err := m.storage.DeleteDeviceData(deviceID); err != nil {
 			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s", deviceID)
@@ -181,41 +228,8 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		}
 	}
 
-	// Remove device records from primary store
-	if m.store != nil {
-		if devices, err := m.store.GetAllDevices(ctx); err != nil {
-			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to enumerate devices for purge")
-			recordErr(err)
-		} else {
-			for _, dev := range devices {
-				if dev != nil && dev.ID != nil && dev.ID.String() == deviceID {
-					if err := m.store.DeleteDevice(ctx, dev); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete device %s from store", deviceID)
-						recordErr(err)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// Remove device records from keys store if separate
-	if m.keys != nil && m.keys != m.store {
-		if devices, err := m.keys.GetAllDevices(ctx); err != nil {
-			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to enumerate keys devices for purge")
-			recordErr(err)
-		} else {
-			for _, dev := range devices {
-				if dev != nil && dev.ID != nil && dev.ID.String() == deviceID {
-					if err := m.keys.DeleteDevice(ctx, dev); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete device %s from keys store", deviceID)
-						recordErr(err)
-					}
-					break
-				}
-			}
-		}
-	}
+	// Delete whatsmeow store/keys rows by JID (local cleanup — surfaced on failure).
+	recordErr(m.deleteStoreRowsForJID(ctx, jid))
 
 	// Remove from registry last
 	m.RemoveDevice(deviceID)
@@ -236,20 +250,41 @@ func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID strin
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
-	var firstErr error
 	if cli := inst.GetClient(); cli != nil {
 		if cli.IsLoggedIn() {
-			// Logout unlinks the companion device on WhatsApp's side and deletes the
-			// whatsmeow session from the store, so the next login starts a fresh QR.
+			// The WhatsApp unlink is best-effort: a dead/expired session may fail
+			// here, but that must not block the local keep-slot cleanup below.
 			if err := cli.Logout(ctx); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] logout failed for device %s", deviceID)
-				firstErr = err
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
 			}
 		}
 		cli.Disconnect()
 	}
 
-	m.resetDeviceKeepSlot(deviceID)
+	return m.keepSlotLogout(ctx, deviceID)
+}
+
+// keepSlotLogout is the shared "logout but keep the slot" cleanup used by both explicit
+// logout and the remote LoggedOut callbacks. It deletes the device's whatsmeow store
+// rows (by JID, resolved before the reset clears it) and resets the in-memory client +
+// persisted JID, keeping the slot (id + display name) for re-pairing. It does NOT call
+// cli.Logout — explicit logout handles the unlink before delegating here, and a remote
+// LoggedOut has already been unlinked on the phone.
+func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) error {
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	// Resolve the JID before resetDeviceKeepSlot clears it, so we can delete the stored
+	// whatsmeow rows even when no live client is attached (slot loaded from storage).
+	// Always delete (don't rely on cli.Logout having done it): an orphan row would
+	// otherwise get matched back on restart. Idempotent when the row is already gone.
+	jid := inst.JID()
+
+	var firstErr error
+	firstErr = errors.Join(firstErr, m.deleteStoreRowsForJID(ctx, jid))
+	firstErr = errors.Join(firstErr, m.resetDeviceKeepSlot(deviceID))
 	return firstErr
 }
 
@@ -257,10 +292,10 @@ func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID strin
 // identity (jid) while keeping the device slot (id + display name) in both the
 // in-memory registry and the persisted device registry. EnsureClient rebuilds a
 // fresh client on the next login, so the slot can be re-paired under the same id.
-func (m *DeviceManager) resetDeviceKeepSlot(deviceID string) {
+func (m *DeviceManager) resetDeviceKeepSlot(deviceID string) error {
 	inst, ok := m.GetDevice(deviceID)
 	if !ok || inst == nil {
-		return
+		return fmt.Errorf("device %s not found", deviceID)
 	}
 	inst.ResetClient()
 
@@ -272,9 +307,10 @@ func (m *DeviceManager) resetDeviceKeepSlot(deviceID string) {
 			CreatedAt:   inst.CreatedAt(),
 			UpdatedAt:   time.Now(),
 		}); err != nil {
-			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to persist logged-out device %s", deviceID)
+			return fmt.Errorf("persist logged-out device %s: %w", deviceID, err)
 		}
 	}
+	return nil
 }
 
 // CreateDevice registers a new device placeholder so routes can be scoped strictly by device_id.
@@ -580,7 +616,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	inst.SetOnLoggedOut(func(deviceID string) {
 		// On remote logout (device unlinked from the phone) keep the slot so it can
 		// be re-paired under the same id, matching the explicit logout semantics.
-		m.resetDeviceKeepSlot(deviceID)
+		// Use a fresh context: the original request ctx may already be cancelled.
+		if err := m.keepSlotLogout(context.Background(), deviceID); err != nil {
+			logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
+		}
 	})
 
 	inst.SetClient(client)

@@ -379,13 +379,6 @@
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
                             break;
-                        case 'LOGOUT_COMPLETE':
-                            // Handle successful cleanup after remote logout
-                            showSuccessInfo('✅ ' + message.message)
-                            console.log('[LOGOUT_COMPLETE] Remote logout cleanup completed:', message)
-                            // Optionally refresh the device list
-                            this.handleReloadDevice()
-                            break;
                         case 'DEVICE_REMOVED': {
                             const removedId = message.result?.device_id;
                             const devices = message.result?.devices;

@@ -90,7 +90,7 @@ paths:
       description: >-
         Logs the active device out of WhatsApp and clears its session. The device
         slot (id and display name) is kept, so it stays listed (disconnected) and
-        can be re-paired under the same id. Use DELETE /devices/{id} to remove the slot.
+        can be re-paired under the same id. Use DELETE /devices/{device_id} to remove the slot.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
