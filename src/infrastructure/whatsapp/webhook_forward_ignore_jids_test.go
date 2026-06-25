@@ -87,3 +87,35 @@ func TestWebhookIgnoreJID_EventWithoutInnerPayloadForwards(t *testing.T) {
 		t.Fatal("event without an inner JID must be forwarded (defensive default)")
 	}
 }
+
+func TestWebhookIgnoreJID_LidWildcardMatchesLidFields(t *testing.T) {
+	// LID-migrated event: chat_id/from hold the resolved phone JID, while the @lid
+	// JID lives in chat_lid/from_lid. An "@lid" pattern must still drop it.
+	payload := map[string]any{
+		"event":     "message",
+		"device_id": "org_1",
+		"payload": map[string]any{
+			"chat_id":  "628111@s.whatsapp.net",
+			"from":     "628111@s.whatsapp.net",
+			"chat_lid": "111222333@lid",
+			"from_lid": "111222333@lid",
+		},
+	}
+	if runIgnoreJidForward(t, []string{"@lid"}, "message", payload) {
+		t.Fatal("event whose LID fields end in @lid should be dropped when @lid is ignored")
+	}
+}
+
+func TestWebhookIgnoreJID_ExactLidMatchesChatLid(t *testing.T) {
+	payload := map[string]any{
+		"event":     "message",
+		"device_id": "org_1",
+		"payload": map[string]any{
+			"chat_id":  "628111@s.whatsapp.net",
+			"chat_lid": "120363999@lid",
+		},
+	}
+	if runIgnoreJidForward(t, []string{"120363999@lid"}, "message", payload) {
+		t.Fatal("event should be dropped when its exact chat_lid JID is in the ignore list")
+	}
+}

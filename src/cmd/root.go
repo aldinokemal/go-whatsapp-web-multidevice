@@ -365,7 +365,7 @@ func initFlags() {
 		&config.WhatsappWebhookIgnoreJids,
 		"webhook-ignore-jids", "",
 		config.WhatsappWebhookIgnoreJids,
-		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
+		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,

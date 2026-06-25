@@ -98,11 +98,16 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 
 **Behavior:**
 
-- Matches the event's `chat_id` **or** `from` against the list.
+- Matches the event's `chat_id`, `from`, `chat_lid` or `from_lid` against the list (so an `@lid`
+  pattern matches LID-migrated events, whose `@lid` JID lives in the `*_lid` fields).
 - An `@`-prefixed entry is an address-space **wildcard** (`@g.us`, `@s.whatsapp.net`, `@lid`); any other
   entry is an **exact** JID match.
 - Empty/unset (default) forwards everything.
 - Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
+- `@g.us` is the recommended way to mute groups (it matches the group `chat_id`). The
+  `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
+  `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific
+  1:1 chats.
 - Note: a few events carry the group JID elsewhere or omit `chat_id` — `call.offer` puts the group in
   `group_jid` (not `chat_id`), `message.deleted` only includes `chat_id` when the original message is
   found locally, and `group.participants`/`group.joined` have no `from`. The `@g.us` wildcard still
