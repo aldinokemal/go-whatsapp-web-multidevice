@@ -133,7 +133,24 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 	if chat == nil {
-		return response, fmt.Errorf("chat with JID %s not found", request.ChatJID)
+		// The chat row has not been persisted for this device yet — e.g. a
+		// conversation that has only just started, or messages received
+		// before the chat record was upserted. Returning an error here makes
+		// the endpoint respond with HTTP 500 for what is really an empty
+		// chat, so callers that poll a not-yet-stored conversation get a
+		// hard failure instead of an empty list. Treat it as "no messages
+		// yet" and return a valid empty response instead.
+		response.Data = make([]domainChat.MessageInfo, 0)
+		response.Pagination = domainChat.PaginationResponse{
+			Limit:  request.Limit,
+			Offset: request.Offset,
+			Total:  0,
+		}
+		response.ChatInfo = domainChat.ChatInfo{
+			JID:  request.ChatJID,
+			Name: chatDisplayName(request.ChatJID, ""),
+		}
+		return response, nil
 	}
 
 	// Create message filter from request
