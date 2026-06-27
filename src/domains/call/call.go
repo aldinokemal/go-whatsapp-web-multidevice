@@ -27,6 +27,11 @@ type CallIDRequest struct {
 	CallID string `json:"call_id" uri:"call_id"`
 }
 
+type RejectCallRequest struct {
+	CallerJID string `json:"caller_jid" form:"caller_jid"`
+	CallID    string `json:"call_id" form:"call_id"`
+}
+
 type WebRTCRequest struct {
 	CallID   string `json:"call_id" uri:"call_id"`
 	SDPOffer string `json:"sdp_offer"`
@@ -68,6 +73,7 @@ type ICallUsecase interface {
 	StartCall(ctx context.Context, request StartCallRequest) (StartCallResponse, error)
 	AcceptCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
 	RejectCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
+	RejectIncomingCall(ctx context.Context, request RejectCallRequest) error
 	EndCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
 	ExchangeWebRTC(ctx context.Context, request WebRTCRequest) (WebRTCResponse, error)
 	GetCall(ctx context.Context, request CallIDRequest) (CallInfo, error)

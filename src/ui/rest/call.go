@@ -14,6 +14,7 @@ type Call struct {
 func InitRestCall(app fiber.Router, service domainCall.ICallUsecase) Call {
 	rest := Call{Service: service}
 	app.Post("/call", rest.StartCall)
+	app.Post("/call/reject", rest.RejectIncomingCall)
 	app.Post("/call/:call_id/webrtc", rest.ExchangeWebRTC)
 	app.Post("/call/:call_id/accept", rest.AcceptCall)
 	app.Post("/call/:call_id/reject", rest.RejectCall)
@@ -54,6 +55,21 @@ func (controller *Call) RejectCall(c *fiber.Ctx) error {
 	response, err := controller.Service.RejectCall(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), domainCall.CallIDRequest{CallID: c.Params("call_id")})
 	utils.PanicIfNeeded(err)
 	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: "Call rejected", Results: response})
+}
+
+func (controller *Call) RejectIncomingCall(c *fiber.Ctx) error {
+	var request domainCall.RejectCallRequest
+	utils.PanicIfNeeded(c.BodyParser(&request))
+
+	err := controller.Service.RejectIncomingCall(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Call rejected successfully",
+		Results: nil,
+	})
 }
 
 func (controller *Call) EndCall(c *fiber.Ctx) error {

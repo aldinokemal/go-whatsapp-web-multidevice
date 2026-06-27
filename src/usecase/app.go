@@ -15,7 +15,6 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/libsignal/logger"
@@ -258,6 +257,7 @@ func (service *serviceApp) FetchDevices(_ context.Context) (response []domainApp
 		response = append(response, domainApp.DevicesResponse{
 			Name:   name,
 			Device: inst.ID(),
+			JID:    inst.JID(),
 		})
 	}
 

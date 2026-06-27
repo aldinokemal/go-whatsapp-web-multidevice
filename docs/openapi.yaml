@@ -21,6 +21,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: call
+    description: Call management (reject incoming calls)
   - name: chat
     description: Chat conversations and messaging
   - name: group
@@ -183,7 +185,11 @@ paths:
                         description: Whether the device is logged in to WhatsApp
                       device_id:
                         type: string
-                        description: The device ID
+                        description: Session ID registered via POST /devices
+                        example: 'org_2'
+                      jid:
+                        type: string
+                        description: WhatsApp JID of the logged-in account (empty until login)
                         example: '6289685028129@s.whatsapp.net'
         '400':
           description: Bad Request
@@ -901,6 +907,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -970,6 +980,10 @@ paths:
                   type: string
                   example: https://example.com/audio.mp3
                   description: Audio URL to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1019,6 +1033,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 file:
                   type: string
                   format: binary
@@ -1126,6 +1144,10 @@ paths:
                   type: string
                   example: ini contoh caption video
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -1855,19 +1877,26 @@ paths:
                       status:
                         type: string
                         example: Media downloaded successfully
-                      mime_type:
+                      message_id:
                         type: string
-                        example: image/jpeg
+                        example: 3EB0ABC123456789
+                      media_type:
+                        type: string
+                        example: audio
+                      filename:
+                        type: string
+                        example: audio.ogg
+                      file_path:
+                        type: string
+                        description: Local server file path where the media was saved
+                        example: statics/media/6289685028129/2026-06-09/audio.ogg
+                      file_url:
+                        type: string
+                        description: Public URL for downloading the saved media when it is stored under the served statics directory
+                        example: http://localhost:3000/statics/media/6289685028129/2026-06-09/audio.ogg
                       file_size:
                         type: integer
                         example: 524288
-                      file_name:
-                        type: string
-                        example: image.jpg
-                      data:
-                        type: string
-                        format: byte
-                        description: Base64 encoded media data
         '400':
           description: Bad Request
           content:
@@ -1882,6 +1911,64 @@ paths:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/reject:
+    post:
+      operationId: rejectCall
+      tags:
+        - call
+      summary: Reject an incoming call
+      description: |
+        Programmatically reject a specific incoming call. This endpoint allows selective call rejection
+        based on your application logic (e.g., time-of-day rules, caller whitelists, agent availability).
+        
+        The call must still be ringing — rejection will fail if the call has already ended or been answered.
+        
+        This is complementary to the auto-reject feature (`WHATSAPP_AUTO_REJECT_CALL=true`) which rejects
+        all incoming calls globally. Use this API for fine-grained control.
+        
+        **Required fields from webhook:**
+        - `caller_jid`: Use `payload.from` from the `call.offer` webhook event
+        - `call_id`: Use `payload.call_id` from the `call.offer` webhook event
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - caller_jid
+                - call_id
+              properties:
+                caller_jid:
+                  type: string
+                  example: '628987654321@s.whatsapp.net'
+                  description: JID of the caller (from webhook `payload.from`)
+                call_id:
+                  type: string
+                  example: 'ABC123DEF456'
+                  description: Unique call identifier (from webhook `payload.call_id`)
+      responses:
+        '200':
+          description: Call rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing or invalid fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error (call already ended, not connected, etc.)
           content:
             application/json:
               schema:
@@ -3643,7 +3730,12 @@ components:
                 example: 'Aldino Kemal'
               device:
                 type: string
-                example: '628960561XXX.0:64@s.whatsapp.net'
+                description: Session ID registered via POST /devices (stable across restarts)
+                example: 'org_2'
+              jid:
+                type: string
+                description: WhatsApp JID of the logged-in account (empty until login)
+                example: '628960561XXX@s.whatsapp.net'
 
     # Device Management Schemas (v8)
     DeviceListResponse:
@@ -4229,6 +4321,11 @@ components:
           example: 'image'
           nullable: true
           description: Type of media (image, video, audio, document, etc.). Value `call` indicates a stored incoming call log.
+        reactions:
+          type: array
+          description: Emoji reactions attached to this message
+          items:
+            $ref: '#/components/schemas/ChatReaction'
         call_metadata:
           type: string
           example: '{"call_id":"ABC","auto_rejected":false}'
@@ -4258,6 +4355,27 @@ components:
           format: date-time
           example: '2024-01-15T10:30:00Z'
           description: Record last update timestamp
+
+    ChatReaction:
+      type: object
+      properties:
+        emoji:
+          type: string
+          example: '👍'
+          description: Emoji used in the reaction
+        sender_jid:
+          type: string
+          example: '628123456789@s.whatsapp.net'
+          description: JID of the user who reacted
+        is_from_me:
+          type: boolean
+          example: false
+          description: Whether the reaction was made by the current user
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:31:00Z'
+          description: When the reaction was received
 
     LabelChatResponse:
       type: object

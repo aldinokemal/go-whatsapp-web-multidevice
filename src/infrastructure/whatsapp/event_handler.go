@@ -10,6 +10,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -56,7 +57,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.HistorySync:
 		handleHistorySync(ctx, evt, chatStorageRepo, client)
 	case *events.AppState:
-		handleAppState(ctx, evt)
+		handleAppState(ctx, evt, instance.JID(), client)
 	case *events.GroupInfo:
 		handleGroupInfo(ctx, evt, instance.JID(), client)
 	case *events.JoinedGroup:
@@ -158,7 +159,7 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
 	primaryDB, secondaryDB := getStoreContainers()
-	syncKeysDevice(ctx, primaryDB, secondaryDB)
+	syncKeysDevice(ctx, primaryDB, secondaryDB, evt.ID)
 }
 
 func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
@@ -210,6 +211,17 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 			}
 		}
 	}
+	// Start Chatwoot history auto-sync on first connect for this device when
+	// CHATWOOT_IMPORT_MESSAGES is enabled. TriggerAutoSync self-guards on config,
+	// login state, and a once-per-device latch, so it is safe to call on every
+	// connect — placed before the pushname early-return because a freshly paired
+	// device may connect before its pushname is known.
+	if instance != nil {
+		if repo := instance.GetChatStorage(); repo != nil {
+			chatwoot.TriggerAutoSync(repo, client)
+		}
+	}
+
 	if len(client.Store.PushName) == 0 {
 		return
 	}
@@ -234,9 +246,9 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
 	}
 
-	// Forward receipt (ack) event to webhook if configured
+	// Forward receipt (ack) event to webhook or Chatwoot if configured
 	// Note: Receipt events are not rate limited as they are critical for message delivery status
-	if len(config.WhatsappWebhook) > 0 && sendReceipt {
+	if (len(config.WhatsappWebhook) > 0 || (config.ChatwootEnabled && config.ChatwootMessageRead)) && sendReceipt {
 		go func(e *events.Receipt, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -259,8 +271,18 @@ func handlePresence(_ context.Context, evt *events.Presence) {
 	}
 }
 
-func handleAppState(_ context.Context, evt *events.AppState) {
+func handleAppState(_ context.Context, evt *events.AppState, deviceID string, client *whatsmeow.Client) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
+
+	if len(config.WhatsappWebhook) > 0 && isLabelAppState(evt) {
+		go func(e *events.AppState, c *whatsmeow.Client) {
+			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := forwardLabelAppStateToWebhook(webhookCtx, e, deviceID, c); err != nil {
+				logrus.Errorf("Failed to forward label appstate event to webhook: %v", err)
+			}
+		}(evt, client)
+	}
 }
 
 func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {

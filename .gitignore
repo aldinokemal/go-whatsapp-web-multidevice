@@ -1,19 +1,42 @@
-*.db
-tmp
-.idea
-.DS_Store
-history-*.json
+# Binaries
+bin/
 main
 main.exe
-*.jpe
-src/pkged.go
-storages
-.env
-bin
-.playwright-mcp
-.cursor/mcp.json
-.factory
-.vscode/settings.json
-src/whatsapp
-.worktrees/
 src/gowa
+.claude
+
+# Build artifacts
+src/pkged.go
+
+# Database
+*.db
+storages/
+
+# Environment
+.env
+
+# Runtime media & QR codes
+statics/
+
+# History files
+history-*.json
+
+# Media conversions
+*.jpe
+
+# IDE & editor
+.idea/
+.vscode/settings.json
+.factory/
+.cursor/mcp.json
+.playwright-mcp/
+
+# OS files
+.DS_Store
+tmp/
+
+# Worktrees
+.worktrees/
+
+# whatsmeow store (legacy path)
+src/whatsapp/

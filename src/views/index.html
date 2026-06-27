@@ -4,6 +4,7 @@
     <!-- Required meta tags -->
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="{{ .AppBasePath }}/assets/gowa.svg" type="image/svg+xml" sizes="any">
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" type="text/css"
           href="https://cdnjs.cloudflare.com/ajax/libs/fomantic-ui/2.8.8/semantic.min.css">
@@ -117,6 +118,14 @@
         <message-react></message-react>
         <message-update></message-update>
         <message-read></message-read>
+    </div>
+
+    <div class="ui horizontal divider">
+        Call
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <call-reject></call-reject>
     </div>
 
     <div class="ui horizontal divider">
@@ -257,6 +266,7 @@
     import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
     import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
     import DeviceManager from "{{ .AppBasePath }}/components/DeviceManager.js";
+    import CallReject from "{{ .AppBasePath }}/components/CallReject.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -287,6 +297,7 @@
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager, ChatDisappearingManager, ChatList, ChatMessages,
+            CallReject,
             DeviceManager
         },
         delimiters: ['[[', ']]'],

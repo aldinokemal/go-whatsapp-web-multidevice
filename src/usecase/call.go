@@ -3,11 +3,15 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"time"
 
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/sirupsen/logrus"
 )
 
 type CallRuntime interface {
@@ -25,10 +29,15 @@ type serviceCall struct {
 	storage domainChatStorage.IChatStorageRepository
 }
 
-func NewCallService(runtime CallRuntime, storage ...domainChatStorage.IChatStorageRepository) domainCall.ICallUsecase {
-	service := &serviceCall{runtime: runtime}
-	if len(storage) > 0 {
-		service.storage = storage[0]
+func NewCallService(deps ...any) domainCall.ICallUsecase {
+	service := &serviceCall{}
+	for _, dep := range deps {
+		switch typed := dep.(type) {
+		case CallRuntime:
+			service.runtime = typed
+		case domainChatStorage.IChatStorageRepository:
+			service.storage = typed
+		}
 	}
 	return service
 }
@@ -42,6 +51,9 @@ func callDeviceFromContext(ctx context.Context) (*whatsapp.DeviceInstance, strin
 }
 
 func (service *serviceCall) StartCall(ctx context.Context, request domainCall.StartCallRequest) (domainCall.StartCallResponse, error) {
+	if service.runtime == nil {
+		return domainCall.StartCallResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateStartCall(ctx, request); err != nil {
 		return domainCall.StartCallResponse{}, err
 	}
@@ -57,6 +69,9 @@ func (service *serviceCall) StartCall(ctx context.Context, request domainCall.St
 }
 
 func (service *serviceCall) AcceptCall(ctx context.Context, request domainCall.CallIDRequest) (domainCall.GenericResponse, error) {
+	if service.runtime == nil {
+		return domainCall.GenericResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateCallIDRequest(ctx, request); err != nil {
 		return domainCall.GenericResponse{}, err
 	}
@@ -72,6 +87,9 @@ func (service *serviceCall) AcceptCall(ctx context.Context, request domainCall.C
 }
 
 func (service *serviceCall) RejectCall(ctx context.Context, request domainCall.CallIDRequest) (domainCall.GenericResponse, error) {
+	if service.runtime == nil {
+		return domainCall.GenericResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateCallIDRequest(ctx, request); err != nil {
 		return domainCall.GenericResponse{}, err
 	}
@@ -86,7 +104,38 @@ func (service *serviceCall) RejectCall(ctx context.Context, request domainCall.C
 	return domainCall.GenericResponse{Status: "success", Call: info}, nil
 }
 
+func (service *serviceCall) RejectIncomingCall(ctx context.Context, request domainCall.RejectCallRequest) error {
+	if err := validations.ValidateRejectCall(ctx, request.CallerJID, request.CallID); err != nil {
+		return err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	utils.MustLogin(client)
+	parsedJID, err := utils.ParseJID(request.CallerJID)
+	if err != nil {
+		return err
+	}
+
+	rejectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err := client.RejectCall(rejectCtx, parsedJID, request.CallID); err != nil {
+		logrus.WithError(err).Error("Failed to reject call")
+		return fmt.Errorf("failed to reject call: %w", err)
+	}
+
+	logrus.Info("Rejected call successfully")
+	return nil
+}
+
 func (service *serviceCall) EndCall(ctx context.Context, request domainCall.CallIDRequest) (domainCall.GenericResponse, error) {
+	if service.runtime == nil {
+		return domainCall.GenericResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateCallIDRequest(ctx, request); err != nil {
 		return domainCall.GenericResponse{}, err
 	}
@@ -102,6 +151,9 @@ func (service *serviceCall) EndCall(ctx context.Context, request domainCall.Call
 }
 
 func (service *serviceCall) ExchangeWebRTC(ctx context.Context, request domainCall.WebRTCRequest) (domainCall.WebRTCResponse, error) {
+	if service.runtime == nil {
+		return domainCall.WebRTCResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateWebRTCRequest(ctx, request); err != nil {
 		return domainCall.WebRTCResponse{}, err
 	}
@@ -117,6 +169,9 @@ func (service *serviceCall) ExchangeWebRTC(ctx context.Context, request domainCa
 }
 
 func (service *serviceCall) GetCall(ctx context.Context, request domainCall.CallIDRequest) (domainCall.CallInfo, error) {
+	if service.runtime == nil {
+		return domainCall.CallInfo{}, fmt.Errorf("call runtime is not configured")
+	}
 	if err := validations.ValidateCallIDRequest(ctx, request); err != nil {
 		return domainCall.CallInfo{}, err
 	}
@@ -130,7 +185,7 @@ func (service *serviceCall) GetCall(ctx context.Context, request domainCall.Call
 			return domainCall.CallInfo{}, fmt.Errorf("call %s not found", request.CallID)
 		}
 		record, err := service.storage.GetCallRecord(deviceID, request.CallID)
-		if err != nil {
+		if err != nil || record == nil {
 			return domainCall.CallInfo{}, fmt.Errorf("call %s not found", request.CallID)
 		}
 		return callInfoFromRecord(record), nil
@@ -139,6 +194,9 @@ func (service *serviceCall) GetCall(ctx context.Context, request domainCall.Call
 }
 
 func (service *serviceCall) ListCalls(ctx context.Context) (domainCall.ListCallsResponse, error) {
+	if service.runtime == nil {
+		return domainCall.ListCallsResponse{}, fmt.Errorf("call runtime is not configured")
+	}
 	_, deviceID, err := callDeviceFromContext(ctx)
 	if err != nil {
 		return domainCall.ListCallsResponse{}, err
