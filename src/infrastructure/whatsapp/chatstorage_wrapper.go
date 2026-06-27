@@ -80,12 +80,35 @@ func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) err
 	return r.base.StoreMessage(message)
 }
 
+func (r *deviceChatStorage) StoreMessageEdit(edit *domainChatStorage.MessageEdit) error {
+	if edit != nil && edit.DeviceID == "" {
+		edit.DeviceID = r.deviceID
+	}
+	return r.base.StoreMessageEdit(edit)
+}
+
 func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	return r.base.StoreMessagesBatch(messages)
 }
 
 func (r *deviceChatStorage) GetMessageByID(id string) (*domainChatStorage.Message, error) {
 	return r.base.GetMessageByID(id)
+}
+
+func (r *deviceChatStorage) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetMessageByIDAndDevice(targetDeviceID, id)
+}
+
+func (r *deviceChatStorage) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetMessageEdits(originalMessageID, targetDeviceID)
 }
 
 func (r *deviceChatStorage) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
@@ -111,7 +134,64 @@ func (r *deviceChatStorage) DeleteMessageByDevice(deviceID, id, chatJID string) 
 	return r.base.DeleteMessageByDevice(deviceID, id, chatJID)
 }
 
+func (r *deviceChatStorage) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	if link != nil && link.DeviceID == "" {
+		link.DeviceID = r.deviceID
+	}
+	return r.base.UpsertChatwootMessageLink(link)
+}
+
+func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkByWhatsAppID(targetDeviceID, waMessageID)
+}
+
+func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
+}
+
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID)
+}
+
+func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetLatestUnreadChatwootMessageLinkByChat(targetDeviceID, waChatJID)
+}
+
+func (r *deviceChatStorage) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	if event != nil && event.DeviceID == "" {
+		event.DeviceID = r.deviceID
+	}
+	return r.base.EnqueueChatwootForwardEvent(event)
+}
+
+func (r *deviceChatStorage) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+	return r.base.ListDueChatwootForwardEvents(now, limit)
+}
+
+func (r *deviceChatStorage) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
+	return r.base.MarkChatwootForwardEventFailed(id, lastError, nextAttemptAt)
+}
+
+func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64) error {
+	return r.base.MarkChatwootForwardEventDone(id)
+}
+
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
+	if _, ok := DeviceFromContext(ctx); !ok && r.deviceID != "" {
+		ctx = ContextWithDevice(ctx, NewDeviceInstance(r.deviceID, nil, nil))
+	}
 	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp, msg)
 }
 

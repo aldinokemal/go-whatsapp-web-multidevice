@@ -1,11 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
@@ -90,9 +96,21 @@ func restServer(_ *cobra.Command, _ []string) {
 	})
 
 	// Chatwoot webhook - registered BEFORE basic auth middleware
-	// This allows Chatwoot to send webhooks without authentication
+	// This allows Chatwoot to send webhooks without authentication. The handler
+	// is stateless and shared with the authenticated sync routes registered below.
+	var chatwootHandler *rest.ChatwootHandler
 	if config.ChatwootEnabled {
-		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm, chatStorageRepo)
+		// Auto-provision the Chatwoot inbox (create or reuse) when enabled, so
+		// CHATWOOT_INBOX_ID is resolved before any message is forwarded. Failures
+		// are logged but non-fatal — the operator can still set the inbox manually.
+		if config.ChatwootAutoCreate {
+			if err := chatwoot.EnsureInbox(chatwoot.GetDefaultClient()); err != nil {
+				logrus.Errorf("Chatwoot auto-create failed: %v", err)
+			}
+		}
+		whatsapp.StartChatwootForwardRetryWorker(chatStorageRepo)
+
+		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"
 		if config.AppBasePath != "" {
 			webhookPath = config.AppBasePath + webhookPath
@@ -141,7 +159,6 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Chatwoot sync routes - require authentication (webhook is registered earlier without auth)
 	if config.ChatwootEnabled {
-		chatwootHandler := rest.NewChatwootHandler(appUsecase, sendUsecase, dm, chatStorageRepo)
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
 	}
@@ -165,7 +182,45 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Set auto reconnect checking with a guaranteed client instance
 	startAutoReconnectCheckerIfClientAvailable()
 
-	if err := app.Listen(config.AppHost + ":" + config.AppPort); err != nil {
-		logrus.Fatalln("Failed to start: ", err.Error())
+	// Set daily presence pulse scheduler when enabled
+	startPresencePulseSchedulerIfEnabled()
+
+	// Listen in a goroutine so we can trap SIGINT/SIGTERM and drain the
+	// server cleanly. Without this, Fiber's Listen blocks until the OS
+	// kills the process, leaking the Chatwoot Postgres importer pool and
+	// the chat storage DB connection.
+	listenErr := make(chan error, 1)
+	go func() {
+		listenErr <- app.Listen(config.AppHost + ":" + config.AppPort)
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-listenErr:
+		if err != nil {
+			logrus.Fatalln("Failed to start: ", err.Error())
+		}
+	case sig := <-sigCh:
+		logrus.Infof("Received %s — shutting down", sig)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
+			logrus.Warnf("HTTP server shutdown: %v", err)
+		}
+		// Release the Chatwoot direct-Postgres importer pool if one was
+		// opened. Safe when Chatwoot is disabled or the pool was never
+		// initialized — GetDefaultSyncService() returns nil.
+		if svc := chatwoot.GetDefaultSyncService(); svc != nil {
+			if err := svc.Close(); err != nil {
+				logrus.Warnf("Chatwoot sync close: %v", err)
+			}
+		}
+		if chatStorageDB != nil {
+			if err := chatStorageDB.Close(); err != nil {
+				logrus.Warnf("Chat storage close: %v", err)
+			}
+		}
 	}
 }

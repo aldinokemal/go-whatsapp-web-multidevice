@@ -183,7 +183,11 @@ paths:
                         description: Whether the device is logged in to WhatsApp
                       device_id:
                         type: string
-                        description: The device ID
+                        description: Session ID registered via POST /devices
+                        example: 'org_2'
+                      jid:
+                        type: string
+                        description: WhatsApp JID of the logged-in account (empty until login)
                         example: '6289685028129@s.whatsapp.net'
         '400':
           description: Bad Request
@@ -901,6 +905,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -970,6 +978,10 @@ paths:
                   type: string
                   example: https://example.com/audio.mp3
                   description: Audio URL to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1019,6 +1031,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 file:
                   type: string
                   format: binary
@@ -1126,6 +1142,10 @@ paths:
                   type: string
                   example: ini contoh caption video
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -1855,19 +1875,26 @@ paths:
                       status:
                         type: string
                         example: Media downloaded successfully
-                      mime_type:
+                      message_id:
                         type: string
-                        example: image/jpeg
+                        example: 3EB0ABC123456789
+                      media_type:
+                        type: string
+                        example: audio
+                      filename:
+                        type: string
+                        example: audio.ogg
+                      file_path:
+                        type: string
+                        description: Local server file path where the media was saved
+                        example: statics/media/6289685028129/2026-06-09/audio.ogg
+                      file_url:
+                        type: string
+                        description: Public URL for downloading the saved media when it is stored under the served statics directory
+                        example: http://localhost:3000/statics/media/6289685028129/2026-06-09/audio.ogg
                       file_size:
                         type: integer
                         example: 524288
-                      file_name:
-                        type: string
-                        example: image.jpg
-                      data:
-                        type: string
-                        format: byte
-                        description: Base64 encoded media data
         '400':
           description: Bad Request
           content:
@@ -3643,7 +3670,12 @@ components:
                 example: 'Aldino Kemal'
               device:
                 type: string
-                example: '628960561XXX.0:64@s.whatsapp.net'
+                description: Session ID registered via POST /devices (stable across restarts)
+                example: 'org_2'
+              jid:
+                type: string
+                description: WhatsApp JID of the logged-in account (empty until login)
+                example: '628960561XXX@s.whatsapp.net'
 
     # Device Management Schemas (v8)
     DeviceListResponse:

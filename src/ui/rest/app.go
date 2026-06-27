@@ -127,9 +127,10 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Connection status retrieved",
 		Results: map[string]any{
-			"is_connected":  isConnected,
-			"is_logged_in":  isLoggedIn,
-			"device_id":     device.ID(),
+			"is_connected": isConnected,
+			"is_logged_in": isLoggedIn,
+			"device_id":    device.ID(),
+			"jid":          device.JID(),
 			"unread_chats": unreadCounts,
 		},
 	})

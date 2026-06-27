@@ -1,7 +1,9 @@
 package chatstorage
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -156,6 +158,121 @@ func TestSQLiteRepositoryDeletesReactionsWithMessagesAndDevices(t *testing.T) {
 	}
 	if got := countMessageReactions(t, repo); got != 0 {
 		t.Fatalf("expected device cleanup to delete reactions, got %d", got)
+	}
+}
+
+func TestStoreSentMessageWithContextRequiresDeviceInContext(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "6289605618749@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.May, 22, 10, 0, 0, 0, time.UTC)
+
+	err := repo.StoreSentMessageWithContext(
+		context.Background(),
+		"msg-sent-1",
+		deviceID,
+		chatJID,
+		"hello from api",
+		now,
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected error when storing sent message without device context")
+	}
+	if !errors.Is(err, domainChatStorage.ErrMissingDeviceContext) {
+		t.Fatalf("expected missing device context error, got %v", err)
+	}
+}
+
+func TestSQLiteRepositoryStoresMessageDirectPath(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.June, 19, 8, 0, 0, 0, time.UTC)
+	directPath := "/v/t62.7118-24/media.enc?ccb=11-4"
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        deviceID,
+		JID:             chatJID,
+		Name:            chatJID,
+		LastMessageTime: now,
+	}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+	if err := repo.StoreMessage(&domainChatStorage.Message{
+		ID:            "msg-media-1",
+		ChatJID:       chatJID,
+		DeviceID:      deviceID,
+		Sender:        "628999999999@s.whatsapp.net",
+		Timestamp:     now,
+		MediaType:     "image",
+		URL:           "https://mmg.whatsapp.net/v/t62.7118-24/media.enc?ccb=11-4",
+		DirectPath:    directPath,
+		MediaKey:      []byte("media-key"),
+		FileSHA256:    []byte("file-sha"),
+		FileEncSHA256: []byte("file-enc-sha"),
+		FileLength:    1234,
+	}); err != nil {
+		t.Fatalf("store message: %v", err)
+	}
+
+	got, err := repo.GetMessageByID("msg-media-1")
+	if err != nil {
+		t.Fatalf("get message by id: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected stored message")
+	}
+	if got.DirectPath != directPath {
+		t.Fatalf("DirectPath = %q, want %q", got.DirectPath, directPath)
+	}
+}
+
+func TestSQLiteRepositoryStoresBatchMessageDirectPath(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.June, 19, 8, 0, 0, 0, time.UTC)
+	directPath := "/v/t62.7118-24/batch-media.enc?ccb=11-4"
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        deviceID,
+		JID:             chatJID,
+		Name:            chatJID,
+		LastMessageTime: now,
+	}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+	if err := repo.StoreMessagesBatch([]*domainChatStorage.Message{{
+		ID:            "msg-media-batch-1",
+		ChatJID:       chatJID,
+		DeviceID:      deviceID,
+		Sender:        "628999999999@s.whatsapp.net",
+		Timestamp:     now,
+		MediaType:     "video",
+		URL:           "https://mmg.whatsapp.net/v/t62.7118-24/batch-media.enc?ccb=11-4",
+		DirectPath:    directPath,
+		MediaKey:      []byte("media-key"),
+		FileSHA256:    []byte("file-sha"),
+		FileEncSHA256: []byte("file-enc-sha"),
+		FileLength:    5678,
+	}}); err != nil {
+		t.Fatalf("store messages batch: %v", err)
+	}
+
+	messages, err := repo.GetMessages(&domainChatStorage.MessageFilter{
+		DeviceID: deviceID,
+		ChatJID:  chatJID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("get messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %d", len(messages))
+	}
+	if messages[0].DirectPath != directPath {
+		t.Fatalf("DirectPath = %q, want %q", messages[0].DirectPath, directPath)
 	}
 }
 
