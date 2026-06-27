@@ -16,12 +16,15 @@ import (
 )
 
 type fakeCallRuntime struct {
-	startPhone string
-	calls      map[string]domainCall.CallInfo
+	startPhone   string
+	startRecord  bool
+	acceptRecord bool
+	calls        map[string]domainCall.CallInfo
 }
 
-func (f *fakeCallRuntime) StartCall(_ context.Context, device *whatsapp.DeviceInstance, phone string) (domainCall.CallInfo, error) {
+func (f *fakeCallRuntime) StartCall(_ context.Context, device *whatsapp.DeviceInstance, phone string, record bool) (domainCall.CallInfo, error) {
 	f.startPhone = phone
+	f.startRecord = record
 	info := domainCall.CallInfo{
 		DeviceID:  device.ID(),
 		CallID:    "call-1",
@@ -35,7 +38,8 @@ func (f *fakeCallRuntime) StartCall(_ context.Context, device *whatsapp.DeviceIn
 	return info, nil
 }
 
-func (f *fakeCallRuntime) AcceptCall(_ context.Context, deviceID, callID string) (domainCall.CallInfo, error) {
+func (f *fakeCallRuntime) AcceptCall(_ context.Context, deviceID, callID string, record bool) (domainCall.CallInfo, error) {
+	f.acceptRecord = record
 	info := f.calls[callID]
 	info.DeviceID = deviceID
 	info.Status = domainCall.StatusConnecting
@@ -98,8 +102,18 @@ func TestCallServiceStartCallValidatesAndUsesDeviceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "5511999999999", runtime.startPhone)
+	assert.False(t, runtime.startRecord)
 	assert.Equal(t, "device-a", response.Call.DeviceID)
 	assert.Equal(t, domainCall.StatusRinging, response.Call.Status)
+}
+
+func TestCallServiceStartCallPropagatesRecordingFlag(t *testing.T) {
+	service, runtime, ctx := newFakeCallService()
+
+	_, err := service.StartCall(ctx, domainCall.StartCallRequest{Phone: "5511999999999", Record: true})
+	require.NoError(t, err)
+
+	assert.True(t, runtime.startRecord)
 }
 
 func TestCallServiceStartCallRequiresDeviceContext(t *testing.T) {
@@ -118,6 +132,17 @@ func TestCallServiceExchangeWebRTC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "call-1", response.CallID)
 	assert.Equal(t, "answer", response.SDPAnswer)
+}
+
+func TestCallServiceAcceptCallPropagatesRecordingFlag(t *testing.T) {
+	service, runtime, ctx := newFakeCallService()
+	_, err := service.StartCall(ctx, domainCall.StartCallRequest{Phone: "5511999999999"})
+	require.NoError(t, err)
+
+	_, err = service.AcceptCall(ctx, domainCall.CallIDRequest{CallID: "call-1", Record: true})
+	require.NoError(t, err)
+
+	assert.True(t, runtime.acceptRecord)
 }
 
 func TestCallServiceListsPersistedCallHistory(t *testing.T) {
@@ -154,4 +179,38 @@ func TestCallServiceListsPersistedCallHistory(t *testing.T) {
 	assert.Equal(t, "persisted-call", response.Data[0].CallID)
 	assert.Equal(t, domainCall.StatusEnded, response.Data[0].Status)
 	assert.Equal(t, "completed", response.Data[0].EndReason)
+}
+
+func TestCallServiceLoadsRecordingMetadataFromHistory(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	repo := chatstorage.NewStorageRepository(db)
+	require.NoError(t, repo.InitializeSchema())
+
+	require.NoError(t, repo.StoreCallRecord(&domainChatStorage.CallRecord{
+		DeviceID:  "device-a",
+		CallID:    "recorded-call",
+		PeerJID:   "5511999999999@s.whatsapp.net",
+		Direction: string(domainCall.DirectionOutbound),
+		Status:    string(domainCall.StatusEnded),
+		MediaType: string(domainCall.MediaTypeAudio),
+		StartedAt: time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 27, 10, 5, 0, 0, time.UTC),
+		EndReason: "completed",
+		Metadata:  `{"recording":true,"recording_path":"statics/media/calls/device-a/recorded-call.wav","recording_url":"/statics/media/calls/device-a/recorded-call.wav","recording_format":"wav"}`,
+	}))
+
+	service := NewCallService(&fakeCallRuntime{calls: make(map[string]domainCall.CallInfo)}, repo)
+	device := whatsapp.NewDeviceInstance("device-a", nil, nil)
+	ctx := whatsapp.ContextWithDevice(context.Background(), device)
+
+	response, err := service.GetCall(ctx, domainCall.CallIDRequest{CallID: "recorded-call"})
+	require.NoError(t, err)
+
+	assert.True(t, response.Recording)
+	assert.Equal(t, "statics/media/calls/device-a/recorded-call.wav", response.RecordingPath)
+	assert.Equal(t, "/statics/media/calls/device-a/recorded-call.wav", response.RecordingURL)
+	assert.Equal(t, "wav", response.RecordingFormat)
 }

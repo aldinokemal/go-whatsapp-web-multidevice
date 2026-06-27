@@ -19,12 +19,14 @@ const (
 )
 
 type StartCallRequest struct {
-	Phone string `json:"phone"`
-	Video bool   `json:"video,omitempty"`
+	Phone  string `json:"phone"`
+	Video  bool   `json:"video,omitempty"`
+	Record bool   `json:"record,omitempty"`
 }
 
 type CallIDRequest struct {
 	CallID string `json:"call_id" uri:"call_id"`
+	Record bool   `json:"record,omitempty"`
 }
 
 type RejectCallRequest struct {
@@ -43,17 +45,21 @@ type WebRTCResponse struct {
 }
 
 type CallInfo struct {
-	DeviceID  string    `json:"device_id"`
-	CallID    string    `json:"call_id"`
-	PeerJID   string    `json:"peer_jid"`
-	Direction string    `json:"direction"`
-	Status    string    `json:"status"`
-	MediaType string    `json:"media_type"`
-	StartedAt time.Time `json:"started_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	EndedAt   time.Time `json:"ended_at,omitempty"`
-	EndReason string    `json:"end_reason,omitempty"`
-	Metadata  string    `json:"metadata,omitempty"`
+	DeviceID        string    `json:"device_id"`
+	CallID          string    `json:"call_id"`
+	PeerJID         string    `json:"peer_jid"`
+	Direction       string    `json:"direction"`
+	Status          string    `json:"status"`
+	MediaType       string    `json:"media_type"`
+	Recording       bool      `json:"recording,omitempty"`
+	RecordingPath   string    `json:"recording_path,omitempty"`
+	RecordingURL    string    `json:"recording_url,omitempty"`
+	RecordingFormat string    `json:"recording_format,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	EndedAt         time.Time `json:"ended_at,omitempty"`
+	EndReason       string    `json:"end_reason,omitempty"`
+	Metadata        string    `json:"metadata,omitempty"`
 }
 
 type StartCallResponse struct {

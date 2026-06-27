@@ -8,6 +8,7 @@ export default {
             loading: false,
             statusText: 'Idle',
             muted: false,
+            recordCall: false,
             peerConnection: null,
             dataChannel: null,
             audioContext: null,
@@ -40,7 +41,7 @@ export default {
             if (!this.canStart) return;
             this.loading = true;
             try {
-                const response = await window.http.post('/call', { phone: this.phone.trim() });
+                const response = await window.http.post('/call', { phone: this.phone.trim(), record: this.recordCall });
                 this.activeCall = response.data.results.call;
                 this.statusText = 'Ringing';
                 await this.setupWebRTC(this.activeCall.call_id);
@@ -57,7 +58,7 @@ export default {
             this.loading = true;
             try {
                 const callID = this.incomingCall.call_id;
-                await window.http.post(`/call/${encodeURIComponent(callID)}/accept`);
+                await window.http.post(`/call/${encodeURIComponent(callID)}/accept`, { record: this.recordCall });
                 this.activeCall = this.incomingCall;
                 this.incomingCall = null;
                 $('#incomingCallModal').modal('hide');
@@ -263,10 +264,17 @@ export default {
                     <label>Phone</label>
                     <input v-model="phone" type="text" placeholder="5511999999999" :disabled="hasActiveCall">
                 </div>
+                <div class="field">
+                    <div class="ui checkbox">
+                        <input id="recordCallCheckbox" type="checkbox" v-model="recordCall">
+                        <label for="recordCallCheckbox">Record this call as a WAV file</label>
+                    </div>
+                </div>
             </form>
             <div class="ui message" v-if="hasActiveCall">
                 <div class="header">{{ statusText }}</div>
                 <p>{{ activeCallLabel }}</p>
+                <p v-if="activeCall && activeCall.recording">Recording: enabled</p>
             </div>
         </div>
         <div class="actions">
@@ -289,6 +297,10 @@ export default {
         <div class="header">Incoming voice call</div>
         <div class="content">
             <p v-if="incomingCall">{{ incomingCall.peer_jid }}</p>
+            <div class="ui checkbox">
+                <input id="recordIncomingCallCheckbox" type="checkbox" v-model="recordCall">
+                <label for="recordIncomingCallCheckbox">Record this incoming call</label>
+            </div>
         </div>
         <div class="actions">
             <button class="ui red button" :class="{loading: loading}" @click.prevent="rejectIncomingCall">

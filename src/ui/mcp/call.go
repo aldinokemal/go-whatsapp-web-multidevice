@@ -31,11 +31,16 @@ func (h *CallHandler) toolStartCall() mcp.Tool {
 	return mcp.NewTool("whatsapp_call_start",
 		mcp.WithDescription("Start a 1:1 WhatsApp voice call. Audio negotiation must be completed by a WebRTC-capable client."),
 		mcp.WithString("phone", mcp.Required(), mcp.Description("International phone number without local leading zero.")),
+		mcp.WithBoolean("record", mcp.Description("Record the call to a WAV file.")),
 	)
 }
 
 func (h *CallHandler) toolAcceptCall() mcp.Tool {
-	return callIDTool("whatsapp_call_accept", "Accept an incoming WhatsApp voice call.")
+	return mcp.NewTool("whatsapp_call_accept",
+		mcp.WithDescription("Accept an incoming WhatsApp voice call."),
+		mcp.WithString("call_id", mcp.Required(), mcp.Description("WhatsApp call ID.")),
+		mcp.WithBoolean("record", mcp.Description("Record the call to a WAV file.")),
+	)
 }
 
 func (h *CallHandler) toolRejectCall() mcp.Tool {
@@ -73,7 +78,8 @@ func (h *CallHandler) handleStartCall(ctx context.Context, request mcp.CallToolR
 	if !ok || phone == "" {
 		return nil, errors.New("phone must be a string")
 	}
-	resp, err := h.callService.StartCall(ctx, domainCall.StartCallRequest{Phone: phone})
+	record, _ := request.GetArguments()["record"].(bool)
+	resp, err := h.callService.StartCall(ctx, domainCall.StartCallRequest{Phone: phone, Record: record})
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +87,15 @@ func (h *CallHandler) handleStartCall(ctx context.Context, request mcp.CallToolR
 }
 
 func (h *CallHandler) handleAcceptCall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return h.handleCallIDAction(ctx, request, h.callService.AcceptCall, "Call accepted")
+	ctx, req, err := callIDRequestFromMCP(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := h.callService.AcceptCall(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return mcp.NewToolResultStructured(resp, "Call accepted"), nil
 }
 
 func (h *CallHandler) handleRejectCall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -142,5 +156,6 @@ func callIDRequestFromMCP(ctx context.Context, request mcp.CallToolRequest) (con
 	if !ok || callID == "" {
 		return ctx, domainCall.CallIDRequest{}, errors.New("call_id must be a string")
 	}
-	return ctx, domainCall.CallIDRequest{CallID: callID}, nil
+	record, _ := request.GetArguments()["record"].(bool)
+	return ctx, domainCall.CallIDRequest{CallID: callID, Record: record}, nil
 }

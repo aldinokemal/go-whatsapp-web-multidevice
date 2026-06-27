@@ -46,7 +46,11 @@ func (controller *Call) ExchangeWebRTC(c *fiber.Ctx) error {
 }
 
 func (controller *Call) AcceptCall(c *fiber.Ctx) error {
-	response, err := controller.Service.AcceptCall(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), domainCall.CallIDRequest{CallID: c.Params("call_id")})
+	var request domainCall.CallIDRequest
+	_ = c.BodyParser(&request)
+	request.CallID = c.Params("call_id")
+
+	response, err := controller.Service.AcceptCall(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: "Call accepted", Results: response})
 }

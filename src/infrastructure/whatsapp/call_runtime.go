@@ -23,10 +23,11 @@ import (
 )
 
 type activeVoiceCall struct {
-	deviceID string
-	manager  *voipcall.CallManager
-	bridge   *voipbridge.Bridge
-	info     domainCall.CallInfo
+	deviceID  string
+	manager   *voipcall.CallManager
+	bridge    *voipbridge.Bridge
+	recording *callRecorder
+	info      domainCall.CallInfo
 }
 
 type VoiceCallRuntime struct {
@@ -50,7 +51,7 @@ func NewVoiceCallRuntime() *VoiceCallRuntime {
 	return &VoiceCallRuntime{calls: make(map[string]map[string]*activeVoiceCall)}
 }
 
-func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance, phone string) (domainCall.CallInfo, error) {
+func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance, phone string, record bool) (domainCall.CallInfo, error) {
 	if device == nil || device.GetClient() == nil {
 		return domainCall.CallInfo{}, fmt.Errorf("device is not logged in")
 	}
@@ -61,8 +62,19 @@ func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance
 
 	callID := signaling.GenerateCallID()
 	peer := types.NewJID(normalizeCallPhone(phone), types.DefaultUserServer)
+	var recorder *callRecorder
+	var err error
+	if record {
+		recorder, err = newCallRecorder(callRecordingPath(device.ID(), callID))
+		if err != nil {
+			return domainCall.CallInfo{}, err
+		}
+	}
 	manager := r.newManager(ctx, device, callID)
 	if err := manager.StartCall(ctx, callID, peer, false); err != nil {
+		if recorder != nil {
+			_ = recorder.Close()
+		}
 		r.remove(device.ID(), callID)
 		return domainCall.CallInfo{}, err
 	}
@@ -77,18 +89,41 @@ func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance
 		StartedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	r.upsertRuntimeCall(device.ID(), callID, &activeVoiceCall{deviceID: device.ID(), manager: manager, info: info})
+	if recorder != nil {
+		info.Recording = true
+		info.RecordingPath = recorder.Path()
+		info.RecordingURL = callRecordingURL(recorder.Path())
+		info.RecordingFormat = callRecordingFormat
+		info.Metadata = callRecordingMetadataJSON(info)
+	}
+	r.upsertRuntimeCall(device.ID(), callID, &activeVoiceCall{deviceID: device.ID(), manager: manager, recording: recorder, info: info})
 	r.persist(device, info)
 	r.emit("CALL_STARTED", "Call started", info)
 	return info, nil
 }
 
-func (r *VoiceCallRuntime) AcceptCall(ctx context.Context, deviceID, callID string) (domainCall.CallInfo, error) {
+func (r *VoiceCallRuntime) AcceptCall(ctx context.Context, deviceID, callID string, record bool) (domainCall.CallInfo, error) {
 	call, ok := r.getRuntimeCall(deviceID, callID)
 	if !ok {
 		return domainCall.CallInfo{}, fmt.Errorf("call %s not found", callID)
 	}
+	if record && call.recording == nil {
+		recorder, err := newCallRecorder(callRecordingPath(deviceID, callID))
+		if err != nil {
+			return domainCall.CallInfo{}, err
+		}
+		call.recording = recorder
+		call.info.Recording = true
+		call.info.RecordingPath = recorder.Path()
+		call.info.RecordingURL = callRecordingURL(recorder.Path())
+		call.info.RecordingFormat = callRecordingFormat
+		call.info.Metadata = callRecordingMetadataJSON(call.info)
+	}
 	if err := call.manager.AcceptCall(ctx, callID); err != nil {
+		if record && call.recording != nil && call.info.RecordingPath != "" {
+			_ = call.recording.Close()
+			call.recording = nil
+		}
 		return domainCall.CallInfo{}, err
 	}
 	return r.GetCallInfo(deviceID, callID)
@@ -103,6 +138,7 @@ func (r *VoiceCallRuntime) RejectCall(ctx context.Context, deviceID, callID stri
 	if err := call.manager.RejectCall(ctx, callID, core.EndCallReasonDeclined); err != nil {
 		return domainCall.CallInfo{}, err
 	}
+	r.closeRecordingOnly(deviceID, callID)
 	return info, nil
 }
 
@@ -115,6 +151,7 @@ func (r *VoiceCallRuntime) EndCall(ctx context.Context, deviceID, callID string)
 	if err := call.manager.EndCall(ctx, core.EndCallReasonUserEnded); err != nil {
 		return domainCall.CallInfo{}, err
 	}
+	r.closeRecordingOnly(deviceID, callID)
 	return info, nil
 }
 
@@ -128,6 +165,11 @@ func (r *VoiceCallRuntime) ExchangeWebRTC(ctx context.Context, deviceID, callID,
 		return "", err
 	}
 	br.OnBrowserPCM = func(pcm []float32) {
+		if call.recording != nil {
+			if err := call.recording.WriteLocal(pcm); err != nil {
+				logrus.WithError(err).Debug("failed to write browser audio to call recording")
+			}
+		}
 		call.manager.FeedCapturedPCM(pcm)
 	}
 	br.OnTerminalICE = func() {
@@ -239,7 +281,7 @@ func (r *VoiceCallRuntime) newManager(ctx context.Context, device *DeviceInstanc
 	}
 	manager.OnStateChange = func(info *voipcall.CallInfo) {
 		callInfo := domainInfoFromVoIP(device.ID(), info)
-		r.updateInfo(device.ID(), info.CallID, callInfo)
+		callInfo = r.updateInfo(device.ID(), info.CallID, callInfo)
 		r.persist(device, callInfo)
 		r.emit("CALL_STATE", "Call state changed", callInfo)
 		if info.IsEnded() {
@@ -248,14 +290,22 @@ func (r *VoiceCallRuntime) newManager(ctx context.Context, device *DeviceInstanc
 	}
 	manager.OnEnded = func(info *voipcall.CallInfo) {
 		callInfo := domainInfoFromVoIP(device.ID(), info)
-		r.updateInfo(device.ID(), info.CallID, callInfo)
+		callInfo = r.updateInfo(device.ID(), info.CallID, callInfo)
 		r.persist(device, callInfo)
 		r.emit("CALL_ENDED", "Call ended", callInfo)
 		r.closeBridgeAndRemove(device.ID(), info.CallID)
 	}
 	manager.OnPeerAudio = func(pcm []float32) {
 		call, ok := r.getRuntimeCall(device.ID(), callID)
-		if !ok || call.bridge == nil {
+		if !ok {
+			return
+		}
+		if call.recording != nil {
+			if err := call.recording.WriteRemote(pcm); err != nil {
+				logrus.WithError(err).Debug("failed to write remote audio to call recording")
+			}
+		}
+		if call.bridge == nil {
 			return
 		}
 		if err := call.bridge.WritePCM(pcm); err != nil {
@@ -276,17 +326,19 @@ func (r *VoiceCallRuntime) upsertRuntimeCall(deviceID, callID string, call *acti
 	r.calls[deviceID][callID] = call
 }
 
-func (r *VoiceCallRuntime) updateInfo(deviceID, callID string, info domainCall.CallInfo) {
+func (r *VoiceCallRuntime) updateInfo(deviceID, callID string, info domainCall.CallInfo) domainCall.CallInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.calls[deviceID]; !ok {
 		r.calls[deviceID] = make(map[string]*activeVoiceCall)
 	}
 	if call, ok := r.calls[deviceID][callID]; ok {
+		mergeCallRecordingInfo(&info, call.info)
 		call.info = info
-		return
+		return info
 	}
 	r.calls[deviceID][callID] = &activeVoiceCall{deviceID: deviceID, info: info}
+	return info
 }
 
 func (r *VoiceCallRuntime) getRuntimeCall(deviceID, callID string) (*activeVoiceCall, bool) {
@@ -314,9 +366,11 @@ func (r *VoiceCallRuntime) remove(deviceID, callID string) {
 func (r *VoiceCallRuntime) closeBridgeAndRemove(deviceID, callID string) {
 	r.mu.Lock()
 	var br *voipbridge.Bridge
+	var recorder *callRecorder
 	if deviceCalls, ok := r.calls[deviceID]; ok {
 		if call, ok := deviceCalls[callID]; ok {
 			br = call.bridge
+			recorder = call.recording
 		}
 		delete(deviceCalls, callID)
 		if len(deviceCalls) == 0 {
@@ -326,6 +380,24 @@ func (r *VoiceCallRuntime) closeBridgeAndRemove(deviceID, callID string) {
 	r.mu.Unlock()
 	if br != nil {
 		br.Close()
+	}
+	if recorder != nil {
+		_ = recorder.Close()
+	}
+}
+
+func (r *VoiceCallRuntime) closeRecordingOnly(deviceID, callID string) {
+	r.mu.Lock()
+	var recorder *callRecorder
+	if deviceCalls, ok := r.calls[deviceID]; ok {
+		if call, ok := deviceCalls[callID]; ok {
+			recorder = call.recording
+			call.recording = nil
+		}
+	}
+	r.mu.Unlock()
+	if recorder != nil {
+		_ = recorder.Close()
 	}
 }
 
@@ -364,6 +436,10 @@ func (r *VoiceCallRuntime) persist(device *DeviceInstance, info domainCall.CallI
 	if !info.EndedAt.IsZero() {
 		record.EndedAt = &info.EndedAt
 	}
+	if info.Recording {
+		info.Metadata = callRecordingMetadataJSON(info)
+	}
+	record.Metadata = info.Metadata
 	if err := device.GetChatStorage().StoreCallRecord(record); err != nil {
 		logrus.WithError(err).Warn("failed to persist call record")
 	}
@@ -423,9 +499,16 @@ func callWebhookPayload(event string, info domainCall.CallInfo) map[string]any {
 		"direction":  info.Direction,
 		"status":     info.Status,
 		"media_type": info.MediaType,
+		"recording":  info.Recording,
 	}
 	if info.EndReason != "" {
 		payload["end_reason"] = info.EndReason
+	}
+	if info.RecordingURL != "" {
+		payload["recording_url"] = info.RecordingURL
+	}
+	if info.RecordingFormat != "" {
+		payload["recording_format"] = info.RecordingFormat
 	}
 
 	body := map[string]any{
@@ -466,6 +549,27 @@ func domainInfoFromVoIP(deviceID string, info *voipcall.CallInfo) domainCall.Cal
 		callInfo.MediaType = domainCall.MediaTypeAudio
 	}
 	return callInfo
+}
+
+func mergeCallRecordingInfo(dst *domainCall.CallInfo, src domainCall.CallInfo) {
+	if dst == nil {
+		return
+	}
+	if src.Recording {
+		dst.Recording = true
+	}
+	if dst.RecordingPath == "" {
+		dst.RecordingPath = src.RecordingPath
+	}
+	if dst.RecordingURL == "" {
+		dst.RecordingURL = src.RecordingURL
+	}
+	if dst.RecordingFormat == "" {
+		dst.RecordingFormat = src.RecordingFormat
+	}
+	if dst.Metadata == "" {
+		dst.Metadata = src.Metadata
+	}
 }
 
 func mapVoIPStatus(state core.CallState) string {

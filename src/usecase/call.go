@@ -15,8 +15,8 @@ import (
 )
 
 type CallRuntime interface {
-	StartCall(ctx context.Context, device *whatsapp.DeviceInstance, phone string) (domainCall.CallInfo, error)
-	AcceptCall(ctx context.Context, deviceID, callID string) (domainCall.CallInfo, error)
+	StartCall(ctx context.Context, device *whatsapp.DeviceInstance, phone string, record bool) (domainCall.CallInfo, error)
+	AcceptCall(ctx context.Context, deviceID, callID string, record bool) (domainCall.CallInfo, error)
 	RejectCall(ctx context.Context, deviceID, callID string) (domainCall.CallInfo, error)
 	EndCall(ctx context.Context, deviceID, callID string) (domainCall.CallInfo, error)
 	ExchangeWebRTC(ctx context.Context, deviceID, callID, sdpOffer string) (string, error)
@@ -61,7 +61,7 @@ func (service *serviceCall) StartCall(ctx context.Context, request domainCall.St
 	if err != nil {
 		return domainCall.StartCallResponse{}, err
 	}
-	info, err := service.runtime.StartCall(ctx, device, request.Phone)
+	info, err := service.runtime.StartCall(ctx, device, request.Phone, request.Record)
 	if err != nil {
 		return domainCall.StartCallResponse{}, err
 	}
@@ -79,7 +79,7 @@ func (service *serviceCall) AcceptCall(ctx context.Context, request domainCall.C
 	if err != nil {
 		return domainCall.GenericResponse{}, err
 	}
-	info, err := service.runtime.AcceptCall(ctx, deviceID, request.CallID)
+	info, err := service.runtime.AcceptCall(ctx, deviceID, request.CallID, request.Record)
 	if err != nil {
 		return domainCall.GenericResponse{}, err
 	}
@@ -227,6 +227,7 @@ func callInfoFromRecord(record *domainChatStorage.CallRecord) domainCall.CallInf
 	if record.EndedAt != nil {
 		info.EndedAt = *record.EndedAt
 	}
+	whatsapp.ApplyCallRecordingMetadata(&info, record.Metadata)
 	return info
 }
 
