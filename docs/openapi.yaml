@@ -21,6 +21,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: call
+    description: Call management (reject incoming calls)
   - name: chat
     description: Chat conversations and messaging
   - name: group
@@ -1909,6 +1911,64 @@ paths:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/reject:
+    post:
+      operationId: rejectCall
+      tags:
+        - call
+      summary: Reject an incoming call
+      description: |
+        Programmatically reject a specific incoming call. This endpoint allows selective call rejection
+        based on your application logic (e.g., time-of-day rules, caller whitelists, agent availability).
+        
+        The call must still be ringing — rejection will fail if the call has already ended or been answered.
+        
+        This is complementary to the auto-reject feature (`WHATSAPP_AUTO_REJECT_CALL=true`) which rejects
+        all incoming calls globally. Use this API for fine-grained control.
+        
+        **Required fields from webhook:**
+        - `caller_jid`: Use `payload.from` from the `call.offer` webhook event
+        - `call_id`: Use `payload.call_id` from the `call.offer` webhook event
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - caller_jid
+                - call_id
+              properties:
+                caller_jid:
+                  type: string
+                  example: '628987654321@s.whatsapp.net'
+                  description: JID of the caller (from webhook `payload.from`)
+                call_id:
+                  type: string
+                  example: 'ABC123DEF456'
+                  description: Unique call identifier (from webhook `payload.call_id`)
+      responses:
+        '200':
+          description: Call rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing or invalid fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error (call already ended, not connected, etc.)
           content:
             application/json:
               schema:
