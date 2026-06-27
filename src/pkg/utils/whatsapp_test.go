@@ -1,10 +1,11 @@
 package utils
 
 import (
-	"strings"
+	"bytes"
 	"testing"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDetermineMediaExtension(t *testing.T) {
@@ -243,96 +244,194 @@ func TestExtractMessageTextFromProtoContactsArrayMessage(t *testing.T) {
 	}
 }
 
-func strPtr(value string) *string {
-	return &value
-}
+func TestExtractMediaInfoIncludesDirectPath(t *testing.T) {
+	mediaKey := []byte("media-key")
+	fileSHA256 := []byte("file-sha")
+	fileEncSHA256 := []byte("file-enc-sha")
+	fileLength := uint64(1234)
+	mediaURL := "https://mmg.whatsapp.net/v/t62.7118-24/media.enc?ccb=11-4"
+	directPath := "/v/t62.7118-24/media.enc?ccb=11-4"
 
-// TestDeriveDirectPath verifies the fix for the "no url present" download bug.
-//
-// whatsmeow's Client.Download downloads ONLY from GetDirectPath() and returns
-// ErrNoURLPresent when DirectPath is empty — it ignores the URL entirely.
-// DownloadMediaWithPath then rejects any directPath that does not start with
-// "/". Chat storage only persists the full CDN url (no direct_path column), so
-// the download paths reconstruct directPath from the stored url via
-// DeriveDirectPath, which returns RequestURI() (path+"?"+query) when usable and
-// "" otherwise.
-//
-// Every want value is a hardcoded literal, never recomputed via net/url, so the
-// test pins behaviour and cannot pass as a tautology.
-func TestDeriveDirectPath(t *testing.T) {
 	tests := []struct {
-		name   string
-		rawURL string
-		want   string
-		wantOK bool // true => a usable directPath (starts with "/") is expected
+		name     string
+		msg      *waE2E.Message
+		wantType string
 	}{
 		{
-			name:   "EncVPathWithQuery",
-			rawURL: "https://mmg.whatsapp.net/v/t62.7118-24/12345_67890_n.enc?ccb=11-4&oh=t1&oe=t2&mms3=true",
-			want:   "/v/t62.7118-24/12345_67890_n.enc?ccb=11-4&oh=t1&oe=t2&mms3=true",
-			wantOK: true,
+			name: "Image",
+			msg: &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+			}},
+			wantType: "image",
 		},
 		{
-			name:   "O1VPathWithQuery",
-			rawURL: "https://mmg.whatsapp.net/o1/v/t24/f2/m231/AQabc123?ccb=9-4&oh=h1&oe=e1",
-			want:   "/o1/v/t24/f2/m231/AQabc123?ccb=9-4&oh=h1&oe=e1",
-			wantOK: true,
+			name: "Video",
+			msg: &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+			}},
+			wantType: "video",
 		},
 		{
-			name:   "NoQueryString",
-			rawURL: "https://mmg.whatsapp.net/v/t62.7118-24/no_query.enc",
-			want:   "/v/t62.7118-24/no_query.enc",
-			wantOK: true,
+			name: "VideoNote",
+			msg: &waE2E.Message{PtvMessage: &waE2E.VideoMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+			}},
+			wantType: "video_note",
 		},
 		{
-			// Empty input must NOT produce the deceptive "/" that
-			// (&url.URL{}).RequestURI() returns — it must fall back to "".
-			name:   "EmptyURL",
-			rawURL: "",
-			want:   "",
-			wantOK: false,
+			name: "Audio",
+			msg: &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+			}},
+			wantType: "audio",
 		},
 		{
-			// "garbage" parses without error but RequestURI() == "garbage",
-			// which lacks a leading slash, so the helper rejects it.
-			name:   "GarbageWithoutScheme",
-			rawURL: "garbage",
-			want:   "",
-			wantOK: false,
+			name: "Document",
+			msg: &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+				FileName:      proto.String("report.pdf"),
+			}},
+			wantType: "document",
 		},
 		{
-			// A scheme-less host/path is treated as a relative path by net/url
-			// (RequestURI == "mmg.whatsapp.net/v/path?x=1"), no leading slash.
-			name:   "SchemeLessHostAndPath",
-			rawURL: "mmg.whatsapp.net/v/path?x=1",
-			want:   "",
-			wantOK: false,
-		},
-		{
-			name:   "UnparseableURL",
-			rawURL: "://nohost",
-			want:   "",
-			wantOK: false,
+			name: "Sticker",
+			msg: &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
+				URL:           proto.String(mediaURL),
+				DirectPath:    proto.String(directPath),
+				MediaKey:      mediaKey,
+				FileSHA256:    fileSHA256,
+				FileEncSHA256: fileEncSHA256,
+				FileLength:    proto.Uint64(fileLength),
+			}},
+			wantType: "sticker",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DeriveDirectPath(tt.rawURL)
-
-			if got != tt.want {
-				t.Fatalf("DeriveDirectPath(%q) = %q, want %q", tt.rawURL, got, tt.want)
+			gotType, _, gotURL, gotDirectPath, gotMediaKey, gotFileSHA256, gotFileEncSHA256, gotFileLength := ExtractMediaInfo(tt.msg)
+			if gotType != tt.wantType {
+				t.Fatalf("mediaType = %q, want %q", gotType, tt.wantType)
 			}
-
-			// Enforce whatsmeow's DownloadMediaWithPath contract: a usable
-			// directPath must start with "/".
-			if tt.wantOK {
-				if !strings.HasPrefix(got, "/") {
-					t.Fatalf("DeriveDirectPath(%q) = %q, expected a directPath starting with %q", tt.rawURL, got, "/")
-				}
-			} else if got != "" {
-				t.Fatalf("DeriveDirectPath(%q) = %q, expected empty fallback for unusable input", tt.rawURL, got)
+			if gotURL != mediaURL {
+				t.Fatalf("url = %q, want %q", gotURL, mediaURL)
+			}
+			if gotDirectPath != directPath {
+				t.Fatalf("directPath = %q, want %q", gotDirectPath, directPath)
+			}
+			if !bytes.Equal(gotMediaKey, mediaKey) {
+				t.Fatalf("mediaKey = %q, want %q", gotMediaKey, mediaKey)
+			}
+			if !bytes.Equal(gotFileSHA256, fileSHA256) {
+				t.Fatalf("fileSHA256 = %q, want %q", gotFileSHA256, fileSHA256)
+			}
+			if !bytes.Equal(gotFileEncSHA256, fileEncSHA256) {
+				t.Fatalf("fileEncSHA256 = %q, want %q", gotFileEncSHA256, fileEncSHA256)
+			}
+			if gotFileLength != fileLength {
+				t.Fatalf("fileLength = %d, want %d", gotFileLength, fileLength)
 			}
 		})
 	}
+}
+
+func TestBuildDownloadableMessageSetsDirectPath(t *testing.T) {
+	mediaKey := []byte("media-key")
+	fileSHA256 := []byte("file-sha")
+	fileEncSHA256 := []byte("file-enc-sha")
+	fileLength := uint64(1234)
+	directPath := "/v/t62.7118-24/media.enc?ccb=11-4"
+
+	tests := []struct {
+		name      string
+		mediaType string
+		wantType  any
+	}{
+		{name: "Image", mediaType: "image", wantType: &waE2E.ImageMessage{}},
+		{name: "Video", mediaType: "video", wantType: &waE2E.VideoMessage{}},
+		{name: "VideoNote", mediaType: "video_note", wantType: &waE2E.VideoMessage{}},
+		{name: "Audio", mediaType: "audio", wantType: &waE2E.AudioMessage{}},
+		{name: "PTT", mediaType: "ptt", wantType: &waE2E.AudioMessage{}},
+		{name: "Document", mediaType: "document", wantType: &waE2E.DocumentMessage{}},
+		{name: "Sticker", mediaType: "sticker", wantType: &waE2E.StickerMessage{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := BuildDownloadableMessage(tt.mediaType, "https://mmg.whatsapp.net/ignored", directPath, "report.pdf", mediaKey, fileSHA256, fileEncSHA256, fileLength)
+			if err != nil {
+				t.Fatalf("BuildDownloadableMessage() error = %v", err)
+			}
+			if got.GetDirectPath() != directPath {
+				t.Fatalf("directPath = %q, want %q", got.GetDirectPath(), directPath)
+			}
+			switch tt.wantType.(type) {
+			case *waE2E.ImageMessage:
+				if _, ok := got.(*waE2E.ImageMessage); !ok {
+					t.Fatalf("message type = %T, want *waE2E.ImageMessage", got)
+				}
+			case *waE2E.VideoMessage:
+				if _, ok := got.(*waE2E.VideoMessage); !ok {
+					t.Fatalf("message type = %T, want *waE2E.VideoMessage", got)
+				}
+			case *waE2E.AudioMessage:
+				if _, ok := got.(*waE2E.AudioMessage); !ok {
+					t.Fatalf("message type = %T, want *waE2E.AudioMessage", got)
+				}
+			case *waE2E.DocumentMessage:
+				if _, ok := got.(*waE2E.DocumentMessage); !ok {
+					t.Fatalf("message type = %T, want *waE2E.DocumentMessage", got)
+				}
+			case *waE2E.StickerMessage:
+				if _, ok := got.(*waE2E.StickerMessage); !ok {
+					t.Fatalf("message type = %T, want *waE2E.StickerMessage", got)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveMediaDirectPathFallsBackToURLRequestURI(t *testing.T) {
+	storedDirectPath := "/stored/path.enc?auth=stored"
+	mediaURL := "https://mmg.whatsapp.net/v/t62.7118-24/media.enc?ccb=11-4&oh=token"
+	wantFallback := "/v/t62.7118-24/media.enc?ccb=11-4&oh=token"
+
+	if got := ResolveMediaDirectPath(storedDirectPath, mediaURL); got != storedDirectPath {
+		t.Fatalf("ResolveMediaDirectPath() = %q, want stored direct path %q", got, storedDirectPath)
+	}
+	if got := ResolveMediaDirectPath("", mediaURL); got != wantFallback {
+		t.Fatalf("ResolveMediaDirectPath() = %q, want URL request URI %q", got, wantFallback)
+	}
+	if got := ResolveMediaDirectPath("", "://not-a-url"); got != "" {
+		t.Fatalf("ResolveMediaDirectPath() = %q, want empty for invalid URL", got)
+	}
+}
+
+func strPtr(value string) *string {
+	return &value
 }

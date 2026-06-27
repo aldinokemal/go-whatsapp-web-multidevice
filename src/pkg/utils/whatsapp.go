@@ -19,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -270,16 +271,16 @@ func ExtractMediaCaption(msg *waE2E.Message) string {
 }
 
 // ExtractMediaInfo extracts media information from a WhatsApp message
-func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, url string, mediaKey []byte, fileSHA256 []byte, fileEncSHA256 []byte, fileLength uint64) {
+func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, mediaURL string, directPath string, mediaKey []byte, fileSHA256 []byte, fileEncSHA256 []byte, fileLength uint64) {
 	if msg == nil {
-		return "", "", "", nil, nil, nil, 0
+		return "", "", "", "", nil, nil, nil, 0
 	}
 
 	// Check for image message
 	if img := msg.GetImageMessage(); img != nil {
 		filename = GenerateMediaFilename("image", "jpg", img.GetCaption())
 		return "image", filename,
-			img.GetURL(), img.GetMediaKey(), img.GetFileSHA256(),
+			img.GetURL(), img.GetDirectPath(), img.GetMediaKey(), img.GetFileSHA256(),
 			img.GetFileEncSHA256(), img.GetFileLength()
 	}
 
@@ -287,7 +288,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 	if vid := msg.GetVideoMessage(); vid != nil {
 		filename = GenerateMediaFilename("video", "mp4", vid.GetCaption())
 		return "video", filename,
-			vid.GetURL(), vid.GetMediaKey(), vid.GetFileSHA256(),
+			vid.GetURL(), vid.GetDirectPath(), vid.GetMediaKey(), vid.GetFileSHA256(),
 			vid.GetFileEncSHA256(), vid.GetFileLength()
 	}
 
@@ -295,7 +296,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 	if ptv := msg.GetPtvMessage(); ptv != nil {
 		filename = GenerateMediaFilename("video_note", "mp4", ptv.GetCaption())
 		return "video_note", filename,
-			ptv.GetURL(), ptv.GetMediaKey(), ptv.GetFileSHA256(),
+			ptv.GetURL(), ptv.GetDirectPath(), ptv.GetMediaKey(), ptv.GetFileSHA256(),
 			ptv.GetFileEncSHA256(), ptv.GetFileLength()
 	}
 
@@ -307,7 +308,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 		}
 		filename = GenerateMediaFilename("audio", extension, "")
 		return "audio", filename,
-			aud.GetURL(), aud.GetMediaKey(), aud.GetFileSHA256(),
+			aud.GetURL(), aud.GetDirectPath(), aud.GetMediaKey(), aud.GetFileSHA256(),
 			aud.GetFileEncSHA256(), aud.GetFileLength()
 	}
 
@@ -318,7 +319,7 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 			filename = GenerateMediaFilename("document", "", doc.GetTitle())
 		}
 		return "document", filename,
-			doc.GetURL(), doc.GetMediaKey(), doc.GetFileSHA256(),
+			doc.GetURL(), doc.GetDirectPath(), doc.GetMediaKey(), doc.GetFileSHA256(),
 			doc.GetFileEncSHA256(), doc.GetFileLength()
 	}
 
@@ -326,11 +327,92 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, ur
 	if sticker := msg.GetStickerMessage(); sticker != nil {
 		filename = GenerateMediaFilename("sticker", "webp", "")
 		return "sticker", filename,
-			sticker.GetURL(), sticker.GetMediaKey(), sticker.GetFileSHA256(),
+			sticker.GetURL(), sticker.GetDirectPath(), sticker.GetMediaKey(), sticker.GetFileSHA256(),
 			sticker.GetFileEncSHA256(), sticker.GetFileLength()
 	}
 
-	return "", "", "", nil, nil, nil, 0
+	return "", "", "", "", nil, nil, nil, 0
+}
+
+// ResolveMediaDirectPath returns storedDirectPath, or derives a direct path
+// from legacy rows that only persisted the full WhatsApp media URL.
+func ResolveMediaDirectPath(storedDirectPath, mediaURL string) string {
+	storedDirectPath = strings.TrimSpace(storedDirectPath)
+	if storedDirectPath != "" {
+		return storedDirectPath
+	}
+
+	mediaURL = strings.TrimSpace(mediaURL)
+	if mediaURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(mediaURL)
+	if err != nil {
+		return ""
+	}
+	requestURI := parsed.RequestURI()
+	if strings.HasPrefix(requestURI, "/") {
+		return requestURI
+	}
+	return ""
+}
+
+// BuildDownloadableMessage reconstructs a whatsmeow downloadable media proto
+// from stored chat media metadata.
+func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) (whatsmeow.DownloadableMessage, error) {
+	resolvedDirectPath := ResolveMediaDirectPath(directPath, mediaURL)
+
+	switch mediaType {
+	case "image":
+		return &waE2E.ImageMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(resolvedDirectPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+		}, nil
+	case "video", "video_note":
+		return &waE2E.VideoMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(resolvedDirectPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+		}, nil
+	case "audio", "ptt":
+		return &waE2E.AudioMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(resolvedDirectPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+		}, nil
+	case "document":
+		return &waE2E.DocumentMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(resolvedDirectPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			FileName:      proto.String(filename),
+		}, nil
+	case "sticker":
+		return &waE2E.StickerMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(resolvedDirectPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
+	}
 }
 
 // ExtractContextInfo returns the ContextInfo from whichever message sub-type
@@ -545,41 +627,6 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
-}
-
-// DeriveDirectPath converts a stored WhatsApp media URL (of the form
-// https://mmg.whatsapp.net{path}?{query}) into the "directPath" that
-// whatsmeow's Client.Download / DownloadMediaWithPath require.
-//
-// whatsmeow's Client.Download downloads ONLY from GetDirectPath(): it returns
-// ErrNoURLPresent ("no url present") when DirectPath is empty and never reads
-// the URL field. DownloadMediaWithPath additionally rejects any directPath
-// that does not start with "/", and it appends "&hash=..." directly after the
-// directPath, so the path must already carry its "?query". net/url's
-// RequestURI() returns EscapedPath()+"?"+RawQuery, which satisfies both
-// constraints for a real stored URL.
-//
-// Messages reconstructed from chat storage only carry the persisted url (the
-// messages table has no direct_path column), so callers derive the directPath
-// from that url at download time. This repairs already-stored messages without
-// a schema migration.
-//
-// It returns "" for empty, unparseable, or slash-less input; the caller then
-// surfaces whatsmeow's own clear error instead of a wrong download (no
-// behavioural regression versus leaving DirectPath empty).
-func DeriveDirectPath(rawURL string) string {
-	if rawURL == "" {
-		return ""
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	directPath := u.RequestURI()
-	if !strings.HasPrefix(directPath, "/") {
-		return ""
-	}
-	return directPath
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix
