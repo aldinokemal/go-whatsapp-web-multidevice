@@ -113,6 +113,14 @@
     </div>
 
     <div class="ui horizontal divider">
+        Call
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <call-reject></call-reject>
+    </div>
+
+    <div class="ui horizontal divider">
         Group
     </div>
 
@@ -249,6 +257,7 @@
     import ChatList from "{{ .AppBasePath }}/components/ChatList.js";
     import ChatMessages from "{{ .AppBasePath }}/components/ChatMessages.js";
     import DeviceManager from "{{ .AppBasePath }}/components/DeviceManager.js";
+    import CallReject from "{{ .AppBasePath }}/components/CallReject.js";
 
     const showErrorInfo = (message) => {
         $('body').toast({
@@ -278,6 +287,7 @@
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
             ChatPinManager, ChatDisappearingManager, ChatList, ChatMessages,
+            CallReject,
             DeviceManager
         },
         delimiters: ['[[', ']]'],

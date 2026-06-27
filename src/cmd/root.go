@@ -13,6 +13,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
@@ -46,6 +47,7 @@ var (
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
+	callUsecase       domainCall.ICallUsecase
 	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
 	userUsecase       domainUser.IUserUsecase
@@ -111,6 +113,11 @@ func initEnvConfig() {
 	}
 	if envDBKEYSURI := viper.GetString("db_keys_uri"); envDBKEYSURI != "" {
 		config.DBKeysURI = envDBKEYSURI
+	}
+	if viper.IsSet("chat_storage_max_open_conns") {
+		if n := viper.GetInt("chat_storage_max_open_conns"); n > 0 {
+			config.ChatStorageMaxOpenConns = n
+		}
 	}
 
 	// WhatsApp settings
@@ -520,8 +527,12 @@ func initChatStorage() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	maxConns := config.ChatStorageMaxOpenConns
+	if maxConns < 1 {
+		maxConns = 1
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
@@ -571,6 +582,7 @@ func initApp() {
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
+	callUsecase = usecase.NewCallService()
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService(chatStorageRepo)
