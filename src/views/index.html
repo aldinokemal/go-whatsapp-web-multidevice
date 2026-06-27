@@ -100,6 +100,14 @@
     </div>
 
     <div class="ui horizontal divider">
+        Calls
+    </div>
+
+    <div class="ui three column doubling grid cards">
+        <calls ref="calls"></calls>
+    </div>
+
+    <div class="ui horizontal divider">
         Message
     </div>
 
@@ -217,6 +225,7 @@
     import SendPoll from "{{ .AppBasePath }}/components/SendPoll.js";
     import SendPresence from "{{ .AppBasePath }}/components/SendPresence.js";
     import SendChatPresence from "{{ .AppBasePath }}/components/SendChatPresence.js";
+    import Calls from "{{ .AppBasePath }}/components/Calls.js";
     import MessageDelete from "{{ .AppBasePath }}/components/MessageDelete.js";
     import MessageUpdate from "{{ .AppBasePath }}/components/MessageUpdate.js";
     import MessageReact from "{{ .AppBasePath }}/components/MessageReact.js";
@@ -272,6 +281,7 @@
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendSticker, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
+            Calls,
             MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
@@ -377,6 +387,12 @@
                             break;
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
+                            break;
+                        case 'CALL_INCOMING':
+                        case 'CALL_STARTED':
+                        case 'CALL_STATE':
+                        case 'CALL_ENDED':
+                            this.$refs.calls?.handleCallEvent(message);
                             break;
                         case 'LOGOUT_COMPLETE':
                             // Handle successful cleanup after remote logout

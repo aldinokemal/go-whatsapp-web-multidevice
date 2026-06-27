@@ -565,6 +565,10 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	}
 	defer tx.Rollback()
 
+	if _, err := tx.Exec("DELETE FROM calls"); err != nil {
+		return fmt.Errorf("failed to delete calls: %w", err)
+	}
+
 	// Delete messages first (foreign key constraint)
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
@@ -596,6 +600,10 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	// Delete messages first via direct device_id filter
 	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device messages: %w", err)
+	}
+
+	if _, err := tx.Exec("DELETE FROM calls WHERE device_id = ?", deviceID); err != nil {
+		return fmt.Errorf("failed to delete device calls: %w", err)
 	}
 
 	if _, err := tx.Exec("DELETE FROM chats WHERE device_id = ?", deviceID); err != nil {
@@ -689,6 +697,134 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	}
 	_, err := r.db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID)
 	return err
+}
+
+// StoreCallRecord creates or updates a device-scoped call lifecycle record.
+func (r *SQLiteRepository) StoreCallRecord(record *domainChatStorage.CallRecord) error {
+	if record == nil || strings.TrimSpace(record.DeviceID) == "" || strings.TrimSpace(record.CallID) == "" {
+		return fmt.Errorf("call record with device id and call id is required")
+	}
+
+	now := time.Now()
+	if record.StartedAt.IsZero() {
+		record.StartedAt = now
+	}
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = now
+	}
+	if record.MediaType == "" {
+		record.MediaType = "audio"
+	}
+
+	result, err := r.db.Exec(`
+		UPDATE calls
+		SET peer_jid = ?, direction = ?, status = ?, media_type = ?, started_at = ?,
+			updated_at = ?, ended_at = ?, end_reason = ?, metadata = ?
+		WHERE device_id = ? AND call_id = ?
+	`, record.PeerJID, record.Direction, record.Status, record.MediaType, record.StartedAt,
+		record.UpdatedAt, record.EndedAt, record.EndReason, record.Metadata, record.DeviceID, record.CallID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO calls (
+				device_id, call_id, peer_jid, direction, status, media_type,
+				started_at, updated_at, ended_at, end_reason, metadata
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, record.DeviceID, record.CallID, record.PeerJID, record.Direction, record.Status, record.MediaType,
+			record.StartedAt, record.UpdatedAt, record.EndedAt, record.EndReason, record.Metadata)
+	}
+	return err
+}
+
+func (r *SQLiteRepository) GetCallRecord(deviceID, callID string) (*domainChatStorage.CallRecord, error) {
+	if strings.TrimSpace(deviceID) == "" || strings.TrimSpace(callID) == "" {
+		return nil, fmt.Errorf("device id and call id are required")
+	}
+
+	record, err := r.scanCallRecord(r.db.QueryRow(`
+		SELECT device_id, call_id, peer_jid, direction, status, media_type,
+			started_at, updated_at, ended_at, end_reason, metadata
+		FROM calls
+		WHERE device_id = ? AND call_id = ?
+		LIMIT 1
+	`, deviceID, callID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return record, err
+}
+
+func (r *SQLiteRepository) ListCallRecords(deviceID string, limit int) ([]*domainChatStorage.CallRecord, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	rows, err := r.db.Query(`
+		SELECT device_id, call_id, peer_jid, direction, status, media_type,
+			started_at, updated_at, ended_at, end_reason, metadata
+		FROM calls
+		WHERE device_id = ?
+		ORDER BY started_at DESC
+		LIMIT ?
+	`, deviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]*domainChatStorage.CallRecord, 0)
+	for rows.Next() {
+		record, err := r.scanCallRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+func (r *SQLiteRepository) DeleteCallRecord(deviceID, callID string) error {
+	if strings.TrimSpace(deviceID) == "" || strings.TrimSpace(callID) == "" {
+		return fmt.Errorf("device id and call id are required")
+	}
+	_, err := r.db.Exec("DELETE FROM calls WHERE device_id = ? AND call_id = ?", deviceID, callID)
+	return err
+}
+
+type callScanner interface {
+	Scan(dest ...any) error
+}
+
+func (r *SQLiteRepository) scanCallRecord(scanner callScanner) (*domainChatStorage.CallRecord, error) {
+	record := &domainChatStorage.CallRecord{}
+	var endedAt sql.NullTime
+	if err := scanner.Scan(
+		&record.DeviceID,
+		&record.CallID,
+		&record.PeerJID,
+		&record.Direction,
+		&record.Status,
+		&record.MediaType,
+		&record.StartedAt,
+		&record.UpdatedAt,
+		&endedAt,
+		&record.EndReason,
+		&record.Metadata,
+	); err != nil {
+		return nil, err
+	}
+	if endedAt.Valid {
+		record.EndedAt = &endedAt.Time
+	}
+	return record, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -1269,5 +1405,27 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 16: JSON metadata for Meta Ads referral/attribution (CTWA)
 		`ALTER TABLE messages ADD COLUMN referral_metadata TEXT DEFAULT ''`,
+
+		// Migration 17: Device-scoped call lifecycle records
+		`CREATE TABLE IF NOT EXISTS calls (
+			device_id VARCHAR(255) NOT NULL,
+			call_id VARCHAR(255) NOT NULL,
+			peer_jid VARCHAR(255) NOT NULL,
+			direction VARCHAR(20) NOT NULL,
+			status VARCHAR(30) NOT NULL,
+			media_type VARCHAR(20) NOT NULL DEFAULT 'audio',
+			started_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			ended_at TIMESTAMP NULL,
+			end_reason VARCHAR(50) DEFAULT '',
+			metadata TEXT DEFAULT '',
+			PRIMARY KEY (device_id, call_id)
+		)`,
+
+		// Migration 18: Fast call lookup by device and recency
+		`CREATE INDEX IF NOT EXISTS idx_calls_device_started ON calls(device_id, started_at)`,
+
+		// Migration 19: Fast call lookup by status
+		`CREATE INDEX IF NOT EXISTS idx_calls_status ON calls(status)`,
 	}
 }

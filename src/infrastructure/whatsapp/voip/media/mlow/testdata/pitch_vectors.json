@@ -1,0 +1,278 @@
+[
+ {
+  "frame": "50d7f0a8a9e8e5daacb1e565523980884b4b804efbf77534adf1a876c1d3f5b0935afec71da97e8e0513050d13c8c7b13f2591d6d925dcc0d112f3d58a3b003c21d0bcf9986cbcd4422be0a579a857ce46cc3de47684220b2bf7e4d8",
+  "lag": 32,
+  "contour": 2,
+  "gain_idx": [
+   5,
+   8,
+   8,
+   5
+  ],
+  "filt_idx": [
+   20,
+   16,
+   14,
+   13
+  ],
+  "int_lag_q6": [
+   0,
+   0,
+   0,
+   52
+  ]
+ },
+ {
+  "frame": "50e8c24332b9206f29920f97887d04dca602a9a57e0619340d3f4be5fc86a8428897d36a78f3b9636845e8ab2a39b755e623d5d7be1b97fb461e9ded99ed422e339dfcd096667fe31ffbf3ceb8f754aad0",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   8,
+   5,
+   12,
+   5
+  ],
+  "filt_idx": [
+   8,
+   6,
+   5,
+   6
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e4e62de9caf8f7710000fba130c48114754c9045fb891b5716a4443e2634159093d71c7b4b745cc6e35d2be4ed5e58dff1706199916bc407d663cad1d027561126e7da72606ad46f8011ae5588703e3a54df99588c9e9a4966232a82452428",
+  "lag": 215,
+  "contour": 215,
+  "gain_idx": [
+   0,
+   6,
+   5,
+   6
+  ],
+  "filt_idx": [
+   20,
+   19,
+   15,
+   12
+  ],
+  "int_lag_q6": [
+   531,
+   531,
+   531,
+   531
+  ]
+ },
+ {
+  "frame": "50e4ef1819183caab7c6747b430025669c3ce465475e490641015c33ee9c548bc5c9670210efcdb4c2a5e06ca14d502ef1d5f7b5b7d538c7e7d1eb0c6fc86f3e11f23377d827262099aead04fbf33445e027b024a68b8c4127bd787a40",
+  "lag": 200,
+  "contour": 200,
+  "gain_idx": [
+   5,
+   0,
+   1,
+   5
+  ],
+  "filt_idx": [
+   13,
+   23,
+   16,
+   19
+  ],
+  "int_lag_q6": [
+   348,
+   348,
+   348,
+   348
+  ]
+ },
+ {
+  "frame": "50e92b564e6e3665d48ffa2e1f062b1eb4eb20b5911e8cc629429c855d4f083124c32b6688cedbd1c9a7882a2fb308a2d58a747d3174d792d28e975e7df31cd5476a5b43eac66a24846ed1cf22a2b58dc0ca31fa9d082506",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   5,
+   5,
+   0,
+   5
+  ],
+  "filt_idx": [
+   6,
+   6,
+   11,
+   7
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b545e8c78fe9105b1cb626e3b800a52cbbeafb4277d2e23ac0d81807600a87b3d29da58862b3aa5629174f5f2425e40f11eca35dcceeb8bb76fe1ab8f09bfcb99d41a327ca5638840b263bc7b7dce752c0a29",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   5,
+   5,
+   0,
+   5
+  ],
+  "filt_idx": [
+   8,
+   8,
+   11,
+   8
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b545e8c79b6bc68bc7740c2baaa33bb6e709bbb3591cb382b2366e02cbf54fe1246ce11310c4ecc647177ec716bf66e9d495fe1531dfb8f6f8b5bd19f4eceb00312463008df4c6e05b10363e6162f491af3e928",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   5,
+   2,
+   15,
+   5
+  ],
+  "filt_idx": [
+   9,
+   7,
+   6,
+   11
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b5682234c64c1fa67f0f6414bf6a4adabbdf86354d0430ef47c5ae95a7eba88bc5fdb9f882f01ad2c34bee97bdb66f4c48c6b271eb19d1a2cafa0c432004b7a90f7b34aa62749a8680530d0",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   2,
+   5,
+   0,
+   5
+  ],
+  "filt_idx": [
+   7,
+   6,
+   6,
+   6
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b545e8c79b21a77da98a961e98af27d31fa40630e466dab3b4765afc17ad13fab5b3daca751f0eda405732a7b24d44f5650b1da39cd6298b917ff1f100996c95b79f36e1020b246",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   12,
+   2,
+   2,
+   0
+  ],
+  "filt_idx": [
+   8,
+   9,
+   8,
+   10
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b564e6e34d15637fc9b7af109bebee9bf3d8a3905276eba7dbb9054b24ef96d4050d29ad0b43cfb856464fdacd51515b2e44f7682811056e74ebbb070b181d89e",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   0,
+   5,
+   0,
+   5
+  ],
+  "filt_idx": [
+   11,
+   8,
+   9,
+   9
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "50e92b564e6e36634cea638501e595765c6670a3e917602e40a4d7825b078a70825a5655953854f075dec4c01b593acb7c549985239291c409c9848a1fa8",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   5,
+   5,
+   5,
+   5
+  ],
+  "filt_idx": [
+   9,
+   11,
+   11,
+   10
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ },
+ {
+  "frame": "12e92b564e6e364e1c5835aea44247f0e0d197f454539dfe89eef11cf0baacc56300fadaafec5261acff2ca97dbf236b8c39e33c9b1c",
+  "lag": 16,
+  "contour": 1,
+  "gain_idx": [
+   5,
+   0,
+   5,
+   0
+  ],
+  "filt_idx": [
+   11,
+   10,
+   9,
+   -1
+  ],
+  "int_lag_q6": [
+   52,
+   52,
+   52,
+   52
+  ]
+ }
+]

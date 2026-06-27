@@ -52,6 +52,12 @@ type IChatStorageRepository interface {
 	GetDeviceRecord(deviceID string) (*DeviceRecord, error)
 	DeleteDeviceRecord(deviceID string) error
 
+	// Call lifecycle operations
+	StoreCallRecord(record *CallRecord) error
+	GetCallRecord(deviceID, callID string) (*CallRecord, error)
+	ListCallRecords(deviceID string, limit int) ([]*CallRecord, error)
+	DeleteCallRecord(deviceID, callID string) error
+
 	// Schema operations
 	InitializeSchema() error
 }
