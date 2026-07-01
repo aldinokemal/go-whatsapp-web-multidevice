@@ -3195,12 +3195,15 @@ paths:
           schema:
             type: integer
             default: 50
+            minimum: 1
+            maximum: 100
         - name: before
           in: query
           required: false
           description: Fetch messages older than this message server ID, used for pagination
           schema:
             type: integer
+            minimum: 0
       responses:
         '200':
           description: OK

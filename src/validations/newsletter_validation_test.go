@@ -87,6 +87,18 @@ func TestValidateGetNewsletterMessages(t *testing.T) {
 			err:       pkgError.ValidationError("before: must be no less than 0."),
 			wantCount: 50,
 		},
+		{
+			name:      "should error with a non-newsletter jid (phone)",
+			request:   domainNewsletter.GetMessagesRequest{NewsletterID: "6289685028129@s.whatsapp.net"},
+			err:       pkgError.ValidationError("newsletter_id: must end with @newsletter."),
+			wantCount: 50,
+		},
+		{
+			name:      "should error with a non-newsletter jid (group)",
+			request:   domainNewsletter.GetMessagesRequest{NewsletterID: "120363123456789@g.us"},
+			err:       pkgError.ValidationError("newsletter_id: must end with @newsletter."),
+			wantCount: 50,
+		},
 	}
 
 	for _, tt := range tests {
