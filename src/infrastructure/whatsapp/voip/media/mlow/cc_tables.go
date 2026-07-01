@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"io"
 	"math/bits"
+	"sync"
 )
 
 // Logical seed-built tables for the nrgres/gains (Group A/E), LTP gain (Group C),
@@ -390,14 +391,17 @@ func (s *ccSeed) build() *CcTables {
 	return t
 }
 
-var ccTablesInst *CcTables
+var (
+	ccTablesInst *CcTables
+	ccTablesOnce sync.Once
+)
 
 // LoadCcTables expands the embedded cc seed ROM into the nrgres/gains/LTP/pulse tables once.
 func LoadCcTables() *CcTables {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/924eb2c15aa9ffc7362293c74b2888e171831434/wacore/src/voip/mlow/smpl_cc_tables.rs#L331-L337
-	if ccTablesInst == nil {
+	ccTablesOnce.Do(func() {
 		ccTablesInst = loadCcSeed().build()
-	}
+	})
 	return ccTablesInst
 }
 
@@ -477,6 +481,9 @@ func (t *CcTables) Runlen(oct int32) *runlenCmfs { return &t.runlen[oct-1] }
 //
 // Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/924eb2c15aa9ffc7362293c74b2888e171831434/wacore/src/voip/mlow/rangecoder.rs#L228-L245
 func cdfWindow(base []uint16, start, n int) []uint16 {
+	if start >= 0 && n >= 0 && start+n <= len(base) {
+		return base[start : start+n]
+	}
 	w := make([]uint16, n)
 	for i := 0; i < n; i++ {
 		if j := start + i; j >= 0 && j < len(base) {

@@ -2,14 +2,14 @@ package call
 
 import (
 	"context"
-	"log/slog"
-	"sync"
-	"time"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/core"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/media"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/signaling"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/transport"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/wanode"
+	"log/slog"
+	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow/types"
 )
@@ -153,8 +153,20 @@ func (m *CallManager) AcceptCall(ctx context.Context, callID string) error {
 		acceptNode, err := signaling.BuildAcceptStanza(ctx, m.sock, callID, key, peer, creator, isVideo)
 		if err != nil {
 			m.log.Error("build accept failed", "err", err)
+			m.mu.Lock()
+			_ = call.ApplyTransition(Transition{Type: TransitionTerminated, Reason: core.EndCallReasonFailed})
+			m.emitState()
+			m.mu.Unlock()
+			m.cleanupMedia()
+			return err
 		} else if err := m.sock.SendNode(ctx, acceptNode); err != nil {
 			m.log.Error("accept send error", "err", err)
+			m.mu.Lock()
+			_ = call.ApplyTransition(Transition{Type: TransitionTerminated, Reason: core.EndCallReasonFailed})
+			m.emitState()
+			m.mu.Unlock()
+			m.cleanupMedia()
+			return err
 		}
 	}
 
@@ -194,7 +206,10 @@ func (m *CallManager) RejectCall(ctx context.Context, callID string, reason core
 		m.mu.Unlock()
 		return &CallError{"no call with id " + callID}
 	}
-	_ = call.ApplyTransition(Transition{Type: TransitionLocalRejected, Reason: reason})
+	if err := call.ApplyTransition(Transition{Type: TransitionLocalRejected, Reason: reason}); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	node := signaling.BuildRejectStanza(wanode.MustJID(call.PeerJid), call.CallID, wanode.MustJID(call.CallCreator))
 	m.emitState()
 	m.mu.Unlock()

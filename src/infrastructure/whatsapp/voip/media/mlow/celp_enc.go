@@ -678,7 +678,7 @@ func (e *CelpEncoder) smplFcbSearch(d []float32, wnrgPerPulse *[smplCelpMaxRates
 			gainFromSearch[smplCelpIdxMain] = num[pp] / den[pp]
 			fcbWnrg[smplCelpIdxMain] = den[pp]
 		}
-		if int(fcbPulsesMax[smplCelpIdxFec]) >= pulseNr &&
+		if int(fcbPulsesMax[smplCelpIdxFec]) > pulseNr &&
 			celpCheckIfBetter(q[pp], &nrgThr[smplCelpIdxFec], wnrgPerPulse[smplCelpIdxFec]) {
 			nPulses[smplCelpIdxFec] = int16(pulseNr + 1)
 			wnrg[smplCelpIdxFec] = q[pp]
@@ -1203,7 +1203,7 @@ func (e *CelpEncoder) calcGainsV(fcbWnrg, gainFromSearch float32, excFcb, dLpc [
 	if firstGainIdx > maxGainIdx-1 {
 		firstGainIdx = maxGainIdx - 1
 	}
-	offset := int32(math.Floor(float64((vGainMinDb - vGainMaxDb) / vGainStepDb)))
+	zeroDeltaIdx := int32((len(tbl.fcbgVDeltaInvProb) - 1) / 2)
 	for i := 0; i < nGainSteps; i++ {
 		gainIdxs[i] = firstGainIdx + int32(i)
 		fcbgains[i] = tbl.fcbgainsV[gainIdxs[i]]
@@ -1211,7 +1211,7 @@ func (e *CelpEncoder) calcGainsV(fcbWnrg, gainFromSearch float32, excFcb, dLpc [
 			fcbgInvProb[i] = tbl.fcbgVInvProb[gainIdxs[i]]
 		} else {
 			delta := e.prevFcbIdx[rateIdx] - gainIdxs[i]
-			cmfIdx := delta - offset
+			cmfIdx := delta + zeroDeltaIdx
 			fcbgInvProb[i] = tbl.fcbgVDeltaInvProb[cmfIdx]
 		}
 	}

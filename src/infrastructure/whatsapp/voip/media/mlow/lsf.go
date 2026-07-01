@@ -113,16 +113,8 @@ func DecodeSmplLsf(
 	stage1 := dec.DecodeCDF(t.LsfSel[sel])
 	idx.Stage1 = stage1
 
-	// match := (not the first frame) && stage1 == prev. On a no-match the four
-	// pitch/LTP predictor fields reset to -1, recorded BEFORE PrevStage1 is updated.
-	m := intf != 0 && stage1 == st.PrevStage1
-	if !m {
-		st.PrevGainIdx = -1
-		st.PrevFiltIdx = -1
-		st.PrevLag = -1
-		st.PrevFracLag = -1
-	}
-	st.PrevStage1 = stage1
+	SmplAdvanceLsfState(st, intf, stage1)
+	m := st.PrevMatch
 
 	// Read 2 — stage-1 grid. Outer select on match, inner on the current stage1.
 	var gridCDF []uint16

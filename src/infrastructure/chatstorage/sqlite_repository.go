@@ -1197,28 +1197,24 @@ func (r *SQLiteRepository) StoreCallRecord(record *domainChatStorage.CallRecord)
 		record.MediaType = "audio"
 	}
 
-	result, err := r.db.Exec(`
-		UPDATE calls
-		SET peer_jid = ?, direction = ?, status = ?, media_type = ?, started_at = ?,
-			updated_at = ?, ended_at = ?, end_reason = ?, metadata = ?
-		WHERE device_id = ? AND call_id = ?
-	`, record.PeerJID, record.Direction, record.Status, record.MediaType, record.StartedAt,
-		record.UpdatedAt, record.EndedAt, record.EndReason, record.Metadata, record.DeviceID, record.CallID)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		_, err = r.db.Exec(`
-			INSERT INTO calls (
-				device_id, call_id, peer_jid, direction, status, media_type,
-				started_at, updated_at, ended_at, end_reason, metadata
-			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, record.DeviceID, record.CallID, record.PeerJID, record.Direction, record.Status, record.MediaType,
-			record.StartedAt, record.UpdatedAt, record.EndedAt, record.EndReason, record.Metadata)
-	}
+	_, err := r.db.Exec(`
+		INSERT INTO calls (
+			device_id, call_id, peer_jid, direction, status, media_type,
+			started_at, updated_at, ended_at, end_reason, metadata
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, call_id) DO UPDATE SET
+			peer_jid = excluded.peer_jid,
+			direction = excluded.direction,
+			status = excluded.status,
+			media_type = excluded.media_type,
+			started_at = excluded.started_at,
+			updated_at = excluded.updated_at,
+			ended_at = excluded.ended_at,
+			end_reason = excluded.end_reason,
+			metadata = excluded.metadata
+	`, record.DeviceID, record.CallID, record.PeerJID, record.Direction, record.Status, record.MediaType,
+		record.StartedAt, record.UpdatedAt, record.EndedAt, record.EndReason, record.Metadata)
 	return err
 }
 

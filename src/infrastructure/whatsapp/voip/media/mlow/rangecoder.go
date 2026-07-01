@@ -63,7 +63,7 @@ func NewRangeDecoder(buf []byte) *RangeDecoder {
 
 func (d *RangeDecoder) readByte() uint32 {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L74-L82
-	if d.offs < d.storage {
+	if d.offs+d.endOffs < d.storage {
 		b := d.buf[d.offs]
 		d.offs++
 		return uint32(b)
@@ -73,7 +73,7 @@ func (d *RangeDecoder) readByte() uint32 {
 
 func (d *RangeDecoder) readByteFromEnd() uint32 {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L84-L91
-	if d.endOffs < d.storage {
+	if d.offs+d.endOffs < d.storage {
 		d.endOffs++
 		return uint32(d.buf[d.storage-d.endOffs])
 	}
@@ -384,11 +384,15 @@ func (e *RangeEncoder) normalize() {
 // Encode encodes the symbol with cumulative range [fl, fh) out of ft.
 func (e *RangeEncoder) Encode(fl, fh, ft uint32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L383-L398
-	if ft == 0 {
+	if ft == 0 || fl >= fh || fh > ft {
 		e.err = -1
 		return
 	}
 	r := e.rng / ft
+	if r == 0 {
+		e.err = -1
+		return
+	}
 	if fl > 0 {
 		e.val += e.rng - r*(ft-fl)
 		e.rng = r * (fh - fl)
@@ -404,6 +408,10 @@ func (e *RangeEncoder) BitLogp(val int32, logp uint32) {
 	r := e.rng
 	l := e.val
 	s := r >> logp
+	if s == 0 {
+		e.err = -1
+		return
+	}
 	r2 := r - s
 	if val != 0 {
 		e.val = l + r2
@@ -417,11 +425,27 @@ func (e *RangeEncoder) BitLogp(val int32, logp uint32) {
 // EncodeICDF encodes symbol s against an inverse-CDF table; ftb = log2(ft).
 func (e *RangeEncoder) EncodeICDF(s int32, icdf []byte, ftb uint32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L414-L428
+	if s < 0 || int(s) >= len(icdf) {
+		e.err = -1
+		return
+	}
 	r := e.rng >> ftb
+	if r == 0 {
+		e.err = -1
+		return
+	}
 	if s > 0 {
+		if icdf[s-1] <= icdf[s] {
+			e.err = -1
+			return
+		}
 		e.val += e.rng - r*uint32(icdf[s-1])
 		e.rng = r * uint32(icdf[s-1]-icdf[s])
 	} else {
+		if icdf[s] == 0 {
+			e.err = -1
+			return
+		}
 		e.rng -= r * uint32(icdf[s])
 	}
 	e.normalize()
@@ -469,6 +493,10 @@ func (e *RangeEncoder) BitsN(fl, n uint32) {
 // EncodeUint encodes an integer uniformly distributed in [0, ft0).
 func (e *RangeEncoder) EncodeUint(fl, ft0 uint32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L471-L482
+	if ft0 == 0 {
+		e.err = -1
+		return
+	}
 	ft := ft0 - 1
 	ftb := ilog(ft)
 	if ftb > ecUintBits {
@@ -484,12 +512,20 @@ func (e *RangeEncoder) EncodeUint(fl, ft0 uint32) {
 // EncodeRawSymbol encodes a uniform nbits-bit symbol on the range stream.
 func (e *RangeEncoder) EncodeRawSymbol(sym, nbits uint32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L485-L487
+	if nbits >= 32 {
+		e.err = -1
+		return
+	}
 	e.Encode(sym, sym+1, uint32(1)<<nbits)
 }
 
 // Encode64FineSym encodes the 64-symbol uniform fine-lag value.
 func (e *RangeEncoder) Encode64FineSym(sym int32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/674e85164b35ca19115dfebcf605708d15951ee7/wacore/src/voip/mlow/rangecoder.rs#L490-L492
+	if sym < 0 || sym >= 64 {
+		e.err = -1
+		return
+	}
 	e.Encode(uint32(sym), uint32(sym)+1, 64)
 }
 

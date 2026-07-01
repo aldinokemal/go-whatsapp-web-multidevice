@@ -26,6 +26,11 @@ func (m *CallManager) HandleCallOffer(ctx context.Context, node *waBinary.Node, 
 	callKey, err := signaling.DecryptCallKeyInNode(ctx, m.sock, info.InnerNode, peerJid)
 	if err != nil {
 		m.log.Error("offer decrypt call key", "err", err)
+		return
+	}
+	if callKey == nil {
+		m.log.Warn("offer has no call key, skipping native runtime", "call_id", callID)
+		return
 	}
 	relays := signaling.ExtractRelayEndpoints(info.InnerNode)
 	var structured *signaling.ParsedRelayAck
@@ -106,11 +111,13 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 		return
 	}
 
+	rotated := false
 	if signaling.NeedsDecryption(info.Tag) {
 		if peerKey, err := signaling.DecryptCallKeyInNode(ctx, m.sock, info.InnerNode, peerJid); err == nil && peerKey != nil {
 			m.mu.Lock()
 			if call.EncryptionKey != nil && !equalBytes(call.EncryptionKey, peerKey) {
 				m.reinitSrtpLocked(peerKey, peerJid)
+				rotated = true
 			}
 			m.mu.Unlock()
 		}
@@ -125,7 +132,9 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 		m.peerSsrcs = []uint32{media.GenerateSecureSsrc(call.CallID, peerDeviceJid, 0)}
 	}
 	m.relay.SetSubscriptionSsrc(firstSsrc(m.peerSsrcs))
-	m.initSrtpKeysLocked()
+	if !rotated {
+		m.initSrtpKeysLocked()
+	}
 	hasConn := m.relay.HasConnection()
 	relayData := call.RelayData
 	m.mu.Unlock()
@@ -149,7 +158,15 @@ func (m *CallManager) HandleCallAccept(ctx context.Context, node *waBinary.Node,
 			Content: []waBinary.Node{{Tag: "net", Attrs: waBinary.Attrs{"medium": "2", "protocol": "0"}}},
 		}},
 	}
-	_ = m.sock.SendNode(ctx, transport)
+	if err := m.sock.SendNode(ctx, transport); err != nil {
+		m.log.Error("send transport failed", "call_id", callID, "err", err)
+		m.mu.Lock()
+		_ = call.ApplyTransition(Transition{Type: TransitionTerminated, Reason: core.EndCallReasonFailed})
+		m.emitState()
+		m.mu.Unlock()
+		m.cleanupMedia()
+		return
+	}
 	_ = m.sock.SendNode(ctx, signaling.BuildMuteV2Stanza(peerJid, callID, creator, 0))
 	if acceptMsgID := wanode.AttrString(node.Attrs, "id"); acceptMsgID != "" {
 		ourJid := m.sock.OwnLID()
@@ -192,7 +209,11 @@ func (m *CallManager) HandleCallTransport(ctx context.Context, node *waBinary.No
 			call.RelayData = &core.RelayData{}
 		}
 		call.RelayData.Endpoints = relays
+		needsMediaInit := m.srtpSession == nil
 		m.mu.Unlock()
+		if needsMediaInit {
+			m.setupIncomingMedia(call, call.RelayData)
+		}
 		m.connectRelays(relays)
 	}
 }
@@ -203,6 +224,16 @@ func (m *CallManager) HandleCallAck(ctx context.Context, node *waBinary.Node) {
 	}
 	if e := wanode.AttrString(node.Attrs, "error"); e != "" {
 		m.log.Error("offer ack error", "error", e)
+		m.mu.Lock()
+		call := m.currentCall
+		if call != nil && !call.IsEnded() {
+			_ = call.ApplyTransition(Transition{Type: TransitionTerminated, Reason: core.EndCallReasonFailed})
+			m.emitState()
+			m.mu.Unlock()
+			m.cleanupMedia()
+			return
+		}
+		m.mu.Unlock()
 		return
 	}
 	parsed := signaling.ParseRelayFromAck(node)

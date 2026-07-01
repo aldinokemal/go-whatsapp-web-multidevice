@@ -11,23 +11,31 @@ import (
 	"github.com/gofiber/websocket/v2"
 )
 
-type client struct{}
+type client struct {
+	deviceID string
+}
+
+type registeredClient struct {
+	conn     *websocket.Conn
+	deviceID string
+}
 
 type BroadcastMessage struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Result  any    `json:"result"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Result   any    `json:"result"`
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 var (
 	Clients    = make(map[*websocket.Conn]client)
-	Register   = make(chan *websocket.Conn)
+	Register   = make(chan registeredClient)
 	Broadcast  = make(chan BroadcastMessage)
 	Unregister = make(chan *websocket.Conn)
 )
 
-func handleRegister(conn *websocket.Conn) {
-	Clients[conn] = client{}
+func handleRegister(reg registeredClient) {
+	Clients[reg.conn] = client{deviceID: reg.deviceID}
 	logrus.Println("connection registered")
 }
 
@@ -43,7 +51,10 @@ func broadcastMessage(message BroadcastMessage) {
 		return
 	}
 
-	for conn := range Clients {
+	for conn, client := range Clients {
+		if message.DeviceID != "" && client.deviceID != "" && client.deviceID != message.DeviceID {
+			continue
+		}
 		if err := conn.WriteMessage(websocket.TextMessage, marshalMessage); err != nil {
 			logrus.Println("write error:", err)
 			closeConnection(conn)
@@ -80,18 +91,20 @@ func RunHub() {
 func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("device_id", c.Query("device_id"))
 			return c.Next()
 		}
 		return c.SendStatus(fiber.StatusUpgradeRequired)
 	})
 
 	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
+		deviceID, _ := conn.Locals("device_id").(string)
 		defer func() {
 			Unregister <- conn
 			_ = conn.Close()
 		}()
 
-		Register <- conn
+		Register <- registeredClient{conn: conn, deviceID: deviceID}
 
 		for {
 			messageType, message, err := conn.ReadMessage()

@@ -209,7 +209,11 @@ func sanitizeRecordingComponent(value string) string {
 	if b.Len() == 0 {
 		return "call"
 	}
-	return b.String()
+	clean := b.String()
+	if clean == "." || clean == ".." {
+		return "call"
+	}
+	return clean
 }
 
 func callRecordingMetadataJSON(info domainCall.CallInfo) string {

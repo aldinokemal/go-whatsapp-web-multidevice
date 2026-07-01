@@ -34,7 +34,11 @@ func TestE2EDecodeMatchesUseSmpl(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bad hex frame: %v", err)
 		}
-		for _, v := range dec.Decode(fb) {
+		outFrame, err := dec.Decode(fb)
+		if err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		for _, v := range outFrame {
 			out = append(out, float64(v))
 		}
 	}

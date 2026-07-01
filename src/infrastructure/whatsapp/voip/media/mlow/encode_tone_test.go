@@ -42,7 +42,10 @@ func TestEncodeRoundTripsATone(t *testing.T) {
 		if len(frame) == 0 || frame[0] != 0x50 {
 			t.Fatalf("frame %d: expected active TOC 0x50, got %x", f, frame)
 		}
-		out := dec.Decode(frame)
+		out, err := dec.Decode(frame)
+		if err != nil {
+			t.Fatalf("frame %d: decode: %v", f, err)
+		}
 		const harmDelay = 48
 		c := toneCorr(pcm[:len(pcm)-harmDelay], out[harmDelay:])
 		if c > best {

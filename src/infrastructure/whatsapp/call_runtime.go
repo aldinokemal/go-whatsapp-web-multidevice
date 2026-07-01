@@ -71,14 +71,6 @@ func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance
 		}
 	}
 	manager := r.newManager(ctx, device, callID)
-	if err := manager.StartCall(ctx, callID, peer, false); err != nil {
-		if recorder != nil {
-			_ = recorder.Close()
-		}
-		r.remove(device.ID(), callID)
-		return domainCall.CallInfo{}, err
-	}
-
 	info := domainCall.CallInfo{
 		DeviceID:  device.ID(),
 		CallID:    callID,
@@ -89,6 +81,15 @@ func (r *VoiceCallRuntime) StartCall(ctx context.Context, device *DeviceInstance
 		StartedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
+	r.upsertRuntimeCall(device.ID(), callID, &activeVoiceCall{deviceID: device.ID(), manager: manager, recording: recorder, info: info})
+	if err := manager.StartCall(ctx, callID, peer, false); err != nil {
+		if recorder != nil {
+			_ = recorder.Close()
+		}
+		r.remove(device.ID(), callID)
+		return domainCall.CallInfo{}, err
+	}
+
 	if recorder != nil {
 		info.Recording = true
 		info.RecordingPath = recorder.Path()
@@ -107,24 +108,27 @@ func (r *VoiceCallRuntime) AcceptCall(ctx context.Context, deviceID, callID stri
 	if !ok {
 		return domainCall.CallInfo{}, fmt.Errorf("call %s not found", callID)
 	}
+	var recorder *callRecorder
 	if record && call.recording == nil {
-		recorder, err := newCallRecorder(callRecordingPath(deviceID, callID))
+		var err error
+		recorder, err = newCallRecorder(callRecordingPath(deviceID, callID))
 		if err != nil {
 			return domainCall.CallInfo{}, err
 		}
+	}
+	if err := call.manager.AcceptCall(ctx, callID); err != nil {
+		if recorder != nil {
+			_ = recorder.Close()
+		}
+		return domainCall.CallInfo{}, err
+	}
+	if recorder != nil {
 		call.recording = recorder
 		call.info.Recording = true
 		call.info.RecordingPath = recorder.Path()
 		call.info.RecordingURL = callRecordingURL(recorder.Path())
 		call.info.RecordingFormat = callRecordingFormat
 		call.info.Metadata = callRecordingMetadataJSON(call.info)
-	}
-	if err := call.manager.AcceptCall(ctx, callID); err != nil {
-		if record && call.recording != nil && call.info.RecordingPath != "" {
-			_ = call.recording.Close()
-			call.recording = nil
-		}
-		return domainCall.CallInfo{}, err
 	}
 	return r.GetCallInfo(deviceID, callID)
 }
@@ -165,11 +169,14 @@ func (r *VoiceCallRuntime) ExchangeWebRTC(ctx context.Context, deviceID, callID,
 		return "", err
 	}
 	br.OnBrowserPCM = func(pcm []float32) {
-		if call.recording != nil {
-			if err := call.recording.WriteLocal(pcm); err != nil {
+		r.mu.Lock()
+		recorder := call.recording
+		if recorder != nil {
+			if err := recorder.WriteLocal(pcm); err != nil {
 				logrus.WithError(err).Debug("failed to write browser audio to call recording")
 			}
 		}
+		r.mu.Unlock()
 		call.manager.FeedCapturedPCM(pcm)
 	}
 	br.OnTerminalICE = func() {
@@ -179,6 +186,7 @@ func (r *VoiceCallRuntime) ExchangeWebRTC(ctx context.Context, deviceID, callID,
 	r.mu.Lock()
 	if current, ok := r.calls[deviceID][callID]; ok {
 		if current.bridge != nil {
+			current.bridge.OnTerminalICE = nil
 			current.bridge.Close()
 		}
 		current.bridge = br
@@ -215,6 +223,9 @@ func (r *VoiceCallRuntime) HandleIncomingOffer(ctx context.Context, device *Devi
 		return
 	}
 	node := wrapCallNode(evt.From, evt.Data)
+	if !evt.GroupJID.IsEmpty() || nodeHasChildTag(node, "video") {
+		return
+	}
 	callID := callIDFromNode(node)
 	if callID == "" {
 		return
@@ -300,17 +311,20 @@ func (r *VoiceCallRuntime) newManager(ctx context.Context, device *DeviceInstanc
 		if !ok {
 			return
 		}
-		if call.recording != nil {
-			if err := call.recording.WriteRemote(pcm); err != nil {
+		r.mu.Lock()
+		recorder := call.recording
+		bridge := call.bridge
+		if recorder != nil {
+			if err := recorder.WriteRemote(pcm); err != nil {
 				logrus.WithError(err).Debug("failed to write remote audio to call recording")
 			}
 		}
-		if call.bridge == nil {
-			return
+		if bridge != nil {
+			if err := bridge.WritePCM(pcm); err != nil {
+				logrus.WithError(err).Debug("failed to write call audio to browser")
+			}
 		}
-		if err := call.bridge.WritePCM(pcm); err != nil {
-			logrus.WithError(err).Debug("failed to write call audio to browser")
-		}
+		r.mu.Unlock()
 	}
 
 	_ = ctx
@@ -370,6 +384,9 @@ func (r *VoiceCallRuntime) closeBridgeAndRemove(deviceID, callID string) {
 	if deviceCalls, ok := r.calls[deviceID]; ok {
 		if call, ok := deviceCalls[callID]; ok {
 			br = call.bridge
+			if br != nil {
+				br.OnTerminalICE = nil
+			}
 			recorder = call.recording
 		}
 		delete(deviceCalls, callID)
@@ -422,8 +439,12 @@ func (r *VoiceCallRuntime) persist(device *DeviceInstance, info domainCall.CallI
 	if device == nil || device.GetChatStorage() == nil {
 		return
 	}
+	deviceID := info.DeviceID
+	if client := device.GetClient(); client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
 	record := &domainChatStorage.CallRecord{
-		DeviceID:  info.DeviceID,
+		DeviceID:  deviceID,
 		CallID:    info.CallID,
 		PeerJID:   info.PeerJID,
 		Direction: info.Direction,
@@ -447,9 +468,10 @@ func (r *VoiceCallRuntime) persist(device *DeviceInstance, info domainCall.CallI
 
 func (r *VoiceCallRuntime) emit(code, message string, info domainCall.CallInfo) {
 	msg := websocket.BroadcastMessage{
-		Code:    code,
-		Message: message,
-		Result:  info,
+		Code:     code,
+		Message:  message,
+		Result:   info,
+		DeviceID: info.DeviceID,
 	}
 	select {
 	case websocket.Broadcast <- msg:
@@ -483,7 +505,10 @@ func callWebhookEventName(code string, info domainCall.CallInfo) string {
 		case domainCall.StatusActive:
 			return "call.active"
 		case domainCall.StatusEnded:
-			return "call.ended"
+			if info.EndReason == "declined" {
+				return "call.ended"
+			}
+			return "call.state"
 		default:
 			return "call.state"
 		}
@@ -616,4 +641,19 @@ func callIDFromNode(node *waBinary.Node) string {
 		return ""
 	}
 	return info.CallID
+}
+
+func nodeHasChildTag(n *waBinary.Node, tag string) bool {
+	if n == nil {
+		return false
+	}
+	for _, child := range n.GetChildren() {
+		if child.Tag == tag {
+			return true
+		}
+		if nodeHasChildTag(&child, tag) {
+			return true
+		}
+	}
+	return false
 }

@@ -1,6 +1,10 @@
 package mlow
 
-import "github.com/rs/zerolog"
+import (
+	"fmt"
+
+	"github.com/rs/zerolog"
+)
 
 // MLow top-level decoder: RED strip → TOC routing → active-frame decode (3 chained
 // 20 ms internal frames: LSF → pulses → pitch/gains → reconstruct → CELP synthesis)
@@ -51,18 +55,18 @@ func (d *MlowDecoder) Reset() {
 }
 
 // Decode decodes one RTP MLow payload into a 60 ms (960-sample) PCM frame, float in [-1, 1].
-func (d *MlowDecoder) Decode(payload []byte) []float32 {
+func (d *MlowDecoder) Decode(payload []byte) ([]float32, error) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/decoder.rs#L54-L72
 	if len(payload) == 0 {
 		d.log.Trace().Msg("decode: empty payload, emitting silence")
-		return make([]float32, opusFrameSamps)
+		return make([]float32, opusFrameSamps), nil
 	}
 	d.log.Trace().Int("payload_bytes", len(payload)).Int32("redundancy", d.redundancy).Msg("decode packet")
 	if d.redundancy > 0 {
 		frames, err := DepackSplitRed(payload, d.log)
 		if err != nil {
-			d.log.Debug().Err(err).Int("payload_bytes", len(payload)).Msg("decode: RED depack failed, emitting silence")
-			return make([]float32, opusFrameSamps)
+			d.log.Debug().Err(err).Int("payload_bytes", len(payload)).Msg("decode: RED depack failed")
+			return make([]float32, opusFrameSamps), err
 		}
 		var main []byte
 		if len(frames) > 0 {
@@ -74,11 +78,11 @@ func (d *MlowDecoder) Decode(payload []byte) []float32 {
 	return d.decodeFrame(payload)
 }
 
-func (d *MlowDecoder) decodeFrame(frame []byte) []float32 {
+func (d *MlowDecoder) decodeFrame(frame []byte) ([]float32, error) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/decoder.rs#L74-L99
 	if len(frame) == 0 {
 		d.log.Trace().Msg("decode frame: empty, emitting silence")
-		return make([]float32, opusFrameSamps)
+		return make([]float32, opusFrameSamps), nil
 	}
 	toc := ParseSmplTOC(frame[0], d.log)
 	var outLen int
@@ -93,16 +97,16 @@ func (d *MlowDecoder) decodeFrame(frame []byte) []float32 {
 		Int("out_len", outLen).Msg("decode frame")
 	if toc.StdOpus {
 		d.log.Debug().Msg("decode frame: standard-Opus packet, not handled, emitting silence")
-		return make([]float32, outLen)
+		return make([]float32, outLen), nil
 	}
 	if toc.SID || !toc.Active {
 		d.log.Trace().Bool("sid", toc.SID).Bool("active", toc.Active).Msg("decode frame: inactive/SID, emitting silence")
-		return make([]float32, outLen)
+		return make([]float32, outLen), nil
 	}
 	return d.decodeActiveFrame(frame, outLen)
 }
 
-func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
+func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) ([]float32, error) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/decoder.rs#L101-L217
 	config := int(frame[0]>>2) & 1
 	tbl := LoadSmplTables()
@@ -183,5 +187,8 @@ func (d *MlowDecoder) decodeActiveFrame(frame []byte, outLen int) []float32 {
 			pcm = np
 		}
 	}
-	return pcm
+	if dec.Err != 0 {
+		return pcm, fmt.Errorf("mlow decode: range decoder error")
+	}
+	return pcm, nil
 }

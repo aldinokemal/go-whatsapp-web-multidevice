@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha1"
+	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp/voip/core"
@@ -111,6 +112,12 @@ func (c *SrtpContext) Unprotect(data []byte) (*RtpPacket, error) {
 
 	c.updateRoc(header.SequenceNumber)
 	index := c.packetIndex(header.SequenceNumber)
+	if c.authTagLen > 0 {
+		expected := c.computeAuthTag(data[:headerSize+payloadLen], c.roc, c.authTagLen)
+		if subtle.ConstantTimeCompare(expected, data[headerSize+payloadLen:]) != 1 {
+			return nil, &SrtpError{SrtpErrAuthFailed, "srtp auth tag mismatch"}
+		}
+	}
 
 	iv := c.generateIV(header.Ssrc, index)
 	decrypted := make([]byte, payloadLen)

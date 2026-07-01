@@ -2,6 +2,7 @@ package mlow
 
 import (
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/rs/zerolog"
@@ -563,11 +564,35 @@ func encodeSmplPitch(enc *RangeEncoder, _ *SmplMem, st *SmplLsfState, p2, p3, p6
 	st.PrevLagidx = nidx
 }
 
+func validateSmplFrameParams(fp *SmplFrameParams) error {
+	if fp == nil {
+		return errors.New("mlow encode: frame params are required")
+	}
+	tbl := LoadSmplTables()
+	if fp.Config < 0 || len(tbl.LsfStage2) == 0 || fp.Config >= len(tbl.LsfStage2[0]) {
+		return fmt.Errorf("mlow encode: invalid config %d", fp.Config)
+	}
+	for i := range fp.Internal {
+		ip := &fp.Internal[i]
+		if ip.Lsf.Stage1 < 0 || int(ip.Lsf.Stage1) >= len(tbl.LsfStage2) {
+			return fmt.Errorf("mlow encode: invalid stage1 %d", ip.Lsf.Stage1)
+		}
+		stage2 := tbl.LsfStage2[int(ip.Lsf.Stage1)][fp.Config]
+		if ip.Lsf.Grid < 0 || int(ip.Lsf.Grid) >= len(stage2) {
+			return fmt.Errorf("mlow encode: invalid grid %d", ip.Lsf.Grid)
+		}
+	}
+	return nil
+}
+
 // EncodeSmplFrame builds [TOC || range-coded body] from analyzed frame parameters
 // (the exact inverse of the decoder's active-frame body decode).
 func EncodeSmplFrame(fp *SmplFrameParams, log ...zerolog.Logger) ([]byte, error) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/encode.rs#L61-L102
 	lg := pickLog(log)
+	if err := validateSmplFrameParams(fp); err != nil {
+		return nil, err
+	}
 	const p2, p3, p4 = int32(320), int32(4), int32(1)
 	p6 := int32(fp.Config)
 	lg.Trace().Uint8("toc_byte", fp.TOC).Int("config", fp.Config).Int("internal_frames", 3).Msg("encode frame")

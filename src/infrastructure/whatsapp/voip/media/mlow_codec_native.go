@@ -23,7 +23,7 @@ func (c *mlowCodec) Encode(pcm []float32) ([]byte, error) {
 }
 
 func (c *mlowCodec) Decode(frame []byte) ([]float32, error) {
-	return c.dec.Decode(frame), nil
+	return c.dec.Decode(frame)
 }
 
 func (c *mlowCodec) FrameSize() int  { return mlowFrameSize }
