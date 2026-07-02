@@ -88,7 +88,11 @@ paths:
       operationId: appLogout
       tags:
         - app
-      summary: Remove database and logout
+      summary: Logout the active device (keeps the device slot)
+      description: >-
+        Logs the active device out of WhatsApp and clears its session. The device
+        slot (id and display name) is kept, so it stays listed (disconnected) and
+        can be re-paired under the same id. Use DELETE /devices/{device_id} to remove the slot.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
@@ -299,7 +303,10 @@ paths:
       tags:
         - device
       summary: Remove a device
-      description: Remove a device from the server (does not logout from WhatsApp)
+      description: >-
+        Remove a device slot from the server. This also logs it out of WhatsApp and
+        clears its session and chat data. To log out while keeping the slot, use the
+        logout endpoint instead.
       parameters:
         - name: device_id
           in: path
@@ -408,7 +415,10 @@ paths:
       tags:
         - device
       summary: Logout device
-      description: Logout a specific device from WhatsApp and remove its session
+      description: >-
+        Logs a specific device out of WhatsApp and clears its session, but keeps the
+        device slot (id and display name) so it can be re-paired under the same id.
+        To remove the slot entirely, use DELETE /devices/{device_id}.
       parameters:
         - name: device_id
           in: path

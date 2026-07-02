@@ -39,7 +39,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.PairSuccess:
 		handlePairSuccess(ctx, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx, instance, chatStorageRepo)
+		handleLoggedOut(instance)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
@@ -153,7 +153,7 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 	syncKeysDevice(ctx, primaryDB, secondaryDB, evt.ID)
 }
 
-func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+func handleLoggedOut(instance *DeviceInstance) {
 	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
 
 	if client := instance.GetClient(); client != nil {
@@ -161,19 +161,19 @@ func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageR
 	}
 	instance.SetState(domainDevice.DeviceStateDisconnected)
 
-	if chatStorageRepo != nil {
-		if err := chatStorageRepo.TruncateAllDataWithLogging("REMOTE_LOGOUT"); err != nil {
-			logrus.Errorf("[REMOTE_LOGOUT] Failed to truncate chat storage: %v", err)
-		}
-	}
+	// Chat history is intentionally preserved on remote logout (it is only cleared on
+	// a full purge via DELETE). A remote logout keeps the device slot, so truncating
+	// here would contradict the keep-slot semantics and lose the conversation history.
 
 	deviceID := instance.ID()
 
+	// TriggerLoggedOut fires the manager's keep-slot callback (resets the in-memory
+	// client + clears the persisted JID, but keeps the slot id and display name).
 	instance.TriggerLoggedOut()
 
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    "LOGOUT_COMPLETE",
-		Message: "Remote logout cleanup completed - device removed from server",
+		Code:    "DEVICE_LOGGED_OUT",
+		Message: "Device logged out (slot kept)",
 		Result:  map[string]string{"device_id": deviceID},
 	}
 }
