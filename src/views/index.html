@@ -389,13 +389,6 @@
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
                             break;
-                        case 'LOGOUT_COMPLETE':
-                            // Handle successful cleanup after remote logout
-                            showSuccessInfo('✅ ' + message.message)
-                            console.log('[LOGOUT_COMPLETE] Remote logout cleanup completed:', message)
-                            // Optionally refresh the device list
-                            this.handleReloadDevice()
-                            break;
                         case 'DEVICE_REMOVED': {
                             const removedId = message.result?.device_id;
                             const devices = message.result?.devices;
@@ -434,6 +427,20 @@
                         case 'PASSKEY_ERROR':
                             showErrorInfo(message.message)
                             break;
+                        case 'DEVICE_LOGGED_OUT': {
+                            // Logout keeps the slot: refresh the list (device is now
+                            // disconnected) but keep the current selection so the user
+                            // can re-pair it under the same id.
+                            const devices = message.result?.devices;
+                            showSuccessInfo('✅ ' + (message.message || 'Device logged out'));
+                            if (Array.isArray(devices)) {
+                                this.deviceList = devices;
+                                this.connected_devices = devices;
+                            } else {
+                                this.handleReloadDevice();
+                            }
+                            break;
+                        }
                         default:
                             console.log(message)
                     }
