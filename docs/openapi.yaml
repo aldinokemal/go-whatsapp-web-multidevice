@@ -21,6 +21,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: call
+    description: Call management (reject incoming calls)
   - name: chat
     description: Chat conversations and messaging
   - name: group
@@ -86,7 +88,11 @@ paths:
       operationId: appLogout
       tags:
         - app
-      summary: Remove database and logout
+      summary: Logout the active device (keeps the device slot)
+      description: >-
+        Logs the active device out of WhatsApp and clears its session. The device
+        slot (id and display name) is kept, so it stays listed (disconnected) and
+        can be re-paired under the same id. Use DELETE /devices/{device_id} to remove the slot.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
@@ -297,7 +303,10 @@ paths:
       tags:
         - device
       summary: Remove a device
-      description: Remove a device from the server (does not logout from WhatsApp)
+      description: >-
+        Remove a device slot from the server. This also logs it out of WhatsApp and
+        clears its session and chat data. To log out while keeping the slot, use the
+        logout endpoint instead.
       parameters:
         - name: device_id
           in: path
@@ -406,7 +415,10 @@ paths:
       tags:
         - device
       summary: Logout device
-      description: Logout a specific device from WhatsApp and remove its session
+      description: >-
+        Logs a specific device out of WhatsApp and clears its session, but keeps the
+        device slot (id and display name) so it can be re-paired under the same id.
+        To remove the slot entirely, use DELETE /devices/{device_id}.
       parameters:
         - name: device_id
           in: path
@@ -1914,6 +1926,64 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /call/reject:
+    post:
+      operationId: rejectCall
+      tags:
+        - call
+      summary: Reject an incoming call
+      description: |
+        Programmatically reject a specific incoming call. This endpoint allows selective call rejection
+        based on your application logic (e.g., time-of-day rules, caller whitelists, agent availability).
+        
+        The call must still be ringing — rejection will fail if the call has already ended or been answered.
+        
+        This is complementary to the auto-reject feature (`WHATSAPP_AUTO_REJECT_CALL=true`) which rejects
+        all incoming calls globally. Use this API for fine-grained control.
+        
+        **Required fields from webhook:**
+        - `caller_jid`: Use `payload.from` from the `call.offer` webhook event
+        - `call_id`: Use `payload.call_id` from the `call.offer` webhook event
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - caller_jid
+                - call_id
+              properties:
+                caller_jid:
+                  type: string
+                  example: '628987654321@s.whatsapp.net'
+                  description: JID of the caller (from webhook `payload.from`)
+                call_id:
+                  type: string
+                  example: 'ABC123DEF456'
+                  description: Unique call identifier (from webhook `payload.call_id`)
+      responses:
+        '200':
+          description: Call rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing or invalid fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error (call already ended, not connected, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /chats:
     get:
       operationId: listChats
@@ -3110,6 +3180,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/messages:
+    get:
+      operationId: getNewsletterMessages
+      tags:
+        - newsletter
+      summary: Get latest newsletter (channel) messages
+      description: |
+        Fetches the latest messages posted in a newsletter (channel) directly
+        from WhatsApp servers. You must be following/subscribed to the
+        newsletter to fetch its messages.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+        - name: count
+          in: query
+          required: false
+          description: Number of messages to return (default 50, max 100)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: before
+          in: query
+          required: false
+          description: Fetch messages older than this message server ID, used for pagination
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
 
   /chatwoot/sync:
     post:
@@ -3990,6 +4113,48 @@ components:
             role:
               type: string
               example: "subscriber"
+    NewsletterMessagesResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get newsletter messages"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NewsletterMessage'
+    NewsletterMessage:
+      type: object
+      properties:
+        server_id:
+          type: integer
+          example: 123
+        message_id:
+          type: string
+          example: "3EB0XXXXXXXXXXXXXXXX"
+        type:
+          type: string
+          example: "text"
+        timestamp:
+          type: string
+          example: "2026-06-30T10:00:00Z"
+        views_count:
+          type: integer
+          example: 42
+        reaction_counts:
+          type: object
+          additionalProperties:
+            type: integer
+          example: { "😀": 3, "👍": 5 }
+        text:
+          type: string
+          example: "Hello from the channel!"
     MyListContactsResponse:
       type: object
       properties:

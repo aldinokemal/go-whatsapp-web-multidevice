@@ -51,11 +51,11 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 }
 
 // wrapSendMessage sends the message and stores it asynchronously on success.
-// The send goes through whatsapp.SendMessageWithReachoutRetry, which retries
-// once on WhatsApp error 463 after a SubscribePresence pre-warm — see
-// infrastructure/whatsapp/send_retry.go for the protocol-level rationale.
+// whatsmeow handles the trusted-contact (tctoken) lifecycle internally; a 463
+// "reach-out timelock" rejection is a WhatsApp server-side restriction that the
+// client cannot retry around, so it is surfaced as-is via normalizeSendError.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := whatsapp.SendMessageWithReachoutRetry(ctx, client, recipient, msg)
+	ts, err := client.SendMessage(ctx, recipient, msg)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
