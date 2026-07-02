@@ -3180,6 +3180,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/messages:
+    get:
+      operationId: getNewsletterMessages
+      tags:
+        - newsletter
+      summary: Get latest newsletter (channel) messages
+      description: |
+        Fetches the latest messages posted in a newsletter (channel) directly
+        from WhatsApp servers. You must be following/subscribed to the
+        newsletter to fetch its messages.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+        - name: count
+          in: query
+          required: false
+          description: Number of messages to return (default 50, max 100)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: before
+          in: query
+          required: false
+          description: Fetch messages older than this message server ID, used for pagination
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
 
   /chatwoot/sync:
     post:
@@ -4060,6 +4113,48 @@ components:
             role:
               type: string
               example: "subscriber"
+    NewsletterMessagesResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get newsletter messages"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NewsletterMessage'
+    NewsletterMessage:
+      type: object
+      properties:
+        server_id:
+          type: integer
+          example: 123
+        message_id:
+          type: string
+          example: "3EB0XXXXXXXXXXXXXXXX"
+        type:
+          type: string
+          example: "text"
+        timestamp:
+          type: string
+          example: "2026-06-30T10:00:00Z"
+        views_count:
+          type: integer
+          example: 42
+        reaction_counts:
+          type: object
+          additionalProperties:
+            type: integer
+          example: { "😀": 3, "👍": 5 }
+        text:
+          type: string
+          example: "Hello from the channel!"
     MyListContactsResponse:
       type: object
       properties:
