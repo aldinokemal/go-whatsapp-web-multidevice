@@ -144,6 +144,9 @@ func initEnvConfig() {
 		events := strings.Split(envWebhookEvents, ",")
 		config.WhatsappWebhookEvents = events
 	}
+	if viper.IsSet("whatsapp_webhook_all_device_receipts") {
+		config.WhatsappWebhookAllDeviceReceipts = viper.GetBool("whatsapp_webhook_all_device_receipts")
+	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -357,6 +360,12 @@ func initFlags() {
 		"webhook-events", "",
 		config.WhatsappWebhookEvents,
 		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookAllDeviceReceipts,
+		"webhook-all-device-receipts", "",
+		config.WhatsappWebhookAllDeviceReceipts,
+		`forward receipts from all linked devices instead of only the primary device --webhook-all-device-receipts <true/false> | example: --webhook-all-device-receipts=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
