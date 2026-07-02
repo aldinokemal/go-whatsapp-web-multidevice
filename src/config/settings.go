@@ -49,6 +49,7 @@ var (
 	WhatsappPresencePulseEnabled               = true          // Periodically pulse presence available, then unavailable
 	WhatsappPresencePulseInterval              = 24 * time.Hour
 	WhatsappPresencePulseDuration              = 5 * time.Minute
+	WhatsappUnreadSyncBatchSize                = 15 // Number of chats to sync per batch in background unread count sync
 
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true

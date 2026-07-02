@@ -69,4 +69,13 @@ type IChatStorageRepository interface {
 
 	// Schema operations
 	InitializeSchema() error
+
+	// Unread count operations
+	UpdateChatUnreadCount(deviceID, jid string, count int) error
+	IncrementChatUnreadCount(deviceID, jid string) error
+	ResetChatUnreadCount(deviceID, jid string) error
+	ComputeChatUnreadCount(deviceID, chatJID string) (int, error)
+	MarkChatSynced(deviceID, jid string) error
+	MarkMessagesAsRead(deviceID, chatJID string) error
+	GetTotalUnreadCount(deviceID string) (int64, error)
 }

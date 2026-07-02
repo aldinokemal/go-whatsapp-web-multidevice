@@ -47,6 +47,9 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
 	}
 
+	// Update unread count based on message direction
+	handleUnreadCountUpdate(ctx, evt, chatStorageRepo, client)
+
 	// Handle image message if present
 	handleImageMessage(ctx, evt, client)
 
@@ -113,6 +116,42 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
 	} else {
 		log.Debugf("Marked message %s as read", evt.Info.ID)
+	}
+}
+
+func handleUnreadCountUpdate(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
+	deviceID := ""
+	inst, hasDevice := DeviceFromContext(ctx)
+	if hasDevice && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	// Fallback: resolve deviceID from client store when context lookup fails
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+	if deviceID == "" {
+		log.Warnf("handleUnreadCountUpdate: could not resolve deviceID (hasDevice=%v) for message %s", hasDevice, evt.Info.ID)
+		return
+	}
+
+	chatJID := NormalizeJIDFromLID(ctx, evt.Info.Chat, client).ToNonAD().String()
+
+	if evt.Info.IsFromMe {
+		log.Infof("Resetting unread count for chat %s (message from me)", chatJID)
+		if err := chatStorageRepo.ResetChatUnreadCount(deviceID, chatJID); err != nil {
+			log.Warnf("Failed to reset unread count for chat %s: %v", chatJID, err)
+		}
+		if err := chatStorageRepo.MarkMessagesAsRead(deviceID, chatJID); err != nil {
+			log.Warnf("Failed to mark messages as read for chat %s: %v", chatJID, err)
+		}
+	} else {
+		log.Infof("Incrementing unread count for chat %s (incoming message)", chatJID)
+		if err := chatStorageRepo.IncrementChatUnreadCount(deviceID, chatJID); err != nil {
+			log.Warnf("Failed to increment unread count for chat %s: %v", chatJID, err)
+		}
 	}
 }
 

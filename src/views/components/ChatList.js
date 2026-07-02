@@ -19,7 +19,7 @@ export default {
         },
         filteredChats() {
             if (!this.searchQuery) return this.chats;
-            return this.chats.filter(chat => 
+            return this.chats.filter(chat =>
                 chat.name?.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
                 chat.jid?.toLowerCase().includes(this.searchQuery.toLowerCase())
             );
@@ -40,11 +40,11 @@ export default {
                     offset: (this.currentPage - 1) * this.pageSize,
                     limit: this.pageSize
                 });
-                
+
                 if (this.searchQuery.trim()) {
                     params.append('search', this.searchQuery);
                 }
-                
+
                 if (this.includeMediaChats) {
                     params.append('has_media', 'true');
                 }
@@ -139,8 +139,8 @@ export default {
                     <div class="eight wide field">
                         <label>Search Chats</label>
                         <div class="ui icon input">
-                            <input type="text" 
-                                   placeholder="Search by name or JID..." 
+                            <input type="text"
+                                   placeholder="Search by name or JID..."
                                    v-model="searchQuery"
                                    @input="searchChats">
                             <i class="search icon"></i>
@@ -163,25 +163,25 @@ export default {
                     </div>
                 </div>
             </div>
-            
+
             <div class="ui divider"></div>
-            
+
             <div v-if="loading" class="ui active centered inline loader"></div>
-            
+
             <div v-else-if="filteredChats.length === 0" class="ui placeholder segment">
                 <div class="ui icon header">
                     <i class="comments outline icon"></i>
                     No chats found
                 </div>
             </div>
-            
+
             <div v-else>
                 <table class="ui celled striped table">
                     <thead>
                         <tr>
                             <th>Name</th>
                             <th>Type</th>
-                            <th>JID</th>
+                            <th>Unread</th>
                             <th>Last Message</th>
                             <th>Actions</th>
                         </tr>
@@ -201,13 +201,17 @@ export default {
                                 </div>
                             </td>
                             <td class="collapsing">
-                                <code>{{ chat.jid }}</code>
+                                <span v-if="chat.unread_count > 0"
+                                      class="ui red circular label">
+                                    {{ chat.unread_count }}
+                                </span>
+                                <span v-else class="ui grey text">0</span>
                             </td>
                             <td>
                                 {{ formatTimestamp(chat.last_message_time) }}
                             </td>
                             <td class="collapsing">
-                                <button class="ui small primary button" 
+                                <button class="ui small primary button"
                                         @click="selectChat(chat.jid)">
                                     <i class="eye icon"></i>
                                     View Messages
@@ -216,7 +220,7 @@ export default {
                         </tr>
                     </tbody>
                 </table>
-                
+
                 <!-- Pagination -->
                 <div class="ui pagination menu" v-if="totalPages > 1">
                     <a class="icon item" @click="prevPage" :class="{ disabled: currentPage === 1 }">

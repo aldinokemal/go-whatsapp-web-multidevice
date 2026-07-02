@@ -12,6 +12,8 @@ type Chat struct {
 	CreatedAt           time.Time `db:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at"`
 	Archived            bool      `db:"archived"`
+	UnreadCount         int       `db:"unread_count"`
+	IsChatSynced        bool      `db:"is_chat_synced"`
 }
 
 // Message represents a WhatsApp message
@@ -33,6 +35,7 @@ type Message struct {
 	FileEncSHA256    []byte     `db:"file_enc_sha256"`
 	FileLength       uint64     `db:"file_length"`
 	ReferralMetadata string     `db:"referral_metadata"`
+	IsRead           bool       `db:"is_read"`
 	Reactions        []Reaction `db:"-"`
 	CreatedAt        time.Time  `db:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at"`

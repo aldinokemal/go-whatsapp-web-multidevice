@@ -268,3 +268,59 @@ func (r *deviceChatStorage) GetDeviceRecord(deviceID string) (*domainChatStorage
 func (r *deviceChatStorage) DeleteDeviceRecord(deviceID string) error {
 	return r.base.DeleteDeviceRecord(deviceID)
 }
+
+func (r *deviceChatStorage) UpdateChatUnreadCount(deviceID, jid string, count int) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.UpdateChatUnreadCount(targetDeviceID, jid, count)
+}
+
+func (r *deviceChatStorage) IncrementChatUnreadCount(deviceID, jid string) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.IncrementChatUnreadCount(targetDeviceID, jid)
+}
+
+func (r *deviceChatStorage) ResetChatUnreadCount(deviceID, jid string) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.ResetChatUnreadCount(targetDeviceID, jid)
+}
+
+func (r *deviceChatStorage) ComputeChatUnreadCount(deviceID, chatJID string) (int, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.ComputeChatUnreadCount(targetDeviceID, chatJID)
+}
+
+func (r *deviceChatStorage) MarkChatSynced(deviceID, jid string) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.MarkChatSynced(targetDeviceID, jid)
+}
+
+func (r *deviceChatStorage) MarkMessagesAsRead(deviceID, chatJID string) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.MarkMessagesAsRead(targetDeviceID, chatJID)
+}
+
+func (r *deviceChatStorage) GetTotalUnreadCount(deviceID string) (int64, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetTotalUnreadCount(targetDeviceID)
+}

@@ -54,7 +54,7 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 // GetChat retrieves a chat by JID
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived, unread_count, is_chat_synced
 		FROM chats
 		WHERE jid = ?
 	`
@@ -70,7 +70,7 @@ func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) 
 // GetChatByDevice retrieves a chat by JID for a specific device
 func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatStorage.Chat, error) {
 	query := `
-		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived
+		SELECT device_id, jid, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived, unread_count, is_chat_synced
 		FROM chats
 		WHERE jid = ? AND device_id = ?
 	`
@@ -89,7 +89,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
 		FROM messages
 		WHERE id = ?
 		LIMIT 1
@@ -109,7 +109,7 @@ func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domain
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
 		FROM messages
 		WHERE id = ? AND device_id = ?
 		LIMIT 1
@@ -191,7 +191,7 @@ func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFi
 // GetChats retrieves chats with filtering
 func (r *SQLiteRepository) GetChats(filter *domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
 	query := `
-		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived
+		SELECT c.device_id, c.jid, c.name, c.last_message_time, c.ephemeral_expiration, c.created_at, c.updated_at, c.archived, c.unread_count, c.is_chat_synced
 		FROM chats c
 	`
 
@@ -333,12 +333,12 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 			message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-			message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
+			message.FileLength, message.ReferralMetadata, message.IsRead, message.CreatedAt, message.UpdatedAt)
 	}
 	return err
 }
@@ -371,8 +371,8 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		INSERT INTO messages (
 			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
@@ -404,7 +404,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 				message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 				message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 				message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-				message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt,
+				message.FileLength, message.ReferralMetadata, message.IsRead, message.CreatedAt, message.UpdatedAt,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert message %s: %w", message.ID, err)
@@ -508,7 +508,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -581,7 +581,7 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -942,7 +942,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 		&message.ID, &message.ChatJID, &message.DeviceID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.CallMetadata, &message.Filename,
 		&message.URL, &message.DirectPath, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
-		&message.FileLength, &message.ReferralMetadata, &message.CreatedAt, &message.UpdatedAt,
+		&message.FileLength, &message.ReferralMetadata, &message.IsRead, &message.CreatedAt, &message.UpdatedAt,
 	)
 	return message, err
 }
@@ -952,7 +952,7 @@ func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*d
 	chat := &domainChatStorage.Chat{}
 	err := scanner.Scan(
 		&chat.DeviceID, &chat.JID, &chat.Name, &chat.LastMessageTime, &chat.EphemeralExpiration,
-		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived,
+		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived, &chat.UnreadCount, &chat.IsChatSynced,
 	)
 	return chat, err
 }
@@ -1000,6 +1000,72 @@ func (r *SQLiteRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFi
 	}
 
 	return r.getCount(query, args...)
+}
+
+// UpdateChatUnreadCount sets the unread count for a specific chat
+func (r *SQLiteRepository) UpdateChatUnreadCount(deviceID, jid string, count int) error {
+	_, err := r.db.Exec(
+		"UPDATE chats SET unread_count = ?, updated_at = ? WHERE device_id = ? AND jid = ?",
+		count, time.Now(), deviceID, jid,
+	)
+	return err
+}
+
+// IncrementChatUnreadCount increments the unread count for a specific chat
+func (r *SQLiteRepository) IncrementChatUnreadCount(deviceID, jid string) error {
+	_, err := r.db.Exec(
+		"UPDATE chats SET unread_count = unread_count + 1, updated_at = ? WHERE device_id = ? AND jid = ?",
+		time.Now(), deviceID, jid,
+	)
+	return err
+}
+
+// ResetChatUnreadCount resets the unread count to 0 for a specific chat
+func (r *SQLiteRepository) ResetChatUnreadCount(deviceID, jid string) error {
+	_, err := r.db.Exec(
+		"UPDATE chats SET unread_count = 0, updated_at = ? WHERE device_id = ? AND jid = ?",
+		time.Now(), deviceID, jid,
+	)
+	return err
+}
+
+// ComputeChatUnreadCount computes the unread count for a single chat.
+// Unread = messages where is_from_me=false received after the last is_from_me=true message.
+func (r *SQLiteRepository) ComputeChatUnreadCount(deviceID, chatJID string) (int, error) {
+	var count int
+	err := r.db.QueryRow(`
+		SELECT COUNT(*) FROM messages
+		WHERE device_id = ? AND chat_jid = ? AND is_from_me = false
+		AND timestamp > COALESCE(
+			(SELECT MAX(timestamp) FROM messages WHERE device_id = ? AND chat_jid = ? AND is_from_me = true),
+			'1970-01-01 00:00:00'
+		)`,
+		deviceID, chatJID, deviceID, chatJID,
+	).Scan(&count)
+	return count, err
+}
+
+// MarkChatSynced marks a chat as synced for read/unread state
+func (r *SQLiteRepository) MarkChatSynced(deviceID, jid string) error {
+	_, err := r.db.Exec(
+		"UPDATE chats SET is_chat_synced = true, updated_at = ? WHERE device_id = ? AND jid = ?",
+		time.Now(), deviceID, jid,
+	)
+	return err
+}
+
+// MarkMessagesAsRead sets is_read = true for all messages in a chat
+func (r *SQLiteRepository) MarkMessagesAsRead(deviceID, chatJID string) error {
+	_, err := r.db.Exec(
+		"UPDATE messages SET is_read = true, updated_at = ? WHERE device_id = ? AND chat_jid = ? AND is_read = false",
+		time.Now(), deviceID, chatJID,
+	)
+	return err
+}
+
+// GetTotalUnreadCount returns the number of chats with unread_count > 0 for a device
+func (r *SQLiteRepository) GetTotalUnreadCount(deviceID string) (int64, error) {
+	return r.getCount("SELECT COUNT(*) FROM chats WHERE device_id = ? AND unread_count > 0", deviceID)
 }
 
 // TruncateAllChats deletes all chats from the database
@@ -1361,6 +1427,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		Content:          content,
 		Timestamp:        evt.Info.Timestamp,
 		IsFromMe:         evt.Info.IsFromMe,
+		IsRead:           evt.Info.IsFromMe,
 		MediaType:        mediaType,
 		Filename:         filename,
 		URL:              mediaURL,
@@ -1423,6 +1490,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 			Content:   newContent,
 			Timestamp: evt.Info.Timestamp,
 			IsFromMe:  evt.Info.IsFromMe,
+			IsRead:    evt.Info.IsFromMe,
 		}
 
 		if mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(editedMessage); mediaType != "" || newContent != "" {
@@ -1469,12 +1537,12 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, currentMessage.ID, currentMessage.ChatJID, currentMessage.DeviceID, currentMessage.Sender, currentMessage.Content,
 			currentMessage.Timestamp, currentMessage.IsFromMe, currentMessage.MediaType, currentMessage.CallMetadata, currentMessage.Filename,
 			currentMessage.URL, currentMessage.DirectPath, currentMessage.MediaKey, currentMessage.FileSHA256, currentMessage.FileEncSHA256,
-			currentMessage.FileLength, currentMessage.ReferralMetadata, now, now); err != nil {
+			currentMessage.FileLength, currentMessage.ReferralMetadata, currentMessage.IsRead, now, now); err != nil {
 			return fmt.Errorf("failed to insert edited message %s: %w", originalMessageID, err)
 		}
 	}
@@ -1490,7 +1558,7 @@ func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, cha
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, is_read, created_at, updated_at
 		FROM messages
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
@@ -1853,6 +1921,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		Content:       content,
 		Timestamp:     timestamp,
 		IsFromMe:      true,
+		IsRead:        true,
 		MediaType:     mediaType,
 		Filename:      filename,
 		URL:           mediaURL,
@@ -2109,5 +2178,20 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 30: Store WhatsApp media direct paths for downloads
 		`ALTER TABLE messages ADD COLUMN direct_path TEXT DEFAULT ''`,
+
+		// Migration 31: Add unread_count column to chats
+		`ALTER TABLE chats ADD COLUMN unread_count INTEGER DEFAULT 0`,
+
+		// Migration 32: Add is_chat_synced column to chats
+		`ALTER TABLE chats ADD COLUMN is_chat_synced BOOLEAN DEFAULT FALSE`,
+
+		// Migration 33: Add is_read column to messages (default true so existing messages treated as read)
+		`ALTER TABLE messages ADD COLUMN is_read BOOLEAN DEFAULT TRUE`,
+
+		// Migration 34: Index for unread count queries
+		`CREATE INDEX IF NOT EXISTS idx_chats_unread_count ON chats(unread_count)`,
+
+		// Migration 35: Index for is_read queries
+		`CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(is_read)`,
 	}
 }
