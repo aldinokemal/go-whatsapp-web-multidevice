@@ -64,15 +64,17 @@ func TestValidateLoginWithCode(t *testing.T) {
 }
 
 func TestValidatePasskeyResponse(t *testing.T) {
-	// Sample PublicKeyCredential.toJSON() output (unpadded base64url binary fields).
+	// Sample PublicKeyCredential.toJSON() output. The binary fields are unpadded
+	// base64url encodings of obviously fake placeholders (e.g. "fake-signature")
+	// so secret scanners don't flag them as high-entropy credentials.
 	validJSON := `{
-		"id": "XcnXe2W9me1XZTGii6JI9A",
-		"rawId": "XcnXe2W9me1XZTGii6JI9A",
+		"id": "ZmFrZS1jcmVkZW50aWFsLWlk",
+		"rawId": "ZmFrZS1jcmVkZW50aWFsLWlk",
 		"type": "public-key",
 		"response": {
 			"clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0",
-			"authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2M",
-			"signature": "MEUCIQDKfz7ZLzKcCw",
+			"authenticatorData": "ZmFrZS1hdXRoZW50aWNhdG9yLWRhdGE",
+			"signature": "ZmFrZS1zaWduYXR1cmU",
 			"userHandle": null
 		}
 	}`
