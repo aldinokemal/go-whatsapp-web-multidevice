@@ -27,7 +27,11 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(s.toolSendLink(), s.handleSendLink)
 	mcpServer.AddTool(s.toolSendLocation(), s.handleSendLocation)
 	mcpServer.AddTool(s.toolSendImage(), s.handleSendImage)
+	mcpServer.AddTool(s.toolSendVideo(), s.handleSendVideo)
 	mcpServer.AddTool(s.toolSendSticker(), s.handleSendSticker)
+	mcpServer.AddTool(s.toolSendDocument(), s.handleSendDocument)
+	mcpServer.AddTool(s.toolSendAudio(), s.handleSendAudio)
+	mcpServer.AddTool(s.toolSendPoll(), s.handleSendPoll)
 }
 
 func (s *SendHandler) toolSendText() mcp.Tool {
@@ -441,4 +445,285 @@ func (s *SendHandler) handleSendSticker(ctx context.Context, request mcp.CallToo
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Sticker sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendVideo() mcp.Tool {
+	sendVideoTool := mcp.NewTool("whatsapp_send_video",
+		mcp.WithDescription("Send a video to a WhatsApp contact or group via a video URL (fetched server-side). Supports mp4/mkv/avi, max 30MB."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send video to"),
+		),
+		mcp.WithString("video_url",
+			mcp.Required(),
+			mcp.Description("URL of the video to send (mp4/mkv/avi). The server downloads it before sending."),
+		),
+		mcp.WithString("caption",
+			mcp.Description("Caption or description for the video"),
+		),
+		mcp.WithBoolean("view_once",
+			mcp.Description("Whether this video should be viewed only once (default: false)"),
+		),
+		mcp.WithBoolean("gif_playback",
+			mcp.Description("Whether to play the video as a looping GIF (default: false)"),
+		),
+		mcp.WithBoolean("compress",
+			mcp.Description("Whether to re-encode/compress the video before sending (default: false)"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+
+	return sendVideoTool
+}
+
+func (s *SendHandler) handleSendVideo(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	videoURL, videoURLOk := request.GetArguments()["video_url"].(string)
+	if !videoURLOk || videoURL == "" {
+		return nil, errors.New("video_url must be a non-empty string")
+	}
+
+	caption, ok := request.GetArguments()["caption"].(string)
+	if !ok {
+		caption = ""
+	}
+
+	viewOnce, ok := request.GetArguments()["view_once"].(bool)
+	if !ok {
+		viewOnce = false
+	}
+
+	gifPlayback, ok := request.GetArguments()["gif_playback"].(bool)
+	if !ok {
+		gifPlayback = false
+	}
+
+	compress, ok := request.GetArguments()["compress"].(bool)
+	if !ok {
+		compress = false
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	// Create video request (URL-sourced, mirrors send_image)
+	videoRequest := domainSend.VideoRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		Caption:     caption,
+		ViewOnce:    viewOnce,
+		GifPlayback: gifPlayback,
+		Compress:    compress,
+		VideoURL:    &videoURL,
+	}
+
+	res, err := s.sendService.SendVideo(ctx, videoRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Video sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendDocument() mcp.Tool {
+	return mcp.NewTool("whatsapp_send_document",
+		mcp.WithDescription("Send a document/file to a WhatsApp contact or group via a URL fetched server-side. The MIME type and filename are derived server-side from the file URL."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send the document to"),
+		),
+		mcp.WithString("file_url",
+			mcp.Required(),
+			mcp.Description("URL of the file to send. The server downloads and determines the MIME type and filename from this URL."),
+		),
+		mcp.WithString("caption",
+			mcp.Description("Optional caption for the document"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+}
+
+func (s *SendHandler) handleSendDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	fileURL, ok := request.GetArguments()["file_url"].(string)
+	if !ok || fileURL == "" {
+		return nil, errors.New("file_url must be a non-empty string")
+	}
+
+	caption, ok := request.GetArguments()["caption"].(string)
+	if !ok {
+		caption = ""
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	res, err := s.sendService.SendFile(ctx, domainSend.FileRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		FileURL: &fileURL,
+		Caption: caption,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Document sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendAudio() mcp.Tool {
+	return mcp.NewTool("whatsapp_send_audio",
+		mcp.WithDescription("Send an audio file to a WhatsApp contact or group via a URL fetched server-side."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send the audio to"),
+		),
+		mcp.WithString("audio_url",
+			mcp.Required(),
+			mcp.Description("URL of the audio file to send. The server downloads and sends it."),
+		),
+		mcp.WithBoolean("ptt",
+			mcp.Description("Send as a voice note (PTT). Requires ffmpeg server-side; transcodes to ogg/opus. (default: false)"),
+		),
+		mcp.WithBoolean("is_forwarded",
+			mcp.Description("Whether this message is being forwarded (default: false)"),
+		),
+	)
+}
+
+func (s *SendHandler) handleSendAudio(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	audioURL, ok := request.GetArguments()["audio_url"].(string)
+	if !ok || audioURL == "" {
+		return nil, errors.New("audio_url must be a non-empty string")
+	}
+
+	ptt, ok := request.GetArguments()["ptt"].(bool)
+	if !ok {
+		ptt = false
+	}
+
+	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
+	if !ok {
+		isForwarded = false
+	}
+
+	res, err := s.sendService.SendAudio(ctx, domainSend.AudioRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone:       phone,
+			IsForwarded: isForwarded,
+		},
+		AudioURL: &audioURL,
+		PTT:      ptt,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Audio sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendPoll() mcp.Tool {
+	return mcp.NewTool("whatsapp_send_poll",
+		mcp.WithDescription("Send a poll to a WhatsApp contact or group. Requires at least 2 options."),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send the poll to"),
+		),
+		mcp.WithString("question",
+			mcp.Required(),
+			mcp.Description("The poll question"),
+		),
+		mcp.WithArray("options",
+			mcp.Required(),
+			mcp.Description("List of poll option strings (min 2). Example: [\"Option A\", \"Option B\", \"Option C\"]"),
+		),
+		mcp.WithNumber("max_answer",
+			mcp.Description("Maximum number of options a recipient can select (default: 1 for single-choice)"),
+		),
+	)
+}
+
+func (s *SendHandler) handleSendPoll(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, ok := request.GetArguments()["phone"].(string)
+	if !ok {
+		return nil, errors.New("phone must be a string")
+	}
+
+	question, ok := request.GetArguments()["question"].(string)
+	if !ok {
+		return nil, errors.New("question must be a string")
+	}
+
+	var options []string
+	if optionsRaw, ok := request.GetArguments()["options"].([]any); ok {
+		for _, o := range optionsRaw {
+			if optStr, ok := o.(string); ok {
+				options = append(options, optStr)
+			}
+		}
+	}
+	if len(options) < 2 {
+		return nil, errors.New("options must contain at least 2 items")
+	}
+
+	maxAnswer := request.GetInt("max_answer", 1)
+
+	res, err := s.sendService.SendPoll(ctx, domainSend.PollRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone: phone,
+		},
+		Question:  question,
+		Options:   options,
+		MaxAnswer: maxAnswer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Poll sent successfully with ID %s", res.MessageID)), nil
 }
