@@ -8,6 +8,9 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -202,6 +205,113 @@ func TestDeleteStoreRowsForJID_EmptyJIDIsNoOp(t *testing.T) {
 	}
 	if len(devices) != 1 {
 		t.Fatalf("expected the unrelated device to be retained, got %d devices", len(devices))
+	}
+}
+
+// Scenario: the remote-logout callback holds a stale device id. InitWaCLI registers the
+// callback with the instance's AD JID string (device.ID.String()), but loadFromRegistry
+// can replace that instance with a named registry slot keyed by uuid (same account,
+// NonAD JID). keepSlotLogout must then fall back to resolving the slot by JID, so the
+// cleanup still deletes the store rows and clears the slot instead of no-opping with
+// "device not found" (leaving a stale JID + orphan keys row).
+func TestKeepSlotLogout_StaleADJIDFallsBackToJIDResolution(t *testing.T) {
+	ctx := context.Background()
+	primaryStore := newTestSQLStore(t)
+	keysStore := newTestSQLStore(t)
+
+	adJID := types.NewADJID("6281999999996", types.WhatsAppDomain, 14)
+	nonAD := adJID.ToNonAD().String()
+	if err := newTestStoreDevice(primaryStore, adJID, "primary").Save(ctx); err != nil {
+		t.Fatalf("save primary device: %v", err)
+	}
+	if err := newTestStoreDevice(keysStore, adJID, "keys").Save(ctx); err != nil {
+		t.Fatalf("save keys device: %v", err)
+	}
+
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(primaryStore, keysStore, storage)
+
+	// The registry slot that replaced the startup instance: keyed by uuid, NonAD JID.
+	const slotID = "slot-uuid-3"
+	inst := &DeviceInstance{id: slotID, jid: nonAD, displayName: "tIAtendo", createdAt: time.Now()}
+	manager.devices[slotID] = inst
+
+	// The stale id the startup path registered the callback with: the AD JID string.
+	if err := manager.keepSlotLogout(ctx, adJID.String()); err != nil {
+		t.Fatalf("keepSlotLogout with stale AD JID id returned error: %v", err)
+	}
+
+	assertStoreLacksJID(t, ctx, primaryStore, nonAD)
+	assertStoreLacksJID(t, ctx, keysStore, nonAD)
+
+	if _, ok := manager.GetDevice(slotID); !ok {
+		t.Fatal("expected slot to be kept after stale-id logout")
+	}
+	if got := inst.JID(); got != "" {
+		t.Fatalf("expected instance JID cleared after stale-id logout, got %q", got)
+	}
+	if len(storage.savedRecords) == 0 {
+		t.Fatal("expected SaveDeviceRecord to persist the kept slot")
+	}
+	last := storage.savedRecords[len(storage.savedRecords)-1]
+	if last.DeviceID != slotID || last.JID != "" {
+		t.Fatalf("expected persisted slot %s with empty JID, got %s / %q", slotID, last.DeviceID, last.JID)
+	}
+}
+
+// Scenario: explicit logout for a paired client that is currently DISCONNECTED.
+// IsLoggedIn() is only true while connected, so gating the unlink on it silently skips
+// the remove-companion-device IQ and the phone keeps showing the linked device forever
+// (the local session is deleted, so it can never reconnect to unlink later). The unlink
+// must be ATTEMPTED whenever the client is paired (Store.ID set); failure stays
+// best-effort and must not fail the local keep-slot cleanup.
+func TestLogoutDeviceKeepSlot_AttemptsUnlinkWhenPairedButDisconnected(t *testing.T) {
+	ctx := context.Background()
+	primaryStore := newTestSQLStore(t)
+
+	adJID := types.NewADJID("6281999999997", types.WhatsAppDomain, 15)
+	nonAD := adJID.ToNonAD().String()
+	dev := newTestStoreDevice(primaryStore, adJID, "primary")
+	if err := dev.Save(ctx); err != nil {
+		t.Fatalf("save primary device: %v", err)
+	}
+
+	// Real paired client (Store.ID set) that is not connected.
+	cli := whatsmeow.NewClient(dev, nil)
+
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(primaryStore, nil, storage)
+
+	const slotID = "slot-uuid-4"
+	inst := &DeviceInstance{id: slotID, jid: nonAD, displayName: "tIAtendo", client: cli, createdAt: time.Now()}
+	manager.devices[slotID] = inst
+
+	hook := logrustest.NewLocal(logrus.StandardLogger())
+	defer hook.Reset()
+
+	if err := manager.LogoutDeviceKeepSlot(ctx, slotID); err != nil {
+		t.Fatalf("LogoutDeviceKeepSlot returned error: %v", err)
+	}
+
+	// The unlink attempt fails offline (best-effort), which is observable as the
+	// remote-unlink warning. No warning means the attempt was skipped entirely.
+	attempted := false
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "remote unlink failed") {
+			attempted = true
+		}
+	}
+	if !attempted {
+		t.Fatal("expected cli.Logout to be attempted for a paired-but-disconnected client")
+	}
+
+	// Local keep-slot cleanup must still have run.
+	assertStoreLacksJID(t, ctx, primaryStore, nonAD)
+	if _, ok := manager.GetDevice(slotID); !ok {
+		t.Fatal("expected slot to be kept after logout")
+	}
+	if got := inst.JID(); got != "" {
+		t.Fatalf("expected instance JID cleared after logout, got %q", got)
 	}
 }
 

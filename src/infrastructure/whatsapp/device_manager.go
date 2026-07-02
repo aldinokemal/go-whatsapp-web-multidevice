@@ -251,9 +251,13 @@ func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID strin
 	}
 
 	if cli := inst.GetClient(); cli != nil {
-		if cli.IsLoggedIn() {
-			// The WhatsApp unlink is best-effort: a dead/expired session may fail
-			// here, but that must not block the local keep-slot cleanup below.
+		// Attempt the unlink whenever the client is paired (Store.ID set), not only when
+		// IsLoggedIn: that is true only while connected, and skipping the attempt for a
+		// momentarily-offline client would leave the phone showing the linked device
+		// forever (the local session is deleted below, so it can never unlink later).
+		// The WhatsApp unlink is best-effort: a dead/expired session may fail
+		// here, but that must not block the local keep-slot cleanup below.
+		if cli.Store != nil && cli.Store.ID != nil {
 			if err := cli.Logout(ctx); err != nil {
 				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
 			}
@@ -273,7 +277,18 @@ func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID strin
 func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) error {
 	inst, ok := m.GetDevice(deviceID)
 	if !ok || inst == nil {
-		return fmt.Errorf("device %s not found", deviceID)
+		// The remote-logout callback can hold a stale id: InitWaCLI keys its instance by
+		// the AD JID string, but loadFromRegistry may replace it with a registry slot
+		// keyed by uuid (instances store NonAD JIDs). Fall back to JID resolution so the
+		// cleanup still lands on the surviving slot instead of leaving a stale JID and
+		// an orphan keys-container row.
+		if parsed, err := types.ParseJID(deviceID); err == nil && parsed.User != "" {
+			inst, ok = m.getDeviceByJID(parsed.ToNonAD().String())
+		}
+		if !ok || inst == nil {
+			return fmt.Errorf("device %s not found", deviceID)
+		}
+		deviceID = inst.ID()
 	}
 
 	// Resolve the JID before resetDeviceKeepSlot clears it, so we can delete the stored
