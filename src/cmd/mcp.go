@@ -48,6 +48,9 @@ func mcpServer(_ *cobra.Command, _ []string) {
 	sendHandler := mcp.InitMcpSend(sendUsecase)
 	sendHandler.AddSendTools(mcpServer)
 
+	callHandler := mcp.InitMcpCall(callUsecase)
+	callHandler.AddCallTools(mcpServer)
+
 	queryHandler := mcp.InitMcpQuery(chatUsecase, userUsecase, messageUsecase)
 	queryHandler.AddQueryTools(mcpServer)
 

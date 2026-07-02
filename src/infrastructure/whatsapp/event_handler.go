@@ -71,7 +71,18 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.NewsletterMuteChange:
 		handleNewsletterMuteChange(ctx, evt, instance.JID(), client)
 	case *events.CallOffer:
+		if !config.WhatsappAutoRejectCall {
+			GetCallRuntime().HandleIncomingOffer(ctx, instance, evt)
+		}
 		handleCallOffer(ctx, evt, chatStorageRepo, instance.JID(), client)
+	case *events.CallAccept:
+		GetCallRuntime().HandleAccept(ctx, instance, evt)
+	case *events.CallTransport:
+		GetCallRuntime().HandleTransport(ctx, instance, evt)
+	case *events.CallTerminate:
+		GetCallRuntime().HandleTerminate(instance, evt)
+	case *events.CallReject:
+		GetCallRuntime().HandleReject(instance, evt)
 	}
 
 	instance.UpdateStateFromClient()

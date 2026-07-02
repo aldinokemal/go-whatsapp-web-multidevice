@@ -1,12 +1,87 @@
 package call
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
-type ICallUsecase interface {
-	RejectCall(ctx context.Context, callerJID string, callID string) error
+const (
+	StatusRinging    = "ringing"
+	StatusConnecting = "connecting"
+	StatusActive     = "active"
+	StatusEnded      = "ended"
+	StatusFailed     = "failed"
+
+	DirectionInbound  = "inbound"
+	DirectionOutbound = "outbound"
+
+	MediaTypeAudio = "audio"
+)
+
+type StartCallRequest struct {
+	Phone  string `json:"phone"`
+	Video  bool   `json:"video,omitempty"`
+	Record bool   `json:"record,omitempty"`
+}
+
+type CallIDRequest struct {
+	CallID string `json:"call_id" uri:"call_id"`
+	Record bool   `json:"record,omitempty"`
 }
 
 type RejectCallRequest struct {
 	CallerJID string `json:"caller_jid" form:"caller_jid"`
 	CallID    string `json:"call_id" form:"call_id"`
+}
+
+type WebRTCRequest struct {
+	CallID   string `json:"call_id" uri:"call_id"`
+	SDPOffer string `json:"sdp_offer"`
+}
+
+type WebRTCResponse struct {
+	CallID    string `json:"call_id"`
+	SDPAnswer string `json:"sdp_answer"`
+}
+
+type CallInfo struct {
+	DeviceID        string    `json:"device_id"`
+	CallID          string    `json:"call_id"`
+	PeerJID         string    `json:"peer_jid"`
+	Direction       string    `json:"direction"`
+	Status          string    `json:"status"`
+	MediaType       string    `json:"media_type"`
+	Recording       bool      `json:"recording,omitempty"`
+	RecordingPath   string    `json:"recording_path,omitempty"`
+	RecordingURL    string    `json:"recording_url,omitempty"`
+	RecordingFormat string    `json:"recording_format,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	EndedAt         time.Time `json:"ended_at,omitempty"`
+	EndReason       string    `json:"end_reason,omitempty"`
+	Metadata        string    `json:"metadata,omitempty"`
+}
+
+type StartCallResponse struct {
+	Call CallInfo `json:"call"`
+}
+
+type GenericResponse struct {
+	Status string   `json:"status"`
+	Call   CallInfo `json:"call"`
+}
+
+type ListCallsResponse struct {
+	Data []CallInfo `json:"data"`
+}
+
+type ICallUsecase interface {
+	StartCall(ctx context.Context, request StartCallRequest) (StartCallResponse, error)
+	AcceptCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
+	RejectCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
+	RejectIncomingCall(ctx context.Context, request RejectCallRequest) error
+	EndCall(ctx context.Context, request CallIDRequest) (GenericResponse, error)
+	ExchangeWebRTC(ctx context.Context, request WebRTCRequest) (WebRTCResponse, error)
+	GetCall(ctx context.Context, request CallIDRequest) (CallInfo, error)
+	ListCalls(ctx context.Context) (ListCallsResponse, error)
 }

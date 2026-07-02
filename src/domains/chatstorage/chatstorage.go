@@ -107,6 +107,21 @@ type DeviceRecord struct {
 	UpdatedAt   time.Time `db:"updated_at"`
 }
 
+// CallRecord tracks a WhatsApp voice call lifecycle for one device.
+type CallRecord struct {
+	DeviceID  string     `db:"device_id"`
+	CallID    string     `db:"call_id"`
+	PeerJID   string     `db:"peer_jid"`
+	Direction string     `db:"direction"`
+	Status    string     `db:"status"`
+	MediaType string     `db:"media_type"`
+	StartedAt time.Time  `db:"started_at"`
+	UpdatedAt time.Time  `db:"updated_at"`
+	EndedAt   *time.Time `db:"ended_at"`
+	EndReason string     `db:"end_reason"`
+	Metadata  string     `db:"metadata"`
+}
+
 // MessageFilter represents query filters for messages
 type MessageFilter struct {
 	DeviceID  string

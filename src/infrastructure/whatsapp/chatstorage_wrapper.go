@@ -268,3 +268,34 @@ func (r *deviceChatStorage) GetDeviceRecord(deviceID string) (*domainChatStorage
 func (r *deviceChatStorage) DeleteDeviceRecord(deviceID string) error {
 	return r.base.DeleteDeviceRecord(deviceID)
 }
+
+func (r *deviceChatStorage) StoreCallRecord(record *domainChatStorage.CallRecord) error {
+	if record != nil && record.DeviceID == "" {
+		record.DeviceID = r.deviceID
+	}
+	return r.base.StoreCallRecord(record)
+}
+
+func (r *deviceChatStorage) GetCallRecord(deviceID, callID string) (*domainChatStorage.CallRecord, error) {
+	target := deviceID
+	if target == "" {
+		target = r.deviceID
+	}
+	return r.base.GetCallRecord(target, callID)
+}
+
+func (r *deviceChatStorage) ListCallRecords(deviceID string, limit int) ([]*domainChatStorage.CallRecord, error) {
+	target := deviceID
+	if target == "" {
+		target = r.deviceID
+	}
+	return r.base.ListCallRecords(target, limit)
+}
+
+func (r *deviceChatStorage) DeleteCallRecord(deviceID, callID string) error {
+	target := deviceID
+	if target == "" {
+		target = r.deviceID
+	}
+	return r.base.DeleteCallRecord(target, callID)
+}
