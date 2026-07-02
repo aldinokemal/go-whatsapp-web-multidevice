@@ -210,7 +210,11 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 		route.DeviceID = deviceID
 	}
 	if route.Destination == "" {
-		route.Destination = contact.PhoneNumber
+		if contact.PhoneNumber != "" {
+			route.Destination = contact.PhoneNumber
+		} else if contact.Identifier != "" {
+			route.Destination = contact.Identifier
+		}
 	}
 	return route
 }
