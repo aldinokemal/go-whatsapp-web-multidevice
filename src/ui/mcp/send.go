@@ -37,6 +37,10 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 func (s *SendHandler) toolSendText() mcp.Tool {
 	sendTextTool := mcp.NewTool("whatsapp_send_text",
 		mcp.WithDescription("Send a text message to a WhatsApp contact or group. Supports ghost mentions (mention users without showing @phone in message text)."),
+		mcp.WithTitleAnnotation("Send Text Message"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send message to"),
@@ -65,40 +69,23 @@ func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRe
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	message, ok := request.GetArguments()["message"].(string)
-	if !ok {
-		return nil, errors.New("message must be a string")
+	message, err := request.RequireString("message")
+	if err != nil {
+		return nil, err
 	}
 
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
-	}
-
-	replyMessageId, ok := request.GetArguments()["reply_message_id"].(string)
-	if !ok {
-		replyMessageId = ""
-	}
-
-	// Parse mentions array (ghost mentions)
-	var mentions []string
-	if mentionsRaw, ok := request.GetArguments()["mentions"].([]any); ok {
-		for _, m := range mentionsRaw {
-			if mentionStr, ok := m.(string); ok {
-				mentions = append(mentions, mentionStr)
-			}
-		}
-	}
+	replyMessageId := request.GetString("reply_message_id", "")
+	mentions := request.GetStringSlice("mentions", nil)
 
 	res, err := s.sendService.SendText(ctx, domainSend.MessageRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		Message:        message,
 		ReplyMessageID: &replyMessageId,
@@ -115,6 +102,10 @@ func (s *SendHandler) handleSendText(ctx context.Context, request mcp.CallToolRe
 func (s *SendHandler) toolSendContact() mcp.Tool {
 	sendContactTool := mcp.NewTool("whatsapp_send_contact",
 		mcp.WithDescription("Send a contact card to a WhatsApp contact or group."),
+		mcp.WithTitleAnnotation("Send Contact"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send contact to"),
@@ -141,30 +132,25 @@ func (s *SendHandler) handleSendContact(ctx context.Context, request mcp.CallToo
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	contactName, ok := request.GetArguments()["contact_name"].(string)
-	if !ok {
-		return nil, errors.New("contact_name must be a string")
+	contactName, err := request.RequireString("contact_name")
+	if err != nil {
+		return nil, err
 	}
 
-	contactPhone, ok := request.GetArguments()["contact_phone"].(string)
-	if !ok {
-		return nil, errors.New("contact_phone must be a string")
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
+	contactPhone, err := request.RequireString("contact_phone")
+	if err != nil {
+		return nil, err
 	}
 
 	res, err := s.sendService.SendContact(ctx, domainSend.ContactRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		ContactName:  contactName,
 		ContactPhone: contactPhone,
@@ -180,6 +166,10 @@ func (s *SendHandler) handleSendContact(ctx context.Context, request mcp.CallToo
 func (s *SendHandler) toolSendLink() mcp.Tool {
 	sendLinkTool := mcp.NewTool("whatsapp_send_link",
 		mcp.WithDescription("Send a link with caption to a WhatsApp contact or group."),
+		mcp.WithTitleAnnotation("Send Link"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send link to"),
@@ -206,33 +196,23 @@ func (s *SendHandler) handleSendLink(ctx context.Context, request mcp.CallToolRe
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	link, ok := request.GetArguments()["link"].(string)
-	if !ok {
-		return nil, errors.New("link must be a string")
-	}
-
-	caption, ok := request.GetArguments()["caption"].(string)
-	if !ok {
-		caption = ""
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
+	link, err := request.RequireString("link")
+	if err != nil {
+		return nil, err
 	}
 
 	res, err := s.sendService.SendLink(ctx, domainSend.LinkRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		Link:    link,
-		Caption: caption,
+		Caption: request.GetString("caption", ""),
 	})
 
 	if err != nil {
@@ -245,6 +225,10 @@ func (s *SendHandler) handleSendLink(ctx context.Context, request mcp.CallToolRe
 func (s *SendHandler) toolSendLocation() mcp.Tool {
 	sendLocationTool := mcp.NewTool("whatsapp_send_location",
 		mcp.WithDescription("Send a location coordinates to a WhatsApp contact or group."),
+		mcp.WithTitleAnnotation("Send Location"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send location to"),
@@ -271,30 +255,25 @@ func (s *SendHandler) handleSendLocation(ctx context.Context, request mcp.CallTo
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	latitude, ok := request.GetArguments()["latitude"].(string)
-	if !ok {
-		return nil, errors.New("latitude must be a string")
+	latitude, err := request.RequireString("latitude")
+	if err != nil {
+		return nil, err
 	}
 
-	longitude, ok := request.GetArguments()["longitude"].(string)
-	if !ok {
-		return nil, errors.New("longitude must be a string")
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
+	longitude, err := request.RequireString("longitude")
+	if err != nil {
+		return nil, err
 	}
 
 	res, err := s.sendService.SendLocation(ctx, domainSend.LocationRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		Latitude:  latitude,
 		Longitude: longitude,
@@ -310,6 +289,10 @@ func (s *SendHandler) handleSendLocation(ctx context.Context, request mcp.CallTo
 func (s *SendHandler) toolSendImage() mcp.Tool {
 	sendImageTool := mcp.NewTool("whatsapp_send_image",
 		mcp.WithDescription("Send an image to a WhatsApp contact or group."),
+		mcp.WithTitleAnnotation("Send Image"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send image to"),
@@ -340,48 +323,27 @@ func (s *SendHandler) handleSendImage(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	imageURL, imageURLOk := request.GetArguments()["image_url"].(string)
-	if !imageURLOk {
-		return nil, errors.New("image_url must be a string")
+	imageURL, err := request.RequireString("image_url")
+	if err != nil {
+		return nil, err
 	}
 
-	caption, ok := request.GetArguments()["caption"].(string)
-	if !ok {
-		caption = ""
-	}
-
-	viewOnce, ok := request.GetArguments()["view_once"].(bool)
-	if !ok {
-		viewOnce = false
-	}
-
-	compress, ok := request.GetArguments()["compress"].(bool)
-	if !ok {
-		compress = true
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
-	}
-
-	// Create image request
 	imageRequest := domainSend.ImageRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
-		Caption:  caption,
-		ViewOnce: viewOnce,
-		Compress: compress,
+		Caption:  request.GetString("caption", ""),
+		ViewOnce: request.GetBool("view_once", false),
+		Compress: request.GetBool("compress", true),
 	}
 
-	if imageURLOk && imageURL != "" {
+	if imageURL != "" {
 		imageRequest.ImageURL = &imageURL
 	}
 	res, err := s.sendService.SendImage(ctx, imageRequest)
@@ -395,6 +357,10 @@ func (s *SendHandler) handleSendImage(ctx context.Context, request mcp.CallToolR
 func (s *SendHandler) toolSendSticker() mcp.Tool {
 	sendStickerTool := mcp.NewTool("whatsapp_send_sticker",
 		mcp.WithDescription("Send a sticker to a WhatsApp contact or group. Images are automatically converted to WebP sticker format."),
+		mcp.WithTitleAnnotation("Send Sticker"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send sticker to"),
@@ -416,25 +382,20 @@ func (s *SendHandler) handleSendSticker(ctx context.Context, request mcp.CallToo
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	stickerURL, stickerURLOk := request.GetArguments()["sticker_url"].(string)
-	if !stickerURLOk || stickerURL == "" {
+	stickerURL := request.GetString("sticker_url", "")
+	if stickerURL == "" {
 		return nil, errors.New("sticker_url must be a non-empty string")
-	}
-
-	isForwarded := false
-	if val, ok := request.GetArguments()["is_forwarded"].(bool); ok {
-		isForwarded = val
 	}
 
 	stickerRequest := domainSend.StickerRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		StickerURL: &stickerURL,
 	}
@@ -450,6 +411,10 @@ func (s *SendHandler) handleSendSticker(ctx context.Context, request mcp.CallToo
 func (s *SendHandler) toolSendVideo() mcp.Tool {
 	sendVideoTool := mcp.NewTool("whatsapp_send_video",
 		mcp.WithDescription("Send a video to a WhatsApp contact or group via a video URL (fetched server-side). Supports mp4/mkv/avi, max 30MB."),
+		mcp.WithTitleAnnotation("Send Video"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send video to"),
@@ -484,51 +449,28 @@ func (s *SendHandler) handleSendVideo(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	videoURL, videoURLOk := request.GetArguments()["video_url"].(string)
-	if !videoURLOk || videoURL == "" {
+	videoURL, err := request.RequireString("video_url")
+	if err != nil {
+		return nil, err
+	}
+	if videoURL == "" {
 		return nil, errors.New("video_url must be a non-empty string")
 	}
 
-	caption, ok := request.GetArguments()["caption"].(string)
-	if !ok {
-		caption = ""
-	}
-
-	viewOnce, ok := request.GetArguments()["view_once"].(bool)
-	if !ok {
-		viewOnce = false
-	}
-
-	gifPlayback, ok := request.GetArguments()["gif_playback"].(bool)
-	if !ok {
-		gifPlayback = false
-	}
-
-	compress, ok := request.GetArguments()["compress"].(bool)
-	if !ok {
-		compress = false
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
-	}
-
-	// Create video request (URL-sourced, mirrors send_image)
 	videoRequest := domainSend.VideoRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
-		Caption:     caption,
-		ViewOnce:    viewOnce,
-		GifPlayback: gifPlayback,
-		Compress:    compress,
+		Caption:     request.GetString("caption", ""),
+		ViewOnce:    request.GetBool("view_once", false),
+		GifPlayback: request.GetBool("gif_playback", false),
+		Compress:    request.GetBool("compress", false),
 		VideoURL:    &videoURL,
 	}
 
@@ -543,6 +485,10 @@ func (s *SendHandler) handleSendVideo(ctx context.Context, request mcp.CallToolR
 func (s *SendHandler) toolSendDocument() mcp.Tool {
 	return mcp.NewTool("whatsapp_send_document",
 		mcp.WithDescription("Send a document/file to a WhatsApp contact or group via a URL fetched server-side. The MIME type and filename are derived server-side from the file URL."),
+		mcp.WithTitleAnnotation("Send Document"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send the document to"),
@@ -566,33 +512,26 @@ func (s *SendHandler) handleSendDocument(ctx context.Context, request mcp.CallTo
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	fileURL, ok := request.GetArguments()["file_url"].(string)
-	if !ok || fileURL == "" {
+	fileURL, err := request.RequireString("file_url")
+	if err != nil {
+		return nil, err
+	}
+	if fileURL == "" {
 		return nil, errors.New("file_url must be a non-empty string")
-	}
-
-	caption, ok := request.GetArguments()["caption"].(string)
-	if !ok {
-		caption = ""
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
 	}
 
 	res, err := s.sendService.SendFile(ctx, domainSend.FileRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		FileURL: &fileURL,
-		Caption: caption,
+		Caption: request.GetString("caption", ""),
 	})
 	if err != nil {
 		return nil, err
@@ -604,6 +543,10 @@ func (s *SendHandler) handleSendDocument(ctx context.Context, request mcp.CallTo
 func (s *SendHandler) toolSendAudio() mcp.Tool {
 	return mcp.NewTool("whatsapp_send_audio",
 		mcp.WithDescription("Send an audio file to a WhatsApp contact or group via a URL fetched server-side."),
+		mcp.WithTitleAnnotation("Send Audio"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send the audio to"),
@@ -627,33 +570,26 @@ func (s *SendHandler) handleSendAudio(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	audioURL, ok := request.GetArguments()["audio_url"].(string)
-	if !ok || audioURL == "" {
+	audioURL, err := request.RequireString("audio_url")
+	if err != nil {
+		return nil, err
+	}
+	if audioURL == "" {
 		return nil, errors.New("audio_url must be a non-empty string")
-	}
-
-	ptt, ok := request.GetArguments()["ptt"].(bool)
-	if !ok {
-		ptt = false
-	}
-
-	isForwarded, ok := request.GetArguments()["is_forwarded"].(bool)
-	if !ok {
-		isForwarded = false
 	}
 
 	res, err := s.sendService.SendAudio(ctx, domainSend.AudioRequest{
 		BaseRequest: domainSend.BaseRequest{
 			Phone:       phone,
-			IsForwarded: isForwarded,
+			IsForwarded: request.GetBool("is_forwarded", false),
 		},
 		AudioURL: &audioURL,
-		PTT:      ptt,
+		PTT:      request.GetBool("ptt", false),
 	})
 	if err != nil {
 		return nil, err
@@ -665,6 +601,10 @@ func (s *SendHandler) handleSendAudio(ctx context.Context, request mcp.CallToolR
 func (s *SendHandler) toolSendPoll() mcp.Tool {
 	return mcp.NewTool("whatsapp_send_poll",
 		mcp.WithDescription("Send a poll to a WhatsApp contact or group. Requires at least 2 options."),
+		mcp.WithTitleAnnotation("Send Poll"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
 		mcp.WithString("phone",
 			mcp.Required(),
 			mcp.Description("Phone number or group ID to send the poll to"),
@@ -689,29 +629,25 @@ func (s *SendHandler) handleSendPoll(ctx context.Context, request mcp.CallToolRe
 		return nil, err
 	}
 
-	phone, ok := request.GetArguments()["phone"].(string)
-	if !ok {
-		return nil, errors.New("phone must be a string")
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
 	}
 
-	question, ok := request.GetArguments()["question"].(string)
-	if !ok {
-		return nil, errors.New("question must be a string")
+	question, err := request.RequireString("question")
+	if err != nil {
+		return nil, err
 	}
 
-	var options []string
-	if optionsRaw, ok := request.GetArguments()["options"].([]any); ok {
-		for _, o := range optionsRaw {
-			if optStr, ok := o.(string); ok {
-				options = append(options, optStr)
-			}
-		}
+	// RequireStringSlice rejects non-string entries with an indexed error
+	// instead of silently dropping them.
+	options, err := request.RequireStringSlice("options")
+	if err != nil {
+		return nil, err
 	}
 	if len(options) < 2 {
 		return nil, errors.New("options must contain at least 2 items")
 	}
-
-	maxAnswer := request.GetInt("max_answer", 1)
 
 	res, err := s.sendService.SendPoll(ctx, domainSend.PollRequest{
 		BaseRequest: domainSend.BaseRequest{
@@ -719,7 +655,7 @@ func (s *SendHandler) handleSendPoll(ctx context.Context, request mcp.CallToolRe
 		},
 		Question:  question,
 		Options:   options,
-		MaxAnswer: maxAnswer,
+		MaxAnswer: request.GetInt("max_answer", 1),
 	})
 	if err != nil {
 		return nil, err
