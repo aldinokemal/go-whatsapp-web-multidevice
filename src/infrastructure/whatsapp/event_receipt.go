@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -77,20 +78,28 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 	return body
 }
 
+// shouldForwardReceipt reports whether a receipt event should be forwarded to webhooks.
+//
+// By default only receipts sent from the primary device (Device == 0) are forwarded.
+// WhatsApp emits a separate receipt event for each linked device (phone, web, desktop,
+// etc.) of a user, so forwarding everything would duplicate webhooks for users whose
+// phone is online.
+//
+// However, when the counterpart uses WhatsApp mainly through linked/companion devices
+// (WhatsApp Web, Desktop, another gateway instance) and their primary phone stays
+// offline, every receipt they emit comes from a non-zero device and would be dropped —
+// delivered/read status then never reaches the webhook at all. Enabling
+// --webhook-all-device-receipts (env WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS) forwards
+// receipts from every device; downstream consumers should apply receipts idempotently
+// (e.g. a monotonic sent < delivered < read merge), which makes duplicates harmless.
+func shouldForwardReceipt(evt *events.Receipt) bool {
+	return config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0
+}
+
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs.
-//
-// IMPORTANT: We only forward receipts from the primary device (Device == 0).
-// WhatsApp sends separate receipt events for each linked device (phone, web, desktop, etc.)
-// of a user. For example, if a user has 3 devices, you would receive 3 "delivered" receipts
-// for the same message. To avoid duplicate webhooks and simplify downstream processing,
-// we only send the receipt from the primary device (Device == 0).
-//
-// If you need receipts from all devices in the future, remove the Device == 0 check below.
 func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) error {
-	// Only forward receipts from the primary device to avoid duplicates.
-	// See function comment above for detailed explanation.
-	if evt.Sender.Device != 0 {
-		logrus.Debugf("Skipping receipt webhook for linked device %d (only primary device receipts are forwarded)", evt.Sender.Device)
+	if !shouldForwardReceipt(evt) {
+		logrus.Debugf("Skipping receipt webhook for linked device %d (enable --webhook-all-device-receipts to forward receipts from all devices)", evt.Sender.Device)
 		return nil
 	}
 
