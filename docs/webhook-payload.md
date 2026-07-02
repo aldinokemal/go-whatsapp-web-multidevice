@@ -711,11 +711,11 @@ const axios = require('axios');
 // When you receive a call.offer webhook event
 app.post('/webhook', async (req, res) => {
   const { event, payload, device_id } = req.body;
-  
+
   if (event === 'call.offer' && !payload.auto_rejected) {
     // Apply your custom logic here
     const shouldReject = checkBusinessHours() || isBlacklisted(payload.from);
-    
+
     if (shouldReject) {
       try {
         await axios.post('http://localhost:3000/call/reject', {
@@ -733,7 +733,7 @@ app.post('/webhook', async (req, res) => {
       }
     }
   }
-  
+
   res.sendStatus(200);
 });
 ```

@@ -697,12 +697,12 @@ paths:
       summary: User My List Groups
       description: |
         Get all groups that the authenticated user has joined.
-        
+
         ⚠️ **Known Limitation**: This endpoint returns a maximum of 500 groups due to a WhatsApp protocol limitation.
         The underlying whatsmeow library's `GetJoinedGroups()` function sends a single query to WhatsApp servers,
         which enforces this limit. This is not a bug in this API - it's a constraint imposed by WhatsApp's
         multi-device protocol. Users with more than 500 groups will only receive the first 500 groups.
-        
+
         For more details, see: https://github.com/tulir/whatsmeow/blob/main/group.go
       externalDocs:
         description: WhatsApp protocol limitation reference (whatsmeow source)
@@ -1935,12 +1935,12 @@ paths:
       description: |
         Programmatically reject a specific incoming call. This endpoint allows selective call rejection
         based on your application logic (e.g., time-of-day rules, caller whitelists, agent availability).
-        
+
         The call must still be ringing — rejection will fail if the call has already ended or been answered.
-        
+
         This is complementary to the auto-reject feature (`WHATSAPP_AUTO_REJECT_CALL=true`) which rejects
         all incoming calls globally. Use this API for fine-grained control.
-        
+
         **Required fields from webhook:**
         - `caller_jid`: Use `payload.from` from the `call.offer` webhook event
         - `call_id`: Use `payload.call_id` from the `call.offer` webhook event

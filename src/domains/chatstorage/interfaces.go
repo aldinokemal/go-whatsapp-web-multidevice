@@ -39,12 +39,32 @@ type IChatStorageRepository interface {
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
 	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
-	GetLatestChatwootMessageLinkByConversation(conversationID int) (*ChatwootMessageLink, error)
+	// GetLatestChatwootMessageLinkByConversation resolves a conversation to its
+	// most recent link. Conversation ids are numbered per Chatwoot account, so the
+	// lookup is account-scoped. allowLegacyZero additionally matches rows whose
+	// account id is 0 (pre-migration legacy links) — pass true only in legacy
+	// single-account mode; in per-device mode it must be false, or a colliding
+	// conversation id from another account could match a legacy row and misroute.
+	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*ChatwootMessageLink, error)
 	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
+	CountChatwootMessageLinksByConfig(configID int64) (int, error)
+	// BackfillChatwootMessageLinkAccount stamps the given account id onto legacy
+	// links whose account id is still 0, so they resolve under exact-account
+	// scoping instead of relying on the legacy-zero wildcard. Idempotent.
+	BackfillChatwootMessageLinkAccount(accountID int) (int64, error)
 	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
 	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
 	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
 	MarkChatwootForwardEventDone(id int64) error
+
+	// Chatwoot per-device configuration (multi-device / multi-inbox routing)
+	SaveChatwootDeviceConfig(cfg *ChatwootDeviceConfig) error
+	GetChatwootDeviceConfig(deviceID string) (*ChatwootDeviceConfig, error)
+	GetChatwootDeviceConfigByIdentifier(identifier string) (*ChatwootDeviceConfig, error)
+	GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*ChatwootDeviceConfig, error)
+	ListChatwootDeviceConfigs() ([]*ChatwootDeviceConfig, error)
+	DeleteChatwootDeviceConfig(deviceID string) error
+	CountChatwootDeviceConfigs() (int, error)
 
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)

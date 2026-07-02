@@ -741,11 +741,13 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 		UPDATE chatwoot_message_links
 		SET wa_chat_jid = ?, chatwoot_message_id = ?, chatwoot_conversation_id = ?,
 		    chatwoot_inbox_id = ?, chatwoot_contact_inbox_source_id = ?, source_id = ?,
-		    direction = ?, is_read = ?, updated_at = ?
+		    direction = ?, is_read = ?, updated_at = ?,
+		    chatwoot_config_id = ?, chatwoot_account_id = ?
 		WHERE device_id = ? AND wa_message_id = ?
 	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
 		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
-		link.Direction, link.IsRead, link.UpdatedAt, link.DeviceID, link.WhatsAppMessageID)
+		link.Direction, link.IsRead, link.UpdatedAt,
+		link.ChatwootConfigID, link.ChatwootAccountID, link.DeviceID, link.WhatsAppMessageID)
 	if err != nil {
 		return err
 	}
@@ -757,13 +759,13 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 				chatwoot_conversation_id, chatwoot_inbox_id,
 				chatwoot_contact_inbox_source_id, source_id, direction,
-				is_read, created_at, updated_at
+				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, link.DeviceID, link.WhatsAppMessageID, link.WhatsAppChatJID,
 			link.ChatwootMessageID, link.ChatwootConversationID, link.ChatwootInboxID,
 			link.ChatwootContactInboxSourceID, link.SourceID, link.Direction,
-			link.IsRead, link.CreatedAt, link.UpdatedAt)
+			link.IsRead, link.CreatedAt, link.UpdatedAt, link.ChatwootConfigID, link.ChatwootAccountID)
 	}
 	return err
 }
@@ -773,7 +775,7 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_message_id = ?
 		LIMIT 1
@@ -791,7 +793,7 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
 		LIMIT 1
@@ -804,23 +806,44 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 	return link, err
 }
 
-func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
+	// single-account mode). The `? = 1` guard keeps this a single query: when the
+	// flag is 0 the OR branch is never satisfied and the match is exact-account.
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
-		WHERE chatwoot_conversation_id = ?
+		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`
 
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID))
+	legacyZero := 0
+	if allowLegacyZero {
+		legacyZero = 1
+	}
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return link, err
+}
+
+// BackfillChatwootMessageLinkAccount stamps accountID onto links whose account id
+// is still 0 (pre-migration legacy links), returning the number of rows updated.
+// Idempotent: rows already carrying a non-zero account id are left untouched.
+func (r *SQLiteRepository) BackfillChatwootMessageLinkAccount(accountID int) (int64, error) {
+	if accountID == 0 {
+		return 0, nil
+	}
+	res, err := r.db.Exec(`UPDATE chatwoot_message_links SET chatwoot_account_id = ? WHERE chatwoot_account_id = 0`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
@@ -828,7 +851,7 @@ func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, wa
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
 		ORDER BY updated_at DESC, created_at DESC
@@ -964,8 +987,168 @@ func (r *SQLiteRepository) scanChatwootMessageLink(scanner interface{ Scan(...an
 		&link.ChatwootMessageID, &link.ChatwootConversationID, &link.ChatwootInboxID,
 		&link.ChatwootContactInboxSourceID, &link.SourceID, &link.Direction,
 		&link.IsRead, &link.CreatedAt, &link.UpdatedAt,
+		&link.ChatwootConfigID, &link.ChatwootAccountID,
 	)
 	return link, err
+}
+
+// CountChatwootMessageLinksByConfig reports how many message links are bound to
+// a given chatwoot_device_configs row. Used to guard against silently
+// repointing historical conversations when a config's routing identity changes.
+func (r *SQLiteRepository) CountChatwootMessageLinksByConfig(configID int64) (int, error) {
+	var count int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM chatwoot_message_links WHERE chatwoot_config_id = ?", configID).Scan(&count)
+	return count, err
+}
+
+const chatwootDeviceConfigColumns = `id, device_id, device_jid, chatwoot_url, account_id, inbox_id, api_token, enabled, created_at, updated_at`
+
+func (r *SQLiteRepository) scanChatwootDeviceConfig(scanner interface{ Scan(...any) error }) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	cfg := &domainChatStorage.ChatwootDeviceConfig{}
+	err := scanner.Scan(
+		&cfg.ID, &cfg.DeviceID, &cfg.DeviceJID, &cfg.ChatwootURL,
+		&cfg.AccountID, &cfg.InboxID, &cfg.APIToken, &cfg.Enabled,
+		&cfg.CreatedAt, &cfg.UpdatedAt,
+	)
+	return cfg, err
+}
+
+// SaveChatwootDeviceConfig upserts a per-device Chatwoot configuration keyed by
+// device_id and populates cfg.ID. Callers are responsible for canonicalizing
+// and validating cfg.ChatwootURL before saving (the unique index on
+// (chatwoot_url, account_id, inbox_id) assumes a canonical URL).
+func (r *SQLiteRepository) SaveChatwootDeviceConfig(cfg *domainChatStorage.ChatwootDeviceConfig) error {
+	if cfg == nil || strings.TrimSpace(cfg.DeviceID) == "" {
+		return fmt.Errorf("chatwoot device config requires a device id")
+	}
+
+	now := time.Now()
+	if cfg.CreatedAt.IsZero() {
+		cfg.CreatedAt = now
+	}
+	cfg.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_device_configs
+		SET device_jid = ?, chatwoot_url = ?, account_id = ?, inbox_id = ?,
+		    api_token = ?, enabled = ?, updated_at = ?
+		WHERE device_id = ?
+	`, cfg.DeviceJID, cfg.ChatwootURL, cfg.AccountID, cfg.InboxID,
+		cfg.APIToken, cfg.Enabled, cfg.UpdatedAt, cfg.DeviceID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		res, err := r.db.Exec(`
+			INSERT INTO chatwoot_device_configs (
+				device_id, device_jid, chatwoot_url, account_id, inbox_id,
+				api_token, enabled, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, cfg.DeviceID, cfg.DeviceJID, cfg.ChatwootURL, cfg.AccountID, cfg.InboxID,
+			cfg.APIToken, cfg.Enabled, cfg.CreatedAt, cfg.UpdatedAt)
+		if err != nil {
+			return err
+		}
+		if id, err := res.LastInsertId(); err == nil {
+			cfg.ID = id
+		}
+		return nil
+	}
+
+	// Updated an existing row — load its id so callers can scope links to it.
+	if cfg.ID == 0 {
+		_ = r.db.QueryRow("SELECT id FROM chatwoot_device_configs WHERE device_id = ?", cfg.DeviceID).Scan(&cfg.ID)
+	}
+	return nil
+}
+
+func (r *SQLiteRepository) GetChatwootDeviceConfig(deviceID string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	cfg, err := r.scanChatwootDeviceConfig(r.db.QueryRow(
+		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE device_id = ? LIMIT 1", deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return cfg, err
+}
+
+// GetChatwootDeviceConfigByIdentifier resolves a config from either the
+// user-facing device id or the WhatsApp storage JID, so the forward/link paths
+// (which key on JID) and the REST/reverse paths (which key on device id) both
+// resolve the same client.
+func (r *SQLiteRepository) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return nil, nil
+	}
+	cfg, err := r.scanChatwootDeviceConfig(r.db.QueryRow(
+		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE device_id = ? OR (device_jid <> '' AND device_jid = ?) LIMIT 1",
+		identifier, identifier))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return cfg, err
+}
+
+// GetChatwootDeviceConfigByInbox resolves the device config bound to a Chatwoot
+// (account, inbox). It returns nil when the match is ambiguous (two configs on
+// different Chatwoot URLs sharing the same account+inbox) so the caller
+// fails-fast instead of routing an agent reply to the wrong WhatsApp account.
+func (r *SQLiteRepository) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	rows, err := r.db.Query(
+		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE account_id = ? AND inbox_id = ? AND enabled = 1",
+		accountID, inboxID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var match *domainChatStorage.ChatwootDeviceConfig
+	for rows.Next() {
+		cfg, err := r.scanChatwootDeviceConfig(rows)
+		if err != nil {
+			return nil, err
+		}
+		if match != nil {
+			return nil, nil // ambiguous: more than one config on this account+inbox
+		}
+		match = cfg
+	}
+	return match, rows.Err()
+}
+
+func (r *SQLiteRepository) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	rows, err := r.db.Query("SELECT " + chatwootDeviceConfigColumns + " FROM chatwoot_device_configs ORDER BY device_id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []*domainChatStorage.ChatwootDeviceConfig
+	for rows.Next() {
+		cfg, err := r.scanChatwootDeviceConfig(rows)
+		if err != nil {
+			return nil, err
+		}
+		configs = append(configs, cfg)
+	}
+	return configs, rows.Err()
+}
+
+func (r *SQLiteRepository) DeleteChatwootDeviceConfig(deviceID string) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	_, err := r.db.Exec("DELETE FROM chatwoot_device_configs WHERE device_id = ?", deviceID)
+	return err
+}
+
+func (r *SQLiteRepository) CountChatwootDeviceConfigs() (int, error) {
+	var count int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM chatwoot_device_configs").Scan(&count)
+	return count, err
 }
 
 // GetChatMessageCount returns the number of messages in a chat
@@ -2109,5 +2292,31 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 30: Store WhatsApp media direct paths for downloads
 		`ALTER TABLE messages ADD COLUMN direct_path TEXT DEFAULT ''`,
+
+		// Migration 31: Per-device Chatwoot configuration (multi-device / multi-inbox routing)
+		`CREATE TABLE IF NOT EXISTS chatwoot_device_configs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			device_jid VARCHAR(255) NOT NULL DEFAULT '',
+			chatwoot_url VARCHAR(512) NOT NULL DEFAULT '',
+			account_id INTEGER NOT NULL DEFAULT 0,
+			inbox_id INTEGER NOT NULL DEFAULT 0,
+			api_token TEXT NOT NULL DEFAULT '',
+			enabled BOOLEAN NOT NULL DEFAULT 1,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// Migration 32: One config per user-facing device id
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_chatwoot_device_configs_device ON chatwoot_device_configs(device_id)`,
+		// Migration 33: Keep device_jid lookups unambiguous (partial: ignore empty JIDs)
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_chatwoot_device_configs_jid ON chatwoot_device_configs(device_jid) WHERE device_jid <> ''`,
+		// Migration 34: One device per Chatwoot inbox; supports reverse inbox->device lookup
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_chatwoot_device_configs_inbox ON chatwoot_device_configs(chatwoot_url, account_id, inbox_id)`,
+		// Migration 35: Scope a message link to the config that produced it (0 = legacy/env)
+		`ALTER TABLE chatwoot_message_links ADD COLUMN chatwoot_config_id INTEGER NOT NULL DEFAULT 0`,
+		// Migration 36: Denormalized Chatwoot account id for account-scoped reverse lookup (0 = legacy)
+		`ALTER TABLE chatwoot_message_links ADD COLUMN chatwoot_account_id INTEGER NOT NULL DEFAULT 0`,
+		// Migration 37: Resolve Chatwoot replies by conversation scoped to the account (no cross-account collision)
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation_account ON chatwoot_message_links(chatwoot_conversation_id, chatwoot_account_id, updated_at)`,
 	}
 }

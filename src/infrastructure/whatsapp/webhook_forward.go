@@ -18,8 +18,20 @@ import (
 )
 
 var (
-	submitWebhookFn     = submitWebhook
-	getChatwootClientFn = chatwoot.GetDefaultClient
+	submitWebhookFn = submitWebhook
+	// getChatwootClientFn resolves the per-device Chatwoot destination for the
+	// forward path. Returns (nil, nil) when the device simply has no usable config
+	// (caller skips silently). Returns ErrClientRegistryUnavailable when the
+	// registry has not been initialized yet — a distinct condition that must NOT
+	// be mistaken for "no config", or a due retry would be marked done and a live
+	// forward dropped without delivery. Overridable in tests.
+	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
+		reg := chatwoot.GetClientRegistry()
+		if reg == nil {
+			return nil, chatwoot.ErrClientRegistryUnavailable
+		}
+		return reg.Resolve(deviceID)
+	}
 	// contactDisplayNameFn resolves the operator-saved address-book name for a
 	// 1:1 JID from the WhatsApp contact store. It is a seam so tests can stub
 	// the lookup without a real client/store.
@@ -635,7 +647,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
-	chatwoot.MarkMessageAsSent(msgID)
+	chatwoot.MarkMessageAsSent(cw.AccountID, msgID)
 
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
 	return &chatwootSyncResult{
@@ -663,7 +675,7 @@ func chatwootLinkStorageFromContext(ctx context.Context) (string, domainChatStor
 	return deviceID, instance.GetChatStorage()
 }
 
-func buildChatwootForwardMessageLink(deviceID string, data map[string]any, opts chatwoot.MessageOptions, result *chatwootSyncResult) *domainChatStorage.ChatwootMessageLink {
+func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID int, data map[string]any, opts chatwoot.MessageOptions, result *chatwootSyncResult) *domainChatStorage.ChatwootMessageLink {
 	if result == nil || deviceID == "" || result.MessageID == 0 {
 		return nil
 	}
@@ -684,6 +696,8 @@ func buildChatwootForwardMessageLink(deviceID string, data map[string]any, opts 
 		SourceID:                     opts.SourceID,
 		Direction:                    chatwootMessageTypeFromPayload(data),
 		IsRead:                       false,
+		ChatwootConfigID:             configID,
+		ChatwootAccountID:            accountID,
 	}
 }
 
@@ -878,13 +892,21 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 }
 
 func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
-	cw := getChatwootClientFn()
-	if cw == nil {
-		logrus.Warn("Chatwoot: Client is not initialized")
+	resolved, err := getChatwootClientFn(deviceID)
+	if err != nil {
+		// Transient resolution failure (e.g. storage error): let the caller retry.
+		logrus.Warnf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
+		return err
+	}
+	if resolved == nil || resolved.Client == nil {
+		// No Chatwoot config maps to this device (and env fallback does not apply).
+		// Skip silently — this is fail-fast, not an error to retry.
+		logrus.Debugf("Chatwoot: no Chatwoot config for device %s; skipping forward", deviceID)
 		return nil
 	}
+	cw := resolved.Client
 	if !cw.IsConfigured() {
-		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars)")
+		logrus.Warn("Chatwoot: Client is not configured (check CHATWOOT_* env vars or device config)")
 		return nil
 	}
 
@@ -974,7 +996,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		return err
 	}
 	if eventName == "message" && linkRepo != nil {
-		if link := buildChatwootForwardMessageLink(deviceID, data, msgOpts, result); link != nil {
+		if link := buildChatwootForwardMessageLink(deviceID, resolved.ConfigID, cw.AccountID, data, msgOpts, result); link != nil {
 			if err := linkRepo.UpsertChatwootMessageLink(link); err != nil {
 				logrus.Errorf("Chatwoot: Failed to store message link for %s: %v", link.WhatsAppMessageID, err)
 			}
