@@ -240,6 +240,15 @@ func (service *serviceApp) PasskeyConfirm(ctx context.Context, deviceID string) 
 		return pkgError.ErrWaCLI
 	}
 
+	_, code, _ := instance.PasskeyState()
+	if code == "" {
+		return fmt.Errorf("no pending passkey confirmation for device %s", deviceID)
+	}
+
+	if !client.IsConnected() {
+		return fmt.Errorf("device %s is not connected, restart login and retry the passkey flow", deviceID)
+	}
+
 	if err := client.SendPasskeyConfirmation(ctx); err != nil {
 		logrus.Errorf("[PASSKEY][%s] failed to send passkey confirmation: %v", deviceID, err)
 		return err

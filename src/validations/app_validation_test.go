@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -88,46 +89,46 @@ func TestValidatePasskeyResponse(t *testing.T) {
 	}
 
 	t.Run("valid PublicKeyCredential.toJSON payload", func(t *testing.T) {
-		if err := ValidatePasskeyResponse(context.Background(), parse(t, validJSON)); err != nil {
-			t.Errorf("ValidatePasskeyResponse() error = %v, wantErr false", err)
-		}
+		assert.NoError(t, ValidatePasskeyResponse(context.Background(), parse(t, validJSON)))
 	})
 
 	t.Run("nil payload", func(t *testing.T) {
-		if err := ValidatePasskeyResponse(context.Background(), nil); err == nil {
-			t.Error("ValidatePasskeyResponse() error = nil, wantErr true")
-		}
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), nil))
 	})
 
 	t.Run("missing id", func(t *testing.T) {
 		resp := parse(t, validJSON)
 		resp.ID = ""
-		if err := ValidatePasskeyResponse(context.Background(), resp); err == nil {
-			t.Error("ValidatePasskeyResponse() error = nil, wantErr true")
-		}
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
+	})
+
+	t.Run("missing rawId", func(t *testing.T) {
+		resp := parse(t, validJSON)
+		resp.RawID = nil
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
 		resp := parse(t, validJSON)
 		resp.Type = "password"
-		if err := ValidatePasskeyResponse(context.Background(), resp); err == nil {
-			t.Error("ValidatePasskeyResponse() error = nil, wantErr true")
-		}
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
 		resp := parse(t, validJSON)
 		resp.Response.Signature = nil
-		if err := ValidatePasskeyResponse(context.Background(), resp); err == nil {
-			t.Error("ValidatePasskeyResponse() error = nil, wantErr true")
-		}
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
+	})
+
+	t.Run("missing authenticatorData", func(t *testing.T) {
+		resp := parse(t, validJSON)
+		resp.Response.AuthenticatorData = nil
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
 	})
 
 	t.Run("missing clientDataJSON", func(t *testing.T) {
 		resp := parse(t, validJSON)
 		resp.Response.ClientDataJSON = nil
-		if err := ValidatePasskeyResponse(context.Background(), resp); err == nil {
-			t.Error("ValidatePasskeyResponse() error = nil, wantErr true")
-		}
+		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
 	})
 }
