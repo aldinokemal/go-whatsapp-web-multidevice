@@ -432,6 +432,168 @@ func TestResolveMediaDirectPathFallsBackToURLRequestURI(t *testing.T) {
 	}
 }
 
+func TestFormatLocationSummary(t *testing.T) {
+	tests := []struct {
+		name    string
+		locName string
+		address string
+		lat     float64
+		long    float64
+		want    string
+	}{
+		{
+			name:    "NameAndAddress",
+			locName: "Monas",
+			address: "Gambir, Jakarta",
+			lat:     -6.175392,
+			long:    106.827153,
+			want:    "Monas — Gambir, Jakarta — https://maps.google.com/?q=-6.175392,106.827153",
+		},
+		{
+			name:    "NameOnly",
+			locName: "Monas",
+			address: "",
+			lat:     -6.2,
+			long:    106.8,
+			want:    "Monas — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name:    "CoordinatesOnly",
+			locName: "",
+			address: "",
+			lat:     -6.2,
+			long:    106.8,
+			want:    "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name:    "WhitespaceOnlyNameAndAddress",
+			locName: " ",
+			address: " ",
+			lat:     0,
+			long:    0,
+			want:    "https://maps.google.com/?q=0,0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatLocationSummary(tt.locName, tt.address, tt.lat, tt.long)
+			if got != tt.want {
+				t.Fatalf("FormatLocationSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoLocationMessages(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "LocationWithNameAndAddress",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					Name:             strPtr("Monas"),
+					Address:          strPtr("Gambir, Jakarta"),
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "Monas — Gambir, Jakarta — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LocationCoordinatesOnly",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationWithCaption",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					Caption:          strPtr("On my way"),
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "On my way — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationWithoutCaption",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "https://maps.google.com/?q=-6.2,106.8",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoExtendedTextMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "TextTakesPriorityOverMatchedText",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr("check this out https://example.com"),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "check this out https://example.com",
+		},
+		{
+			name: "FallsBackToMatchedTextWhenTextEmpty",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr(""),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "https://example.com",
+		},
+		{
+			name: "EmptyTextAndMatchedTextFallsThrough",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr(""),
+					MatchedText: strPtr(""),
+				},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

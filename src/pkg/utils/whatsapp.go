@@ -101,6 +101,22 @@ func ExtractPhoneFromVCard(vcard string) string {
 	return ""
 }
 
+// FormatLocationSummary builds a one-liner for an incoming location or live-location pin.
+// The maps link is always included so content is never empty for coordinate-only pins.
+// name and address are optional prefixes.
+func FormatLocationSummary(name, address string, lat, long float64) string {
+	var parts []string
+	if n := strings.TrimSpace(name); n != "" {
+		parts = append(parts, n)
+	}
+	if a := strings.TrimSpace(address); a != "" {
+		parts = append(parts, a)
+	}
+	mapsLink := fmt.Sprintf("https://maps.google.com/?q=%g,%g", lat, long)
+	parts = append(parts, mapsLink)
+	return strings.Join(parts, " — ")
+}
+
 // FormatContactSummary builds a one-liner for a shared contact card.
 // Pass plural=true for ContactsArrayMessage to use the "Contacts" prefix.
 func FormatContactSummary(name, phone string, plural bool) string {
@@ -167,7 +183,14 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 
 	// Check for extended text message (with link preview, etc.)
 	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
-		return extendedText.GetText()
+		if t := extendedText.GetText(); t != "" {
+			return t
+		}
+		// Fall back to the matched URL text when the text field is empty
+		// (e.g., pure link-preview messages with no accompanying caption).
+		if m := extendedText.GetMatchedText(); m != "" {
+			return m
+		}
 	}
 
 	// Check for image with caption
@@ -212,6 +235,16 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 			return FormatContactSummary(first.GetDisplayName(), ExtractPhoneFromVCard(first.GetVcard()), true)
 		}
 		return "Contacts shared"
+	}
+
+	// Check for location pin
+	if loc := msg.GetLocationMessage(); loc != nil {
+		return FormatLocationSummary(loc.GetName(), loc.GetAddress(), loc.GetDegreesLatitude(), loc.GetDegreesLongitude())
+	}
+
+	// Check for live location
+	if live := msg.GetLiveLocationMessage(); live != nil {
+		return FormatLocationSummary(live.GetCaption(), "", live.GetDegreesLatitude(), live.GetDegreesLongitude())
 	}
 
 	return ""

@@ -7,6 +7,8 @@ import (
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/sirupsen/logrus"
 )
 
 type serviceDevice struct {
@@ -56,11 +58,23 @@ func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string) (*domain
 	return &device, nil
 }
 
-func (s *serviceDevice) RemoveDevice(_ context.Context, deviceID string) error {
+func (s *serviceDevice) RemoveDevice(ctx context.Context, deviceID string) error {
+	if err := validations.ValidateDeviceID(ctx, deviceID); err != nil {
+		return err
+	}
 	if s.manager == nil {
 		return fmt.Errorf("device manager not initialized")
 	}
-	s.manager.RemoveDevice(deviceID)
+	// Deleting a device fully purges it: logs it out of WhatsApp, clears its session
+	// and chat data, then removes the slot from the registry. (Logout, in contrast,
+	// keeps the slot.) The WhatsApp unlink itself is best-effort inside PurgeDevice
+	// (an already-dead session must not block the delete), but failures of the LOCAL
+	// cleanup (chatstorage / store / keys rows) are surfaced: DELETE promises a real
+	// purge, so we propagate the error instead of masking it as success.
+	if err := s.manager.PurgeDevice(ctx, deviceID); err != nil {
+		logrus.WithError(err).Warnf("[DEVICE] purge for %s failed", deviceID)
+		return fmt.Errorf("purge device %s: %w", deviceID, err)
+	}
 	return nil
 }
 
@@ -73,15 +87,19 @@ func (s *serviceDevice) LoginDeviceWithCode(_ context.Context, _ string, _ strin
 }
 
 func (s *serviceDevice) LogoutDevice(ctx context.Context, deviceID string) error {
+	if err := validations.ValidateDeviceID(ctx, deviceID); err != nil {
+		return err
+	}
 	if s.manager == nil {
 		return fmt.Errorf("device manager not initialized")
 	}
 
-	if err := s.manager.PurgeDevice(ctx, deviceID); err != nil {
+	if err := s.manager.LogoutDeviceKeepSlot(ctx, deviceID); err != nil {
 		return err
 	}
 
-	// Broadcast device removal so UI clients can refresh.
+	// Broadcast the logout so UI clients can refresh. The device slot is kept, so it
+	// still appears in the list (disconnected) and can be re-paired under the same id.
 	var devices []domainDevice.Device
 	if s.manager != nil {
 		for _, inst := range s.manager.ListDevices() {
@@ -91,8 +109,8 @@ func (s *serviceDevice) LogoutDevice(ctx context.Context, deviceID string) error
 	}
 
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    "DEVICE_REMOVED",
-		Message: fmt.Sprintf("Device %s logged out and removed", deviceID),
+		Code:    "DEVICE_LOGGED_OUT",
+		Message: fmt.Sprintf("Device %s logged out (slot kept)", deviceID),
 		Result: map[string]any{
 			"device_id": deviceID,
 			"devices":   devices,
