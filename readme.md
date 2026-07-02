@@ -545,6 +545,9 @@ You can fork or edit this source code !
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
 | ✅       | Login with Scan QR                     | GET    | /app/login                          |
 | ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
+| ✅       | Passkey Pairing Status                 | GET    | /app/passkey                        |
+| ✅       | Passkey Pairing Response               | POST   | /app/passkey/response               |
+| ✅       | Passkey Pairing Confirm                | POST   | /app/passkey/confirm                |
 | ✅       | Logout                                 | GET    | /app/logout                         |
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |

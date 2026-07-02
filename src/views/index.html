@@ -419,6 +419,21 @@
                             }
                             break;
                         }
+                        case 'PASSKEY_REQUEST':
+                            showSuccessInfo('Passkey linking requested. Complete the WebAuthn assertion via the REST API (GET /app/passkey).')
+                            break;
+                        case 'PASSKEY_CONFIRMATION':
+                            if (message.result?.skip_handoff_ux) {
+                                showSuccessInfo(message.message)
+                            } else if (window.confirm('Does this passkey pairing code match the one on your phone? ' + (message.result?.code || ''))) {
+                                window.http.post('app/passkey/confirm')
+                                    .then(() => showSuccessInfo('Passkey pairing confirmed'))
+                                    .catch(err => showErrorInfo(err?.response?.data?.message || 'Passkey confirmation failed'))
+                            }
+                            break;
+                        case 'PASSKEY_ERROR':
+                            showErrorInfo(message.message)
+                            break;
                         default:
                             console.log(message)
                     }

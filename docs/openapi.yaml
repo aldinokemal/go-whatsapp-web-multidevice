@@ -83,6 +83,95 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey:
+    get:
+      operationId: appPasskeyStatus
+      tags:
+        - app
+      summary: Get pending passkey pairing state
+      description: >
+        Passkey pairing is initiated from the phone during QR login. When the phone requests it,
+        the server sends a WebAuthn challenge which is stored here (also broadcast over the
+        websocket as PASSKEY_REQUEST) until a response is submitted.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyStatusResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey/response:
+    post:
+      operationId: appPasskeyResponse
+      tags:
+        - app
+      summary: Submit the WebAuthn assertion for passkey pairing
+      description: >
+        Send the WebAuthn assertion produced for the pending challenge (see GET /app/passkey).
+        The assertion must be produced by an authenticator holding the WhatsApp account's passkey,
+        against WhatsApp's relying-party ID; the payload format matches PublicKeyCredential.toJSON().
+        If the assertion is submitted within the 5-minute handoff window, pairing is confirmed
+        automatically; otherwise a confirmation code is issued (PASSKEY_CONFIRMATION websocket event)
+        and must be confirmed via POST /app/passkey/confirm.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebAuthnAssertion'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey/confirm:
+    post:
+      operationId: appPasskeyConfirm
+      tags:
+        - app
+      summary: Confirm the passkey pairing code
+      description: >
+        Confirms that the pairing code from the PASSKEY_CONFIRMATION event was shown to the user
+        and matches the code displayed on the phone. Only needed when skip_handoff_ux is false.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /app/logout:
     get:
       operationId: appLogout
@@ -3916,6 +4005,90 @@ components:
             qr_link:
               type: string
               example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
+    PasskeyStatusResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Passkey pairing status
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: device-1
+            status:
+              type: string
+              enum: [none, awaiting_response, awaiting_confirmation]
+              example: awaiting_response
+            challenge:
+              type: object
+              nullable: true
+              description: WebAuthn assertion request options (PublicKeyCredentialRequestOptions JSON, base64url-encoded binary fields)
+              properties:
+                challenge:
+                  type: string
+                  example: dGVzdC1jaGFsbGVuZ2U
+                timeout:
+                  type: integer
+                  example: 60000
+                rpId:
+                  type: string
+                  example: whatsapp.com
+                allowCredentials:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                        example: public-key
+                      transports:
+                        type: array
+                        items:
+                          type: string
+                userVerification:
+                  type: string
+                  example: required
+            code:
+              type: string
+              description: Pairing confirmation code (set while awaiting confirmation)
+              example: ABCD-EFGH
+            skip_handoff_ux:
+              type: boolean
+              example: false
+    WebAuthnAssertion:
+      type: object
+      description: WebAuthn assertion in PublicKeyCredential.toJSON() format (binary fields base64url-encoded without padding)
+      required: [id, rawId, type, response]
+      properties:
+        id:
+          type: string
+          example: XcnXe2W9me1XZTGii6JI9A
+        rawId:
+          type: string
+          example: XcnXe2W9me1XZTGii6JI9A
+        type:
+          type: string
+          example: public-key
+        response:
+          type: object
+          required: [clientDataJSON, authenticatorData, signature]
+          properties:
+            clientDataJSON:
+              type: string
+            authenticatorData:
+              type: string
+            signature:
+              type: string
+            userHandle:
+              type: string
+              nullable: true
     GenericResponse:
       type: object
       properties:

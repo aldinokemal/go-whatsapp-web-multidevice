@@ -37,7 +37,14 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, client, evt)
 	case *events.PairSuccess:
+		instance.ClearPasskeyState()
 		handlePairSuccess(ctx, evt)
+	case *events.PairPasskeyRequest:
+		handlePairPasskeyRequest(instance, evt)
+	case *events.PairPasskeyConfirmation:
+		handlePairPasskeyConfirmation(instance, evt)
+	case *events.PairPasskeyError:
+		handlePairPasskeyError(instance, evt)
 	case *events.LoggedOut:
 		handleLoggedOut(ctx, instance, chatStorageRepo)
 	case *events.Connected, *events.PushNameSetting:
@@ -153,8 +160,51 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 	syncKeysDevice(ctx, primaryDB, secondaryDB, evt.ID)
 }
 
+func handlePairPasskeyRequest(instance *DeviceInstance, evt *events.PairPasskeyRequest) {
+	instance.SetPasskeyChallenge(evt.PublicKey)
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_REQUEST",
+		Message: "Passkey pairing requested; submit the WebAuthn assertion via POST /app/passkey/response",
+		Result: map[string]any{
+			"device_id": instance.ID(),
+			"challenge": evt.PublicKey,
+		},
+	}
+}
+
+func handlePairPasskeyConfirmation(instance *DeviceInstance, evt *events.PairPasskeyConfirmation) {
+	instance.SetPasskeyConfirmation(evt.Code, evt.SkipHandoffUX)
+	message := fmt.Sprintf("Passkey pairing code %s: verify it matches the code on your phone, then confirm via POST /app/passkey/confirm", evt.Code)
+	if evt.SkipHandoffUX {
+		message = "Passkey pairing verified, finishing automatically"
+	}
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_CONFIRMATION",
+		Message: message,
+		Result: map[string]any{
+			"device_id":       instance.ID(),
+			"code":            evt.Code,
+			"skip_handoff_ux": evt.SkipHandoffUX,
+		},
+	}
+}
+
+func handlePairPasskeyError(instance *DeviceInstance, evt *events.PairPasskeyError) {
+	logrus.Warnf("[PASSKEY][%s] pairing error (continuation=%t): %v", instance.ID(), evt.Continuation, evt.Error)
+	instance.ClearPasskeyState()
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_ERROR",
+		Message: evt.Error.Error(),
+		Result: map[string]any{
+			"device_id":    instance.ID(),
+			"continuation": evt.Continuation,
+		},
+	}
+}
+
 func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
+	instance.ClearPasskeyState()
 
 	if client := instance.GetClient(); client != nil {
 		client.Disconnect()
