@@ -19,6 +19,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/libsignal/logger"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type serviceApp struct {
@@ -46,6 +47,7 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 
 	// Disconnect first to ensure QR flow starts cleanly.
 	client.Disconnect()
+	instance.ClearPasskeyState()
 
 	// Use a detached context for the QR channel so the pairing session
 	// survives after the HTTP response is sent. The HTTP request context
@@ -94,6 +96,9 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 					logrus.Warnf("[LOGIN][%s] QR context canceled while sending QR path", deviceID)
 					return
 				}
+			} else if evt.Event == whatsmeow.QRChannelEventPasskeyRequest || evt.Event == whatsmeow.QRChannelEventPasskeyResponse {
+				// Passkey events are broadcast by the global event handler and served via /app/passkey endpoints.
+				logrus.Infof("[LOGIN][%s] passkey pairing event: %s", deviceID, evt.Event)
 			} else {
 				logrus.Errorf("[LOGIN][%s] error when get qrCode %s %v", deviceID, evt.Event, evt.Error)
 			}
@@ -157,6 +162,100 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 	instance.UpdateStateFromClient()
 	logrus.Infof("Successfully paired phone with code: %s", loginCode)
 	return loginCode, nil
+}
+
+func (service *serviceApp) PasskeyChallenge(_ context.Context, deviceID string) (response domainApp.PasskeyChallengeResponse, err error) {
+	if service.deviceManager == nil {
+		return response, fmt.Errorf("device manager not initialized")
+	}
+
+	instance, ok := service.deviceManager.GetDevice(deviceID)
+	if !ok || instance == nil {
+		return response, fmt.Errorf("device %s not found", deviceID)
+	}
+
+	challenge, code, skipHandoffUX := instance.PasskeyState()
+	response.Status = "none"
+	if challenge != nil {
+		response.Status = "awaiting_response"
+	} else if code != "" {
+		response.Status = "awaiting_confirmation"
+	}
+	response.Challenge = challenge
+	response.Code = code
+	response.SkipHandoffUX = skipHandoffUX
+	return response, nil
+}
+
+func (service *serviceApp) PasskeyResponse(ctx context.Context, deviceID string, assertion *types.WebAuthnResponse) error {
+	if err := validations.ValidatePasskeyResponse(ctx, assertion); err != nil {
+		return err
+	}
+
+	if service.deviceManager == nil {
+		return fmt.Errorf("device manager not initialized")
+	}
+
+	instance, ok := service.deviceManager.GetDevice(deviceID)
+	if !ok || instance == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	client := instance.GetClient()
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	challenge, _, _ := instance.PasskeyState()
+	if challenge == nil {
+		return fmt.Errorf("no pending passkey pairing request for device %s", deviceID)
+	}
+
+	if !client.IsConnected() {
+		return fmt.Errorf("device %s is not connected, restart login and retry the passkey flow", deviceID)
+	}
+
+	if err := client.SendPasskeyResponse(ctx, assertion); err != nil {
+		logrus.Errorf("[PASSKEY][%s] failed to send passkey response: %v", deviceID, err)
+		return err
+	}
+
+	// The PairPasskeyConfirmation event repopulates the confirmation code shortly after.
+	instance.ClearPasskeyState()
+	return nil
+}
+
+func (service *serviceApp) PasskeyConfirm(ctx context.Context, deviceID string) error {
+	if service.deviceManager == nil {
+		return fmt.Errorf("device manager not initialized")
+	}
+
+	instance, ok := service.deviceManager.GetDevice(deviceID)
+	if !ok || instance == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	client := instance.GetClient()
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+
+	_, code, _ := instance.PasskeyState()
+	if code == "" {
+		return fmt.Errorf("no pending passkey confirmation for device %s", deviceID)
+	}
+
+	if !client.IsConnected() {
+		return fmt.Errorf("device %s is not connected, restart login and retry the passkey flow", deviceID)
+	}
+
+	if err := client.SendPasskeyConfirmation(ctx); err != nil {
+		logrus.Errorf("[PASSKEY][%s] failed to send passkey confirmation: %v", deviceID, err)
+		return err
+	}
+
+	instance.ClearPasskeyState()
+	return nil
 }
 
 func (service *serviceApp) Logout(ctx context.Context, deviceID string) error {
