@@ -88,47 +88,60 @@ func TestValidatePasskeyResponse(t *testing.T) {
 		return &resp
 	}
 
-	t.Run("valid PublicKeyCredential.toJSON payload", func(t *testing.T) {
-		assert.NoError(t, ValidatePasskeyResponse(context.Background(), parse(t, validJSON)))
-	})
+	tests := []struct {
+		name    string
+		mutate  func(r *types.WebAuthnResponse) *types.WebAuthnResponse
+		wantErr string // expected error substring; empty means no error
+	}{
+		{
+			name:   "valid PublicKeyCredential.toJSON payload",
+			mutate: func(r *types.WebAuthnResponse) *types.WebAuthnResponse { return r },
+		},
+		{
+			name:    "nil payload",
+			mutate:  func(*types.WebAuthnResponse) *types.WebAuthnResponse { return nil },
+			wantErr: "assertion payload is required",
+		},
+		{
+			name:    "missing id",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.ID = ""; return r },
+			wantErr: "id: cannot be blank",
+		},
+		{
+			name:    "missing rawId",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.RawID = nil; return r },
+			wantErr: "rawId: cannot be blank",
+		},
+		{
+			name:    "wrong type",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.Type = "password"; return r },
+			wantErr: "type: must be a valid value",
+		},
+		{
+			name:    "missing signature",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.Response.Signature = nil; return r },
+			wantErr: "response.signature: cannot be blank",
+		},
+		{
+			name:    "missing authenticatorData",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.Response.AuthenticatorData = nil; return r },
+			wantErr: "response.authenticatorData: cannot be blank",
+		},
+		{
+			name:    "missing clientDataJSON",
+			mutate:  func(r *types.WebAuthnResponse) *types.WebAuthnResponse { r.Response.ClientDataJSON = nil; return r },
+			wantErr: "response.clientDataJSON: cannot be blank",
+		},
+	}
 
-	t.Run("nil payload", func(t *testing.T) {
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), nil))
-	})
-
-	t.Run("missing id", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.ID = ""
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
-
-	t.Run("missing rawId", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.RawID = nil
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
-
-	t.Run("wrong type", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.Type = "password"
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
-
-	t.Run("missing signature", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.Response.Signature = nil
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
-
-	t.Run("missing authenticatorData", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.Response.AuthenticatorData = nil
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
-
-	t.Run("missing clientDataJSON", func(t *testing.T) {
-		resp := parse(t, validJSON)
-		resp.Response.ClientDataJSON = nil
-		assert.Error(t, ValidatePasskeyResponse(context.Background(), resp))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePasskeyResponse(context.Background(), tt.mutate(parse(t, validJSON)))
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
 }
