@@ -92,14 +92,8 @@ func (r *callRecorder) flushLocked(force bool) error {
 				n = len(r.remote)
 			}
 		case len(r.local) > 0:
-			if !force {
-				return nil
-			}
 			n = len(r.local)
 		case len(r.remote) > 0:
-			if !force {
-				return nil
-			}
 			n = len(r.remote)
 		default:
 			return nil
@@ -129,8 +123,16 @@ func (r *callRecorder) flushLocked(force bool) error {
 			return err
 		}
 		r.dataBytes += uint32(len(data))
-		r.local = r.local[n:]
-		r.remote = r.remote[n:]
+		if len(r.local) >= n {
+			r.local = r.local[n:]
+		} else {
+			r.local = nil
+		}
+		if len(r.remote) >= n {
+			r.remote = r.remote[n:]
+		} else {
+			r.remote = nil
+		}
 	}
 	return nil
 }
