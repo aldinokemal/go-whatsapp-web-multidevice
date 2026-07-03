@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type App struct {
@@ -18,6 +19,9 @@ func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 	rest := App{Service: service}
 	app.Get("/app/login", rest.Login)
 	app.Get("/app/login-with-code", rest.LoginWithCode)
+	app.Get("/app/passkey", rest.PasskeyChallenge)
+	app.Post("/app/passkey/response", rest.PasskeyResponse)
+	app.Post("/app/passkey/confirm", rest.PasskeyConfirm)
 	app.Get("/app/logout", rest.Logout)
 	app.Get("/app/reconnect", rest.Reconnect)
 	app.Get("/app/devices", rest.Devices)
@@ -64,6 +68,68 @@ func (handler *App) LoginWithCode(c *fiber.Ctx) error {
 			"device_id": device.ID(),
 			"pair_code": pairCode,
 		},
+	})
+}
+
+func (handler *App) PasskeyChallenge(c *fiber.Ctx) error {
+	device, err := getDeviceInstance(c)
+	if err != nil {
+		return err
+	}
+
+	response, err := handler.Service.PasskeyChallenge(c.UserContext(), device.ID())
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Passkey pairing status",
+		Results: map[string]any{
+			"device_id":       device.ID(),
+			"status":          response.Status,
+			"challenge":       response.Challenge,
+			"code":            response.Code,
+			"skip_handoff_ux": response.SkipHandoffUX,
+		},
+	})
+}
+
+func (handler *App) PasskeyResponse(c *fiber.Ctx) error {
+	device, err := getDeviceInstance(c)
+	if err != nil {
+		return err
+	}
+
+	var assertion types.WebAuthnResponse
+	if err := c.BodyParser(&assertion); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid WebAuthn assertion payload: "+err.Error())
+	}
+
+	err = handler.Service.PasskeyResponse(c.UserContext(), device.ID(), &assertion)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Passkey response sent",
+		Results: map[string]any{"device_id": device.ID()},
+	})
+}
+
+func (handler *App) PasskeyConfirm(c *fiber.Ctx) error {
+	device, err := getDeviceInstance(c)
+	if err != nil {
+		return err
+	}
+
+	err = handler.Service.PasskeyConfirm(c.UserContext(), device.ID())
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Passkey pairing confirmed",
+		Results: map[string]any{"device_id": device.ID()},
 	})
 }
 

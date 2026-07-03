@@ -1130,3 +1130,46 @@ func TestValidateSendAudio_WithDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateForwardMessage(t *testing.T) {
+	type args struct {
+		request domainSend.ForwardRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success normal condition",
+			args: args{request: domainSend.ForwardRequest{
+				MessageID: "3EB0123456789ABCDEF",
+				Phone:     "1728937129312@s.whatsapp.net",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainSend.ForwardRequest{
+				MessageID: "3EB0123456789ABCDEF",
+				Phone:     "",
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+		{
+			name: "should error with empty message id",
+			args: args{request: domainSend.ForwardRequest{
+				MessageID: "",
+				Phone:     "1728937129312@s.whatsapp.net",
+			}},
+			err: pkgError.ValidationError("message_id: cannot be blank."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateForwardMessage(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

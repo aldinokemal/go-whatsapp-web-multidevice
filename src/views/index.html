@@ -110,6 +110,7 @@
         <message-react></message-react>
         <message-update></message-update>
         <message-read></message-read>
+        <send-forward></send-forward>
     </div>
 
     <div class="ui horizontal divider">
@@ -231,6 +232,7 @@
     import MessageReact from "{{ .AppBasePath }}/components/MessageReact.js";
     import MessageRevoke from "{{ .AppBasePath }}/components/MessageRevoke.js";
     import MessageRead from "{{ .AppBasePath }}/components/MessageRead.js";
+    import SendForward from "{{ .AppBasePath }}/components/SendForward.js";
     import GroupList from "{{ .AppBasePath }}/components/GroupList.js";
     import GroupCreate from "{{ .AppBasePath }}/components/GroupCreate.js";
     import GroupJoinWithLink from "{{ .AppBasePath }}/components/GroupJoinWithLink.js";
@@ -282,7 +284,7 @@
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendSticker, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
-            MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
+            MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead, SendForward,
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
@@ -389,13 +391,6 @@
                         case 'LIST_DEVICES':
                             this.connected_devices = message.result
                             break;
-                        case 'LOGOUT_COMPLETE':
-                            // Handle successful cleanup after remote logout
-                            showSuccessInfo('✅ ' + message.message)
-                            console.log('[LOGOUT_COMPLETE] Remote logout cleanup completed:', message)
-                            // Optionally refresh the device list
-                            this.handleReloadDevice()
-                            break;
                         case 'DEVICE_REMOVED': {
                             const removedId = message.result?.device_id;
                             const devices = message.result?.devices;
@@ -414,6 +409,35 @@
                                     const first = this.deviceList[0].id || this.deviceList[0].device;
                                     this.setDeviceContext(first);
                                 }
+                            } else {
+                                this.handleReloadDevice();
+                            }
+                            break;
+                        }
+                        case 'PASSKEY_REQUEST':
+                            showSuccessInfo('Passkey linking requested. Complete the WebAuthn assertion via the REST API (GET /app/passkey).')
+                            break;
+                        case 'PASSKEY_CONFIRMATION':
+                            if (message.result?.skip_handoff_ux) {
+                                showSuccessInfo(message.message)
+                            } else if (window.confirm('Does this passkey pairing code match the one on your phone? ' + (message.result?.code || ''))) {
+                                window.http.post('app/passkey/confirm')
+                                    .then(() => showSuccessInfo('Passkey pairing confirmed'))
+                                    .catch(err => showErrorInfo(err?.response?.data?.message || 'Passkey confirmation failed'))
+                            }
+                            break;
+                        case 'PASSKEY_ERROR':
+                            showErrorInfo(message.message)
+                            break;
+                        case 'DEVICE_LOGGED_OUT': {
+                            // Logout keeps the slot: refresh the list (device is now
+                            // disconnected) but keep the current selection so the user
+                            // can re-pair it under the same id.
+                            const devices = message.result?.devices;
+                            showSuccessInfo('✅ ' + (message.message || 'Device logged out'));
+                            if (Array.isArray(devices)) {
+                                this.deviceList = devices;
+                                this.connected_devices = devices;
                             } else {
                                 this.handleReloadDevice();
                             }

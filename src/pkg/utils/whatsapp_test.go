@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -432,6 +433,294 @@ func TestResolveMediaDirectPathFallsBackToURLRequestURI(t *testing.T) {
 	}
 }
 
+func TestFormatLocationSummary(t *testing.T) {
+	tests := []struct {
+		name    string
+		locName string
+		address string
+		lat     float64
+		long    float64
+		want    string
+	}{
+		{
+			name:    "NameAndAddress",
+			locName: "Monas",
+			address: "Gambir, Jakarta",
+			lat:     -6.175392,
+			long:    106.827153,
+			want:    "Monas — Gambir, Jakarta — https://maps.google.com/?q=-6.175392,106.827153",
+		},
+		{
+			name:    "NameOnly",
+			locName: "Monas",
+			address: "",
+			lat:     -6.2,
+			long:    106.8,
+			want:    "Monas — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name:    "CoordinatesOnly",
+			locName: "",
+			address: "",
+			lat:     -6.2,
+			long:    106.8,
+			want:    "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name:    "WhitespaceOnlyNameAndAddress",
+			locName: " ",
+			address: " ",
+			lat:     0,
+			long:    0,
+			want:    "https://maps.google.com/?q=0,0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatLocationSummary(tt.locName, tt.address, tt.lat, tt.long)
+			if got != tt.want {
+				t.Fatalf("FormatLocationSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoLocationMessages(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "LocationWithNameAndAddress",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					Name:             strPtr("Monas"),
+					Address:          strPtr("Gambir, Jakarta"),
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "Monas — Gambir, Jakarta — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LocationCoordinatesOnly",
+			msg: &waE2E.Message{
+				LocationMessage: &waE2E.LocationMessage{
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationWithCaption",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					Caption:          strPtr("On my way"),
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "On my way — https://maps.google.com/?q=-6.2,106.8",
+		},
+		{
+			name: "LiveLocationWithoutCaption",
+			msg: &waE2E.Message{
+				LiveLocationMessage: &waE2E.LiveLocationMessage{
+					DegreesLatitude:  proto.Float64(-6.2),
+					DegreesLongitude: proto.Float64(106.8),
+				},
+			},
+			want: "https://maps.google.com/?q=-6.2,106.8",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractMessageTextFromProtoExtendedTextMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "TextTakesPriorityOverMatchedText",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr("check this out https://example.com"),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "check this out https://example.com",
+		},
+		{
+			name: "FallsBackToMatchedTextWhenTextEmpty",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr(""),
+					MatchedText: strPtr("https://example.com"),
+				},
+			},
+			want: "https://example.com",
+		},
+		{
+			name: "EmptyTextAndMatchedTextFallsThrough",
+			msg: &waE2E.Message{
+				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text:        strPtr(""),
+					MatchedText: strPtr(""),
+				},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
+}
+
+func TestBuildForwardMessageFromStorageText(t *testing.T) {
+	msg, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+		Content: "hello forward",
+	}, ForwardBuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildForwardMessageFromStorage() error = %v", err)
+	}
+	ext := msg.GetExtendedTextMessage()
+	if ext == nil {
+		t.Fatal("expected ExtendedTextMessage")
+	}
+	if ext.GetText() != "hello forward" {
+		t.Fatalf("text = %q, want %q", ext.GetText(), "hello forward")
+	}
+	if !ext.GetContextInfo().GetIsForwarded() {
+		t.Fatal("expected IsForwarded=true")
+	}
+	if ext.GetContextInfo().GetForwardingScore() != 100 {
+		t.Fatalf("forwarding score = %d, want 100", ext.GetContextInfo().GetForwardingScore())
+	}
+}
+
+func TestBuildForwardMessageFromStorageImage(t *testing.T) {
+	directPath := "/v/t62.media.enc"
+	msg, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+		MediaType:     "image",
+		Content:       "caption text",
+		URL:           "https://mmg.whatsapp.net/ignored",
+		DirectPath:    directPath,
+		MediaKey:      []byte("key"),
+		FileSHA256:    []byte("sha"),
+		FileEncSHA256: []byte("enc"),
+		FileLength:    42,
+	}, ForwardBuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildForwardMessageFromStorage() error = %v", err)
+	}
+	img := msg.GetImageMessage()
+	if img == nil {
+		t.Fatal("expected ImageMessage")
+	}
+	if img.GetCaption() != "caption text" {
+		t.Fatalf("caption = %q, want %q", img.GetCaption(), "caption text")
+	}
+	if img.GetDirectPath() != directPath {
+		t.Fatalf("directPath = %q, want %q", img.GetDirectPath(), directPath)
+	}
+	if !img.GetContextInfo().GetIsForwarded() {
+		t.Fatal("expected IsForwarded=true")
+	}
+	if img.GetMimetype() != "image/jpeg" {
+		t.Fatalf("mimetype = %q, want image/jpeg", img.GetMimetype())
+	}
+}
+
+func TestBuildForwardMessageFromStorageDocument(t *testing.T) {
+	msg, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+		MediaType:     "document",
+		Filename:      "report.pdf",
+		Content:       "see attached",
+		URL:           "https://mmg.whatsapp.net/doc",
+		DirectPath:    "/v/doc.enc",
+		MediaKey:      []byte("key"),
+		FileSHA256:    []byte("sha"),
+		FileEncSHA256: []byte("enc"),
+		FileLength:    100,
+	}, ForwardBuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildForwardMessageFromStorage() error = %v", err)
+	}
+	doc := msg.GetDocumentMessage()
+	if doc == nil {
+		t.Fatal("expected DocumentMessage")
+	}
+	if doc.GetFileName() != "report.pdf" {
+		t.Fatalf("filename = %q, want report.pdf", doc.GetFileName())
+	}
+	if doc.GetCaption() != "see attached" {
+		t.Fatalf("caption = %q, want see attached", doc.GetCaption())
+	}
+	if doc.GetMimetype() != "application/pdf" {
+		t.Fatalf("mimetype = %q, want application/pdf", doc.GetMimetype())
+	}
+}
+
+func TestBuildForwardMessageFromStorageUnsupportedType(t *testing.T) {
+	_, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+		MediaType: "call",
+		Content:   "incoming call",
+	}, ForwardBuildOptions{})
+	if err == nil {
+		t.Fatal("expected error for call type")
+	}
+	if err.Error() != ErrUnsupportedForwardType {
+		t.Fatalf("error = %q, want %q", err.Error(), ErrUnsupportedForwardType)
+	}
+
+	_, err = BuildForwardMessageFromStorage(&domainChatStorage.Message{
+		Content: "Contact: Alice (+62 812)",
+	}, ForwardBuildOptions{})
+	if err == nil {
+		t.Fatal("expected error for contact summary")
+	}
+}
+
+func TestIsForwardableStorageMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		message *domainChatStorage.Message
+		want    bool
+	}{
+		{name: "text", message: &domainChatStorage.Message{Content: "hi"}, want: true},
+		{name: "image", message: &domainChatStorage.Message{MediaType: "image", URL: "u", DirectPath: "/p"}, want: true},
+		{name: "call", message: &domainChatStorage.Message{MediaType: "call"}, want: false},
+		{name: "contact", message: &domainChatStorage.Message{Content: "Contact: Bob"}, want: false},
+		{name: "location", message: &domainChatStorage.Message{Content: "Pin — https://maps.google.com/?q=1,2"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsForwardableStorageMessage(tt.message); got != tt.want {
+				t.Fatalf("IsForwardableStorageMessage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
