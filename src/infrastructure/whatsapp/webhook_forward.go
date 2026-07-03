@@ -307,6 +307,13 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 		return nil, fmt.Errorf("skipping system/broadcast JID chat=%s from=%s", chatID, from)
 	}
 
+	// Channel (newsletter) feeds are broadcast-only: no conversation for an
+	// agent, and the channel id is not a phone number — relaying one would
+	// fail Chatwoot contact creation with a 422 e164 error.
+	if utils.IsNewsletterJID(chatID) || utils.IsNewsletterJID(from) {
+		return nil, fmt.Errorf("skipping newsletter JID chat=%s from=%s", chatID, from)
+	}
+
 	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
 	// always-ignored system JIDs — supports exact JIDs and the "@g.us" /
 	// "@s.whatsapp.net" / "@lid" address-space wildcards.

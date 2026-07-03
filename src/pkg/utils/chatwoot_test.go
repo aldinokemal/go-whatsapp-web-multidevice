@@ -141,6 +141,32 @@ func TestMatchesIgnoredJID(t *testing.T) {
 	}
 }
 
+func TestIsNewsletterJID(t *testing.T) {
+	// Newsletter (channel) JIDs like 120363144038483540@newsletter are
+	// broadcast feeds, not conversations. Their local part is an 18-digit
+	// channel id — not a phone number — so letting one reach the Chatwoot
+	// contact-creation phone path always fails with a 422 "Phone number
+	// should be in e164 format" (E.164 caps at 15 digits).
+	tests := []struct {
+		name string
+		jid  string
+		want bool
+	}{
+		{name: "newsletter JID", jid: "120363144038483540@newsletter", want: true},
+		{name: "ordinary user JID", jid: "628123456789@s.whatsapp.net", want: false},
+		{name: "group JID", jid: "120363123@g.us", want: false},
+		{name: "lid JID", jid: "abc123@lid", want: false},
+		{name: "empty string", jid: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsNewsletterJID(tt.jid); got != tt.want {
+				t.Fatalf("IsNewsletterJID(%q) = %v, want %v", tt.jid, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsSystemBroadcastJID(t *testing.T) {
 	// Pinning the exact strings prevents a future "match by suffix" rewrite
 	// from letting real-status-bearing JIDs (e.g. "status@s.whatsapp.net")
