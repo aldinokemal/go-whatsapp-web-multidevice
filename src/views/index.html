@@ -110,6 +110,7 @@
         <message-react></message-react>
         <message-update></message-update>
         <message-read></message-read>
+        <send-forward></send-forward>
     </div>
 
     <div class="ui horizontal divider">
@@ -231,6 +232,7 @@
     import MessageReact from "{{ .AppBasePath }}/components/MessageReact.js";
     import MessageRevoke from "{{ .AppBasePath }}/components/MessageRevoke.js";
     import MessageRead from "{{ .AppBasePath }}/components/MessageRead.js";
+    import SendForward from "{{ .AppBasePath }}/components/SendForward.js";
     import GroupList from "{{ .AppBasePath }}/components/GroupList.js";
     import GroupCreate from "{{ .AppBasePath }}/components/GroupCreate.js";
     import GroupJoinWithLink from "{{ .AppBasePath }}/components/GroupJoinWithLink.js";
@@ -282,7 +284,7 @@
         components: {
             AppLogin, AppLoginWithCode, AppLogout, AppReconnect,
             SendMessage, SendImage, SendFile, SendVideo, SendSticker, SendLink, SendContact, SendLocation, SendAudio, SendPoll, SendPresence, SendChatPresence,
-            MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead,
+            MessageDelete, MessageUpdate, MessageReact, MessageRevoke, MessageRead, SendForward,
             GroupList, GroupCreate, GroupJoinWithLink, GroupInfoFromLink, GroupAddParticipants, GroupSetPhoto, GroupSetName, GroupSetLocked, GroupSetAnnounce, GroupSetTopic, GroupGetInviteLink, GroupInfo,
             NewsletterList,
             AccountAvatar, AccountUserInfo, AccountPrivacy, AccountChangeAvatar, AccountContact, AccountChangePushName, AccountUserCheck, AccountBusinessProfile,
