@@ -79,6 +79,45 @@ WHATSAPP_WEBHOOK_EVENTS=group.participants,group.joined,newsletter.joined,newsle
 - If configured, only the specified events are forwarded to webhooks
 - Event names are case-insensitive
 
+### Ignoring chats/JIDs
+
+In addition to filtering by **event type** above, you can skip events by **conversation or sender JID** —
+for example, to mute all group traffic from the webhook. This is independent of `WHATSAPP_WEBHOOK_EVENTS`
+(the two filters compose: an event is forwarded only if its type is allowed **and** its JID is not ignored).
+
+**Environment Variable:**
+
+```bash
+# Drop all group messages/receipts (any chat_id ending in @g.us)
+WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us
+
+# Drop all groups plus one specific 1:1 chat
+WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
+```
+
+**CLI Flag:**
+
+```bash
+./whatsapp rest --webhook="https://yourapp.com/webhook" --webhook-ignore-jids="@g.us"
+```
+
+**Behavior:**
+
+- Matches the event's `chat_id`, `from`, `chat_lid` or `from_lid` against the list (so an `@lid`
+  pattern matches LID-migrated events, whose `@lid` JID lives in the `*_lid` fields).
+- An `@`-prefixed entry is an address-space **wildcard** (`@g.us`, `@s.whatsapp.net`, `@lid`); any other
+  entry is an **exact** JID match.
+- Empty/unset (default) forwards everything.
+- Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
+- `@g.us` is the recommended way to mute groups (it matches the group `chat_id`). The
+  `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
+  `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific
+  1:1 chats.
+- Note: a few events carry the group JID elsewhere or omit `chat_id` — `call.offer` puts the group in
+  `group_jid` (not `chat_id`), `message.deleted` only includes `chat_id` when the original message is
+  found locally, and `group.participants`/`group.joined` have no `from`. The `@g.us` wildcard still
+  covers ordinary group messages and receipts (which is the common case for muting groups).
+
 ## Security
 
 ### HMAC Signature Verification
