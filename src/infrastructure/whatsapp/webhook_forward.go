@@ -94,7 +94,8 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		webhookConfig = nil
 	}
 
-	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig)
+	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig) &&
+		!shouldIgnoreWebhookJID(payload)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
@@ -190,6 +191,33 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 		return false
 	}
 	return len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+}
+
+// shouldIgnoreWebhookJID reports whether an event should be skipped for WHATSAPP_WEBHOOK
+// forwarding because its chat or sender JID matches WHATSAPP_WEBHOOK_IGNORE_JIDS (e.g. the
+// "@g.us" wildcard to drop all group traffic). The JID fields live in the nested inner
+// payload, so it descends one level. Both the resolved phone JIDs (chat_id/from) and the
+// LID forms (chat_lid/from_lid) are matched: a LID-migrated event keeps the @lid JID in the
+// *_lid fields while chat_id/from hold the resolved phone JID, so an "@lid" pattern (or an
+// exact ...@lid) only matches via the *_lid fields. It is a no-op when the ignore list is
+// empty, the inner payload is absent, or no JID matches — so events without a JID and the
+// default (no list configured) keep forwarding unchanged. This only gates the generic
+// webhook; the Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
+func shouldIgnoreWebhookJID(payload map[string]any) bool {
+	ignore := config.WhatsappWebhookIgnoreJids
+	if len(ignore) == 0 {
+		return false
+	}
+	data, ok := payload["payload"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
+		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, ignore) {
+			return true
+		}
+	}
+	return false
 }
 
 // addWebhookSessionID injects the operator-facing session id into a webhook
