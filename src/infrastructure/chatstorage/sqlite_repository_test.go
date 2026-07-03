@@ -90,6 +90,18 @@ func TestSQLiteRepositoryGetsDeviceWebhookConfigByJID(t *testing.T) {
 	}
 }
 
+func TestSQLiteRepositorySetDeviceWebhookConfigReturnsErrNoRowsForMissingDevice(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	webhookURL := "https://device-webhook.example.com"
+	err := repo.SetDeviceWebhookConfig("missing-device", &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL: &webhookURL,
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows for missing device, got %v", err)
+	}
+}
+
 func TestSQLiteRepositoryStoresUpdatesRemovesAndHydratesReactions(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 	deviceID := "device-a@s.whatsapp.net"
