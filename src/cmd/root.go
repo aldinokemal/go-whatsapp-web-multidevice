@@ -163,6 +163,12 @@ func initEnvConfig() {
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
+	// Outbound proxy for whatsmeow WebSocket. Standard HTTP_PROXY env does not
+	// apply to the underlying ws dialer; this binding plumbs the address into
+	// (*whatsmeow.Client).SetProxyAddress before Connect. See issue #581.
+	if envProxy := viper.GetString("whatsapp_proxy"); envProxy != "" {
+		config.WhatsappProxy = envProxy
+	}
 	if viper.IsSet("whatsapp_presence_pulse_enabled") {
 		config.WhatsappPresencePulseEnabled = viper.GetBool("whatsapp_presence_pulse_enabled")
 	}
@@ -391,6 +397,12 @@ func initFlags() {
 		"presence-on-connect", "",
 		config.WhatsappPresenceOnConnect,
 		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappProxy,
+		"whatsapp-proxy", "",
+		config.WhatsappProxy,
+		`outbound proxy for the WhatsApp WebSocket dialer --whatsapp-proxy <string> | example: --whatsapp-proxy="socks5://user:pass@host:1080"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappPresencePulseEnabled,
