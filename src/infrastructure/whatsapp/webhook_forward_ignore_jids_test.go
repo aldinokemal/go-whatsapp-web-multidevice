@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
 // ignoreJidPayload builds a webhook envelope with the nested inner payload where chat_id/from
@@ -39,7 +40,7 @@ func runIgnoreJidForward(t *testing.T, ignoreJids []string, eventName string, pa
 
 	called := false
 	originalSubmit := submitWebhookFn
-	submitWebhookFn = func(context.Context, map[string]any, string) error {
+	submitWebhookFn = func(context.Context, map[string]any, string, *domainChatStorage.DeviceWebhookConfig) error {
 		called = true
 		return nil
 	}

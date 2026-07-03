@@ -1163,6 +1163,38 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 	return rec, nil
 }
 
+// GetDeviceRecordByJID fetches a device registration by WhatsApp JID.
+func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
+	if strings.TrimSpace(jid) == "" {
+		return nil, fmt.Errorf("jid is required")
+	}
+
+	rec := &domainChatStorage.DeviceRecord{}
+	err := r.db.QueryRow(`
+		SELECT device_id, display_name, jid, webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
+		FROM devices
+		WHERE jid = ?
+		LIMIT 1
+	`, jid).Scan(
+		&rec.DeviceID,
+		&rec.DisplayName,
+		&rec.JID,
+		&rec.WebhookURL,
+		&rec.WebhookSecret,
+		&rec.WebhookEvents,
+		&rec.WebhookInsecureSkipVerify,
+		&rec.CreatedAt,
+		&rec.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
 // DeleteDeviceRecord removes a device registration entry.
 func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	if strings.TrimSpace(deviceID) == "" {
@@ -1170,6 +1202,108 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	}
 	_, err := r.db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID)
 	return err
+}
+
+// SetDeviceWebhookURL updates or clears the webhook URL for a device.
+// Use nil for webhookURL to clear the device-specific webhook (forces fallback to global).
+// Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	result, err := r.db.Exec(`
+		UPDATE devices SET webhook_url = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, time.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetDeviceWebhookURL retrieves the configured webhook URL for a device.
+// Returns (*string, nil) with the URL if set, (nil, nil) if no device-specific webhook is configured,
+// or (nil, error) on storage errors. Empty string in database is treated as nil (no override).
+func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var webhookURL string
+	err := r.db.QueryRow(`
+		SELECT COALESCE(webhook_url, '') FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if webhookURL == "" {
+		return nil, nil
+	}
+	return &webhookURL, nil
+}
+
+// SetDeviceWebhookConfig updates the complete webhook configuration for a device.
+// Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domainChatStorage.DeviceWebhookConfig) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	if config == nil {
+		return fmt.Errorf("webhook config is required")
+	}
+
+	var webhookURL *string
+	if config.WebhookURL != nil && *config.WebhookURL != "" {
+		webhookURL = config.WebhookURL
+	}
+
+	result, err := r.db.Exec(`
+		UPDATE devices
+		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, time.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
+// Returns (nil, nil) if no device-specific webhook configuration is set.
+func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var config domainChatStorage.DeviceWebhookConfig
+	var webhookURL *string
+	err := r.db.QueryRow(`
+		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
+		FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	config.WebhookURL = webhookURL
+	return &config, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -2109,5 +2243,17 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 30: Store WhatsApp media direct paths for downloads
 		`ALTER TABLE messages ADD COLUMN direct_path TEXT DEFAULT ''`,
+
+		// Migration 31: Store per-device webhook URL overrides
+		`ALTER TABLE devices ADD COLUMN webhook_url TEXT DEFAULT NULL`,
+
+		// Migration 32: Store per-device webhook signature secret
+		`ALTER TABLE devices ADD COLUMN webhook_secret TEXT DEFAULT ''`,
+
+		// Migration 33: Store per-device webhook event allow-list
+		`ALTER TABLE devices ADD COLUMN webhook_events TEXT DEFAULT ''`,
+
+		// Migration 34: Store per-device webhook TLS verification override
+		`ALTER TABLE devices ADD COLUMN webhook_insecure_skip_verify BOOLEAN DEFAULT FALSE`,
 	}
 }

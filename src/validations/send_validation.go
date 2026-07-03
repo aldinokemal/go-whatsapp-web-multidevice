@@ -518,3 +518,24 @@ func ValidateSendChatPresence(ctx context.Context, request domainSend.ChatPresen
 
 	return nil
 }
+
+func ValidateForwardMessage(ctx context.Context, request domainSend.ForwardRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.Phone, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	if err := validatePhoneNumber(request.Phone); err != nil {
+		return err
+	}
+
+	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	return nil
+}

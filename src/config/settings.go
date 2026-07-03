@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v8.8.0"
+	AppVersion             = "v8.10.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -45,6 +45,7 @@ var (
 	WhatsappTypeUser                           = "@s.whatsapp.net"
 	WhatsappTypeGroup                          = "@g.us"
 	WhatsappTypeLid                            = "@lid"
+	WhatsappTypeNewsletter                     = "@newsletter"
 	WhatsappAccountValidation                  = true
 	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
 	WhatsappPresencePulseEnabled               = true          // Periodically pulse presence available, then unavailable
@@ -54,6 +55,7 @@ var (
 	ChatStorageURI               = "file:storages/chatstorage.db"
 	ChatStorageEnableForeignKeys = true
 	ChatStorageEnableWAL         = true
+	ChatStorageMaxOpenConns      = 5 // Max concurrent SQLite connections for chat storage (WAL allows concurrent readers + 1 writer)
 
 	ChatwootEnabled   = false
 	ChatwootURL       = ""
