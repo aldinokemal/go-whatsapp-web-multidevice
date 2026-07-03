@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.3.1
+  version: 8.9.0
   description: |
     This API is used for sending whatsapp via API.
 
@@ -35,6 +35,29 @@ security:
   - basicAuth: []
 
 paths:
+  /health:
+    get:
+      operationId: health
+      tags:
+        - app
+      summary: Health check
+      description: Public health probe registered at `/health`; it is not prefixed by `APP_BASE_PATH`.
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+        '503':
+          description: Service unavailable
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Service Unavailable
   /app/login:
     get:
       operationId: appLogin
@@ -444,8 +467,14 @@ paths:
       operationId: loginDevice
       tags:
         - device
-      summary: Login device with QR code
-      description: Initiate QR code login for a specific device
+      summary: Reserved device QR login route (not implemented)
+      deprecated: true
+      description: |
+        This route is registered, but the current usecase returns
+        "device login per ID is not implemented yet".
+
+        To pair a specific device slot today, call `GET /app/login` with
+        `X-Device-Id: <device_id>` or `?device_id=<device_id>`.
       parameters:
         - name: device_id
           in: path
@@ -454,12 +483,6 @@ paths:
             type: string
           description: Device ID
       responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LoginResponse'
         '404':
           description: Device not found
           content:
@@ -467,7 +490,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
-          description: Internal Server Error
+          description: Not implemented by the current usecase
           content:
             application/json:
               schema:
@@ -478,8 +501,14 @@ paths:
       operationId: loginDeviceWithCode
       tags:
         - device
-      summary: Login device with pairing code
-      description: Initiate pairing code login for a specific device
+      summary: Reserved device pairing-code login route (not implemented)
+      deprecated: true
+      description: |
+        This route is registered, but the current usecase returns
+        "device login with code is not implemented yet".
+
+        To pair a specific device slot today, call `GET /app/login-with-code`
+        with `X-Device-Id: <device_id>` or `?device_id=<device_id>`.
       parameters:
         - name: device_id
           in: path
@@ -495,12 +524,6 @@ paths:
           example: '628912344551'
           description: Phone number to pair with
       responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LoginWithCodeResponse'
         '404':
           description: Device not found
           content:
@@ -508,7 +531,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
-          description: Internal Server Error
+          description: Not implemented by the current usecase
           content:
             application/json:
               schema:
@@ -624,8 +647,8 @@ paths:
       operationId: getDeviceWebhook
       tags:
         - device
-      summary: Get device webhook URL
-      description: Get the webhook URL configured for a specific device. Returns empty if no device-specific webhook is set.
+      summary: Get device webhook configuration
+      description: Get the webhook configuration for a specific device. Returns empty values if no device-specific webhook is set.
       parameters:
         - name: device_id
           in: path
@@ -661,6 +684,18 @@ paths:
                         type: string
                         description: The configured webhook URL (empty if not set)
                         example: 'https://example.com/webhook'
+                      webhook_secret:
+                        type: string
+                        description: Secret used to sign payloads for this device webhook
+                        example: 'super-secret-key'
+                      webhook_events:
+                        type: string
+                        description: Comma-separated event whitelist for this device webhook
+                        example: 'message,message.ack'
+                      webhook_insecure_skip_verify:
+                        type: boolean
+                        description: Whether TLS verification is skipped for this device webhook
+                        example: false
         '404':
           description: Device not found
           content:
@@ -677,10 +712,11 @@ paths:
       operationId: updateDeviceWebhook
       tags:
         - device
-      summary: Set device webhook URL
+      summary: Set device webhook configuration
       description: |
-        Set a custom webhook URL for a specific device. When set, webhook events for this device
-        will be sent to this URL instead of the global webhook URL.
+        Set a custom webhook configuration for a specific device. When set, webhook events for this device
+        will be sent to this URL instead of the global webhook URL. Device-level `webhook_secret`,
+        `webhook_events`, and `webhook_insecure_skip_verify` override the global webhook settings for this device.
 
         Set to empty string to clear and use the global webhook.
       parameters:
@@ -701,6 +737,18 @@ paths:
                   type: string
                   description: Custom webhook URL to use for this device. Set to empty string to clear.
                   example: 'https://example.com/webhook'
+                webhook_secret:
+                  type: string
+                  description: Optional secret used to sign payloads for this device webhook.
+                  example: 'super-secret-key'
+                webhook_events:
+                  type: string
+                  description: Optional comma-separated event whitelist for this device webhook. Empty means all events.
+                  example: 'message,message.ack'
+                webhook_insecure_skip_verify:
+                  type: boolean
+                  description: Optional. Skip TLS certificate verification for this device webhook.
+                  example: false
               required:
                 - webhook_url
       responses:
@@ -731,6 +779,18 @@ paths:
                         type: string
                         description: The configured webhook URL
                         example: 'https://example.com/webhook'
+                      webhook_secret:
+                        type: string
+                        description: Secret used to sign payloads for this device webhook
+                        example: 'super-secret-key'
+                      webhook_events:
+                        type: string
+                        description: Comma-separated event whitelist for this device webhook
+                        example: 'message,message.ack'
+                      webhook_insecure_skip_verify:
+                        type: boolean
+                        description: Whether TLS verification is skipped for this device webhook
+                        example: false
         '400':
           description: Bad Request
           content:
@@ -1102,8 +1162,8 @@ paths:
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
                 mentions:
                   type: array
                   items:
@@ -1175,8 +1235,8 @@ paths:
                   description: Compress image
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1226,6 +1286,10 @@ paths:
                   type: string
                   example: https://example.com/audio.mp3
                   description: Audio URL to send
+                ptt:
+                  type: boolean
+                  example: false
+                  description: Send as a WhatsApp voice note. When true, ffmpeg is required to transcode to OGG Opus.
                 reply_message_id:
                   type: string
                   example: 3EB089B9D6ADD58153C561
@@ -1236,8 +1300,8 @@ paths:
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
       responses:
         '200':
           description: OK
@@ -1287,14 +1351,18 @@ paths:
                   type: string
                   format: binary
                   description: File to send
+                file_url:
+                  type: string
+                  example: https://example.com/document.pdf
+                  description: File URL to download and send
                 is_forwarded:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
       responses:
         '200':
           description: OK
@@ -1343,8 +1411,8 @@ paths:
                   description: URL of sticker image to send
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1416,8 +1484,8 @@ paths:
                   description: Display video as GIF (looping, silent, autoplay)
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1473,8 +1541,8 @@ paths:
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
       responses:
         '200':
           description: OK
@@ -1526,8 +1594,8 @@ paths:
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
       responses:
         '200':
           description: OK
@@ -1579,8 +1647,8 @@ paths:
                   description: Whether this is a forwarded message
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
       responses:
         '200':
           description: OK
@@ -1635,8 +1703,8 @@ paths:
                   example: 2
                 duration:
                   type: integer
-                  example: 3600
-                  description: Disappearing message duration in seconds (optional)
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
               required:
                 - phone
                 - question
@@ -2347,75 +2415,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatMessagesResponse'
-        '400':
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorBadRequest'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorUnauthorized'
-        '404':
-          description: Chat Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorNotFound'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
-  /chat/{chat_jid}/label:
-    post:
-      operationId: labelChat
-      tags:
-        - chat
-      summary: Label or unlabel a chat
-      description: Apply or remove a label from a chat conversation
-      parameters:
-        - $ref: '#/components/parameters/DeviceIdHeader'
-        - in: path
-          name: chat_jid
-          schema:
-            type: string
-          required: true
-          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
-          example: '6289685028129@s.whatsapp.net'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                label_id:
-                  type: string
-                  example: 'label_123'
-                  description: Unique identifier for the label
-                label_name:
-                  type: string
-                  example: 'Important'
-                  description: Display name for the label
-                labeled:
-                  type: boolean
-                  example: true
-                  description: Whether to apply (true) or remove (false) the label
-              required:
-                - label_id
-                - label_name
-                - labeled
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LabelChatResponse'
         '400':
           description: Bad Request
           content:
@@ -4066,7 +4065,41 @@ components:
           type: integer
           example: 200
         results:
-          $ref: '#/components/schemas/DeviceInfo'
+          type: object
+          properties:
+            id:
+              type: string
+              example: 'my-device-id'
+            display_name:
+              type: string
+              example: 'John Doe'
+            state:
+              type: string
+              enum: [disconnected, connecting, connected, logged_in]
+              example: 'disconnected'
+            jid:
+              type: string
+              example: '628123456789@s.whatsapp.net'
+            created_at:
+              type: string
+              format: date-time
+              example: '2024-01-01T00:00:00Z'
+            webhook_url:
+              type: string
+              description: Device-specific webhook URL echoed when provided on create
+              example: 'https://device-webhook.example.com/handler'
+            webhook_secret:
+              type: string
+              description: Device-specific webhook secret echoed when provided on create
+              example: 'super-secret-key'
+            webhook_events:
+              type: string
+              description: Device-specific event whitelist echoed when provided on create
+              example: 'message,message.ack'
+            webhook_insecure_skip_verify:
+              type: boolean
+              description: Device-specific TLS verification setting echoed when provided on create
+              example: false
     DeviceInfoResponse:
       type: object
       properties:
@@ -4119,15 +4152,11 @@ components:
           example: 'John Doe'
         state:
           type: string
-          enum: [disconnected, connected, logged_in]
+          enum: [disconnected, connecting, connected, logged_in]
           example: 'logged_in'
         jid:
           type: string
           example: '628123456789@s.whatsapp.net'
-        webhook_url:
-          type: string
-          description: Device-specific webhook URL (empty if not set)
-          example: 'https://device-webhook.example.com/handler'
         created_at:
           type: string
           format: date-time
@@ -4805,34 +4834,6 @@ components:
           format: date-time
           example: '2024-01-15T10:31:00Z'
           description: When the reaction was received
-
-    LabelChatResponse:
-      type: object
-      properties:
-        code:
-          type: string
-          example: SUCCESS
-        message:
-          type: string
-          example: Chat labeled successfully with label 'Important'
-        results:
-          type: object
-          properties:
-            status:
-              type: string
-              example: success
-            message:
-              type: string
-              example: Chat labeled successfully with label 'Important'
-            chat_jid:
-              type: string
-              example: '6289685028129@s.whatsapp.net'
-            label_id:
-              type: string
-              example: 'label_123'
-            labeled:
-              type: boolean
-              example: true
 
     PinChatResponse:
       type: object

@@ -31,10 +31,10 @@ Add per-device webhook support where each device can have its own webhook URL. I
 │  webhook_forward.go :: forwardPayloadToConfiguredWebhooks()                 │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │  STEP 1: Extract device JID from payload["device_id"]                │  │
-│  │  STEP 2: Call getWebhookURLsForDevice(deviceJID)                      │  │
+│  │  STEP 2: Call getWebhookConfigForDevice(deviceJID)                    │  │
 │  │          - Looks up device record by JID                              │  │
-│  │          - If device has custom webhook_url, return it only           │  │
-│  │          - Otherwise return global config.WhatsappWebhook              │  │
+│  │          - If device has custom webhook_url, return device config      │  │
+│  │          - Otherwise return global config.WhatsappWebhook settings     │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -43,15 +43,15 @@ Add per-device webhook support where each device can have its own webhook URL. I
                     │                               │
                     ▼                               ▼
          ┌──────────────────┐           ┌────────────────────────┐
-         │ Device has custom │           │ Device webhook is NULL │
-         │ webhook_url?      │           │ or empty?               │
+         │ Device has custom │           │ Device webhook URL is  │
+         │ webhook config?   │           │ NULL or empty?          │
          └──────────────────────┘           └─────────────────────────┘
                     │                               │
               YES   │                               │ YES
                     ▼                               ▼
     ┌────────────────────────┐           ┌─────────────────────────┐
-    │ Use device webhook URL │           │ Use global config       │
-    │ (override global)     │           │ WhatsappWebhook[]       │
+    │ Use device webhook    │           │ Use global config       │
+    │ config (override)     │           │ WhatsappWebhook[]       │
     └────────────────────────┘           └─────────────────────────┘
                     │                               │
                     └───────────────┬───────────────┘
@@ -80,11 +80,12 @@ Add per-device webhook support where each device can have its own webhook URL. I
 Client                    REST API                    UseCase                  Repository
   │                          │                           │                          │
   │ PATCH /devices/:id/webhook│                          │                          │
-  │ { "webhook_url": "..." } │                           │                          │
+  │ { "webhook_url": "...",  │                           │                          │
+  │   "webhook_secret": "..."}                           │                          │
   │─────────────────────────>│                           │                          │
-  │                          │ SetDeviceWebhook()         │                          │
+  │                          │ SetDeviceWebhookConfig()   │                          │
   │                          │──────────────────────────>│                          │
-  │                          │                           │ SetDeviceWebhookURL()    │
+  │                          │                           │ SetDeviceWebhookConfig() │
   │                          │                           │────────────────────────>│
   │                          │                           │                          │
   │                          │                           │                          │
@@ -97,14 +98,14 @@ Client                    REST API                    UseCase                  R
 
 | File | Change |
 |------|--------|
-| `domains/chatstorage/chatstorage.go` | Added `WebhookURL *string` to `DeviceRecord` struct |
-| `domains/chatstorage/interfaces.go` | Added `GetDeviceRecordByJID`, `SetDeviceWebhookURL`, `GetDeviceWebhookURL` |
-| `infrastructure/chatstorage/sqlite_repository.go` | Added migration #17, updated queries, implemented new methods |
+| `domains/chatstorage/chatstorage.go` | Added webhook URL, secret, event whitelist, and TLS-skip fields plus `DeviceWebhookConfig` |
+| `domains/chatstorage/interfaces.go` | Added `GetDeviceRecordByJID`, URL-only helpers, and full webhook config helpers |
+| `infrastructure/chatstorage/sqlite_repository.go` | Added migrations #31-#34, updated queries, implemented new methods |
 | `infrastructure/whatsapp/chatstorage_wrapper.go` | Added wrapper methods for new interface methods |
-| `infrastructure/whatsapp/webhook_forward.go` | Added `getWebhookURLsForDevice()`, updated forwarding logic |
+| `infrastructure/whatsapp/webhook_forward.go` | Added `getWebhookConfigForDevice()`, device event filtering, and updated forwarding logic |
 | `infrastructure/whatsapp/device_manager.go` | Added `GetStorage()` method |
-| `domains/device/interfaces.go` | Added `SetDeviceWebhook`, `GetDeviceWebhook` to `IDeviceUsecase` |
-| `usecase/device.go` | Implemented `SetDeviceWebhook`, `GetDeviceWebhook` |
+| `domains/device/interfaces.go` | Added URL-only and full-config webhook methods to `IDeviceUsecase` |
+| `usecase/device.go` | Implemented URL-only and full-config webhook methods |
 | `ui/rest/device.go` | Added `PATCH /devices/:device_id/webhook`, `GET /devices/:device_id/webhook` |
 | `infrastructure/whatsapp/webhook_forward_test.go` | Added per-device webhook tests |
 | `usecase/device_test.go` | Added device service tests |
@@ -112,38 +113,45 @@ Client                    REST API                    UseCase                  R
 
 ## Database Changes
 
-**Migration #17** adds `webhook_url TEXT DEFAULT ''` column to `devices` table.
+Migrations #31-#34 add the per-device webhook fields to the `devices` table:
+
+- `webhook_url TEXT DEFAULT NULL`
+- `webhook_secret TEXT DEFAULT ''`
+- `webhook_events TEXT DEFAULT ''`
+- `webhook_insecure_skip_verify BOOLEAN DEFAULT FALSE`
 
 ## API Endpoints
 
-- `PATCH /devices/{device_id}/webhook` - Set device-specific webhook URL
-  - Body: `{ "webhook_url": "https://example.com/webhook" }`
+- `PATCH /devices/{device_id}/webhook` - Set device-specific webhook configuration
+  - Body: `{ "webhook_url": "https://example.com/webhook", "webhook_secret": "secret", "webhook_events": "message,message.ack", "webhook_insecure_skip_verify": false }`
   - Set to empty string `""` to clear and use global webhook
 
-- `GET /devices/{device_id}/webhook` - Get device-specific webhook URL
-  - Returns empty string if not set (use global)
+- `GET /devices/{device_id}/webhook` - Get device-specific webhook configuration
+  - Returns empty values if not set (use global)
 
 ## Testing
 
 ### Unit Tests
 
 **`infrastructure/whatsapp/webhook_forward_test.go`:**
-- `TestGetWebhookURLsForDevice_NoDeviceJID` - Returns global webhook when device JID is empty
-- `TestGetWebhookURLsForDevice_DeviceNotFound` - Falls back to global when device not found
-- `TestGetWebhookURLsForDevice_FallbackToGlobal` - Falls back to global when device has no custom webhook
+- `TestGetWebhookConfigForDevice_NoDeviceID` - Returns global webhook config when device JID is empty
+- `TestGetWebhookConfigForDevice_DeviceNotFound` - Falls back to global when device not found
+- `TestGetWebhookConfigForDevice_FallbackToGlobal` - Falls back to global when device has no custom webhook
+- `TestGetWebhookConfigForDevice_DeviceSpecificOverride` - Uses the full device-specific webhook config when set
 - `TestForwardPayloadToConfiguredWebhooks_WithDeviceSpecificWebhook` - Uses device-specific webhook when set
 - `TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlobal` - Falls back to global when device webhook is cleared
+- `TestForwardPayloadToConfiguredWebhooks_DeviceWebhookOnly_NoGlobal` - Uses device-specific webhook with no global webhook
+- `TestSQLiteRepositoryGetsDeviceWebhookConfigByJID` - Persists and resolves the full device webhook config
+- `TestAddDevice_ForwardsFullWebhookConfig` - Accepts full webhook config when creating a device
 
 **`usecase/device_test.go`:**
 - `TestDeviceServiceInterface` - Verifies interface implementation
 - `TestSetDeviceWebhook_InvalidManager` - Error handling for nil manager
 - `TestGetDeviceWebhook_InvalidManager` - Error handling for nil manager
-- `TestGetDeviceWebhook_DeviceNotFound` - Error handling for missing device
-- `TestSetDeviceWebhook_DeviceNotFound` - Error handling for missing device
 
 ## OpenAPI Documentation
 
 Added to `docs/openapi.yaml`:
 
-- `GET /devices/{device_id}/webhook` - Get device webhook URL
-- `PATCH /devices/{device_id}/webhook` - Set device webhook URL
+- `GET /devices/{device_id}/webhook` - Get device webhook configuration
+- `PATCH /devices/{device_id}/webhook` - Set device webhook configuration
