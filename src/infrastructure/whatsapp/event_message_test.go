@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -77,6 +78,40 @@ func TestBuildEventPayloadRevokedIncludesIsFromMe(t *testing.T) {
 		t.Fatalf("expected is_from_me in payload")
 	} else if isFromMe, ok := value.(bool); !ok || !isFromMe {
 		t.Fatalf("expected is_from_me=true, got %v", value)
+	}
+}
+
+func TestBuildEventPayloadReactionIncludesTargetMessageID(t *testing.T) {
+	evt := reactionEventForTest("reaction-event-1", "MSG100", "\U0001f44d")
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageReaction {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageReaction, eventType)
+	}
+	if got := payload["reaction"]; got != "\U0001f44d" {
+		t.Fatalf("expected reaction payload, got %v", got)
+	}
+	if got := payload["reacted_message_id"]; got != "MSG100" {
+		t.Fatalf("expected reacted message id MSG100, got %v", got)
+	}
+}
+
+func TestBuildEventPayloadReactionWithoutKeyDoesNotPanic(t *testing.T) {
+	evt := reactionEventForTest("reaction-event-2", "MSG101", "\U0001f44d")
+	evt.Message.ReactionMessage.Key = nil
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if eventType != EventTypeMessageReaction {
+		t.Fatalf("expected event type %s, got %s", EventTypeMessageReaction, eventType)
+	}
+	if _, ok := payload["reacted_message_id"]; ok {
+		t.Fatalf("expected no reacted_message_id when reaction key is missing")
 	}
 }
 
@@ -223,6 +258,76 @@ func TestBuildEventPayloadDocumentWithCaption(t *testing.T) {
 	}
 	if body != "Important document" {
 		t.Fatalf("expected body='Important document', got %v", body)
+	}
+}
+
+func TestBuildEventPayloadQuotedBodyUsesQuotedCaption(t *testing.T) {
+	oldAutoDownload := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() {
+		config.WhatsappAutoDownloadMedia = oldAutoDownload
+	})
+
+	tests := []struct {
+		name           string
+		quotedMessage  func(*string) *waE2E.Message
+		wantQuotedBody string
+	}{
+		{
+			name: "uses quoted image caption",
+			quotedMessage: func(caption *string) *waE2E.Message {
+				return &waE2E.Message{
+					ImageMessage: &waE2E.ImageMessage{
+						Caption: caption,
+					},
+				}
+			},
+			wantQuotedBody: "Launch checklist",
+		},
+		{
+			name: "uses quoted document caption",
+			quotedMessage: func(caption *string) *waE2E.Message {
+				return &waE2E.Message{
+					DocumentMessage: &waE2E.DocumentMessage{
+						Caption: caption,
+					},
+				}
+			},
+			wantQuotedBody: "Project brief",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			replyText := "Thanks for the update"
+			quotedCaption := tt.wantQuotedBody
+			evt := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:     types.NewJID("123", types.DefaultUserServer),
+						Sender:   types.NewJID("456", types.DefaultUserServer),
+						IsFromMe: false,
+					},
+					ID:        "MSG206",
+					Timestamp: time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+				},
+				Message: &waE2E.Message{
+					ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+						Text: &replyText,
+						ContextInfo: &waE2E.ContextInfo{
+							StanzaID:      protoString("QUOTE206"),
+							QuotedMessage: tt.quotedMessage(&quotedCaption),
+						},
+					},
+				},
+			}
+
+			eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+			assert.NoError(t, err)
+			assert.Equal(t, EventTypeMessage, eventType)
+			assert.Contains(t, payload, "quoted_body")
+			assert.Equal(t, tt.wantQuotedBody, payload["quoted_body"])
+		})
 	}
 }
 

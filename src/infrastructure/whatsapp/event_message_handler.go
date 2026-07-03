@@ -11,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -24,6 +25,22 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 		strings.Join(metaParts, ", "),
 		evt.Message,
 	)
+
+	// Materialize SecretEncryptedMessage{MESSAGE_EDIT} envelope (sent by recent
+	// LID-migrated WhatsApp clients) into the legacy ProtocolMessage{MESSAGE_EDIT}
+	// form, so chat storage, webhook, and auto-reply all use the existing
+	// edit-handling paths unchanged. No-op when the envelope is absent or when
+	// decryption fails.
+	evt = materializeSecretEditMessage(ctx, evt, client)
+
+	if isReactionMessage(evt) {
+		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
+			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+		}
+
+		handleWebhookForward(ctx, evt, client)
+		return
+	}
 
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
@@ -99,6 +116,38 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 	}
 }
 
+// materializeSecretEditMessage decrypts a SecretEncryptedMessage{MESSAGE_EDIT}
+// envelope into its inner ProtocolMessage{MESSAGE_EDIT} form so downstream
+// consumers (chat storage, webhook payload builder, auto-reply) can rely on
+// the legacy edit-handling code paths unchanged. Returns the original event
+// when no envelope is present, when the client is nil, or when decryption
+// fails — preserving existing behavior in every other case.
+func materializeSecretEditMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) *events.Message {
+	if evt == nil || evt.Message == nil || client == nil {
+		return evt
+	}
+	msg := utils.UnwrapMessage(evt.Message)
+	sem := msg.GetSecretEncryptedMessage()
+	if sem == nil || sem.GetSecretEncType() != waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
+		return evt
+	}
+	decrypted, err := client.DecryptSecretEncryptedMessage(ctx, evt)
+	if err != nil {
+		targetID := ""
+		if k := sem.GetTargetMessageKey(); k != nil {
+			targetID = k.GetID()
+		}
+		log.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s (target=%s): %v", evt.Info.ID, targetID, err)
+		return evt
+	}
+	if decrypted == nil {
+		return evt
+	}
+	cloned := *evt
+	cloned.Message = decrypted
+	return &cloned
+}
+
 func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
 	// Skip webhook for protocol messages that are internal sync messages
 	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
@@ -114,14 +163,21 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 		}
 	}
 
-	if (len(config.WhatsappWebhook) > 0 || config.ChatwootEnabled) &&
-		!strings.Contains(evt.Info.SourceString(), "broadcast") {
-		go func(e *events.Message, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
-				logrus.Error("Failed forward to webhook: ", err)
-			}
-		}(evt, client)
+	// Broadcast/status messages are never forwarded, regardless of Chatwoot:
+	// the Chatwoot pipeline rejects status@broadcast (a relayed status post
+	// would only spawn a noise "Status" contact), and plain webhook consumers
+	// must not receive broadcast noise just because Chatwoot is enabled.
+	if strings.Contains(evt.Info.SourceString(), "broadcast") {
+		return
 	}
+
+	// Forward to webhook if any webhook is configured (global or per-device)
+	// The forwardPayloadToConfiguredWebhooks function itself handles the no-op case
+	go func(e *events.Message, c *whatsmeow.Client) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
+			logrus.Error("Failed forward to webhook: ", err)
+		}
+	}(evt, client)
 }

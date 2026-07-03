@@ -1,7 +1,11 @@
 package utils_test
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,6 +229,49 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 	assert.Equal(suite.T(), "Image Test", meta.Title)
 	assert.Contains(suite.T(), meta.Image, "/invalid.jpg")
 	// Image download may fail but meta should still be extracted
+}
+
+func (suite *UtilsTestSuite) TestGetMetaDataFromURLNormalizesLinkPreviewThumbnails() {
+	source := image.NewRGBA(image.Rect(0, 0, 1200, 800))
+	for y := 0; y < source.Bounds().Dy(); y++ {
+		for x := 0; x < source.Bounds().Dx(); x++ {
+			source.Set(x, y, color.RGBA{R: uint8(x % 255), G: uint8(y % 255), B: 180, A: 255})
+		}
+	}
+
+	var pngBuffer bytes.Buffer
+	assert.NoError(suite.T(), png.Encode(&pngBuffer, source))
+
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/preview.png" {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(pngBuffer.Bytes())
+			return
+		}
+		w.Write([]byte(`<!DOCTYPE html><html><head><title>Preview</title><meta property='og:image' content='` + serverURL + `/preview.png'></head><body></body></html>`))
+	}))
+	serverURL = server.URL
+	defer server.Close()
+
+	meta, err := utils.GetMetaDataFromURL(server.URL)
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), serverURL+"/preview.png", meta.Image)
+	assert.NotEmpty(suite.T(), meta.ImageThumb)
+	assert.NotEmpty(suite.T(), meta.JPEGThumb)
+	assert.Equal(suite.T(), "image/jpeg", http.DetectContentType(meta.ImageThumb))
+	assert.Equal(suite.T(), "image/jpeg", http.DetectContentType(meta.JPEGThumb))
+
+	previewImage, _, err := image.Decode(bytes.NewReader(meta.ImageThumb))
+	assert.NoError(suite.T(), err)
+	assert.LessOrEqual(suite.T(), previewImage.Bounds().Dx(), 1024)
+	assert.LessOrEqual(suite.T(), previewImage.Bounds().Dy(), 1024)
+
+	inlineImage, _, err := image.Decode(bytes.NewReader(meta.JPEGThumb))
+	assert.NoError(suite.T(), err)
+	assert.LessOrEqual(suite.T(), inlineImage.Bounds().Dx(), 400)
+	assert.LessOrEqual(suite.T(), inlineImage.Bounds().Dy(), 400)
+	assert.NotEqual(suite.T(), meta.ImageThumb, meta.JPEGThumb)
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURL() {

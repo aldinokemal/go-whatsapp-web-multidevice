@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
@@ -22,6 +23,33 @@ type serviceChat struct {
 func NewChatService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainChat.IChatUsecase {
 	return &serviceChat{
 		chatStorageRepo: chatStorageRepo,
+	}
+}
+
+// chatDisplayName returns a human-readable name for a chat, falling back to a
+// JID-derived label when the stored name is empty. Some chats are persisted
+// before a pushname/group subject is known (or with stale empty names), which
+// otherwise surfaces as a blank "name" in the chat list and makes the sender
+// impossible to identify (issue #675). The fallback mirrors the storage-layer
+// convention in GetChatNameWithPushName: "Status" for status@broadcast, phone
+// number for 1:1, "Group <id>" / "Newsletter <id>" for those address spaces.
+func chatDisplayName(jid, name string) string {
+	if name != "" {
+		return name
+	}
+	// Mirror the storage-layer contract (GetChatNameWithPushNameByDevice):
+	// status@broadcast is always titled "Status", never its lowercase JID local part.
+	if jid == "status@broadcast" {
+		return "Status"
+	}
+	user := utils.ExtractPhoneFromJID(jid)
+	switch {
+	case utils.IsGroupJID(jid):
+		return "Group " + user
+	case strings.HasSuffix(jid, "@newsletter"):
+		return "Newsletter " + user
+	default:
+		return user
 	}
 }
 
@@ -60,7 +88,7 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 	for _, chat := range chats {
 		chatInfo := domainChat.ChatInfo{
 			JID:                 chat.JID,
-			Name:                chat.Name,
+			Name:                chatDisplayName(chat.JID, chat.Name),
 			LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
 			EphemeralExpiration: chat.EphemeralExpiration,
 			CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
@@ -105,7 +133,24 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		return response, err
 	}
 	if chat == nil {
-		return response, fmt.Errorf("chat with JID %s not found", request.ChatJID)
+		// The chat row has not been persisted for this device yet — e.g. a
+		// conversation that has only just started, or messages received
+		// before the chat record was upserted. Returning an error here makes
+		// the endpoint respond with HTTP 500 for what is really an empty
+		// chat, so callers that poll a not-yet-stored conversation get a
+		// hard failure instead of an empty list. Treat it as "no messages
+		// yet" and return a valid empty response instead.
+		response.Data = make([]domainChat.MessageInfo, 0)
+		response.Pagination = domainChat.PaginationResponse{
+			Limit:  request.Limit,
+			Offset: request.Offset,
+			Total:  0,
+		}
+		response.ChatInfo = domainChat.ChatInfo{
+			JID:  request.ChatJID,
+			Name: chatDisplayName(request.ChatJID, ""),
+		}
+		return response, nil
 	}
 
 	// Create message filter from request
@@ -179,13 +224,24 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 			CreatedAt:    message.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:    message.UpdatedAt.Format(time.RFC3339),
 		}
+		if len(message.Reactions) > 0 {
+			messageInfo.Reactions = make([]domainChat.ReactionInfo, 0, len(message.Reactions))
+			for _, reaction := range message.Reactions {
+				messageInfo.Reactions = append(messageInfo.Reactions, domainChat.ReactionInfo{
+					Emoji:     reaction.Emoji,
+					SenderJID: reaction.ReactorJID,
+					IsFromMe:  reaction.IsFromMe,
+					Timestamp: reaction.Timestamp.Format(time.RFC3339),
+				})
+			}
+		}
 		messageInfos = append(messageInfos, messageInfo)
 	}
 
 	// Create chat info for response
 	chatInfo := domainChat.ChatInfo{
 		JID:                 chat.JID,
-		Name:                chat.Name,
+		Name:                chatDisplayName(chat.JID, chat.Name),
 		LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
 		EphemeralExpiration: chat.EphemeralExpiration,
 		CreatedAt:           chat.CreatedAt.Format(time.RFC3339),

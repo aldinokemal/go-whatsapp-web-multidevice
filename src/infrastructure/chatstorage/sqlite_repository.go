@@ -88,7 +88,7 @@ func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, media_key, file_sha256,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ?
@@ -101,6 +101,61 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	}
 
 	return message, err
+}
+
+// GetMessageByIDAndDevice retrieves a message by its ID scoped to a specific device,
+// so a message ID belonging to another device cannot be read from device-isolated flows.
+func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+		FROM messages
+		WHERE id = ? AND device_id = ?
+		LIMIT 1
+	`
+
+	message, err := r.scanMessage(r.db.QueryRow(query, id, deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	return message, err
+}
+
+// GetMessageEdits returns the edit history for a specific message.
+func (r *SQLiteRepository) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
+	query := `
+		SELECT original_message_id, edit_event_id, chat_jid, device_id, editor,
+			previous_content, new_content, edited_at, created_at
+		FROM message_edits
+		WHERE original_message_id = ?
+	`
+	args := []any{originalMessageID}
+	if strings.TrimSpace(deviceID) != "" {
+		query += " AND device_id = ?"
+		args = append(args, deviceID)
+	}
+	query += " ORDER BY edited_at ASC, created_at ASC"
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var edits []*domainChatStorage.MessageEdit
+	for rows.Next() {
+		var edit domainChatStorage.MessageEdit
+		if err := rows.Scan(
+			&edit.OriginalMessageID, &edit.EditEventID, &edit.ChatJID, &edit.DeviceID, &edit.Editor,
+			&edit.PreviousContent, &edit.NewContent, &edit.EditedAt, &edit.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		edits = append(edits, &edit)
+	}
+	return edits, rows.Err()
 }
 
 // buildChatFilterQuery constructs the shared WHERE clause and JOIN for chat filter queries.
@@ -189,7 +244,17 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ?", jid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ?", jid); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ?", jid); err != nil {
+		return err
+	}
+
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
 	if err != nil {
 		return err
@@ -212,7 +277,17 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
 	if err != nil {
 		return err
@@ -241,11 +316,11 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 	// Try update first, then insert if no rows affected (cross-db compatible)
 	result, err := r.db.Exec(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
-			media_type = ?, call_metadata = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
+			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
 			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`, message.Sender, message.Content, message.Timestamp, message.IsFromMe,
-		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
+		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath, message.MediaKey, message.FileSHA256,
 		message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
 		message.ID, message.ChatJID, message.DeviceID)
 	if err != nil {
@@ -257,12 +332,12 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 		_, err = r.db.Exec(`
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-				media_type, call_metadata, filename, url, media_key, file_sha256,
+				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
-			message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+			message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
 			message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
 	}
 	return err
@@ -283,7 +358,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	// Prepare statements for update and insert
 	updateStmt, err := tx.Prepare(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
-			media_type = ?, call_metadata = ?, filename = ?, url = ?, media_key = ?, file_sha256 = ?,
+			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
 			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`)
@@ -295,9 +370,9 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	insertStmt, err := tx.Prepare(`
 		INSERT INTO messages (
 			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, media_key, file_sha256,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
@@ -315,7 +390,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 
 		result, err := updateStmt.Exec(
 			message.Sender, message.Content, message.Timestamp, message.IsFromMe,
-			message.MediaType, message.CallMetadata, message.Filename, message.URL, message.MediaKey, message.FileSHA256,
+			message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath, message.MediaKey, message.FileSHA256,
 			message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
 			message.ID, message.ChatJID, message.DeviceID,
 		)
@@ -328,7 +403,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 			_, err = insertStmt.Exec(
 				message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 				message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
-				message.URL, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+				message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
 				message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt,
 			)
 			if err != nil {
@@ -338,6 +413,60 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	}
 
 	return tx.Commit()
+}
+
+// StoreReaction creates, updates, or removes a message reaction.
+func (r *SQLiteRepository) StoreReaction(reaction *domainChatStorage.Reaction) error {
+	if reaction == nil {
+		return nil
+	}
+	if reaction.MessageID == "" || reaction.ChatJID == "" || reaction.DeviceID == "" || reaction.ReactorJID == "" {
+		return fmt.Errorf("reaction requires message_id, chat_jid, device_id, and reactor_jid")
+	}
+	if reaction.Emoji == "" {
+		return r.DeleteReaction(reaction.MessageID, reaction.ReactorJID, reaction.DeviceID)
+	}
+
+	now := time.Now()
+	if reaction.CreatedAt.IsZero() {
+		reaction.CreatedAt = now
+	}
+	reaction.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE message_reactions
+		SET chat_jid = ?, emoji = ?, is_from_me = ?, reaction_timestamp = ?, updated_at = ?
+		WHERE message_id = ? AND reactor_jid = ? AND device_id = ?
+	`, reaction.ChatJID, reaction.Emoji, reaction.IsFromMe, reaction.Timestamp, reaction.UpdatedAt,
+		reaction.MessageID, reaction.ReactorJID, reaction.DeviceID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO message_reactions (
+				message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+				reaction_timestamp, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, reaction.MessageID, reaction.ChatJID, reaction.DeviceID, reaction.ReactorJID,
+			reaction.Emoji, reaction.IsFromMe, reaction.Timestamp, reaction.CreatedAt, reaction.UpdatedAt)
+	}
+	return err
+}
+
+// DeleteReaction removes a single stored reaction.
+func (r *SQLiteRepository) DeleteReaction(messageID, reactorJID, deviceID string) error {
+	if messageID == "" || reactorJID == "" || deviceID == "" {
+		return nil
+	}
+
+	_, err := r.db.Exec(`
+		DELETE FROM message_reactions
+		WHERE message_id = ? AND reactor_jid = ? AND device_id = ?
+	`, messageID, reactorJID, deviceID)
+	return err
 }
 
 // GetMessages retrieves messages with filtering
@@ -378,7 +507,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, media_key, file_sha256,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
@@ -414,7 +543,15 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		messages = append(messages, message)
 	}
 
-	return messages, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := r.loadMessageReactions(filter.DeviceID, filter.ChatJID, messages); err != nil {
+		return nil, err
+	}
+
+	return messages, nil
 }
 
 // SearchMessages performs database-level search for messages containing specific text
@@ -443,7 +580,7 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, media_key, file_sha256,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
@@ -478,18 +615,316 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 		return nil, fmt.Errorf("error iterating messages: %w", err)
 	}
 
+	if err := r.loadMessageReactions(deviceID, chatJID, messages); err != nil {
+		return nil, fmt.Errorf("failed to load message reactions: %w", err)
+	}
+
 	return messages, nil
+}
+
+func (r *SQLiteRepository) loadMessageReactions(deviceID, chatJID string, messages []*domainChatStorage.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	messageIDs := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if message != nil && message.ID != "" {
+			messageIDs = append(messageIDs, message.ID)
+		}
+	}
+	if len(messageIDs) == 0 {
+		return nil
+	}
+
+	reactionsByMessageID := make(map[string][]domainChatStorage.Reaction)
+	for start := 0; start < len(messageIDs); start += 500 {
+		end := start + 500
+		if end > len(messageIDs) {
+			end = len(messageIDs)
+		}
+
+		batchIDs := messageIDs[start:end]
+		placeholders := make([]string, 0, len(batchIDs))
+		args := make([]any, 0, len(batchIDs)+2)
+		args = append(args, deviceID, chatJID)
+		for _, messageID := range batchIDs {
+			placeholders = append(placeholders, "?")
+			args = append(args, messageID)
+		}
+
+		query := `
+			SELECT message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+				reaction_timestamp, created_at, updated_at
+			FROM message_reactions
+			WHERE device_id = ? AND chat_jid = ? AND message_id IN (` + strings.Join(placeholders, ",") + `)
+			ORDER BY reaction_timestamp ASC, created_at ASC
+		`
+
+		rows, err := r.db.Query(query, args...)
+		if err != nil {
+			return err
+		}
+
+		for rows.Next() {
+			var reaction domainChatStorage.Reaction
+			if err := rows.Scan(
+				&reaction.MessageID, &reaction.ChatJID, &reaction.DeviceID, &reaction.ReactorJID,
+				&reaction.Emoji, &reaction.IsFromMe, &reaction.Timestamp, &reaction.CreatedAt, &reaction.UpdatedAt,
+			); err != nil {
+				rows.Close()
+				return err
+			}
+			reactionsByMessageID[reaction.MessageID] = append(reactionsByMessageID[reaction.MessageID], reaction)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		message.Reactions = reactionsByMessageID[message.ID]
+	}
+
+	return nil
 }
 
 // DeleteMessage deletes a specific message
 func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
+	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
 	return err
 }
 
 // DeleteMessageByDevice deletes a specific message for a specific device
 func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) error {
+	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
+	return err
+}
+
+// UpsertChatwootMessageLink records the stable mapping between a WhatsApp
+// message and the Chatwoot row created for it.
+func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	if link == nil {
+		return fmt.Errorf("chatwoot message link is required")
+	}
+	if strings.TrimSpace(link.DeviceID) == "" {
+		return fmt.Errorf("device_id is required for chatwoot message link")
+	}
+	if strings.TrimSpace(link.WhatsAppMessageID) == "" {
+		return fmt.Errorf("wa_message_id is required for chatwoot message link")
+	}
+
+	now := time.Now()
+	if link.CreatedAt.IsZero() {
+		link.CreatedAt = now
+	}
+	link.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET wa_chat_jid = ?, chatwoot_message_id = ?, chatwoot_conversation_id = ?,
+		    chatwoot_inbox_id = ?, chatwoot_contact_inbox_source_id = ?, source_id = ?,
+		    direction = ?, is_read = ?, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
+		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
+		link.Direction, link.IsRead, link.UpdatedAt, link.DeviceID, link.WhatsAppMessageID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		_, err = r.db.Exec(`
+			INSERT INTO chatwoot_message_links (
+				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+				chatwoot_conversation_id, chatwoot_inbox_id,
+				chatwoot_contact_inbox_source_id, source_id, direction,
+				is_read, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, link.DeviceID, link.WhatsAppMessageID, link.WhatsAppChatJID,
+			link.ChatwootMessageID, link.ChatwootConversationID, link.ChatwootInboxID,
+			link.ChatwootContactInboxSourceID, link.SourceID, link.Direction,
+			link.IsRead, link.CreatedAt, link.UpdatedAt)
+	}
+	return err
+}
+
+func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_message_id = ?
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, waMessageID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND chatwoot_message_id = ?
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, chatwootMessageID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE chatwoot_conversation_id = ?
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 1
+	`
+
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, waChatJID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func (r *SQLiteRepository) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	if event == nil || strings.TrimSpace(event.DeviceID) == "" || strings.TrimSpace(event.EventName) == "" || strings.TrimSpace(event.WhatsAppMessageID) == "" || strings.TrimSpace(event.PayloadJSON) == "" {
+		return fmt.Errorf("chatwoot forward event requires device id, event name, whatsapp message id, and payload")
+	}
+
+	now := time.Now()
+	if event.NextAttemptAt.IsZero() {
+		event.NextAttemptAt = now
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = now
+	}
+	event.UpdatedAt = now
+
+	_, err := r.db.Exec(`
+		INSERT INTO chatwoot_forward_queue (
+			device_id, event_name, wa_message_id, payload_json,
+			attempts, last_error, next_attempt_at, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, event_name, wa_message_id) DO UPDATE SET
+			payload_json = excluded.payload_json,
+			last_error = excluded.last_error,
+			next_attempt_at = excluded.next_attempt_at,
+			updated_at = excluded.updated_at
+	`, event.DeviceID, event.EventName, event.WhatsAppMessageID, event.PayloadJSON,
+		event.Attempts, event.LastError, event.NextAttemptAt, event.CreatedAt, event.UpdatedAt)
+	return err
+}
+
+func (r *SQLiteRepository) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := r.db.Query(`
+		SELECT id, device_id, event_name, wa_message_id, payload_json,
+			attempts, last_error, next_attempt_at, created_at, updated_at
+		FROM chatwoot_forward_queue
+		WHERE next_attempt_at <= ?
+		ORDER BY next_attempt_at ASC, id ASC
+		LIMIT ?
+	`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]*domainChatStorage.ChatwootForwardEvent, 0)
+	for rows.Next() {
+		event := &domainChatStorage.ChatwootForwardEvent{}
+		if err := rows.Scan(
+			&event.ID, &event.DeviceID, &event.EventName, &event.WhatsAppMessageID,
+			&event.PayloadJSON, &event.Attempts, &event.LastError, &event.NextAttemptAt,
+			&event.CreatedAt, &event.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (r *SQLiteRepository) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("chatwoot forward event id is required")
+	}
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_forward_queue
+		SET attempts = attempts + 1,
+			last_error = ?,
+			next_attempt_at = ?,
+			updated_at = ?
+		WHERE id = ?
+	`, lastError, nextAttemptAt, time.Now(), id)
+	return err
+}
+
+func (r *SQLiteRepository) MarkChatwootForwardEventDone(id int64) error {
+	if id == 0 {
+		return fmt.Errorf("chatwoot forward event id is required")
+	}
+	_, err := r.db.Exec(`DELETE FROM chatwoot_forward_queue WHERE id = ?`, id)
 	return err
 }
 
@@ -506,7 +941,7 @@ func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) 
 	err := scanner.Scan(
 		&message.ID, &message.ChatJID, &message.DeviceID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.CallMetadata, &message.Filename,
-		&message.URL, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
+		&message.URL, &message.DirectPath, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
 		&message.FileLength, &message.ReferralMetadata, &message.CreatedAt, &message.UpdatedAt,
 	)
 	return message, err
@@ -520,6 +955,17 @@ func (r *SQLiteRepository) scanChat(scanner interface{ Scan(...any) error }) (*d
 		&chat.CreatedAt, &chat.UpdatedAt, &chat.Archived,
 	)
 	return chat, err
+}
+
+func (r *SQLiteRepository) scanChatwootMessageLink(scanner interface{ Scan(...any) error }) (*domainChatStorage.ChatwootMessageLink, error) {
+	link := &domainChatStorage.ChatwootMessageLink{}
+	err := scanner.Scan(
+		&link.DeviceID, &link.WhatsAppMessageID, &link.WhatsAppChatJID,
+		&link.ChatwootMessageID, &link.ChatwootConversationID, &link.ChatwootInboxID,
+		&link.ChatwootContactInboxSourceID, &link.SourceID, &link.Direction,
+		&link.IsRead, &link.CreatedAt, &link.UpdatedAt,
+	)
+	return link, err
 }
 
 // GetChatMessageCount returns the number of messages in a chat
@@ -557,7 +1003,7 @@ func (r *SQLiteRepository) GetFilteredChatCount(filter *domainChatStorage.ChatFi
 }
 
 // TruncateAllChats deletes all chats from the database
-// Note: Due to foreign key constraints, messages must be deleted first
+// Note: Due to foreign key constraints, dependent rows are cleaned up first
 func (r *SQLiteRepository) TruncateAllChats() error {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -565,7 +1011,27 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first (foreign key constraint)
+	_, err = tx.Exec("DELETE FROM message_reactions")
+	if err != nil {
+		return fmt.Errorf("failed to delete message reactions: %w", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM message_edits")
+	if err != nil {
+		return fmt.Errorf("failed to delete message edits: %w", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM chatwoot_message_links")
+	if err != nil {
+		return fmt.Errorf("failed to delete chatwoot message links: %w", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM chatwoot_forward_queue")
+	if err != nil {
+		return fmt.Errorf("failed to delete chatwoot forward queue: %w", err)
+	}
+
+	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
 		return fmt.Errorf("failed to delete messages: %w", err)
@@ -580,8 +1046,7 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 	return tx.Commit()
 }
 
-// DeleteDeviceData deletes all chats and messages for a specific device_id.
-// Messages are deleted via foreign key cascade from chats.
+// DeleteDeviceData deletes all chats, messages, and edit history for a specific device_id.
 func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	if deviceID == "" {
 		return fmt.Errorf("device id is required")
@@ -593,7 +1058,23 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete messages first via direct device_id filter
+	if _, err := tx.Exec(`DELETE FROM message_reactions WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device reactions: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM message_edits WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device message edits: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM chatwoot_message_links WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device chatwoot message links: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM chatwoot_forward_queue WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device chatwoot forward queue: %w", err)
+	}
+
+	// Delete messages after dependent rows via direct device_id filter.
 	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device messages: %w", err)
 	}
@@ -682,6 +1163,38 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 	return rec, nil
 }
 
+// GetDeviceRecordByJID fetches a device registration by WhatsApp JID.
+func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
+	if strings.TrimSpace(jid) == "" {
+		return nil, fmt.Errorf("jid is required")
+	}
+
+	rec := &domainChatStorage.DeviceRecord{}
+	err := r.db.QueryRow(`
+		SELECT device_id, display_name, jid, webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
+		FROM devices
+		WHERE jid = ?
+		LIMIT 1
+	`, jid).Scan(
+		&rec.DeviceID,
+		&rec.DisplayName,
+		&rec.JID,
+		&rec.WebhookURL,
+		&rec.WebhookSecret,
+		&rec.WebhookEvents,
+		&rec.WebhookInsecureSkipVerify,
+		&rec.CreatedAt,
+		&rec.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
 // DeleteDeviceRecord removes a device registration entry.
 func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	if strings.TrimSpace(deviceID) == "" {
@@ -689,6 +1202,108 @@ func (r *SQLiteRepository) DeleteDeviceRecord(deviceID string) error {
 	}
 	_, err := r.db.Exec("DELETE FROM devices WHERE device_id = ?", deviceID)
 	return err
+}
+
+// SetDeviceWebhookURL updates or clears the webhook URL for a device.
+// Use nil for webhookURL to clear the device-specific webhook (forces fallback to global).
+// Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	result, err := r.db.Exec(`
+		UPDATE devices SET webhook_url = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, time.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetDeviceWebhookURL retrieves the configured webhook URL for a device.
+// Returns (*string, nil) with the URL if set, (nil, nil) if no device-specific webhook is configured,
+// or (nil, error) on storage errors. Empty string in database is treated as nil (no override).
+func (r *SQLiteRepository) GetDeviceWebhookURL(deviceID string) (*string, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var webhookURL string
+	err := r.db.QueryRow(`
+		SELECT COALESCE(webhook_url, '') FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if webhookURL == "" {
+		return nil, nil
+	}
+	return &webhookURL, nil
+}
+
+// SetDeviceWebhookConfig updates the complete webhook configuration for a device.
+// Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domainChatStorage.DeviceWebhookConfig) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	if config == nil {
+		return fmt.Errorf("webhook config is required")
+	}
+
+	var webhookURL *string
+	if config.WebhookURL != nil && *config.WebhookURL != "" {
+		webhookURL = config.WebhookURL
+	}
+
+	result, err := r.db.Exec(`
+		UPDATE devices
+		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, updated_at = ?
+		WHERE device_id = ?
+	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, time.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
+// Returns (nil, nil) if no device-specific webhook configuration is set.
+func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var config domainChatStorage.DeviceWebhookConfig
+	var webhookURL *string
+	err := r.db.QueryRow(`
+		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
+		FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	config.WebhookURL = webhookURL
+	return &config, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -807,6 +1422,25 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return fmt.Errorf("failed to get existing chat: %w", err)
 	}
 
+	if editMessage := extractEditedMessage(evt.Message); editMessage != nil {
+		if existingChat == nil {
+			chat := &domainChatStorage.Chat{
+				DeviceID:        deviceID,
+				JID:             chatJID,
+				Name:            chatName,
+				LastMessageTime: evt.Info.Timestamp,
+			}
+			if err := r.StoreChat(chat); err != nil {
+				return fmt.Errorf("failed to store chat for edited message: %w", err)
+			}
+		}
+
+		if err := r.storeEditedMessage(ctx, evt, deviceID, chatJID, sender, editMessage); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	// Extract ephemeral expiration from incoming message
 	ephemeralExpiration := utils.ExtractEphemeralExpiration(evt.Message)
 
@@ -838,7 +1472,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Extract message content and media info
 	content := utils.ExtractMessageTextFromProto(evt.Message)
-	mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(evt.Message)
+	mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(evt.Message)
 
 	// Skip if there's no content and no media
 	if content == "" && mediaType == "" {
@@ -863,7 +1497,8 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		IsFromMe:         evt.Info.IsFromMe,
 		MediaType:        mediaType,
 		Filename:         filename,
-		URL:              url,
+		URL:              mediaURL,
+		DirectPath:       directPath,
 		MediaKey:         mediaKey,
 		FileSHA256:       fileSHA256,
 		FileEncSHA256:    fileEncSHA256,
@@ -873,6 +1508,248 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Store the message
 	return r.StoreMessage(message)
+}
+
+func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
+	if msg == nil {
+		return nil
+	}
+	protocolMessage := msg.GetProtocolMessage()
+	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_MESSAGE_EDIT {
+		return nil
+	}
+	return protocolMessage.GetEditedMessage()
+}
+
+func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.Message, deviceID, chatJID, sender string, editedMessage *waE2E.Message) error {
+	if evt == nil || editedMessage == nil {
+		return nil
+	}
+
+	protocolMessage := evt.Message.GetProtocolMessage()
+	if protocolMessage == nil {
+		return nil
+	}
+	key := protocolMessage.GetKey()
+	if key == nil || key.GetID() == "" {
+		return nil
+	}
+
+	originalMessageID := key.GetID()
+	newContent := utils.ExtractMessageTextFromProto(editedMessage)
+	now := time.Now()
+
+	existingMessage, err := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, originalMessageID)
+	if err != nil {
+		return fmt.Errorf("failed to load original message %s: %w", originalMessageID, err)
+	}
+
+	messageExists := existingMessage != nil
+	currentMessage := existingMessage
+	previousContent := ""
+
+	if currentMessage == nil {
+		currentMessage = &domainChatStorage.Message{
+			ID:        originalMessageID,
+			ChatJID:   chatJID,
+			DeviceID:  deviceID,
+			Sender:    sender,
+			Content:   newContent,
+			Timestamp: evt.Info.Timestamp,
+			IsFromMe:  evt.Info.IsFromMe,
+		}
+
+		if mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(editedMessage); mediaType != "" || newContent != "" {
+			currentMessage.MediaType = mediaType
+			currentMessage.Filename = filename
+			currentMessage.URL = mediaURL
+			currentMessage.DirectPath = directPath
+			currentMessage.MediaKey = mediaKey
+			currentMessage.FileSHA256 = fileSHA256
+			currentMessage.FileEncSHA256 = fileEncSHA256
+			currentMessage.FileLength = fileLength
+		}
+	} else {
+		previousContent = currentMessage.Content
+	}
+
+	edit := &domainChatStorage.MessageEdit{
+		OriginalMessageID: originalMessageID,
+		EditEventID:       evt.Info.ID,
+		ChatJID:           chatJID,
+		DeviceID:          deviceID,
+		Editor:            sender,
+		PreviousContent:   previousContent,
+		NewContent:        newContent,
+		EditedAt:          evt.Info.Timestamp,
+		CreatedAt:         now,
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin edit transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if messageExists {
+		if _, err := tx.Exec(`
+			UPDATE messages SET content = ?, updated_at = ?
+			WHERE id = ? AND chat_jid = ? AND device_id = ?
+		`, newContent, now, originalMessageID, chatJID, deviceID); err != nil {
+			return fmt.Errorf("failed to update original message %s: %w", originalMessageID, err)
+		}
+	} else {
+		if _, err := tx.Exec(`
+			INSERT INTO messages (
+				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, currentMessage.ID, currentMessage.ChatJID, currentMessage.DeviceID, currentMessage.Sender, currentMessage.Content,
+			currentMessage.Timestamp, currentMessage.IsFromMe, currentMessage.MediaType, currentMessage.CallMetadata, currentMessage.Filename,
+			currentMessage.URL, currentMessage.DirectPath, currentMessage.MediaKey, currentMessage.FileSHA256, currentMessage.FileEncSHA256,
+			currentMessage.FileLength, currentMessage.ReferralMetadata, now, now); err != nil {
+			return fmt.Errorf("failed to insert edited message %s: %w", originalMessageID, err)
+		}
+	}
+
+	if err := r.storeMessageEditExec(tx, edit); err != nil {
+		return fmt.Errorf("failed to store edit history for %s: %w", originalMessageID, err)
+	}
+
+	return tx.Commit()
+}
+
+func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID string) (*domainChatStorage.Message, error) {
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+		FROM messages
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+		LIMIT 1
+	`
+	message, err := r.scanMessage(r.db.QueryRow(query, messageID, chatJID, deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return message, err
+}
+
+func (r *SQLiteRepository) StoreMessageEdit(edit *domainChatStorage.MessageEdit) error {
+	return r.storeMessageEditExec(r.db, edit)
+}
+
+func (r *SQLiteRepository) storeMessageEditExec(execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, edit *domainChatStorage.MessageEdit) error {
+	if edit == nil {
+		return nil
+	}
+	if strings.TrimSpace(edit.OriginalMessageID) == "" || strings.TrimSpace(edit.EditEventID) == "" || strings.TrimSpace(edit.ChatJID) == "" || strings.TrimSpace(edit.DeviceID) == "" {
+		return fmt.Errorf("edit history requires original_message_id, edit_event_id, chat_jid, and device_id")
+	}
+
+	now := time.Now()
+	if edit.CreatedAt.IsZero() {
+		edit.CreatedAt = now
+	}
+	if edit.EditedAt.IsZero() {
+		edit.EditedAt = edit.CreatedAt
+	}
+
+	_, err := execer.Exec(`
+		INSERT INTO message_edits (
+			original_message_id, edit_event_id, chat_jid, device_id, editor,
+			previous_content, new_content, edited_at, created_at
+		)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM message_edits
+			WHERE original_message_id = ? AND edit_event_id = ? AND device_id = ?
+		)
+	`, edit.OriginalMessageID, edit.EditEventID, edit.ChatJID, edit.DeviceID, edit.Editor,
+		edit.PreviousContent, edit.NewContent, edit.EditedAt, edit.CreatedAt,
+		edit.OriginalMessageID, edit.EditEventID, edit.DeviceID)
+	return err
+}
+
+// CreateReaction stores or removes a reaction event as its own row in message_reactions.
+func (r *SQLiteRepository) CreateReaction(ctx context.Context, evt *events.Message) error {
+	reaction, err := r.reactionFromEvent(ctx, evt)
+	if err != nil {
+		return err
+	}
+	if reaction == nil {
+		return nil
+	}
+	return r.StoreReaction(reaction)
+}
+
+func (r *SQLiteRepository) reactionFromEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	if evt == nil || evt.Message == nil {
+		return nil, nil
+	}
+
+	msg := utils.UnwrapMessage(evt.Message)
+	reactionMessage := msg.GetReactionMessage()
+	if reactionMessage == nil {
+		return nil, nil
+	}
+
+	key := reactionMessage.GetKey()
+	if key == nil || key.GetID() == "" {
+		logrus.Debugf("Skipping reaction event %s - missing reacted message id", evt.Info.ID)
+		return nil, nil
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	deviceID := ""
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
+		deviceID = inst.JID()
+		if deviceID == "" {
+			deviceID = inst.ID()
+		}
+	}
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+	if deviceID == "" {
+		return nil, domainChatStorage.ErrMissingDeviceContext
+	}
+
+	chatJID := evt.Info.Chat
+	if chatJID.IsEmpty() && key.GetRemoteJID() != "" {
+		parsed, err := types.ParseJID(key.GetRemoteJID())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse reaction chat jid %q: %w", key.GetRemoteJID(), err)
+		}
+		chatJID = parsed
+	}
+	if chatJID.IsEmpty() {
+		return nil, fmt.Errorf("reaction chat jid is required")
+	}
+	normalizedChatJID := whatsapp.NormalizeJIDFromLID(ctx, chatJID, client)
+
+	reactorJID := evt.Info.Sender
+	if reactorJID.IsEmpty() && evt.Info.IsFromMe && client != nil && client.Store != nil && client.Store.ID != nil {
+		reactorJID = client.Store.ID.ToNonAD()
+	}
+	if reactorJID.IsEmpty() {
+		return nil, fmt.Errorf("reaction sender jid is required")
+	}
+	normalizedReactorJID := whatsapp.NormalizeJIDFromLID(ctx, reactorJID, client)
+
+	return &domainChatStorage.Reaction{
+		MessageID:  key.GetID(),
+		ChatJID:    normalizedChatJID.String(),
+		DeviceID:   deviceID,
+		ReactorJID: normalizedReactorJID.ToNonAD().String(),
+		Emoji:      reactionMessage.GetText(),
+		IsFromMe:   evt.Info.IsFromMe,
+		Timestamp:  evt.Info.Timestamp,
+	}, nil
 }
 
 // CreateIncomingCallRecord stores an incoming call as a synthetic message row (media_type "call").
@@ -1045,6 +1922,9 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
 		deviceID = client.Store.ID.ToNonAD().String()
 	}
+	if deviceID == "" {
+		return fmt.Errorf("device_id required: missing device in context: %w", domainChatStorage.ErrMissingDeviceContext)
+	}
 
 	// Normalize recipient JID (convert @lid to @s.whatsapp.net)
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
@@ -1091,11 +1971,11 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	}
 
 	// Extract media info from the protobuf message if available
-	var mediaType, filename, mediaURL string
+	var mediaType, filename, mediaURL, directPath string
 	var mediaKey, fileSHA256, fileEncSHA256 []byte
 	var fileLength uint64
 	if msg != nil {
-		mediaType, filename, mediaURL, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
+		mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
 	}
 
 	// Store the sent message
@@ -1110,6 +1990,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		MediaType:     mediaType,
 		Filename:      filename,
 		URL:           mediaURL,
+		DirectPath:    directPath,
 		MediaKey:      mediaKey,
 		FileSHA256:    fileSHA256,
 		FileEncSHA256: fileEncSHA256,
@@ -1269,5 +2150,110 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 16: JSON metadata for Meta Ads referral/attribution (CTWA)
 		`ALTER TABLE messages ADD COLUMN referral_metadata TEXT DEFAULT ''`,
+
+		// Migration 17: Store emoji reactions per message
+		`CREATE TABLE IF NOT EXISTS message_reactions (
+			message_id VARCHAR(255) NOT NULL,
+			chat_jid VARCHAR(255) NOT NULL,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			reactor_jid VARCHAR(255) NOT NULL,
+			emoji TEXT NOT NULL DEFAULT '',
+			is_from_me BOOLEAN DEFAULT FALSE,
+			reaction_timestamp TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (message_id, reactor_jid, device_id)
+		)`,
+
+		// Migration 18: Index reactions by message and chat for history hydration
+		`CREATE INDEX IF NOT EXISTS idx_message_reactions_lookup ON message_reactions(device_id, chat_jid, message_id)`,
+
+		// Migration 19: Append-only message edit history
+		`CREATE TABLE IF NOT EXISTS message_edits (
+			original_message_id VARCHAR(255) NOT NULL,
+			edit_event_id VARCHAR(255) NOT NULL,
+			chat_jid VARCHAR(255) NOT NULL,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			editor VARCHAR(255) DEFAULT '',
+			previous_content TEXT DEFAULT '',
+			new_content TEXT DEFAULT '',
+			edited_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (original_message_id, edit_event_id, device_id),
+			FOREIGN KEY (original_message_id, chat_jid, device_id) REFERENCES messages(id, chat_jid, device_id) ON DELETE CASCADE
+		)`,
+
+		// Migration 20: Index edit history by original message
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_original ON message_edits(original_message_id)`,
+
+		// Migration 21: Index edit history by device
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_device ON message_edits(device_id)`,
+
+		// Migration 22: Index edit history by edit time
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_edited_at ON message_edits(edited_at)`,
+
+		// Migration 23: Map WhatsApp messages to Chatwoot messages for idempotency and status sync
+		`CREATE TABLE IF NOT EXISTS chatwoot_message_links (
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			wa_message_id VARCHAR(255) NOT NULL,
+			wa_chat_jid VARCHAR(255) NOT NULL DEFAULT '',
+			chatwoot_message_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_conversation_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_inbox_id INTEGER NOT NULL DEFAULT 0,
+			chatwoot_contact_inbox_source_id VARCHAR(255) NOT NULL DEFAULT '',
+			source_id VARCHAR(255) NOT NULL DEFAULT '',
+			direction VARCHAR(20) NOT NULL DEFAULT '',
+			is_read BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (device_id, wa_message_id)
+		)`,
+
+		// Migration 24: Lookup Chatwoot webhooks by device and Chatwoot message id
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_chatwoot_id ON chatwoot_message_links(device_id, chatwoot_message_id)`,
+
+		// Migration 25: Lookup Chatwoot links by source id for replay/idempotency diagnostics
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_source_id ON chatwoot_message_links(device_id, source_id)`,
+
+		// Migration 26: Resolve Chatwoot webhook replies by conversation before falling back to contact attributes
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation ON chatwoot_message_links(chatwoot_conversation_id, updated_at)`,
+
+		// Migration 27: Serve GetLatestUnreadChatwootMessageLinkByChat (mark-as-read
+		// hot path) from an index. Covers the WHERE equality columns plus the
+		// ORDER BY (updated_at, created_at) so SQLite resolves LIMIT 1 without a scan/sort.
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_unread ON chatwoot_message_links(device_id, wa_chat_jid, direction, is_read, updated_at, created_at)`,
+
+		// Migration 28: Persist live Chatwoot forward retries across restarts
+		`CREATE TABLE IF NOT EXISTS chatwoot_forward_queue (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			event_name VARCHAR(80) NOT NULL DEFAULT '',
+			wa_message_id VARCHAR(255) NOT NULL DEFAULT '',
+			payload_json TEXT NOT NULL DEFAULT '',
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			next_attempt_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(device_id, event_name, wa_message_id)
+		)`,
+
+		// Migration 29: Fetch due Chatwoot retry jobs in stable order
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_forward_queue_due ON chatwoot_forward_queue(next_attempt_at, id)`,
+
+		// Migration 30: Store WhatsApp media direct paths for downloads
+		`ALTER TABLE messages ADD COLUMN direct_path TEXT DEFAULT ''`,
+
+		// Migration 31: Store per-device webhook URL overrides
+		`ALTER TABLE devices ADD COLUMN webhook_url TEXT DEFAULT NULL`,
+
+		// Migration 32: Store per-device webhook signature secret
+		`ALTER TABLE devices ADD COLUMN webhook_secret TEXT DEFAULT ''`,
+
+		// Migration 33: Store per-device webhook event allow-list
+		`ALTER TABLE devices ADD COLUMN webhook_events TEXT DEFAULT ''`,
+
+		// Migration 34: Store per-device webhook TLS verification override
+		`ALTER TABLE devices ADD COLUMN webhook_insecure_skip_verify BOOLEAN DEFAULT FALSE`,
 	}
 }

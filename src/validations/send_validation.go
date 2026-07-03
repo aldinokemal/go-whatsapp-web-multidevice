@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -39,14 +40,17 @@ func validateDuration(dur *int) error {
 
 // validatePhoneNumber validates that the phone number is in international format (not starting with 0)
 func validatePhoneNumber(phone string) error {
-	if phone == "" {
+	phoneNumber := strings.TrimSpace(phone)
+	if phoneNumber == "" {
 		return pkgError.ValidationError("phone number cannot be empty")
 	}
 
 	// Remove + prefix if present for validation
-	phoneNumber := phone
 	if len(phoneNumber) > 0 && phoneNumber[0] == '+' {
 		phoneNumber = phoneNumber[1:]
+	}
+	if phoneNumber == "" {
+		return pkgError.ValidationError("phone number cannot be empty")
 	}
 
 	// Check if phone number starts with 0 (indicating local format)
@@ -509,6 +513,27 @@ func ValidateSendChatPresence(ctx context.Context, request domainSend.ChatPresen
 
 	// Custom validation for phone number format
 	if err := validatePhoneNumber(request.Phone); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ValidateForwardMessage(ctx context.Context, request domainSend.ForwardRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.Phone, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	if err := validatePhoneNumber(request.Phone); err != nil {
+		return err
+	}
+
+	if err := validateDuration(request.Duration); err != nil {
 		return err
 	}
 

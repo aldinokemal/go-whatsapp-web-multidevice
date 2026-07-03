@@ -69,6 +69,17 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 	return instance, ok
 }
 
+func (m *DeviceManager) getDeviceByJID(jid string) (*DeviceInstance, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inst := range m.devices {
+		if inst != nil && inst.JID() == jid {
+			return inst, true
+		}
+	}
+	return nil, false
+}
+
 // IsHealthy returns true if the device manager is initialized and has a valid store connection.
 // Note: This is a service initialization check, not a live connectivity check.
 // Returning true indicates the internal store is ready, but does not guarantee
@@ -114,6 +125,9 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 		if inst, ok := m.GetDevice(trimmedID); ok && inst != nil {
 			return inst, trimmedID, nil
 		}
+		if inst, ok := m.getDeviceByJID(trimmedID); ok && inst != nil {
+			return inst, inst.ID(), nil
+		}
 		return nil, trimmedID, fmt.Errorf("device %s not found", trimmedID)
 	}
 
@@ -134,6 +148,49 @@ func (m *DeviceManager) RemoveDevice(id string) {
 	}
 }
 
+// deleteStoreRowsForJID removes the whatsmeow device rows (primary + keys containers)
+// whose JID matches jid. Matching uses the NonAD form to mirror LoadExistingDevices,
+// where the devices table stores NonAD JIDs. It is idempotent — a row that is already
+// gone is simply not found — and an empty jid is a no-op (a slot that was never paired
+// has no store rows to delete).
+func (m *DeviceManager) deleteStoreRowsForJID(ctx context.Context, jid string) error {
+	if strings.TrimSpace(jid) == "" {
+		return nil
+	}
+
+	var firstErr error
+	deleteFrom := func(container *sqlstore.Container, label string) {
+		if container == nil {
+			return
+		}
+		devices, err := container.GetAllDevices(ctx)
+		if err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to enumerate %s devices for jid %s", label, jid)
+			firstErr = errors.Join(firstErr, err)
+			return
+		}
+		for _, dev := range devices {
+			if dev == nil || dev.ID == nil {
+				continue
+			}
+			if dev.ID.ToNonAD().String() != jid {
+				continue
+			}
+			if err := container.DeleteDevice(ctx, dev); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete jid %s from %s store", jid, label)
+				firstErr = errors.Join(firstErr, err)
+			}
+			break
+		}
+	}
+
+	deleteFrom(m.store, "primary")
+	if m.keys != nil && m.keys != m.store {
+		deleteFrom(m.keys, "keys")
+	}
+	return firstErr
+}
+
 // PurgeDevice cleanly logs out a device, removes its persisted records (store/keys),
 // deletes its chatstorage data, and removes it from the in-memory registry.
 func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error {
@@ -148,18 +205,22 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		}
 	}
 
-	// Attempt logout/disconnect if a client exists
+	// Resolve the device's WhatsApp JID before tearing anything down so we can delete
+	// its whatsmeow store rows by JID even when no live client is attached.
+	var jid string
 	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
+		jid = inst.JID()
 		if cli := inst.GetClient(); cli != nil {
+			// The WhatsApp unlink is best-effort: a dead/expired session may fail
+			// here, but that must not block local cleanup or fail the purge.
 			if err := cli.Logout(ctx); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] logout failed for device %s", deviceID)
-				recordErr(err)
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
 			}
 			cli.Disconnect()
 		}
 	}
 
-	// Delete chatstorage data for this device
+	// Delete chatstorage data for this device (local cleanup — surfaced on failure).
 	if m.storage != nil {
 		if err := m.storage.DeleteDeviceData(deviceID); err != nil {
 			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s", deviceID)
@@ -167,45 +228,104 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		}
 	}
 
-	// Remove device records from primary store
-	if m.store != nil {
-		if devices, err := m.store.GetAllDevices(ctx); err != nil {
-			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to enumerate devices for purge")
-			recordErr(err)
-		} else {
-			for _, dev := range devices {
-				if dev != nil && dev.ID != nil && dev.ID.String() == deviceID {
-					if err := m.store.DeleteDevice(ctx, dev); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete device %s from store", deviceID)
-						recordErr(err)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// Remove device records from keys store if separate
-	if m.keys != nil && m.keys != m.store {
-		if devices, err := m.keys.GetAllDevices(ctx); err != nil {
-			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to enumerate keys devices for purge")
-			recordErr(err)
-		} else {
-			for _, dev := range devices {
-				if dev != nil && dev.ID != nil && dev.ID.String() == deviceID {
-					if err := m.keys.DeleteDevice(ctx, dev); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete device %s from keys store", deviceID)
-						recordErr(err)
-					}
-					break
-				}
-			}
-		}
-	}
+	// Delete whatsmeow store/keys rows by JID (local cleanup — surfaced on failure).
+	recordErr(m.deleteStoreRowsForJID(ctx, jid))
 
 	// Remove from registry last
 	m.RemoveDevice(deviceID)
 	return firstErr
+}
+
+// LogoutDeviceKeepSlot logs the device out of WhatsApp (clearing its session/keys)
+// but PRESERVES the device slot in the registry, so it keeps its id and display name
+// and can be re-paired later under the same id. Unlike PurgeDevice, it does not remove
+// the device record. Removing the slot entirely is the job of RemoveDevice (DELETE).
+func (m *DeviceManager) LogoutDeviceKeepSlot(ctx context.Context, deviceID string) error {
+	if deviceID == "" {
+		return fmt.Errorf("device id is required")
+	}
+
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	if cli := inst.GetClient(); cli != nil {
+		// Attempt the unlink whenever the client is paired (Store.ID set), not only when
+		// IsLoggedIn: that is true only while connected, and skipping the attempt for a
+		// momentarily-offline client would leave the phone showing the linked device
+		// forever (the local session is deleted below, so it can never unlink later).
+		// The WhatsApp unlink is best-effort: a dead/expired session may fail
+		// here, but that must not block the local keep-slot cleanup below.
+		if cli.Store != nil && cli.Store.ID != nil {
+			if err := cli.Logout(ctx); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
+			}
+		}
+		cli.Disconnect()
+	}
+
+	return m.keepSlotLogout(ctx, deviceID)
+}
+
+// keepSlotLogout is the shared "logout but keep the slot" cleanup used by both explicit
+// logout and the remote LoggedOut callbacks. It deletes the device's whatsmeow store
+// rows (by JID, resolved before the reset clears it) and resets the in-memory client +
+// persisted JID, keeping the slot (id + display name) for re-pairing. It does NOT call
+// cli.Logout — explicit logout handles the unlink before delegating here, and a remote
+// LoggedOut has already been unlinked on the phone.
+func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) error {
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		// The remote-logout callback can hold a stale id: InitWaCLI keys its instance by
+		// the AD JID string, but loadFromRegistry may replace it with a registry slot
+		// keyed by uuid (instances store NonAD JIDs). Fall back to JID resolution so the
+		// cleanup still lands on the surviving slot instead of leaving a stale JID and
+		// an orphan keys-container row.
+		if parsed, err := types.ParseJID(deviceID); err == nil && parsed.User != "" {
+			inst, ok = m.getDeviceByJID(parsed.ToNonAD().String())
+		}
+		if !ok || inst == nil {
+			return fmt.Errorf("device %s not found", deviceID)
+		}
+		deviceID = inst.ID()
+	}
+
+	// Resolve the JID before resetDeviceKeepSlot clears it, so we can delete the stored
+	// whatsmeow rows even when no live client is attached (slot loaded from storage).
+	// Always delete (don't rely on cli.Logout having done it): an orphan row would
+	// otherwise get matched back on restart. Idempotent when the row is already gone.
+	jid := inst.JID()
+
+	var firstErr error
+	firstErr = errors.Join(firstErr, m.deleteStoreRowsForJID(ctx, jid))
+	firstErr = errors.Join(firstErr, m.resetDeviceKeepSlot(deviceID))
+	return firstErr
+}
+
+// resetDeviceKeepSlot detaches the in-memory client and clears the persisted session
+// identity (jid) while keeping the device slot (id + display name) in both the
+// in-memory registry and the persisted device registry. EnsureClient rebuilds a
+// fresh client on the next login, so the slot can be re-paired under the same id.
+func (m *DeviceManager) resetDeviceKeepSlot(deviceID string) error {
+	inst, ok := m.GetDevice(deviceID)
+	if !ok || inst == nil {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+	inst.ResetClient()
+
+	if m.storage != nil && strings.TrimSpace(deviceID) != "" {
+		if err := m.storage.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+			DeviceID:    deviceID,
+			DisplayName: inst.DisplayName(),
+			JID:         "",
+			CreatedAt:   inst.CreatedAt(),
+			UpdatedAt:   time.Now(),
+		}); err != nil {
+			return fmt.Errorf("persist logged-out device %s: %w", deviceID, err)
+		}
+	}
+	return nil
 }
 
 // CreateDevice registers a new device placeholder so routes can be scoped strictly by device_id.
@@ -304,7 +424,7 @@ func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
 
 		// Check if device already exists by ID or JID
 		m.mu.RLock()
-		_, existsByID := m.devices[jid]
+		existingByID := m.devices[jid]
 		var matchedDevice *DeviceInstance
 		var orphanDevice *DeviceInstance
 		for _, inst := range m.devices {
@@ -319,16 +439,18 @@ func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
 		m.mu.RUnlock()
 
 		// Skip if already matched
-		if existsByID || matchedDevice != nil {
+		if existingByID != nil {
+			m.applyStoreJID(existingByID, jid)
+			continue
+		}
+		if matchedDevice != nil {
 			continue
 		}
 
 		// Match orphaned device with this JID
 		if orphanDevice != nil {
 			logrus.Infof("[DEVICE_MANAGER] matching orphaned device %s with JID %s", orphanDevice.ID(), jid)
-			orphanDevice.mu.Lock()
-			orphanDevice.jid = jid
-			orphanDevice.mu.Unlock()
+			m.applyStoreJID(orphanDevice, jid)
 			if m.storage != nil {
 				_ = m.storage.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
 					DeviceID: orphanDevice.ID(),
@@ -341,10 +463,21 @@ func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
 		// Create new device instance
 		instance := NewDeviceInstance(jid, nil, newDeviceChatStorage(jid, m.storage))
 		instance.SetState(domainDevice.DeviceStateDisconnected)
+		m.applyStoreJID(instance, jid)
 		m.AddDevice(instance)
 	}
 
 	return nil
+}
+
+func (m *DeviceManager) applyStoreJID(instance *DeviceInstance, jid string) {
+	if instance == nil || jid == "" {
+		return
+	}
+	instance.mu.Lock()
+	instance.jid = jid
+	instance.mu.Unlock()
+	instance.SetChatStorage(newDeviceChatStorage(jid, m.storage))
 }
 
 // loadFromRegistry loads devices from the registry, handling deduplication.
@@ -484,7 +617,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	client := whatsmeow.NewClient(storeDevice, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q for device %s: %v", proxyURL, deviceID, err)
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q for device %s: %v", redactProxyURL(proxyURL), deviceID, err)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY for device %s", deviceID)
 		}
@@ -498,12 +631,17 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
-	client.AddEventHandler(func(rawEvt interface{}) {
+	client.AddEventHandler(func(rawEvt any) {
 		handler(ctx, inst, rawEvt)
 	})
 
 	inst.SetOnLoggedOut(func(deviceID string) {
-		m.RemoveDevice(deviceID)
+		// On remote logout (device unlinked from the phone) keep the slot so it can
+		// be re-paired under the same id, matching the explicit logout semantics.
+		// Use a fresh context: the original request ctx may already be cancelled.
+		if err := m.keepSlotLogout(context.Background(), deviceID); err != nil {
+			logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
+		}
 	})
 
 	inst.SetClient(client)
@@ -555,7 +693,9 @@ func (m *DeviceManager) getOrCreateStoreDevice(ctx context.Context, deviceID str
 	// Try to reuse an existing device record if the ID maps to a JID.
 	if deviceID != "" {
 		if jid, err := types.ParseJID(deviceID); err == nil {
-			if dev, err := m.store.GetDevice(ctx, jid); err == nil && dev != nil {
+			if dev, err := findStoreDeviceByJID(ctx, m.store, jid); err != nil {
+				return nil, err
+			} else if dev != nil {
 				return dev, nil
 			}
 		}
@@ -570,18 +710,10 @@ func (m *DeviceManager) getOrCreateStoreDevice(ctx context.Context, deviceID str
 
 		if instJID != "" {
 			if jid, err := types.ParseJID(instJID); err == nil {
-				if dev, err := m.store.GetDevice(ctx, jid); err == nil && dev != nil {
+				if dev, err := findStoreDeviceByJID(ctx, m.store, jid); err != nil {
+					return nil, err
+				} else if dev != nil {
 					return dev, nil
-				}
-				// Fallback: iterate all devices to find one with matching User (ignoring AD-ID)
-				// This handles cases where registry has Non-AD JID but store has full JID
-				if allDevices, err := m.store.GetAllDevices(ctx); err == nil {
-					targetUser := jid.User
-					for _, d := range allDevices {
-						if d != nil && d.ID != nil && d.ID.User == targetUser {
-							return d, nil
-						}
-					}
 				}
 			}
 		}
@@ -596,15 +728,35 @@ func (m *DeviceManager) configureKeysStore(ctx context.Context, device *store.De
 	}
 
 	innerStore := sqlstore.NewSQLStore(m.keys, *device.ID)
-	syncKeysDevice(ctx, m.store, m.keys)
+	syncKeysDevice(ctx, m.store, m.keys, *device.ID)
 
-	device.Identities = innerStore
-	device.Sessions = innerStore
-	device.PreKeys = innerStore
-	device.SenderKeys = innerStore
-	device.MsgSecrets = innerStore
-	device.PrivacyTokens = innerStore
+	applyKeyCacheStore(device, innerStore)
 	return nil
+}
+
+func findStoreDeviceByJID(ctx context.Context, container *sqlstore.Container, jid types.JID) (*store.Device, error) {
+	if container == nil || jid.IsEmpty() {
+		return nil, nil
+	}
+
+	if dev, err := container.GetDevice(ctx, jid); err != nil {
+		return nil, err
+	} else if dev != nil {
+		return dev, nil
+	}
+
+	devices, err := container.GetAllDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targetJID := jid.ToNonAD().String()
+	for _, dev := range devices {
+		if dev != nil && dev.ID != nil && dev.ID.ToNonAD().String() == targetJID {
+			return dev, nil
+		}
+	}
+	return nil, nil
 }
 
 func configureDeviceProps() {
@@ -619,4 +771,12 @@ func (m *DeviceManager) StoreInfo() (dbURI, keysURI string) {
 		return "", ""
 	}
 	return config.DBURI, config.DBKeysURI
+}
+
+// GetStorage returns the chat storage repository.
+func (m *DeviceManager) GetStorage() domainChatStorage.IChatStorageRepository {
+	if m == nil {
+		return nil
+	}
+	return m.storage
 }
