@@ -232,13 +232,10 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
-<<<<<<< HEAD
 | `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (socks5/http/https) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
-=======
 | `WHATSAPP_PRESENCE_PULSE_ENABLED`       | Enable daily available/unavailable presence pulse             | `true`                                       | `WHATSAPP_PRESENCE_PULSE_ENABLED=false`       |
 | `WHATSAPP_PRESENCE_PULSE_INTERVAL`      | Interval between presence pulses                              | `24h`                                        | `WHATSAPP_PRESENCE_PULSE_INTERVAL=24h`        |
 | `WHATSAPP_PRESENCE_PULSE_DURATION`      | Duration to stay available during each pulse                  | `5m`                                         | `WHATSAPP_PRESENCE_PULSE_DURATION=5m`         |
->>>>>>> origin/main
 | `CHATWOOT_ENABLED`                      | Enable Chatwoot integration                                   | `false`                                      | `CHATWOOT_ENABLED=true`                       |
 | `CHATWOOT_URL`                          | Chatwoot instance URL                                         | -                                            | `CHATWOOT_URL=https://app.chatwoot.com`       |
 | `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
