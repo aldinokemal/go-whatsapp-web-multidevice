@@ -32,6 +32,7 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(s.toolSendDocument(), s.handleSendDocument)
 	mcpServer.AddTool(s.toolSendAudio(), s.handleSendAudio)
 	mcpServer.AddTool(s.toolSendPoll(), s.handleSendPoll)
+	mcpServer.AddTool(s.toolForwardMessage(), s.handleForwardMessage)
 }
 
 func (s *SendHandler) toolSendText() mcp.Tool {
@@ -662,4 +663,68 @@ func (s *SendHandler) handleSendPoll(ctx context.Context, request mcp.CallToolRe
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Poll sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolForwardMessage() mcp.Tool {
+	return mcp.NewTool("whatsapp_forward_message",
+		mcp.WithDescription("Forward an existing stored message to another chat by message ID. Reuses media references when possible."),
+		mcp.WithTitleAnnotation("Forward Message"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("Source message ID from chat storage"),
+		),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Destination phone number or group JID"),
+		),
+		mcp.WithNumber("duration",
+			mcp.Description("Optional disappearing message duration in seconds (0, 86400, 604800, 7776000)"),
+		),
+		mcp.WithBoolean("force_reupload",
+			mcp.Description("Skip media reference reuse and re-upload media before sending (default: false)"),
+		),
+	)
+}
+
+func (s *SendHandler) handleForwardMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+
+	forwardRequest := domainSend.ForwardRequest{
+		MessageID:     messageID,
+		Phone:         phone,
+		ForceReupload: request.GetBool("force_reupload", false),
+	}
+
+	if args := request.GetArguments(); args != nil {
+		if _, ok := args["duration"]; ok {
+			duration, err := request.RequireInt("duration")
+			if err != nil {
+				return nil, err
+			}
+			forwardRequest.Duration = &duration
+		}
+	}
+
+	res, err := s.sendService.SendForward(ctx, forwardRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Message forwarded successfully with ID %s", res.MessageID)), nil
 }

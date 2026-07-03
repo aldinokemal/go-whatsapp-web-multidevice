@@ -19,11 +19,21 @@ export default {
       mediaDownloadErrors: {}, // messageId -> error message
       maxConcurrentDownloads: 3,
       currentDownloads: 0,
+      // Composer state
+      newMessage: "",
+      attachedFile: null,
+      sending: false,
     };
   },
   computed: {
     totalPages() {
       return Math.ceil(this.totalMessages / this.pageSize);
+    },
+    sortedMessages() {
+      // Chronological order: oldest at top, newest at bottom (like a chat)
+      return [...this.messages].sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+      );
     },
     formattedJid() {
       return (
@@ -56,6 +66,34 @@ export default {
         })
         .modal("show");
     },
+    buildQueryParams() {
+      const params = new URLSearchParams({
+        offset: (this.currentPage - 1) * this.pageSize,
+        limit: this.pageSize,
+      });
+
+      if (this.searchQuery.trim()) {
+        params.append("search", this.searchQuery);
+      }
+
+      if (this.startTime) {
+        params.append("start_time", this.startTime);
+      }
+
+      if (this.endTime) {
+        params.append("end_time", this.endTime);
+      }
+
+      if (this.isFromMe !== "") {
+        params.append("is_from_me", this.isFromMe);
+      }
+
+      if (this.onlyMedia) {
+        params.append("media_only", "true");
+      }
+
+      return params;
+    },
     async loadMessages() {
       if (!this.isValidForm()) {
         showErrorInfo("Please enter a valid JID");
@@ -64,30 +102,7 @@ export default {
 
       this.loading = true;
       try {
-        const params = new URLSearchParams({
-          offset: (this.currentPage - 1) * this.pageSize,
-          limit: this.pageSize,
-        });
-
-        if (this.searchQuery.trim()) {
-          params.append("search", this.searchQuery);
-        }
-
-        if (this.startTime) {
-          params.append("start_time", this.startTime);
-        }
-
-        if (this.endTime) {
-          params.append("end_time", this.endTime);
-        }
-
-        if (this.isFromMe !== "") {
-          params.append("is_from_me", this.isFromMe);
-        }
-
-        if (this.onlyMedia) {
-          params.append("media_only", "true");
-        }
+        const params = this.buildQueryParams();
 
         const response = await window.http.get(
           `/chat/${this.formattedJid}/messages?${params}`
@@ -100,6 +115,7 @@ export default {
         } else {
           // Auto-download media for loaded messages
           this.downloadAllMediaInMessages();
+          this.scrollToBottom();
         }
       } catch (error) {
         showErrorInfo(
@@ -107,6 +123,24 @@ export default {
         );
       } finally {
         this.loading = false;
+      }
+    },
+    async refreshMessages() {
+      // Silent reload used after sending: no loader toggle, no error toasts
+      if (!this.isValidForm()) return;
+      try {
+        const params = this.buildQueryParams();
+        const response = await window.http.get(
+          `/chat/${this.formattedJid}/messages?${params}`
+        );
+        this.messages = response.data.results?.data || [];
+        this.totalMessages = response.data.results?.pagination?.total || 0;
+        if (this.messages.length > 0) {
+          this.downloadAllMediaInMessages();
+          this.scrollToBottom();
+        }
+      } catch (error) {
+        console.error("Failed to refresh messages:", error);
       }
     },
     searchMessages() {
@@ -140,6 +174,85 @@ export default {
       this.downloadingMedia.clear();
       this.mediaDownloadErrors = {};
       this.currentDownloads = 0;
+      // Clear composer state
+      this.newMessage = "";
+      this.removeAttachment();
+      this.sending = false;
+    },
+    onFileSelected(event) {
+      const file = event.target.files[0];
+      if (file) this.attachedFile = file;
+    },
+    removeAttachment() {
+      this.attachedFile = null;
+      const input = this.$refs.composerFileInput;
+      if (input) input.value = "";
+    },
+    canSend() {
+      return (
+        this.jid.trim().length > 0 &&
+        !this.sending &&
+        (this.newMessage.trim().length > 0 || this.attachedFile)
+      );
+    },
+    async sendChatMessage() {
+      if (!this.canSend()) return;
+      this.sending = true;
+      try {
+        if (this.attachedFile) {
+          const file = this.attachedFile;
+          const payload = new FormData();
+          payload.append("phone", this.formattedJid);
+
+          let endpoint;
+          if (file.type.startsWith("image/")) {
+            endpoint = "/send/image";
+            payload.append("image", file);
+            payload.append("compress", "false");
+            if (this.newMessage.trim()) {
+              payload.append("caption", this.newMessage.trim());
+            }
+          } else if (file.type.startsWith("video/")) {
+            endpoint = "/send/video";
+            payload.append("video", file);
+            payload.append("compress", "false");
+            if (this.newMessage.trim()) {
+              payload.append("caption", this.newMessage.trim());
+            }
+          } else if (file.type.startsWith("audio/")) {
+            endpoint = "/send/audio";
+            payload.append("audio", file);
+          } else {
+            endpoint = "/send/file";
+            payload.append("file", file);
+            if (this.newMessage.trim()) {
+              payload.append("caption", this.newMessage.trim());
+            }
+          }
+
+          await window.http.post(endpoint, payload);
+        } else {
+          await window.http.post("/send/message", {
+            phone: this.formattedJid,
+            message: this.newMessage.trim(),
+          });
+        }
+
+        this.newMessage = "";
+        this.removeAttachment();
+        showSuccessInfo("Message sent");
+        this.currentPage = 1;
+        await this.refreshMessages();
+        // The sent message may not be persisted yet on the first refresh;
+        // refresh again shortly after so the chat auto-updates.
+        setTimeout(() => this.refreshMessages(), 1200);
+      } catch (error) {
+        showErrorInfo(
+          error.response?.data?.message || "Failed to send message"
+        );
+      } finally {
+        this.sending = false;
+      }
     },
     formatTimestamp(timestamp) {
       if (!timestamp) return "N/A";
@@ -296,22 +409,36 @@ export default {
     },
     getMessageStyle(message) {
       const baseStyle = {
-        padding: "1em",
-        margin: "0.5em 0",
+        maxWidth: "75%",
+        minWidth: "140px",
+        padding: "0.6em 0.9em",
+        borderRadius: "12px",
+        boxShadow: "0 1px 1px rgba(0,0,0,0.12)",
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
       };
 
       if (message.is_from_me) {
         return {
           ...baseStyle,
-          borderLeft: "4px solid #2185d0",
-          backgroundColor: "#f8f9fa",
+          backgroundColor: "#d9fdd3",
+          borderTopRightRadius: "4px",
         };
       } else {
         return {
           ...baseStyle,
-          borderLeft: "4px solid #767676",
+          backgroundColor: "#ffffff",
+          borderTopLeftRadius: "4px",
         };
       }
+    },
+    scrollToBottom() {
+      this.$nextTick(() => {
+        const container = this.$refs.messagesContainer;
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      });
     },
     // Media download methods
     isMediaDownloaded(messageId) {
@@ -551,41 +678,42 @@ export default {
                 <p>Enter a JID and click "Load Messages" to view chat history</p>
             </div>
             
-            <div v-else-if="messages.length > 0">
-                <div style="padding-top: 1em; padding-bottom: 1em;">
-                    <div class="ui info message">
-                        <div class="header">
-                            Chat Messages for {{ formattedJid }}
-                        </div>
-                        <p>Showing {{ messages.length }} of {{ totalMessages }} messages</p>
+            <div v-else-if="messages.length > 0" style="margin-top: 1em;">
+                <div style="display: flex; align-items: center; justify-content: space-between; background: #f0f2f5; border-radius: 8px 8px 0 0; padding: 0.65em 1em; border-bottom: 1px solid #e0e0e0;">
+                    <div style="font-weight: bold; color: #111b21; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <i class="comments icon" style="color: #54656f;"></i>
+                        {{ formattedJid }}
+                    </div>
+                    <div style="font-size: 0.85em; color: #667781; white-space: nowrap; margin-left: 1em;">
+                        {{ messages.length }} of {{ totalMessages }} messages
                     </div>
                 </div>
                 
-                <div class="ui divided items" style="max-height: 400px; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin;">
-                    <div v-for="message in messages" :key="message.id" 
-                         class="item" 
-                         :style="getMessageStyle(message)">
-                        <div class="content">
-                            <div class="header">
-                                <div class="ui horizontal label" 
-                                     :class="message.is_from_me ? 'blue' : 'grey'">
-                                    {{ formatSender(message) }}
-                                </div>
-                                <div class="ui right floated horizontal label">
+                <div ref="messagesContainer"
+                     style="max-height: 400px; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; background: #efeae2; border-radius: 0 0 8px 8px; padding: 1em;">
+                    <div v-for="message in sortedMessages" :key="message.id"
+                         style="display: flex; margin-bottom: 0.75em;"
+                         :style="{ justifyContent: message.is_from_me ? 'flex-end' : 'flex-start' }">
+                        <div :style="getMessageStyle(message)">
+                            <div v-if="!message.is_from_me"
+                                 style="font-size: 0.8em; font-weight: bold; color: #d35400; margin-bottom: 0.25em; word-break: break-all;">
+                                {{ formatSender(message) }}
+                            </div>
+                            <div style="white-space: pre-wrap;">{{ getMessageContent(message) }}</div>
+                            <div v-if="message.media_type && message.url" class="media-container" style="margin-top: 0.5em;">
+                                <div v-if="getMediaDisplay(message)" v-html="getMediaDisplay(message).content"></div>
+                            </div>
+                            <div style="font-size: 0.72em; color: rgba(0,0,0,0.45); margin-top: 0.35em; text-align: right;">
+                                <span v-if="formatMessageType(message) !== 'TEXT'"
+                                      style="text-transform: uppercase; margin-right: 0.5em; font-weight: bold;">
                                     {{ formatMessageType(message) }}
-                                </div>
-                            </div>
-                            <div class="meta">
-                                <span>{{ formatTimestamp(message.timestamp) }}</span>
-                                <span v-if="message.id" class="right floated">
-                                    ID: {{ message.id }}
                                 </span>
+                                <span>{{ formatTimestamp(message.timestamp) }}</span>
                             </div>
-                            <div class="description">
-                                <p>{{ getMessageContent(message) }}</p>
-                                <div v-if="message.media_type && message.url" class="media-container" style="margin-top: 0.5em;">
-                                    <div v-if="getMediaDisplay(message)" v-html="getMediaDisplay(message).content"></div>
-                                </div>
+                            <div v-if="message.id"
+                                 :title="message.id"
+                                 style="font-size: 0.65em; color: rgba(0,0,0,0.3); font-family: monospace; word-break: break-all; text-align: right; margin-top: 0.15em;">
+                                {{ message.id }}
                             </div>
                         </div>
                     </div>
@@ -602,6 +730,41 @@ export default {
                     <a class="icon item" @click="nextPage" :class="{ disabled: currentPage === totalPages }">
                         <i class="right chevron icon"></i>
                     </a>
+                </div>
+            </div>
+            
+            <!-- Composer -->
+            <div v-if="jid.trim().length > 0" style="margin-top: 0.75em;">
+                <div v-if="attachedFile"
+                     style="display: inline-flex; align-items: center; gap: 0.5em; background: #e7f3ff; border: 1px solid #b3d9f7; border-radius: 16px; padding: 0.35em 0.85em; margin-bottom: 0.5em; font-size: 0.9em;">
+                    <i class="paperclip icon" style="margin: 0; color: #2185d0;"></i>
+                    <span style="max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ attachedFile.name }}
+                    </span>
+                    <i class="close icon" @click="removeAttachment"
+                       style="margin: 0; cursor: pointer; color: #999;"
+                       title="Remove attachment"></i>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5em; background: #f0f2f5; border-radius: 24px; padding: 0.4em 0.5em;">
+                    <input type="file" ref="composerFileInput" style="display: none;" @change="onFileSelected">
+                    <button class="ui circular basic icon button"
+                            style="box-shadow: none; margin: 0;"
+                            @click="$refs.composerFileInput.click()"
+                            title="Attach media">
+                        <i class="paperclip icon" style="color: #54656f;"></i>
+                    </button>
+                    <input type="text"
+                           :placeholder="attachedFile ? 'Add a caption (optional)...' : 'Type a message...'"
+                           v-model="newMessage"
+                           @keyup.enter="sendChatMessage"
+                           style="flex: 1; border: none; outline: none; background: #ffffff; border-radius: 18px; padding: 0.65em 1em; font-size: 1em; min-width: 0;">
+                    <button class="ui circular primary icon button"
+                            :class="{ 'disabled': !canSend(), 'loading': sending }"
+                            style="margin: 0;"
+                            @click="sendChatMessage"
+                            title="Send message">
+                        <i class="send icon"></i>
+                    </button>
                 </div>
             </div>
         </div>

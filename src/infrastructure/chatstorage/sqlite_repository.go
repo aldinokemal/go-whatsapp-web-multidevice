@@ -1266,13 +1266,20 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 		webhookURL = config.WebhookURL
 	}
 
-	_, err := r.db.Exec(`
+	result, err := r.db.Exec(`
 		UPDATE devices
 		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, updated_at = ?
 		WHERE device_id = ?
 	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, time.Now(), deviceID)
 	if err != nil {
 		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
