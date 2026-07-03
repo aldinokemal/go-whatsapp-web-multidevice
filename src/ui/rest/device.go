@@ -58,8 +58,11 @@ func (handler *Device) GetDevice(c *fiber.Ctx) error {
 
 func (handler *Device) AddDevice(c *fiber.Ctx) error {
 	var req struct {
-		DeviceID   string `json:"device_id"`
-		WebhookURL string `json:"webhook_url"`
+		DeviceID                  string `json:"device_id"`
+		WebhookURL                string `json:"webhook_url"`
+		WebhookSecret             string `json:"webhook_secret"`
+		WebhookEvents             string `json:"webhook_events"`
+		WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -71,7 +74,17 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		})
 	}
 
-	device, err := handler.Service.AddDevice(c.UserContext(), req.DeviceID, req.WebhookURL)
+	var webhook *chatstorage.DeviceWebhookConfig
+	if req.WebhookURL != "" || req.WebhookSecret != "" || req.WebhookEvents != "" || req.WebhookInsecureSkipVerify {
+		webhook = &chatstorage.DeviceWebhookConfig{
+			WebhookURL:                &req.WebhookURL,
+			WebhookSecret:             req.WebhookSecret,
+			WebhookEvents:             req.WebhookEvents,
+			WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
+		}
+	}
+
+	device, err := handler.Service.AddDevice(c.UserContext(), req.DeviceID, webhook)
 	utils.PanicIfNeeded(err)
 
 	result := map[string]any{
@@ -80,7 +93,12 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		"jid":          device.JID,
 		"state":        device.State,
 		"created_at":   device.CreatedAt,
-		"webhook_url":  req.WebhookURL,
+	}
+	if webhook != nil {
+		result["webhook_url"] = req.WebhookURL
+		result["webhook_secret"] = req.WebhookSecret
+		result["webhook_events"] = req.WebhookEvents
+		result["webhook_insecure_skip_verify"] = req.WebhookInsecureSkipVerify
 	}
 
 	return c.JSON(utils.ResponseData{
@@ -180,10 +198,10 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	var req struct {
-		WebhookURL               *string `json:"webhook_url"`
-		WebhookSecret           string  `json:"webhook_secret"`
-		WebhookEvents           string  `json:"webhook_events"`
-		WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify"`
+		WebhookURL                *string `json:"webhook_url"`
+		WebhookSecret             string  `json:"webhook_secret"`
+		WebhookEvents             string  `json:"webhook_events"`
+		WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
@@ -205,9 +223,9 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 	}
 
 	config := &chatstorage.DeviceWebhookConfig{
-		WebhookURL:               req.WebhookURL,
-		WebhookSecret:           req.WebhookSecret,
-		WebhookEvents:           req.WebhookEvents,
+		WebhookURL:                req.WebhookURL,
+		WebhookSecret:             req.WebhookSecret,
+		WebhookEvents:             req.WebhookEvents,
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
 	}
 
@@ -219,10 +237,10 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Device webhook updated",
 		Results: map[string]any{
-			"device_id": deviceID,
-			"webhook_url": *req.WebhookURL,
-			"webhook_secret": req.WebhookSecret,
-			"webhook_events": req.WebhookEvents,
+			"device_id":                    deviceID,
+			"webhook_url":                  *req.WebhookURL,
+			"webhook_secret":               req.WebhookSecret,
+			"webhook_events":               req.WebhookEvents,
 			"webhook_insecure_skip_verify": req.WebhookInsecureSkipVerify,
 		},
 	})
@@ -246,9 +264,24 @@ func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
 		Results: map[string]any{
 			"device_id":   deviceID,
 			"webhook_url": webhookURL,
-			"webhook_secret": func() string { if config != nil { return config.WebhookSecret }; return "" }(),
-			"webhook_events": func() string { if config != nil { return config.WebhookEvents }; return "" }(),
-			"webhook_insecure_skip_verify": func() bool { if config != nil { return config.WebhookInsecureSkipVerify }; return false }(),
+			"webhook_secret": func() string {
+				if config != nil {
+					return config.WebhookSecret
+				}
+				return ""
+			}(),
+			"webhook_events": func() string {
+				if config != nil {
+					return config.WebhookEvents
+				}
+				return ""
+			}(),
+			"webhook_insecure_skip_verify": func() bool {
+				if config != nil {
+					return config.WebhookInsecureSkipVerify
+				}
+				return false
+			}(),
 		},
 	})
 }

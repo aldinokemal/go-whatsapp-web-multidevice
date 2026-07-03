@@ -47,7 +47,7 @@ func (s *serviceDevice) GetDevice(_ context.Context, deviceID string) (*domainDe
 	return nil, fmt.Errorf("device %s not found", deviceID)
 }
 
-func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string, webhookURL string) (*domainDevice.Device, error) {
+func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string, webhook *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
 	if s.manager == nil {
 		return nil, fmt.Errorf("device manager not initialized")
 	}
@@ -57,13 +57,17 @@ func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string, webhookU
 		return nil, err
 	}
 
-	// Set device-specific webhook if provided
-	if webhookURL != "" {
+	// Apply the device-specific webhook configuration if provided. Failures are
+	// surfaced instead of logged away: the caller was promised the webhook config,
+	// so a silent partial success would leave the API reporting a webhook that was
+	// never persisted.
+	if webhook != nil {
 		storage := s.manager.GetStorage()
-		if storage != nil {
-			if err := storage.SetDeviceWebhookURL(deviceID, &webhookURL); err != nil {
-				logrus.Warnf("Failed to set webhook for device %s: %v", deviceID, err)
-			}
+		if storage == nil {
+			return nil, fmt.Errorf("device %s created but storage is unavailable to save webhook config", deviceID)
+		}
+		if err := storage.SetDeviceWebhookConfig(deviceID, webhook); err != nil {
+			return nil, fmt.Errorf("device %s created but webhook config could not be saved: %w", deviceID, err)
 		}
 	}
 

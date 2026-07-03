@@ -338,6 +338,18 @@ paths:
                   type: string
                   description: Optional device-specific webhook URL. If set, events for this device will be sent here instead of the global webhook.
                   example: 'https://device-webhook.example.com/handler'
+                webhook_secret:
+                  type: string
+                  description: Optional secret used to sign device-specific webhook payloads (HMAC).
+                  example: 'super-secret-key'
+                webhook_events:
+                  type: string
+                  description: Optional comma-separated list of event names to forward to the device-specific webhook. Empty means all events.
+                  example: 'message,message.ack'
+                webhook_insecure_skip_verify:
+                  type: boolean
+                  description: Optional. Skip TLS certificate verification when delivering to the device-specific webhook.
+                  example: false
       responses:
         '200':
           description: OK

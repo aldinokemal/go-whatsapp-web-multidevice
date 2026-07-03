@@ -10,7 +10,9 @@ import (
 type IDeviceUsecase interface {
 	ListDevices(ctx context.Context) ([]Device, error)
 	GetDevice(ctx context.Context, deviceID string) (*Device, error)
-	AddDevice(ctx context.Context, deviceID string, webhookURL string) (*Device, error)
+	// AddDevice creates a new device. A non-nil webhook applies the full device-specific
+	// webhook configuration (url, secret, events, insecure_skip_verify) at creation time.
+	AddDevice(ctx context.Context, deviceID string, webhook *chatstorage.DeviceWebhookConfig) (*Device, error)
 	RemoveDevice(ctx context.Context, deviceID string) error
 	LoginDevice(ctx context.Context, deviceID string) error
 	LoginDeviceWithCode(ctx context.Context, deviceID string, phone string) (string, error)

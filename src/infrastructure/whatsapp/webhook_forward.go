@@ -88,8 +88,10 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	deviceJID, _ := payload["device_id"].(string)
 	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
 	if err != nil {
-		logrus.Warnf("Failed to get webhook config for device %s: %v", deviceJID, err)
-		return err
+		// A config lookup failure is not a delivery failure: fall back to the global
+		// webhook config so the event still reaches the global targets and Chatwoot.
+		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
+		webhookConfig = nil
 	}
 
 	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig)

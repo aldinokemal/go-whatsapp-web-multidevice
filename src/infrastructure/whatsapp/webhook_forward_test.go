@@ -460,6 +460,48 @@ func TestForwardPayloadToConfiguredWebhooks_DeviceWebhookCleared_FallsBackToGlob
 	}
 }
 
+// TestForwardPayloadToConfiguredWebhooks_DeviceLookupError_FallsBackToGlobal verifies that a
+// transient storage error while resolving the device webhook config does not abort forwarding:
+// the event must still be delivered using the global webhook config. The function's contract is
+// to only return an error when all webhook deliveries fail — a config lookup failure is not a
+// delivery failure.
+func TestForwardPayloadToConfiguredWebhooks_DeviceLookupError_FallsBackToGlobal(t *testing.T) {
+	ctx := context.Background()
+	payload := map[string]any{
+		"foo":       "bar",
+		"device_id": "6289600000000@s.whatsapp.net",
+	}
+
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = []string{"https://global-webhook.com"}
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	originalStorageForTest := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*chatstorage.DeviceRecord, error) {
+		return nil, errors.New("database is locked")
+	}
+	defer func() { webhookStorageForTest = originalStorageForTest }()
+
+	var calledURLs []string
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+		calledURLs = append(calledURLs, url)
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "message"); err != nil {
+		t.Fatalf("device config lookup failure must not abort forwarding, got error: %v", err)
+	}
+
+	if len(calledURLs) != 1 {
+		t.Fatalf("expected 1 webhook call (global fallback), got %d: %v", len(calledURLs), calledURLs)
+	}
+	if calledURLs[0] != "https://global-webhook.com" {
+		t.Fatalf("expected global webhook, got %s", calledURLs[0])
+	}
+}
+
 // TestForwardPayloadToConfiguredWebhooks_DeviceWebhookOnly_NoGlobal verifies that when
 // no global webhook is configured but a device-specific webhook is set, events are
 // forwarded to the device-specific webhook. This is the primary path aldinokemal asked
