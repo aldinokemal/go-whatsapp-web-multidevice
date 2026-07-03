@@ -284,11 +284,22 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				logrus.Errorf("Failed to download document: %v", err)
 				return pkgError.WebhookError(fmt.Sprintf("Failed to download document: %v", err))
 			}
-			payload["document"] = buildAutoDownloadPayload(extracted)
+			// Forward the document's real MIME so consumers don't have to guess
+			// from the path (a WhatsApp document can be xlsx/docx/csv/…, not just
+			// PDF). The path already carries the correct extension.
+			doc := map[string]any{"path": extracted.MediaPath}
+			if extracted.Caption != "" {
+				doc["caption"] = extracted.Caption
+			}
+			if extracted.MimeType != "" {
+				doc["mime_type"] = extracted.MimeType
+			}
+			payload["document"] = doc
 		} else {
 			payload["document"] = map[string]any{
-				"url":      documentMedia.GetURL(),
-				"filename": documentMedia.GetFileName(),
+				"url":       documentMedia.GetURL(),
+				"filename":  documentMedia.GetFileName(),
+				"mime_type": documentMedia.GetMimetype(),
 			}
 		}
 	}
