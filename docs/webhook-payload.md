@@ -116,7 +116,7 @@ def verify_webhook_signature(payload, signature, secret):
         payload,
         hashlib.sha256
     ).hexdigest()
-    
+
     received_signature = signature.replace('sha256=', '')
     return hmac.compare_digest(expected_signature, received_signature)
 ```
@@ -129,6 +129,7 @@ All webhook payloads follow a consistent top-level structure:
 {
   "event": "message",
   "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
   "payload": {
     // Event-specific fields
   }
@@ -137,11 +138,12 @@ All webhook payloads follow a consistent top-level structure:
 
 ### Top-Level Fields
 
-| **Field**   | **Type** | **Description**                                                                                                     |
-|-------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`     | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
-| `device_id` | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
-| `payload`   | object   | Event-specific payload data                                                                                         |
+| **Field**    | **Type** | **Description**                                                                                                     |
+|--------------|----------|---------------------------------------------------------------------------------------------------------------------|
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
+| `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
+| `payload`    | object   | Event-specific payload data                                                                                         |
 
 ### Common Payload Fields
 
@@ -284,8 +286,9 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 Chat presence events are triggered when a contact starts or stops typing (or recording audio) in a chat.
 These events use the `chat_presence` event type and are useful for implementing message batching strategies.
 
-**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA automatically marks
-itself as online upon connection, so no additional configuration is needed.
+**Note:** WhatsApp only sends chat presence updates when the client is marked as online. GOWA defaults to
+`unavailable` on connection, but the daily presence pulse periodically marks connected devices as `available`
+and then returns them to `unavailable`.
 
 ### User Typing
 
@@ -648,6 +651,107 @@ WHATSAPP_AUTO_REJECT_CALL=true
 # Auto-reject all incoming calls
 ./whatsapp rest --auto-reject-call=true
 ```
+
+### Reject Call via API
+
+In addition to auto-rejecting all calls, you can programmatically reject specific calls using the REST API. This is useful when you want to apply custom logic (e.g., time-of-day rules, caller whitelists, or agent availability checks).
+
+**Endpoint:** `POST /call/reject`
+
+**Headers:**
+```http
+X-Device-Id: <device_id>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "caller_jid": "628987654321@s.whatsapp.net",
+  "call_id": "ABC123DEF456"
+}
+```
+
+**Where to get these values:**
+
+When you receive a `call.offer` webhook event, extract the values from the payload:
+
+```json
+{
+  "event": "call.offer",
+  "device_id": "628123456789@s.whatsapp.net",
+  "payload": {
+    "call_id": "ABC123DEF456",
+    "from": "628987654321@s.whatsapp.net",
+    "auto_rejected": false
+  }
+}
+```
+
+- `caller_jid` → Use `payload.from` from the webhook
+- `call_id` → Use `payload.call_id` from the webhook
+
+**Example (curl):**
+
+```bash
+curl -X POST http://localhost:3000/call/reject \
+  -H "X-Device-Id: 628123456789@s.whatsapp.net" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "caller_jid": "628987654321@s.whatsapp.net",
+    "call_id": "ABC123DEF456"
+  }'
+```
+
+**Example (JavaScript/Node.js):**
+
+```javascript
+const axios = require('axios');
+
+// When you receive a call.offer webhook event
+app.post('/webhook', async (req, res) => {
+  const { event, payload, device_id } = req.body;
+
+  if (event === 'call.offer' && !payload.auto_rejected) {
+    // Apply your custom logic here
+    const shouldReject = checkBusinessHours() || isBlacklisted(payload.from);
+
+    if (shouldReject) {
+      try {
+        await axios.post('http://localhost:3000/call/reject', {
+          caller_jid: payload.from,
+          call_id: payload.call_id
+        }, {
+          headers: {
+            'X-Device-Id': device_id,
+            'Content-Type': 'application/json'
+          }
+        });
+        console.log(`Rejected call from ${payload.from}`);
+      } catch (error) {
+        console.error('Failed to reject call:', error.message);
+      }
+    }
+  }
+
+  res.sendStatus(200);
+});
+```
+
+**Important Notes:**
+
+- **Timing:** The call must still be ringing. Rejection will fail if the call has already ended or been answered.
+- **Device-scoped:** The `X-Device-Id` header is required and must match the device that received the call.
+- **Error handling:** If the call has already ended, the API will return an error. Handle this gracefully in your application.
+- **Complementary to auto-reject:** If `WHATSAPP_AUTO_REJECT_CALL=true`, all calls are rejected automatically before the webhook is sent. The API is for selective rejection when auto-reject is disabled.
+
+**Webhook Integration Pattern:**
+
+1. Enable `call.offer` in `WHATSAPP_WEBHOOK_EVENTS`
+2. Set up a webhook receiver endpoint in your application
+3. When a `call.offer` event arrives, apply your business logic
+4. If the call should be rejected, call `POST /call/reject` with the values from the webhook payload
+5. The call is rejected on WhatsApp, and the caller sees a "declined" status
 
 ## Media Messages
 

@@ -35,6 +35,12 @@ func (h *QueryHandler) AddQueryTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(h.toolGetChatMessages(), h.handleGetChatMessages)
 	mcpServer.AddTool(h.toolDownloadMedia(), h.handleDownloadMedia)
 	mcpServer.AddTool(h.toolArchiveChat(), h.handleArchiveChat)
+	mcpServer.AddTool(h.toolReactMessage(), h.handleReactMessage)
+	mcpServer.AddTool(h.toolEditMessage(), h.handleEditMessage)
+	mcpServer.AddTool(h.toolRevokeMessage(), h.handleRevokeMessage)
+	mcpServer.AddTool(h.toolDeleteMessage(), h.handleDeleteMessage)
+	mcpServer.AddTool(h.toolMarkAsRead(), h.handleMarkAsRead)
+	mcpServer.AddTool(h.toolStarMessage(), h.handleStarMessage)
 }
 
 func (h *QueryHandler) toolListContacts() mcp.Tool {
@@ -365,4 +371,322 @@ func (h *QueryHandler) handleArchiveChat(ctx context.Context, request mcp.CallTo
 
 	fallback := resp.Message
 	return mcp.NewToolResultStructured(resp, fallback), nil
+}
+
+func (h *QueryHandler) toolReactMessage() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_react_message",
+		mcp.WithDescription("React to a WhatsApp message with an emoji. Send an empty string as emoji to remove an existing reaction."),
+		mcp.WithTitleAnnotation("React to Message"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to react to"),
+		),
+		mcp.WithString("emoji",
+			mcp.Description("Emoji to react with. Pass an empty string to remove an existing reaction."),
+		),
+	)
+}
+
+func (h *QueryHandler) handleReactMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	emoji := request.GetString("emoji", "")
+
+	resp, err := h.messageService.ReactMessage(ctx, domainMessage.ReactionRequest{
+		MessageID: messageID,
+		Phone:     phone,
+		Emoji:     emoji,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Reaction sent (message ID: %s)", resp.MessageID)
+	return mcp.NewToolResultStructured(resp, fallback), nil
+}
+
+func (h *QueryHandler) toolEditMessage() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_edit_message",
+		mcp.WithDescription("Edit a previously sent WhatsApp message. Note: only works within approximately 15 minutes of the original send (WhatsApp protocol limit)."),
+		mcp.WithTitleAnnotation("Edit Message"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to edit"),
+		),
+		mcp.WithString("message",
+			mcp.Required(),
+			mcp.Description("The new text content to replace the original message with"),
+		),
+	)
+}
+
+func (h *QueryHandler) handleEditMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	message, err := request.RequireString("message")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := h.messageService.UpdateMessage(ctx, domainMessage.UpdateMessageRequest{
+		MessageID: messageID,
+		Phone:     phone,
+		Message:   message,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Message edited (ID: %s)", resp.MessageID)
+	return mcp.NewToolResultStructured(resp, fallback), nil
+}
+
+func (h *QueryHandler) toolRevokeMessage() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_revoke_message",
+		mcp.WithDescription("Delete a WhatsApp message for EVERYONE in the chat (destructive — cannot be undone)."),
+		mcp.WithTitleAnnotation("Revoke Message (Delete for Everyone)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to delete for everyone"),
+		),
+	)
+}
+
+func (h *QueryHandler) handleRevokeMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := h.messageService.RevokeMessage(ctx, domainMessage.RevokeRequest{
+		MessageID: messageID,
+		Phone:     phone,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Message revoked (ID: %s)", resp.MessageID)
+	return mcp.NewToolResultStructured(resp, fallback), nil
+}
+
+func (h *QueryHandler) toolDeleteMessage() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_delete_message",
+		mcp.WithDescription("Delete a WhatsApp message for ME only (local delete — the other party can still see it). Destructive."),
+		mcp.WithTitleAnnotation("Delete Message (For Me)"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to delete locally"),
+		),
+	)
+}
+
+func (h *QueryHandler) handleDeleteMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.messageService.DeleteMessage(ctx, domainMessage.DeleteRequest{
+		MessageID: messageID,
+		Phone:     phone,
+	}); err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Message %s deleted", messageID)), nil
+}
+
+func (h *QueryHandler) toolMarkAsRead() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_mark_as_read",
+		mcp.WithDescription("Mark a WhatsApp message as read, sending a read receipt to the sender."),
+		mcp.WithTitleAnnotation("Mark Message as Read"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to mark as read"),
+		),
+	)
+}
+
+func (h *QueryHandler) handleMarkAsRead(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := h.messageService.MarkAsRead(ctx, domainMessage.MarkAsReadRequest{
+		MessageID: messageID,
+		Phone:     phone,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Message marked as read (ID: %s)", resp.MessageID)
+	return mcp.NewToolResultStructured(resp, fallback), nil
+}
+
+func (h *QueryHandler) toolStarMessage() mcp.Tool {
+	return mcp.NewTool(
+		"whatsapp_star_message",
+		mcp.WithDescription("Star or unstar a WhatsApp message."),
+		mcp.WithTitleAnnotation("Star/Unstar Message"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group JID of the chat containing the message"),
+		),
+		mcp.WithString("message_id",
+			mcp.Required(),
+			mcp.Description("The WhatsApp message ID to star or unstar"),
+		),
+		mcp.WithBoolean("is_starred",
+			mcp.Required(),
+			mcp.Description("Set to true to star the message, false to unstar it"),
+		),
+	)
+}
+
+func (h *QueryHandler) handleStarMessage(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+	utils.SanitizePhone(&phone)
+
+	messageID, err := request.RequireString("message_id")
+	if err != nil {
+		return nil, err
+	}
+
+	args := request.GetArguments()
+	if args == nil {
+		return nil, fmt.Errorf("missing required argument: is_starred")
+	}
+	isStarredValue, ok := args["is_starred"]
+	if !ok {
+		return nil, fmt.Errorf("missing required argument: is_starred")
+	}
+	isStarred, err := toBool(isStarredValue)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.messageService.StarMessage(ctx, domainMessage.StarRequest{
+		MessageID: messageID,
+		Phone:     phone,
+		IsStarred: isStarred,
+	}); err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Message %s star=%t", messageID, isStarred)), nil
 }

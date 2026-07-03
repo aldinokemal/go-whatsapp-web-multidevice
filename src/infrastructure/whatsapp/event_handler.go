@@ -10,6 +10,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -36,9 +37,16 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.AppStateSyncComplete:
 		handleAppStateSyncComplete(ctx, client, evt)
 	case *events.PairSuccess:
+		instance.ClearPasskeyState()
 		handlePairSuccess(ctx, evt)
+	case *events.PairPasskeyRequest:
+		handlePairPasskeyRequest(instance, evt)
+	case *events.PairPasskeyConfirmation:
+		handlePairPasskeyConfirmation(instance, evt)
+	case *events.PairPasskeyError:
+		handlePairPasskeyError(instance, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(ctx, instance, chatStorageRepo)
+		handleLoggedOut(instance)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
@@ -147,30 +155,73 @@ func handlePairSuccess(ctx context.Context, evt *events.PairSuccess) {
 		Message: fmt.Sprintf("Successfully pair with %s", evt.ID.String()),
 	}
 	primaryDB, secondaryDB := getStoreContainers()
-	syncKeysDevice(ctx, primaryDB, secondaryDB)
+	syncKeysDevice(ctx, primaryDB, secondaryDB, evt.ID)
 }
 
-func handleLoggedOut(ctx context.Context, instance *DeviceInstance, chatStorageRepo domainChatStorage.IChatStorageRepository) {
+func handlePairPasskeyRequest(instance *DeviceInstance, evt *events.PairPasskeyRequest) {
+	instance.SetPasskeyChallenge(evt.PublicKey)
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_REQUEST",
+		Message: "Passkey pairing requested; submit the WebAuthn assertion via POST /app/passkey/response",
+		Result: map[string]any{
+			"device_id": instance.ID(),
+			"challenge": evt.PublicKey,
+		},
+	}
+}
+
+func handlePairPasskeyConfirmation(instance *DeviceInstance, evt *events.PairPasskeyConfirmation) {
+	instance.SetPasskeyConfirmation(evt.Code, evt.SkipHandoffUX)
+	message := fmt.Sprintf("Passkey pairing code %s: verify it matches the code on your phone, then confirm via POST /app/passkey/confirm", evt.Code)
+	if evt.SkipHandoffUX {
+		message = "Passkey pairing verified, finishing automatically"
+	}
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_CONFIRMATION",
+		Message: message,
+		Result: map[string]any{
+			"device_id":       instance.ID(),
+			"code":            evt.Code,
+			"skip_handoff_ux": evt.SkipHandoffUX,
+		},
+	}
+}
+
+func handlePairPasskeyError(instance *DeviceInstance, evt *events.PairPasskeyError) {
+	logrus.Warnf("[PASSKEY][%s] pairing error (continuation=%t): %v", instance.ID(), evt.Continuation, evt.Error)
+	instance.ClearPasskeyState()
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "PASSKEY_ERROR",
+		Message: evt.Error.Error(),
+		Result: map[string]any{
+			"device_id":    instance.ID(),
+			"continuation": evt.Continuation,
+		},
+	}
+}
+
+func handleLoggedOut(instance *DeviceInstance) {
 	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
+	instance.ClearPasskeyState()
 
 	if client := instance.GetClient(); client != nil {
 		client.Disconnect()
 	}
 	instance.SetState(domainDevice.DeviceStateDisconnected)
 
-	if chatStorageRepo != nil {
-		if err := chatStorageRepo.TruncateAllDataWithLogging("REMOTE_LOGOUT"); err != nil {
-			logrus.Errorf("[REMOTE_LOGOUT] Failed to truncate chat storage: %v", err)
-		}
-	}
+	// Chat history is intentionally preserved on remote logout (it is only cleared on
+	// a full purge via DELETE). A remote logout keeps the device slot, so truncating
+	// here would contradict the keep-slot semantics and lose the conversation history.
 
 	deviceID := instance.ID()
 
+	// TriggerLoggedOut fires the manager's keep-slot callback (resets the in-memory
+	// client + clears the persisted JID, but keeps the slot id and display name).
 	instance.TriggerLoggedOut()
 
 	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    "LOGOUT_COMPLETE",
-		Message: "Remote logout cleanup completed - device removed from server",
+		Code:    "DEVICE_LOGGED_OUT",
+		Message: "Device logged out (slot kept)",
 		Result:  map[string]string{"device_id": deviceID},
 	}
 }
@@ -199,6 +250,17 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 			}
 		}
 	}
+	// Start Chatwoot history auto-sync on first connect for this device when
+	// CHATWOOT_IMPORT_MESSAGES is enabled. TriggerAutoSync self-guards on config,
+	// login state, and a once-per-device latch, so it is safe to call on every
+	// connect — placed before the pushname early-return because a freshly paired
+	// device may connect before its pushname is known.
+	if instance != nil {
+		if repo := instance.GetChatStorage(); repo != nil {
+			chatwoot.TriggerAutoSync(repo, client)
+		}
+	}
+
 	if len(client.Store.PushName) == 0 {
 		return
 	}
@@ -223,7 +285,7 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
 	}
 
-	// Forward receipt (ack) event to webhook
+	// Forward receipt (ack) event to webhook or Chatwoot if configured
 	// Note: Receipt events are not rate limited as they are critical for message delivery status
 	if sendReceipt {
 		go func(e *events.Receipt, c *whatsmeow.Client) {

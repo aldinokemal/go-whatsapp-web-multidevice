@@ -117,12 +117,11 @@ export default {
             }
             try {
                 this.isDeleting = true;
-                
-                // Logout first (fire and forget), then delete
-                window.http.get(`/app/logout`, {
-                    headers: { 'X-Device-Id': encodeURIComponent(deviceId) }
-                }).catch(() => {});
-                
+
+                // DELETE owns the full purge/logout flow: it logs the device out of
+                // WhatsApp and clears its session before removing the slot. Firing a
+                // separate /app/logout here would race the DELETE response and could
+                // make a removed slot momentarily reappear, so we don't.
                 await window.http.delete(`/devices/${encodeURIComponent(deviceId)}`);
                 showSuccessInfo(`Device ${deviceId} deleted successfully`);
                 $('#deleteDeviceModal').modal('hide');

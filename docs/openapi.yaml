@@ -21,6 +21,8 @@ tags:
     description: Send Message (Text/Image/File/Video).
   - name: message
     description: Message manipulation (revoke/react/update).
+  - name: call
+    description: Call management (reject incoming calls)
   - name: chat
     description: Chat conversations and messaging
   - name: group
@@ -81,12 +83,105 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey:
+    get:
+      operationId: appPasskeyStatus
+      tags:
+        - app
+      summary: Get pending passkey pairing state
+      description: >
+        Passkey pairing is initiated from the phone during QR login. When the phone requests it,
+        the server sends a WebAuthn challenge which is stored here (also broadcast over the
+        websocket as PASSKEY_REQUEST) until a response is submitted.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyStatusResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey/response:
+    post:
+      operationId: appPasskeyResponse
+      tags:
+        - app
+      summary: Submit the WebAuthn assertion for passkey pairing
+      description: >
+        Send the WebAuthn assertion produced for the pending challenge (see GET /app/passkey).
+        The assertion must be produced by an authenticator holding the WhatsApp account's passkey,
+        against WhatsApp's relying-party ID; the payload format matches PublicKeyCredential.toJSON().
+        If the assertion is submitted within the 5-minute handoff window, pairing is confirmed
+        automatically; otherwise a confirmation code is issued (PASSKEY_CONFIRMATION websocket event)
+        and must be confirmed via POST /app/passkey/confirm.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebAuthnAssertion'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/passkey/confirm:
+    post:
+      operationId: appPasskeyConfirm
+      tags:
+        - app
+      summary: Confirm the passkey pairing code
+      description: >
+        Confirms that the pairing code from the PASSKEY_CONFIRMATION event was shown to the user
+        and matches the code displayed on the phone. Only needed when skip_handoff_ux is false.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /app/logout:
     get:
       operationId: appLogout
       tags:
         - app
-      summary: Remove database and logout
+      summary: Logout the active device (keeps the device slot)
+      description: >-
+        Logs the active device out of WhatsApp and clears its session. The device
+        slot (id and display name) is kept, so it stays listed (disconnected) and
+        can be re-paired under the same id. Use DELETE /devices/{device_id} to remove the slot.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       responses:
@@ -183,7 +278,11 @@ paths:
                         description: Whether the device is logged in to WhatsApp
                       device_id:
                         type: string
-                        description: The device ID
+                        description: Session ID registered via POST /devices
+                        example: 'org_2'
+                      jid:
+                        type: string
+                        description: WhatsApp JID of the logged-in account (empty until login)
                         example: '6289685028129@s.whatsapp.net'
         '400':
           description: Bad Request
@@ -297,7 +396,10 @@ paths:
       tags:
         - device
       summary: Remove a device
-      description: Remove a device from the server (does not logout from WhatsApp)
+      description: >-
+        Remove a device slot from the server. This also logs it out of WhatsApp and
+        clears its session and chat data. To log out while keeping the slot, use the
+        logout endpoint instead.
       parameters:
         - name: device_id
           in: path
@@ -406,7 +508,10 @@ paths:
       tags:
         - device
       summary: Logout device
-      description: Logout a specific device from WhatsApp and remove its session
+      description: >-
+        Logs a specific device out of WhatsApp and clears its session, but keeps the
+        device slot (id and display name) so it can be re-paired under the same id.
+        To remove the slot entirely, use DELETE /devices/{device_id}.
       parameters:
         - name: device_id
           in: path
@@ -816,12 +921,12 @@ paths:
       summary: User My List Groups
       description: |
         Get all groups that the authenticated user has joined.
-        
+
         ⚠️ **Known Limitation**: This endpoint returns a maximum of 500 groups due to a WhatsApp protocol limitation.
         The underlying whatsmeow library's `GetJoinedGroups()` function sends a single query to WhatsApp servers,
         which enforces this limit. This is not a bug in this API - it's a constraint imposed by WhatsApp's
         multi-device protocol. Users with more than 500 groups will only receive the first 500 groups.
-        
+
         For more details, see: https://github.com/tulir/whatsmeow/blob/main/group.go
       externalDocs:
         description: WhatsApp protocol limitation reference (whatsmeow source)
@@ -952,7 +1057,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  
+
   /send/message:
     post:
       operationId: sendMessage
@@ -1036,6 +1141,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -1105,6 +1214,10 @@ paths:
                   type: string
                   example: https://example.com/audio.mp3
                   description: Audio URL to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
@@ -1154,6 +1267,10 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 file:
                   type: string
                   format: binary
@@ -1261,6 +1378,10 @@ paths:
                   type: string
                   example: ini contoh caption video
                   description: Caption to send
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 view_once:
                   type: boolean
                   example: false
@@ -1990,19 +2111,26 @@ paths:
                       status:
                         type: string
                         example: Media downloaded successfully
-                      mime_type:
+                      message_id:
                         type: string
-                        example: image/jpeg
+                        example: 3EB0ABC123456789
+                      media_type:
+                        type: string
+                        example: audio
+                      filename:
+                        type: string
+                        example: audio.ogg
+                      file_path:
+                        type: string
+                        description: Local server file path where the media was saved
+                        example: statics/media/6289685028129/2026-06-09/audio.ogg
+                      file_url:
+                        type: string
+                        description: Public URL for downloading the saved media when it is stored under the served statics directory
+                        example: http://localhost:3000/statics/media/6289685028129/2026-06-09/audio.ogg
                       file_size:
                         type: integer
                         example: 524288
-                      file_name:
-                        type: string
-                        example: image.jpg
-                      data:
-                        type: string
-                        format: byte
-                        description: Base64 encoded media data
         '400':
           description: Bad Request
           content:
@@ -2017,6 +2145,64 @@ paths:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/reject:
+    post:
+      operationId: rejectCall
+      tags:
+        - call
+      summary: Reject an incoming call
+      description: |
+        Programmatically reject a specific incoming call. This endpoint allows selective call rejection
+        based on your application logic (e.g., time-of-day rules, caller whitelists, agent availability).
+
+        The call must still be ringing — rejection will fail if the call has already ended or been answered.
+
+        This is complementary to the auto-reject feature (`WHATSAPP_AUTO_REJECT_CALL=true`) which rejects
+        all incoming calls globally. Use this API for fine-grained control.
+
+        **Required fields from webhook:**
+        - `caller_jid`: Use `payload.from` from the `call.offer` webhook event
+        - `call_id`: Use `payload.call_id` from the `call.offer` webhook event
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - caller_jid
+                - call_id
+              properties:
+                caller_jid:
+                  type: string
+                  example: '628987654321@s.whatsapp.net'
+                  description: JID of the caller (from webhook `payload.from`)
+                call_id:
+                  type: string
+                  example: 'ABC123DEF456'
+                  description: Unique call identifier (from webhook `payload.call_id`)
+      responses:
+        '200':
+          description: Call rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing or invalid fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error (call already ended, not connected, etc.)
           content:
             application/json:
               schema:
@@ -2301,7 +2487,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  
+
   /chat/{chat_jid}/disappearing:
     post:
       operationId: setDisappearingTimer
@@ -2349,7 +2535,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  
+
   /chat/{chat_jid}/archive:
     post:
       operationId: archiveChat
@@ -2409,7 +2595,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
-  
+
   /group/info:
     get:
       operationId: groupInfo
@@ -3218,6 +3404,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/messages:
+    get:
+      operationId: getNewsletterMessages
+      tags:
+        - newsletter
+      summary: Get latest newsletter (channel) messages
+      description: |
+        Fetches the latest messages posted in a newsletter (channel) directly
+        from WhatsApp servers. You must be following/subscribed to the
+        newsletter to fetch its messages.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+        - name: count
+          in: query
+          required: false
+          description: Number of messages to return (default 50, max 100)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: before
+          in: query
+          required: false
+          description: Fetch messages older than this message server ID, used for pagination
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
 
   /chatwoot/sync:
     post:
@@ -3778,7 +4017,12 @@ components:
                 example: 'Aldino Kemal'
               device:
                 type: string
-                example: '628960561XXX.0:64@s.whatsapp.net'
+                description: Session ID registered via POST /devices (stable across restarts)
+                example: 'org_2'
+              jid:
+                type: string
+                description: WhatsApp JID of the logged-in account (empty until login)
+                example: '628960561XXX@s.whatsapp.net'
 
     # Device Management Schemas (v8)
     DeviceListResponse:
@@ -3910,6 +4154,90 @@ components:
             qr_link:
               type: string
               example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
+    PasskeyStatusResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Passkey pairing status
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: device-1
+            status:
+              type: string
+              enum: [none, awaiting_response, awaiting_confirmation]
+              example: awaiting_response
+            challenge:
+              type: object
+              nullable: true
+              description: WebAuthn assertion request options (PublicKeyCredentialRequestOptions JSON, base64url-encoded binary fields)
+              properties:
+                challenge:
+                  type: string
+                  example: dGVzdC1jaGFsbGVuZ2U
+                timeout:
+                  type: integer
+                  example: 60000
+                rpId:
+                  type: string
+                  example: whatsapp.com
+                allowCredentials:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                        example: public-key
+                      transports:
+                        type: array
+                        items:
+                          type: string
+                userVerification:
+                  type: string
+                  example: required
+            code:
+              type: string
+              description: Pairing confirmation code (set while awaiting confirmation)
+              example: ABCD-EFGH
+            skip_handoff_ux:
+              type: boolean
+              example: false
+    WebAuthnAssertion:
+      type: object
+      description: WebAuthn assertion in PublicKeyCredential.toJSON() format (binary fields base64url-encoded without padding)
+      required: [id, rawId, type, response]
+      properties:
+        id:
+          type: string
+          example: XcnXe2W9me1XZTGii6JI9A
+        rawId:
+          type: string
+          example: XcnXe2W9me1XZTGii6JI9A
+        type:
+          type: string
+          example: public-key
+        response:
+          type: object
+          required: [clientDataJSON, authenticatorData, signature]
+          properties:
+            clientDataJSON:
+              type: string
+            authenticatorData:
+              type: string
+            signature:
+              type: string
+            userHandle:
+              type: string
+              nullable: true
     GenericResponse:
       type: object
       properties:
@@ -4097,6 +4425,48 @@ components:
             role:
               type: string
               example: "subscriber"
+    NewsletterMessagesResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get newsletter messages"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NewsletterMessage'
+    NewsletterMessage:
+      type: object
+      properties:
+        server_id:
+          type: integer
+          example: 123
+        message_id:
+          type: string
+          example: "3EB0XXXXXXXXXXXXXXXX"
+        type:
+          type: string
+          example: "text"
+        timestamp:
+          type: string
+          example: "2026-06-30T10:00:00Z"
+        views_count:
+          type: integer
+          example: 42
+        reaction_counts:
+          type: object
+          additionalProperties:
+            type: integer
+          example: { "😀": 3, "👍": 5 }
+        text:
+          type: string
+          example: "Hello from the channel!"
     MyListContactsResponse:
       type: object
       properties:
@@ -4239,7 +4609,7 @@ components:
                   close_time:
                     type: string
                     example: '18:00'
-    
+
     ChatListResponse:
       type: object
       properties:

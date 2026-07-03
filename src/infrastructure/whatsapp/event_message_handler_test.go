@@ -39,7 +39,7 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 
 	repo := &messageHandlerRepoSpy{}
 	done := make(chan map[string]any, 1)
-	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string) error {
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
 		done <- payload
 		return nil
 	}
