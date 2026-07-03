@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -84,15 +83,14 @@ func forwardGroupInfoToWebhook(ctx context.Context, evt *events.GroupInfo, devic
 func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Joined group %s (reason: %s, type: %s)", evt.JID, evt.Reason, evt.Type)
 
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.JoinedGroup, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardJoinedGroupToWebhook(webhookCtx, e, deviceID, c); err != nil {
-				logrus.Errorf("Failed to forward joined group event to webhook: %v", err)
-			}
-		}(evt, client)
-	}
+	// Forward joined group event to webhook
+	go func(e *events.JoinedGroup, c *whatsmeow.Client) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardJoinedGroupToWebhook(webhookCtx, e, deviceID, c); err != nil {
+			logrus.Errorf("Failed to forward joined group event to webhook: %v", err)
+		}
+	}(evt, client)
 }
 
 // forwardJoinedGroupToWebhook forwards the JoinedGroup event to configured webhooks

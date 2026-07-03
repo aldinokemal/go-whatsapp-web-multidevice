@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -36,14 +39,14 @@ func TestBuildLabelAppStatePayload(t *testing.T) {
 			},
 			eventName: eventTypeLabelEdit,
 			payload: map[string]any{
-				"label_id":    "9",
-				"name":        "Accounts",
-				"color":       int32(8),
-				"deleted":     false,
-				"order_index": int32(9),
-				"is_active":   true,
+				"label_id":     "9",
+				"name":         "Accounts",
+				"color":        int32(8),
+				"deleted":      false,
+				"order_index":  int32(9),
+				"is_active":    true,
 				"is_immutable": false,
-				"type":        "CUSTOM",
+				"type":         "CUSTOM",
 			},
 		},
 		{
@@ -244,5 +247,58 @@ func assertPayloadEqual(t *testing.T, actual map[string]any, expected map[string
 		if !reflect.DeepEqual(actualValue, expectedValue) {
 			t.Fatalf("expected payload[%q] to be %#v, got %#v", key, expectedValue, actualValue)
 		}
+	}
+}
+
+// TestHandleAppState_DeviceWebhookOnly_ForwardsLabelEvent verifies that label appstate
+// events are forwarded when only a device-specific webhook is configured and no global
+// webhook is set. Regression test for the leftover global-webhook gate in handleAppState
+// that the per-device webhook feature (#671) removed from every other handler.
+func TestHandleAppState_DeviceWebhookOnly_ForwardsLabelEvent(t *testing.T) {
+	// The package logger is normally initialized by InitWaDB, which unit tests don't run.
+	if log == nil {
+		log = waLog.Noop
+	}
+
+	originalWebhooks := config.WhatsappWebhook
+	config.WhatsappWebhook = nil
+	defer func() { config.WhatsappWebhook = originalWebhooks }()
+
+	deviceWebhookURL := "https://device-only-webhook.example.com"
+	originalStorageForTest := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*chatstorage.DeviceRecord, error) {
+		return &chatstorage.DeviceRecord{
+			DeviceID:   deviceJID,
+			WebhookURL: &deviceWebhookURL,
+		}, nil
+	}
+	defer func() { webhookStorageForTest = originalStorageForTest }()
+
+	called := make(chan string, 1)
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *chatstorage.DeviceWebhookConfig) error {
+		called <- url
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	evt := &events.AppState{
+		Index: []string{"label_edit", "9"},
+		SyncActionValue: &waSyncAction.SyncActionValue{
+			LabelEditAction: &waSyncAction.LabelEditAction{
+				Name: proto.String("Accounts"),
+			},
+		},
+	}
+
+	handleAppState(context.Background(), evt, "device_1", nil)
+
+	select {
+	case url := <-called:
+		if url != deviceWebhookURL {
+			t.Fatalf("expected forward to device webhook %s, got %s", deviceWebhookURL, url)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("label appstate event was not forwarded when only a device webhook is configured")
 	}
 }

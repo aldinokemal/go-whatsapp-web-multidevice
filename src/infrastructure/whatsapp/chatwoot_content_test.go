@@ -105,6 +105,20 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 		}
 	})
 
+	t.Run("newsletter chat_id is skipped", func(t *testing.T) {
+		// Channel (newsletter) feeds are broadcast-only — no conversation for
+		// an agent, and the channel id is not a phone number, so relaying one
+		// would 422 at Chatwoot contact creation ("Phone number should be in
+		// e164 format").
+		_, err := extractChatwootContactInfo(ctx, map[string]any{
+			"from":    "120363144038483540@newsletter",
+			"chat_id": "120363144038483540@newsletter",
+		})
+		if err == nil {
+			t.Fatal("expected @newsletter chat to be skipped")
+		}
+	})
+
 	t.Run("system service account from is skipped", func(t *testing.T) {
 		// 0@s.whatsapp.net is WhatsApp's official service account; guarding on
 		// 'from' (not just chat_id) blocks its TOS/notice messages.

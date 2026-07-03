@@ -67,11 +67,28 @@ func (err sessionSavedError) StatusCode() int {
 	return http.StatusInternalServerError
 }
 
+type notFoundError string
+
+func (err notFoundError) Error() string {
+	return string(err)
+}
+
+// ErrCode will return the error code based on the error data type
+func (err notFoundError) ErrCode() string {
+	return "NOT_FOUND"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (err notFoundError) StatusCode() int {
+	return http.StatusNotFound
+}
+
 var (
 	ErrAlreadyLoggedIn = LoginError("you are already logged in.")
 	ErrNotConnected    = AuthError("you are not connect to services server, please reconnect")
 	ErrNotLoggedIn     = AuthError("you are not logged in")
 	ErrReconnect       = AuthError("reconnect error")
 	ErrQrChannel       = qrChannelError("QR channel error")
-	ErrSessionSaved    = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
+	ErrSessionSaved   = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
+	ErrDeviceNotFound = notFoundError("device not found")
 )

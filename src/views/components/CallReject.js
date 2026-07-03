@@ -79,7 +79,7 @@ export default {
             </div>
         </div>
     </div>
-    
+
     <!--  Modal CallReject  -->
     <div class="ui small modal" id="modalCallReject">
         <i class="close icon"></i>
@@ -94,7 +94,7 @@ export default {
                            aria-label="caller phone number">
                     <input :value="caller_jid" disabled aria-label="caller jid">
                 </div>
-                
+
                 <div class="field">
                     <label>Call ID</label>
                     <input v-model="call_id" type="text" placeholder="Call ID from webhook event"

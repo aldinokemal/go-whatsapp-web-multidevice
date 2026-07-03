@@ -85,12 +85,26 @@ func getContactMutex(phone string) *sync.Mutex {
 // It only returns an error when all webhook deliveries fail. Partial failures are logged and suppressed so
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	webhookAllowed := len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+	deviceJID, _ := payload["device_id"].(string)
+	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
+	if err != nil {
+		// A config lookup failure is not a delivery failure: fall back to the global
+		// webhook config so the event still reaches the global targets and Chatwoot.
+		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
+		webhookConfig = nil
+	}
+
+	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
 		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
 		return nil
+	}
+
+	webhookURLs := getWebhookURLsFromConfig(webhookConfig)
+	if len(webhookURLs) == 0 {
+		webhookURLs = config.WhatsappWebhook
 	}
 
 	// Enrich the payload with the operator-facing session id so multi-tenant
@@ -102,9 +116,9 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		addWebhookSessionID(payload)
 	}
 
-	var err error
+	var webhookErr error
 	if webhookAllowed {
-		err = forwardToWebhooks(ctx, payload, eventName)
+		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs, webhookConfig)
 	} else {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
@@ -113,7 +127,69 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
-	return err
+	return webhookErr
+}
+
+// webhookStorageForTest is injectable for unit testing without a real DeviceManager.
+var webhookStorageForTest func(deviceJID string) (*domainChatStorage.DeviceRecord, error)
+
+// getDeviceRecordForTest resolves the device record, using test override if set.
+func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+	if webhookStorageForTest != nil {
+		return webhookStorageForTest(deviceJID)
+	}
+	dm := GetDeviceManager()
+	if dm != nil && dm.storage != nil {
+		return dm.storage.GetDeviceRecordByJID(deviceJID)
+	}
+	return nil, nil
+}
+
+// getWebhookConfigForDevice returns the webhook configuration to use for a given device.
+// If the device has a custom webhook config, it returns that config.
+// Otherwise, it returns nil (caller should use global config).
+func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	if deviceJID == "" {
+		return nil, nil
+	}
+
+	record, err := getDeviceRecordForTest(deviceJID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device record: %w", err)
+	}
+	if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+		logrus.Debugf("Using device-specific webhook config for %s", deviceJID)
+		return &domainChatStorage.DeviceWebhookConfig{
+			WebhookURL:                record.WebhookURL,
+			WebhookSecret:             record.WebhookSecret,
+			WebhookEvents:             record.WebhookEvents,
+			WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+		}, nil
+	}
+
+	return nil, nil
+}
+
+// getWebhookURLsFromConfig extracts webhook URLs from the config.
+func getWebhookURLsFromConfig(config *domainChatStorage.DeviceWebhookConfig) []string {
+	if config == nil || config.WebhookURL == nil || *config.WebhookURL == "" {
+		return nil
+	}
+	return []string{*config.WebhookURL}
+}
+
+// isEventWhitelistedForDevice checks if an event is whitelisted for a specific device.
+// Uses device-specific events if set, otherwise falls back to global config.
+func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStorage.DeviceWebhookConfig) bool {
+	if deviceConfig != nil && deviceConfig.WebhookEvents != "" {
+		for _, allowed := range strings.Split(deviceConfig.WebhookEvents, ",") {
+			if strings.EqualFold(strings.TrimSpace(allowed), eventName) {
+				return true
+			}
+		}
+		return false
+	}
+	return len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
 }
 
 // addWebhookSessionID injects the operator-facing session id into a webhook
@@ -151,8 +227,11 @@ func sessionIDForJID(jid string) string {
 	return ""
 }
 
-func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
-	total := len(config.WhatsappWebhook)
+// forwardToWebhooks delivers the payload to each URL in the webhookURLs slice.
+// It logs successes and failures, returning an error only if all deliveries fail.
+// Partial failures (some succeed, some fail) are logged but do not cause a return error.
+func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName string, webhookURLs []string, webhookConfig *domainChatStorage.DeviceWebhookConfig) error {
+	total := len(webhookURLs)
 	logrus.Infof("Forwarding %s to %d configured webhook(s)", eventName, total)
 
 	if total == 0 {
@@ -163,8 +242,8 @@ func forwardToWebhooks(ctx context.Context, payload map[string]any, eventName st
 		failed    []string
 		successes int
 	)
-	for _, url := range config.WhatsappWebhook {
-		if err := submitWebhookFn(ctx, payload, url); err != nil {
+	for _, url := range webhookURLs {
+		if err := submitWebhookFn(ctx, payload, url, webhookConfig); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
 			logrus.Warnf("Failed forwarding %s to %s: %v", eventName, url, err)
 			continue
@@ -226,6 +305,13 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 	// here for both incoming and outgoing flows.
 	if utils.IsSystemBroadcastJID(chatID) || utils.IsSystemBroadcastJID(from) {
 		return nil, fmt.Errorf("skipping system/broadcast JID chat=%s from=%s", chatID, from)
+	}
+
+	// Channel (newsletter) feeds are broadcast-only: no conversation for an
+	// agent, and the channel id is not a phone number — relaying one would
+	// fail Chatwoot contact creation with a 422 e164 error.
+	if utils.IsNewsletterJID(chatID) || utils.IsNewsletterJID(from) {
+		return nil, fmt.Errorf("skipping newsletter JID chat=%s from=%s", chatID, from)
 	}
 
 	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
