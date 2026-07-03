@@ -8,17 +8,19 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
 
 type Message struct {
-	Service domainMessage.IMessageUsecase
+	Service     domainMessage.IMessageUsecase
+	SendService domainSend.ISendUsecase
 }
 
-func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Message {
-	rest := Message{Service: service}
+func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase, sendService domainSend.ISendUsecase) Message {
+	rest := Message{Service: service, SendService: sendService}
 
 	// Message action endpoints
 	app.Post("/message/:message_id/reaction", rest.ReactMessage)
@@ -28,6 +30,7 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase) Me
 	app.Post("/message/:message_id/read", rest.MarkAsRead)
 	app.Post("/message/:message_id/star", rest.StarMessage)
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
+	app.Post("/message/:message_id/forward", rest.ForwardMessage)
 	app.Get("/message/:message_id/download", rest.DownloadMedia)
 	return rest
 }
@@ -163,6 +166,25 @@ func (controller *Message) UnstarMessage(c *fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Unstarred message successfully",
 		Results: nil,
+	})
+}
+
+func (controller *Message) ForwardMessage(c *fiber.Ctx) error {
+	var request domainSend.ForwardRequest
+	err := c.BodyParser(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.SendService.SendForward(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
 	})
 }
 

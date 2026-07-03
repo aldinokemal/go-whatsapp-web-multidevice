@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"mime"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 )
@@ -356,6 +358,261 @@ func ResolveMediaDirectPath(storedDirectPath, mediaURL string) string {
 		return requestURI
 	}
 	return ""
+}
+
+// ErrUnsupportedForwardType is returned when a stored message cannot be rebuilt for forward-by-ID.
+const ErrUnsupportedForwardType = "unsupported message type for forward"
+
+// ForwardBuildOptions controls proto rebuild for forward-by-ID sends.
+type ForwardBuildOptions struct {
+	Duration *int
+	Upload   *whatsmeow.UploadResponse
+	MimeType string
+}
+
+var forwardableMediaTypes = map[string]struct{}{
+	"image":      {},
+	"video":      {},
+	"video_note": {},
+	"audio":      {},
+	"ptt":        {},
+	"document":   {},
+	"sticker":    {},
+}
+
+// IsForwardableStorageMessage reports whether a stored row can be forwarded by ID.
+func IsForwardableStorageMessage(message *domainChatStorage.Message) bool {
+	if message == nil {
+		return false
+	}
+	if message.MediaType == "call" {
+		return false
+	}
+	if _, ok := forwardableMediaTypes[message.MediaType]; ok {
+		return true
+	}
+	if message.MediaType != "" {
+		return false
+	}
+	if strings.TrimSpace(message.Content) == "" {
+		return false
+	}
+	return !isUnsupportedTextForwardContent(message.Content)
+}
+
+func isUnsupportedTextForwardContent(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if strings.HasPrefix(trimmed, "Contact:") || strings.HasPrefix(trimmed, "Contacts:") {
+		return true
+	}
+	if strings.Contains(trimmed, "https://maps.google.com/?q=") {
+		return true
+	}
+	return false
+}
+
+// IsForwardMediaMessage reports whether the stored row represents forwardable media (not plain text).
+func IsForwardMediaMessage(message *domainChatStorage.Message) bool {
+	if message == nil {
+		return false
+	}
+	_, ok := forwardableMediaTypes[message.MediaType]
+	return ok
+}
+
+func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
+	ci := &waE2E.ContextInfo{
+		IsForwarded:     proto.Bool(true),
+		ForwardingScore: proto.Uint32(100),
+	}
+	if duration != nil && *duration > 0 {
+		ci.Expiration = proto.Uint32(uint32(*duration))
+	}
+	return ci
+}
+
+// defaultForwardMimeType returns a mime type for stored media whose original
+// mime type was not persisted. WhatsApp transcodes media to fixed formats, so
+// per-type defaults are accurate except for documents, which are derived from
+// the stored filename.
+func defaultForwardMimeType(message *domainChatStorage.Message) string {
+	switch message.MediaType {
+	case "image":
+		return "image/jpeg"
+	case "video", "video_note":
+		return "video/mp4"
+	case "ptt":
+		return "audio/ogg; codecs=opus"
+	case "audio":
+		return "audio/mpeg"
+	case "sticker":
+		return "image/webp"
+	case "document":
+		ext := strings.ToLower(filepath.Ext(message.Filename))
+		if mimeType, ok := knownDocumentMIMEByExtension[ext]; ok {
+			return mimeType
+		}
+		if mimeType := mime.TypeByExtension(ext); mimeType != "" {
+			return mimeType
+		}
+		return "application/octet-stream"
+	default:
+		return ""
+	}
+}
+
+// BuildForwardMessageFromStorage rebuilds a sendable WhatsApp proto from chat storage.
+func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts ForwardBuildOptions) (*waE2E.Message, error) {
+	if message == nil {
+		return nil, fmt.Errorf("message is nil")
+	}
+	if !IsForwardableStorageMessage(message) {
+		return nil, errors.New(ErrUnsupportedForwardType)
+	}
+
+	contextInfo := newForwardContextInfo(opts.Duration)
+
+	if message.MediaType == "" {
+		return &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text:        proto.String(message.Content),
+				ContextInfo: contextInfo,
+			},
+		}, nil
+	}
+
+	var (
+		mediaURL       string
+		directPath     string
+		mediaKey       []byte
+		fileSHA256     []byte
+		fileEncSHA256  []byte
+		fileLength     uint64
+	)
+
+	if opts.Upload != nil {
+		mediaURL = opts.Upload.URL
+		directPath = opts.Upload.DirectPath
+		mediaKey = opts.Upload.MediaKey
+		fileSHA256 = opts.Upload.FileSHA256
+		fileEncSHA256 = opts.Upload.FileEncSHA256
+		fileLength = opts.Upload.FileLength
+	} else {
+		mediaURL = message.URL
+		directPath = ResolveMediaDirectPath(message.DirectPath, message.URL)
+		mediaKey = message.MediaKey
+		fileSHA256 = message.FileSHA256
+		fileEncSHA256 = message.FileEncSHA256
+		fileLength = message.FileLength
+		if directPath == "" && mediaURL == "" {
+			return nil, fmt.Errorf("message %s has no media references", message.ID)
+		}
+	}
+
+	caption := message.Content
+	filename := message.Filename
+
+	mimeType := opts.MimeType
+	if mimeType == "" {
+		mimeType = defaultForwardMimeType(message)
+	}
+
+	switch message.MediaType {
+	case "image":
+		img := &waE2E.ImageMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			Caption:       proto.String(caption),
+			ContextInfo:   contextInfo,
+		}
+		if mimeType != "" {
+			img.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{ImageMessage: img}, nil
+	case "video":
+		vid := &waE2E.VideoMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			Caption:       proto.String(caption),
+			ContextInfo:   contextInfo,
+		}
+		if mimeType != "" {
+			vid.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{VideoMessage: vid}, nil
+	case "video_note":
+		ptv := &waE2E.VideoMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			Caption:       proto.String(caption),
+			ContextInfo:   contextInfo,
+		}
+		if mimeType != "" {
+			ptv.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{PtvMessage: ptv}, nil
+	case "audio", "ptt":
+		aud := &waE2E.AudioMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			ContextInfo:   contextInfo,
+		}
+		if message.MediaType == "ptt" {
+			aud.PTT = proto.Bool(true)
+		}
+		if mimeType != "" {
+			aud.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{AudioMessage: aud}, nil
+	case "document":
+		doc := &waE2E.DocumentMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			FileName:      proto.String(filename),
+			Caption:       proto.String(caption),
+			ContextInfo:   contextInfo,
+		}
+		if mimeType != "" {
+			doc.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{DocumentMessage: doc}, nil
+	case "sticker":
+		sticker := &waE2E.StickerMessage{
+			URL:           proto.String(mediaURL),
+			DirectPath:    proto.String(directPath),
+			MediaKey:      mediaKey,
+			FileSHA256:    fileSHA256,
+			FileEncSHA256: fileEncSHA256,
+			FileLength:    proto.Uint64(fileLength),
+			ContextInfo:   contextInfo,
+		}
+		if mimeType != "" {
+			sticker.Mimetype = proto.String(mimeType)
+		}
+		return &waE2E.Message{StickerMessage: sticker}, nil
+	default:
+		return nil, errors.New(ErrUnsupportedForwardType)
+	}
 }
 
 // BuildDownloadableMessage reconstructs a whatsmeow downloadable media proto
