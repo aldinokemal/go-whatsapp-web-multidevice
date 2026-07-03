@@ -713,7 +713,10 @@ func (s *SendHandler) handleForwardMessage(ctx context.Context, request mcp.Call
 
 	if args := request.GetArguments(); args != nil {
 		if _, ok := args["duration"]; ok {
-			duration := request.GetInt("duration", 0)
+			duration, err := request.RequireInt("duration")
+			if err != nil {
+				return nil, err
+			}
 			forwardRequest.Duration = &duration
 		}
 	}

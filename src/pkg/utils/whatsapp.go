@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"mime"
 	"net/url"
@@ -430,13 +431,43 @@ func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
 	return ci
 }
 
+// defaultForwardMimeType returns a mime type for stored media whose original
+// mime type was not persisted. WhatsApp transcodes media to fixed formats, so
+// per-type defaults are accurate except for documents, which are derived from
+// the stored filename.
+func defaultForwardMimeType(message *domainChatStorage.Message) string {
+	switch message.MediaType {
+	case "image":
+		return "image/jpeg"
+	case "video", "video_note":
+		return "video/mp4"
+	case "ptt":
+		return "audio/ogg; codecs=opus"
+	case "audio":
+		return "audio/mpeg"
+	case "sticker":
+		return "image/webp"
+	case "document":
+		ext := strings.ToLower(filepath.Ext(message.Filename))
+		if mimeType, ok := knownDocumentMIMEByExtension[ext]; ok {
+			return mimeType
+		}
+		if mimeType := mime.TypeByExtension(ext); mimeType != "" {
+			return mimeType
+		}
+		return "application/octet-stream"
+	default:
+		return ""
+	}
+}
+
 // BuildForwardMessageFromStorage rebuilds a sendable WhatsApp proto from chat storage.
 func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts ForwardBuildOptions) (*waE2E.Message, error) {
 	if message == nil {
 		return nil, fmt.Errorf("message is nil")
 	}
 	if !IsForwardableStorageMessage(message) {
-		return nil, fmt.Errorf(ErrUnsupportedForwardType)
+		return nil, errors.New(ErrUnsupportedForwardType)
 	}
 
 	contextInfo := newForwardContextInfo(opts.Duration)
@@ -481,6 +512,11 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 	caption := message.Content
 	filename := message.Filename
 
+	mimeType := opts.MimeType
+	if mimeType == "" {
+		mimeType = defaultForwardMimeType(message)
+	}
+
 	switch message.MediaType {
 	case "image":
 		img := &waE2E.ImageMessage{
@@ -493,8 +529,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 			Caption:       proto.String(caption),
 			ContextInfo:   contextInfo,
 		}
-		if opts.MimeType != "" {
-			img.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			img.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{ImageMessage: img}, nil
 	case "video":
@@ -508,8 +544,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 			Caption:       proto.String(caption),
 			ContextInfo:   contextInfo,
 		}
-		if opts.MimeType != "" {
-			vid.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			vid.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{VideoMessage: vid}, nil
 	case "video_note":
@@ -523,8 +559,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 			Caption:       proto.String(caption),
 			ContextInfo:   contextInfo,
 		}
-		if opts.MimeType != "" {
-			ptv.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			ptv.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{PtvMessage: ptv}, nil
 	case "audio", "ptt":
@@ -540,8 +576,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 		if message.MediaType == "ptt" {
 			aud.PTT = proto.Bool(true)
 		}
-		if opts.MimeType != "" {
-			aud.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			aud.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{AudioMessage: aud}, nil
 	case "document":
@@ -556,8 +592,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 			Caption:       proto.String(caption),
 			ContextInfo:   contextInfo,
 		}
-		if opts.MimeType != "" {
-			doc.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			doc.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{DocumentMessage: doc}, nil
 	case "sticker":
@@ -570,12 +606,12 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 			FileLength:    proto.Uint64(fileLength),
 			ContextInfo:   contextInfo,
 		}
-		if opts.MimeType != "" {
-			sticker.Mimetype = proto.String(opts.MimeType)
+		if mimeType != "" {
+			sticker.Mimetype = proto.String(mimeType)
 		}
 		return &waE2E.Message{StickerMessage: sticker}, nil
 	default:
-		return nil, fmt.Errorf(ErrUnsupportedForwardType)
+		return nil, errors.New(ErrUnsupportedForwardType)
 	}
 }
 

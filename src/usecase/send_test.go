@@ -247,6 +247,17 @@ func TestSendForwardMessageNotFound(t *testing.T) {
 	}
 }
 
+func TestForwardDurationOptionExplicitZero(t *testing.T) {
+	zero := 0
+	got := forwardDurationOption(serviceSend{}, domainSend.ForwardRequest{
+		Phone:    "628123456789@s.whatsapp.net",
+		Duration: &zero,
+	})
+	if got == nil || *got != 0 {
+		t.Fatalf("expected explicit duration 0 to be honored, got %v", got)
+	}
+}
+
 func TestSendForwardUnsupportedType(t *testing.T) {
 	repo := &replyMessageRepo{
 		message: &domainChatStorage.Message{

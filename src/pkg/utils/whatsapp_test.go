@@ -649,6 +649,9 @@ func TestBuildForwardMessageFromStorageImage(t *testing.T) {
 	if !img.GetContextInfo().GetIsForwarded() {
 		t.Fatal("expected IsForwarded=true")
 	}
+	if img.GetMimetype() != "image/jpeg" {
+		t.Fatalf("mimetype = %q, want image/jpeg", img.GetMimetype())
+	}
 }
 
 func TestBuildForwardMessageFromStorageDocument(t *testing.T) {
@@ -675,6 +678,9 @@ func TestBuildForwardMessageFromStorageDocument(t *testing.T) {
 	}
 	if doc.GetCaption() != "see attached" {
 		t.Fatalf("caption = %q, want see attached", doc.GetCaption())
+	}
+	if doc.GetMimetype() != "application/pdf" {
+		t.Fatalf("mimetype = %q, want application/pdf", doc.GetMimetype())
 	}
 }
 

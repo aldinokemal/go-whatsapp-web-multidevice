@@ -24,7 +24,7 @@ func (service serviceSend) SendForward(ctx context.Context, request domainSend.F
 
 	message, err := service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), request.MessageID)
 	if err != nil {
-		return response, fmt.Errorf("message not found: %w", err)
+		return response, fmt.Errorf("failed to load message %s: %w", request.MessageID, err)
 	}
 	if message == nil {
 		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
@@ -75,7 +75,7 @@ func (service serviceSend) SendForward(ctx context.Context, request domainSend.F
 }
 
 func forwardDurationOption(service serviceSend, request domainSend.ForwardRequest) *int {
-	if request.Duration != nil && *request.Duration > 0 {
+	if request.Duration != nil {
 		return request.Duration
 	}
 	expiration := service.getDefaultEphemeralExpiration(request.Phone)
