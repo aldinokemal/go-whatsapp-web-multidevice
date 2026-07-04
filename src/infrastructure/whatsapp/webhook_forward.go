@@ -178,6 +178,7 @@ func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebho
 			WebhookSecret:             record.WebhookSecret,
 			WebhookEvents:             record.WebhookEvents,
 			WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+			WebhookIgnoreGroups:       record.WebhookIgnoreGroups,
 		}, nil
 	}
 
