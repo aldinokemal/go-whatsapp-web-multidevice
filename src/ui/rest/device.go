@@ -209,6 +209,7 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		WebhookSecret             string  `json:"webhook_secret"`
 		WebhookEvents             string  `json:"webhook_events"`
 		WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify"`
+		WebhookIgnoreGroups       *bool   `json:"webhook_ignore_groups"`
 	}
 
 	if err := c.Bind().Body(&req); err != nil {
@@ -234,6 +235,7 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		WebhookSecret:             req.WebhookSecret,
 		WebhookEvents:             req.WebhookEvents,
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
+		WebhookIgnoreGroups:       req.WebhookIgnoreGroups,
 	}
 
 	err := handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
@@ -249,6 +251,7 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 			"webhook_secret":               req.WebhookSecret,
 			"webhook_events":               req.WebhookEvents,
 			"webhook_insecure_skip_verify": req.WebhookInsecureSkipVerify,
+			"webhook_ignore_groups":        req.WebhookIgnoreGroups,
 		},
 	})
 }
@@ -288,6 +291,12 @@ func (handler *Device) GetDeviceWebhook(c fiber.Ctx) error {
 					return config.WebhookInsecureSkipVerify
 				}
 				return false
+			}(),
+			"webhook_ignore_groups": func() *bool {
+				if config != nil {
+					return config.WebhookIgnoreGroups
+				}
+				return nil
 			}(),
 		},
 	})
