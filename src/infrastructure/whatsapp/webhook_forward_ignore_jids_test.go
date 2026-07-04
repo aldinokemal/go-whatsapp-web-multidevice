@@ -120,3 +120,65 @@ func TestWebhookIgnoreJID_ExactLidMatchesChatLid(t *testing.T) {
 		t.Fatal("event should be dropped when its exact chat_lid JID is in the ignore list")
 	}
 }
+
+// runIgnoreJidForwardWithDeviceOverride is like runIgnoreJidForward but also stubs the
+// per-device record lookup (webhookStorageForTest) so the resolver sees a device-level
+// WebhookIgnoreGroups override, independent of the global WHATSAPP_WEBHOOK_IGNORE_JIDS list.
+func runIgnoreJidForwardWithDeviceOverride(t *testing.T, ignoreJids []string, deviceIgnoreGroups *bool, eventName string, payload map[string]any) bool {
+	t.Helper()
+
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:            deviceJID,
+			WebhookIgnoreGroups: deviceIgnoreGroups,
+		}, nil
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	return runIgnoreJidForward(t, ignoreJids, eventName, payload)
+}
+
+func TestWebhookIgnoreJID_DeviceOverrideTrueDropsGroupEvenWithoutGlobalList(t *testing.T) {
+	trueVal := true
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// Global list is empty -- only the per-device override says "ignore groups".
+	if runIgnoreJidForwardWithDeviceOverride(t, nil, &trueVal, "message", payload) {
+		t.Fatal("group message should be dropped when the device's WebhookIgnoreGroups=true, even with no global ignore list")
+	}
+}
+
+func TestWebhookIgnoreJID_DeviceOverrideFalseKeepsGroupDespiteGlobalWildcard(t *testing.T) {
+	falseVal := false
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// Global list says "ignore all groups" (@g.us), but this device explicitly opted out.
+	if !runIgnoreJidForwardWithDeviceOverride(t, []string{"@g.us"}, &falseVal, "message", payload) {
+		t.Fatal("group message should still be forwarded when the device's WebhookIgnoreGroups=false, overriding the global @g.us wildcard")
+	}
+}
+
+func TestWebhookIgnoreJID_NilDeviceOverrideForwardsWhenGlobalListEmpty(t *testing.T) {
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// No per-device override (nil) and no global ignore list -- must behave exactly like
+	// before this feature existed (default: forward everything).
+	if !runIgnoreJidForwardWithDeviceOverride(t, nil, nil, "message", payload) {
+		t.Fatal("group message should be forwarded when neither the device override nor the global list ignores groups")
+	}
+}
+
+func TestWebhookIgnoreJID_NilDeviceOverrideRespectsGlobalWildcardDrop(t *testing.T) {
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	if runIgnoreJidForwardWithDeviceOverride(t, []string{"@g.us"}, nil, "message", payload) {
+		t.Fatal("group message should be dropped when the device has no override (nil) and the global list ignores @g.us -- unchanged pre-existing behavior")
+	}
+}
+
+func TestWebhookIgnoreJID_DeviceOverrideDoesNotAffectNonGroupJIDs(t *testing.T) {
+	trueVal := true
+	// chat_id/from are a 1:1 JID, not a group -- the per-device group override must not
+	// touch this path; only the global exact/wildcard list applies, exactly as before.
+	payload := ignoreJidPayload("628999@s.whatsapp.net", "628999@s.whatsapp.net")
+	if runIgnoreJidForwardWithDeviceOverride(t, []string{"628999@s.whatsapp.net"}, &trueVal, "message", payload) {
+		t.Fatal("1:1 message should still be dropped by an exact global JID match, independent of the group-only device override")
+	}
+}
