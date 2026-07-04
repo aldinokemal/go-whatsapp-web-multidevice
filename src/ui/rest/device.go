@@ -1,6 +1,9 @@
 package rest
 
 import (
+	"fmt"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -124,14 +127,18 @@ func (handler *Device) RemoveDevice(c *fiber.Ctx) error {
 
 func (handler *Device) LoginDevice(c *fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	err := handler.Service.LoginDevice(c.UserContext(), deviceID)
+	response, err := handler.Service.LoginDevice(c.UserContext(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
-		Message: "Login started",
-		Results: map[string]any{"device_id": deviceID},
+		Message: "Login success",
+		Results: map[string]any{
+			"device_id":   deviceID,
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Protocol(), c.Hostname(), config.AppBasePath, response.ImagePath),
+			"qr_duration": response.Duration,
+		},
 	})
 }
 

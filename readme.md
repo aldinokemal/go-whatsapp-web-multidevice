@@ -583,8 +583,8 @@ You can fork or edit this source code !
 | ✅       | Add Device                             | POST   | /devices                            |
 | ✅       | Get Device Info                        | GET    | /devices/:device_id                 |
 | ✅       | Remove Device                          | DELETE | /devices/:device_id                 |
-| ❌       | Login Device (QR, reserved)            | GET    | /devices/:device_id/login           |
-| ❌       | Login Device (Code, reserved)          | POST   | /devices/:device_id/login/code      |
+| ✅       | Login Device (QR)                      | GET    | /devices/:device_id/login           |
+| ✅       | Login Device (Code)                    | POST   | /devices/:device_id/login/code      |
 | ✅       | Logout Device                          | POST   | /devices/:device_id/logout          |
 | ✅       | Reconnect Device                       | POST   | /devices/:device_id/reconnect       |
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
@@ -671,7 +671,6 @@ You can fork or edit this source code !
 
 - `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
 - `/health` is public and always registered at the root path, even when `APP_BASE_PATH` is set.
-- Device-specific login routes are reserved by the router but not implemented by the current usecase. Use `/app/login` or `/app/login-with-code` with `X-Device-Id` or `device_id` to pair a specific slot.
 - Chatwoot routes are registered only when `CHATWOOT_ENABLED=true`.
 
 ## User Interface
