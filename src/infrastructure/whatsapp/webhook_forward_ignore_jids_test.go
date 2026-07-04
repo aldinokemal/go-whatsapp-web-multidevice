@@ -182,3 +182,14 @@ func TestWebhookIgnoreJID_DeviceOverrideDoesNotAffectNonGroupJIDs(t *testing.T) 
 		t.Fatal("1:1 message should still be dropped by an exact global JID match, independent of the group-only device override")
 	}
 }
+
+func TestWebhookIgnoreJID_DeviceOverrideFalseWinsEvenWithOtherExactJIDInGlobalList(t *testing.T) {
+	falseVal := false
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// Global list ignores both all groups (@g.us) AND an unrelated exact JID -- the
+	// device's explicit false override must still win for the group JID, regardless
+	// of what else is in the global list.
+	if !runIgnoreJidForwardWithDeviceOverride(t, []string{"@g.us", "628999@s.whatsapp.net"}, &falseVal, "message", payload) {
+		t.Fatal("group message should be forwarded when the device explicitly overrides to false, even though the global list also ignores an unrelated exact JID")
+	}
+}
