@@ -173,6 +173,32 @@ func TestWebhookIgnoreJID_NilDeviceOverrideRespectsGlobalWildcardDrop(t *testing
 	}
 }
 
+func TestGetWebhookConfigForDevice_PropagatesWebhookIgnoreGroups(t *testing.T) {
+	trueVal := true
+	url := "https://device.example.com/webhook"
+
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{
+			DeviceID:            deviceJID,
+			WebhookURL:          &url,
+			WebhookIgnoreGroups: &trueVal,
+		}, nil
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	cfg, err := getWebhookConfigForDevice("org_1")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config when device has a WebhookURL")
+	}
+	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups != true {
+		t.Fatal("expected WebhookIgnoreGroups to be propagated from the device record onto the returned config")
+	}
+}
+
 func TestWebhookIgnoreJID_DeviceOverrideDoesNotAffectNonGroupJIDs(t *testing.T) {
 	trueVal := true
 	// chat_id/from are a 1:1 JID, not a group -- the per-device group override must not
