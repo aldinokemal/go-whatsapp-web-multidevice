@@ -1637,7 +1637,7 @@ func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.
 	}
 
 	rows, err := r.db.Query(`
-		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
+		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), webhook_ignore_groups, created_at, updated_at
 		FROM devices
 		WHERE jid = ? OR ad_jid = ?
 		LIMIT 2
@@ -1659,6 +1659,7 @@ func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.
 			&rec.WebhookSecret,
 			&rec.WebhookEvents,
 			&rec.WebhookInsecureSkipVerify,
+			&rec.WebhookIgnoreGroups,
 			&rec.CreatedAt,
 			&rec.UpdatedAt,
 		); err != nil {
@@ -1754,9 +1755,9 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 
 	result, err := r.db.Exec(`
 		UPDATE devices
-		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, updated_at = ?
+		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, webhook_ignore_groups = ?, updated_at = ?
 		WHERE device_id = ?
-	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, time.Now(), deviceID)
+	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, config.WebhookIgnoreGroups, time.Now(), deviceID)
 	if err != nil {
 		return err
 	}
@@ -1779,9 +1780,9 @@ func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatS
 	var config domainChatStorage.DeviceWebhookConfig
 	var webhookURL *string
 	err := r.db.QueryRow(`
-		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
+		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), webhook_ignore_groups
 		FROM devices WHERE device_id = ? LIMIT 1
-	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
+	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify, &config.WebhookIgnoreGroups)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -2804,5 +2805,10 @@ func (r *SQLiteRepository) getMigrations() []string {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (device_id, chat_jid, poll_message_id)
 		)`,
+
+		// Migration 45: Store per-device override for ignoring group messages in
+		// webhook forwarding. NULL means "never configured" -- the resolver falls
+		// back to the global WHATSAPP_WEBHOOK_IGNORE_JIDS "@g.us" wildcard.
+		`ALTER TABLE devices ADD COLUMN webhook_ignore_groups BOOLEAN DEFAULT NULL`,
 	}
 }
