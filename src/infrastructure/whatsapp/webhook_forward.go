@@ -207,29 +207,74 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 
 // shouldIgnoreWebhookJID reports whether an event should be skipped for WHATSAPP_WEBHOOK
 // forwarding because its chat or sender JID matches WHATSAPP_WEBHOOK_IGNORE_JIDS (e.g. the
-// "@g.us" wildcard to drop all group traffic). The JID fields live in the nested inner
-// payload, so it descends one level. Both the resolved phone JIDs (chat_id/from) and the
-// LID forms (chat_lid/from_lid) are matched: a LID-migrated event keeps the @lid JID in the
-// *_lid fields while chat_id/from hold the resolved phone JID, so an "@lid" pattern (or an
-// exact ...@lid) only matches via the *_lid fields. It is a no-op when the ignore list is
-// empty, the inner payload is absent, or no JID matches — so events without a JID and the
-// default (no list configured) keep forwarding unchanged. This only gates the generic
-// webhook; the Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
+// "@g.us" wildcard to drop all group traffic), OR because the originating device has an
+// explicit per-device override for group messages (webhook_ignore_groups, set via
+// PATCH /devices/:device_id/webhook). The device override takes precedence over the
+// global "@g.us" wildcard specifically for group JIDs; it has no effect on non-group JIDs,
+// where the global list remains the only mechanism (unchanged from before this feature).
+// The JID fields live in the nested inner payload, so it descends one level. Both the
+// resolved phone JIDs (chat_id/from) and the LID forms (chat_lid/from_lid) are matched.
+// It is a no-op when the inner payload is absent or no JID matches.
 func shouldIgnoreWebhookJID(payload map[string]any) bool {
-	ignore := config.WhatsappWebhookIgnoreJids
-	if len(ignore) == 0 {
-		return false
-	}
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		return false
 	}
+
+	deviceJID, _ := payload["device_id"].(string)
+	groupOverride := deviceIgnoreGroupsOverride(deviceJID)
+	ignore := config.WhatsappWebhookIgnoreJids
+
 	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
-		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, ignore) {
+		jid, _ := data[key].(string)
+		if jid == "" {
+			continue
+		}
+		if strings.HasSuffix(jid, "@g.us") {
+			if groupOverride != nil {
+				if *groupOverride {
+					return true
+				}
+				continue
+			}
+			if globalIgnoresAllGroups(ignore) {
+				return true
+			}
+			continue
+		}
+		if utils.MatchesIgnoredJID(jid, ignore) {
 			return true
 		}
 	}
 	return false
+}
+
+// globalIgnoresAllGroups reports whether the global WHATSAPP_WEBHOOK_IGNORE_JIDS list
+// contains the "@g.us" wildcard (ignore all groups). Used as the fallback when a device
+// has no explicit webhook_ignore_groups override.
+func globalIgnoresAllGroups(ignore []string) bool {
+	for _, pattern := range ignore {
+		if strings.TrimSpace(pattern) == "@g.us" {
+			return true
+		}
+	}
+	return false
+}
+
+// deviceIgnoreGroupsOverride returns the per-device override for ignoring group messages
+// in webhook forwarding (webhook_ignore_groups), or nil when the device has never set it
+// -- the caller falls back to the global "@g.us" wildcard. Uses the same test seam
+// (getDeviceRecordForTest) as getWebhookConfigForDevice, so existing tests that don't stub
+// it keep seeing nil (unchanged behavior).
+func deviceIgnoreGroupsOverride(deviceJID string) *bool {
+	if deviceJID == "" {
+		return nil
+	}
+	record, err := getDeviceRecordForTest(deviceJID)
+	if err != nil || record == nil {
+		return nil
+	}
+	return record.WebhookIgnoreGroups
 }
 
 // addWebhookSessionID injects the operator-facing session id into a webhook
