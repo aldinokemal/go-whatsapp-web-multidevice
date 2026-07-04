@@ -173,6 +173,16 @@ func TestWebhookIgnoreJID_NilDeviceOverrideRespectsGlobalWildcardDrop(t *testing
 	}
 }
 
+func TestWebhookIgnoreJID_NilDeviceOverrideRespectsExactGroupJIDMatch(t *testing.T) {
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// No per-device override (nil), and the global list contains only the exact group JID
+	// (not the "@g.us" wildcard) -- it must still be dropped by falling through to the
+	// same exact-match logic used for non-group JIDs, matching pre-existing (#736) behavior.
+	if runIgnoreJidForwardWithDeviceOverride(t, []string{"120363999000111@g.us"}, nil, "message", payload) {
+		t.Fatal("group message should be dropped when its exact JID is in the global ignore list, even without a device override")
+	}
+}
+
 func TestGetWebhookConfigForDevice_PropagatesWebhookIgnoreGroups(t *testing.T) {
 	trueVal := true
 	url := "https://device.example.com/webhook"

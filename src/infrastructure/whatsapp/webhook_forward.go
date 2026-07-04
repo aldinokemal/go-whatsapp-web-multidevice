@@ -238,24 +238,12 @@ func shouldIgnoreWebhookJID(payload map[string]any) bool {
 				}
 				continue
 			}
-			if globalIgnoresAllGroups(ignore) {
+			if utils.MatchesIgnoredJID(jid, ignore) {
 				return true
 			}
 			continue
 		}
 		if utils.MatchesIgnoredJID(jid, ignore) {
-			return true
-		}
-	}
-	return false
-}
-
-// globalIgnoresAllGroups reports whether the global WHATSAPP_WEBHOOK_IGNORE_JIDS list
-// contains the "@g.us" wildcard (ignore all groups). Used as the fallback when a device
-// has no explicit webhook_ignore_groups override.
-func globalIgnoresAllGroups(ignore []string) bool {
-	for _, pattern := range ignore {
-		if strings.TrimSpace(pattern) == "@g.us" {
 			return true
 		}
 	}
