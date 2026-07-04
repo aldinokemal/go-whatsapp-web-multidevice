@@ -176,6 +176,66 @@ func TestUpdateDeviceWebhook_ForwardsIgnoreGroups(t *testing.T) {
 	}
 }
 
+func TestUpdateDeviceWebhook_PreservesIgnoreGroupsWhenOmitted(t *testing.T) {
+	trueVal := true
+	stub := &deviceWebhookStubUsecase{getConfig: &chatstorage.DeviceWebhookConfig{WebhookIgnoreGroups: &trueVal}}
+	app := newDeviceWebhookTestApp(stub)
+
+	body := `{"webhook_url": "https://hook.example.com"}`
+	req := httptest.NewRequest(http.MethodPatch, "/devices/dev1/webhook", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if stub.receivedConfig == nil {
+		t.Fatal("expected webhook config to be forwarded to the usecase, got nil")
+	}
+	if stub.receivedConfig.WebhookIgnoreGroups == nil || !*stub.receivedConfig.WebhookIgnoreGroups {
+		t.Fatalf("expected previously-stored webhook_ignore_groups=true to be preserved, got %v", stub.receivedConfig.WebhookIgnoreGroups)
+	}
+
+	var respBody map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	results, ok := respBody["results"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected results object in response, got %v", respBody)
+	}
+	if ignoreGroups, ok := results["webhook_ignore_groups"].(bool); !ok || !ignoreGroups {
+		t.Fatalf("expected webhook_ignore_groups=true in response, got %v", results["webhook_ignore_groups"])
+	}
+}
+
+func TestUpdateDeviceWebhook_ExplicitFalseOverridesExisting(t *testing.T) {
+	trueVal := true
+	stub := &deviceWebhookStubUsecase{getConfig: &chatstorage.DeviceWebhookConfig{WebhookIgnoreGroups: &trueVal}}
+	app := newDeviceWebhookTestApp(stub)
+
+	body := `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": false}`
+	req := httptest.NewRequest(http.MethodPatch, "/devices/dev1/webhook", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if stub.receivedConfig == nil {
+		t.Fatal("expected webhook config to be forwarded to the usecase, got nil")
+	}
+	if stub.receivedConfig.WebhookIgnoreGroups == nil || *stub.receivedConfig.WebhookIgnoreGroups {
+		t.Fatalf("expected explicit webhook_ignore_groups=false to override existing, got %v", stub.receivedConfig.WebhookIgnoreGroups)
+	}
+}
+
 func TestGetDeviceWebhook_ReturnsIgnoreGroups(t *testing.T) {
 	trueVal := true
 	stub := &deviceWebhookStubUsecase{getConfig: &chatstorage.DeviceWebhookConfig{WebhookIgnoreGroups: &trueVal}}

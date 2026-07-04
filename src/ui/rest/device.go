@@ -230,15 +230,23 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		})
 	}
 
+	existing, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID)
+	utils.PanicIfNeeded(err)
+
+	ignoreGroups := req.WebhookIgnoreGroups
+	if ignoreGroups == nil && existing != nil {
+		ignoreGroups = existing.WebhookIgnoreGroups
+	}
+
 	config := &chatstorage.DeviceWebhookConfig{
 		WebhookURL:                req.WebhookURL,
 		WebhookSecret:             req.WebhookSecret,
 		WebhookEvents:             req.WebhookEvents,
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
-		WebhookIgnoreGroups:       req.WebhookIgnoreGroups,
+		WebhookIgnoreGroups:       ignoreGroups,
 	}
 
-	err := handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
+	err = handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -251,7 +259,7 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 			"webhook_secret":               req.WebhookSecret,
 			"webhook_events":               req.WebhookEvents,
 			"webhook_insecure_skip_verify": req.WebhookInsecureSkipVerify,
-			"webhook_ignore_groups":        req.WebhookIgnoreGroups,
+			"webhook_ignore_groups":        ignoreGroups,
 		},
 	})
 }
