@@ -45,6 +45,63 @@ func TestSQLiteRepositoryInitializesMessageReactionsSchema(t *testing.T) {
 	}
 }
 
+func TestSQLiteRepositoryGetsDeviceWebhookConfigByJID(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	webhookURL := "https://device-webhook.example.com"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID:    "session-a",
+		DisplayName: "Session A",
+		JID:         "628123456789@s.whatsapp.net",
+	}); err != nil {
+		t.Fatalf("save device record: %v", err)
+	}
+
+	if err := repo.SetDeviceWebhookConfig("session-a", &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL:                &webhookURL,
+		WebhookSecret:             "device-secret",
+		WebhookEvents:             "message,message.ack",
+		WebhookInsecureSkipVerify: true,
+	}); err != nil {
+		t.Fatalf("set device webhook config: %v", err)
+	}
+
+	record, err := repo.GetDeviceRecordByJID("628123456789@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("get device record by jid: %v", err)
+	}
+	if record == nil {
+		t.Fatal("expected device record")
+	}
+	if record.DeviceID != "session-a" {
+		t.Fatalf("expected session-a, got %q", record.DeviceID)
+	}
+	if record.WebhookURL == nil || *record.WebhookURL != webhookURL {
+		t.Fatalf("expected webhook URL %q, got %v", webhookURL, record.WebhookURL)
+	}
+	if record.WebhookSecret != "device-secret" {
+		t.Fatalf("expected device secret, got %q", record.WebhookSecret)
+	}
+	if record.WebhookEvents != "message,message.ack" {
+		t.Fatalf("expected webhook events, got %q", record.WebhookEvents)
+	}
+	if !record.WebhookInsecureSkipVerify {
+		t.Fatal("expected insecure skip verify to be true")
+	}
+}
+
+func TestSQLiteRepositorySetDeviceWebhookConfigReturnsErrNoRowsForMissingDevice(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	webhookURL := "https://device-webhook.example.com"
+	err := repo.SetDeviceWebhookConfig("missing-device", &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL: &webhookURL,
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows for missing device, got %v", err)
+	}
+}
+
 func TestSQLiteRepositoryStoresUpdatesRemovesAndHydratesReactions(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 	deviceID := "device-a@s.whatsapp.net"

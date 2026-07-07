@@ -7,6 +7,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // DeviceInstance bundles a WhatsApp client with device metadata and scoped storage.
@@ -21,6 +22,11 @@ type DeviceInstance struct {
 	jid             string
 	createdAt       time.Time
 	onLoggedOut     func(deviceID string) // Callback for remote logout cleanup
+
+	// Pending passkey pairing state, populated by PairPasskey* events during login.
+	passkeyChallenge     *types.WebAuthnPublicKey
+	passkeyCode          string
+	passkeySkipHandoffUX bool
 }
 
 func NewDeviceInstance(deviceID string, client *whatsmeow.Client, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceInstance {
@@ -101,6 +107,19 @@ func (d *DeviceInstance) SetClient(client *whatsmeow.Client) {
 	d.state = domainDevice.DeviceStateDisconnected
 }
 
+// ResetClient detaches the WhatsApp client and clears the session-derived identity
+// (jid, phone number) so the slot can be re-paired with a fresh client on the next
+// login. The device id, display name and creation time are preserved, keeping the
+// slot in place after a logout.
+func (d *DeviceInstance) ResetClient() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.client = nil
+	d.jid = ""
+	d.phoneNumber = ""
+	d.state = domainDevice.DeviceStateDisconnected
+}
+
 // SetChatStorage swaps the chat storage repository for this device.
 func (d *DeviceInstance) SetChatStorage(repo domainChatStorage.IChatStorageRepository) {
 	d.mu.Lock()
@@ -153,6 +172,40 @@ func (d *DeviceInstance) refreshIdentityLocked() {
 		d.jid = d.client.Store.ID.ToNonAD().String()
 		d.displayName = d.client.Store.PushName
 	}
+}
+
+// SetPasskeyChallenge stores a pending WebAuthn challenge and clears any previous confirmation code.
+func (d *DeviceInstance) SetPasskeyChallenge(pk *types.WebAuthnPublicKey) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.passkeyChallenge = pk
+	d.passkeyCode = ""
+	d.passkeySkipHandoffUX = false
+}
+
+// SetPasskeyConfirmation stores the pairing confirmation code and clears the pending challenge.
+func (d *DeviceInstance) SetPasskeyConfirmation(code string, skipHandoffUX bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.passkeyChallenge = nil
+	d.passkeyCode = code
+	d.passkeySkipHandoffUX = skipHandoffUX
+}
+
+// PasskeyState returns the pending challenge, confirmation code and skip-handoff flag.
+func (d *DeviceInstance) PasskeyState() (*types.WebAuthnPublicKey, string, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.passkeyChallenge, d.passkeyCode, d.passkeySkipHandoffUX
+}
+
+// ClearPasskeyState resets all pending passkey pairing state.
+func (d *DeviceInstance) ClearPasskeyState() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.passkeyChallenge = nil
+	d.passkeyCode = ""
+	d.passkeySkipHandoffUX = false
 }
 
 func (d *DeviceInstance) SetOnLoggedOut(callback func(deviceID string)) {

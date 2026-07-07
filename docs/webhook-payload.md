@@ -23,6 +23,8 @@ The following events can be received via webhook:
 | `chat_presence`      | Typing and recording indicators from contacts           |
 | `group.participants` | Group member join/leave/promote/demote events           |
 | `group.joined`       | You were added to a group                               |
+| `label.edit`         | WhatsApp label metadata changed                         |
+| `label.association`  | Label applied to or removed from a chat                 |
 | `newsletter.joined`  | You subscribed to a newsletter/channel                  |
 | `newsletter.left`    | You unsubscribed from a newsletter                      |
 | `newsletter.message` | New message(s) posted in a newsletter                   |
@@ -47,6 +49,9 @@ WHATSAPP_WEBHOOK_EVENTS=message,message.reaction,message.revoked,message.edited,
 
 # Receive only group events
 WHATSAPP_WEBHOOK_EVENTS=group.participants
+
+# Receive label events
+WHATSAPP_WEBHOOK_EVENTS=label.edit,label.association
 
 # Receive newsletter events
 WHATSAPP_WEBHOOK_EVENTS=newsletter.joined,newsletter.left,newsletter.message,newsletter.mute
@@ -73,6 +78,45 @@ WHATSAPP_WEBHOOK_EVENTS=group.participants,group.joined,newsletter.joined,newsle
 - If `WHATSAPP_WEBHOOK_EVENTS` is empty or not set, **all events** are forwarded (default behavior)
 - If configured, only the specified events are forwarded to webhooks
 - Event names are case-insensitive
+
+### Ignoring chats/JIDs
+
+In addition to filtering by **event type** above, you can skip events by **conversation or sender JID** —
+for example, to mute all group traffic from the webhook. This is independent of `WHATSAPP_WEBHOOK_EVENTS`
+(the two filters compose: an event is forwarded only if its type is allowed **and** its JID is not ignored).
+
+**Environment Variable:**
+
+```bash
+# Drop all group messages/receipts (any chat_id ending in @g.us)
+WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us
+
+# Drop all groups plus one specific 1:1 chat
+WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
+```
+
+**CLI Flag:**
+
+```bash
+./whatsapp rest --webhook="https://yourapp.com/webhook" --webhook-ignore-jids="@g.us"
+```
+
+**Behavior:**
+
+- Matches the event's `chat_id`, `from`, `chat_lid` or `from_lid` against the list (so an `@lid`
+  pattern matches LID-migrated events, whose `@lid` JID lives in the `*_lid` fields).
+- An `@`-prefixed entry is an address-space **wildcard** (`@g.us`, `@s.whatsapp.net`, `@lid`); any other
+  entry is an **exact** JID match.
+- Empty/unset (default) forwards everything.
+- Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
+- `@g.us` is the recommended way to mute groups (it matches the group `chat_id`). The
+  `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
+  `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific
+  1:1 chats.
+- Note: a few events carry the group JID elsewhere or omit `chat_id` — `call.offer` puts the group in
+  `group_jid` (not `chat_id`), `message.deleted` only includes `chat_id` when the original message is
+  found locally, and `group.participants`/`group.joined` have no `from`. The `@g.us` wildcard still
+  covers ordinary group messages and receipts (which is the common case for muting groups).
 
 ## Security
 
@@ -116,7 +160,7 @@ def verify_webhook_signature(payload, signature, secret):
         payload,
         hashlib.sha256
     ).hexdigest()
-    
+
     received_signature = signature.replace('sha256=', '')
     return hmac.compare_digest(expected_signature, received_signature)
 ```
@@ -140,7 +184,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**    | **Type** | **Description**                                                                                                     |
 |--------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
 | `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
 | `payload`    | object   | Event-specific payload data                                                                                         |
@@ -380,6 +424,73 @@ Triggered when a user starts typing in a group chat.
 | `payload.state`    | string   | Typing state: `"composing"` (typing) or `"paused"` (stopped)      |
 | `payload.media`    | string   | Media type: `""` (text message) or `"audio"` (voice recording)    |
 | `payload.is_group` | boolean  | Whether this is a group chat                                       |
+
+## Label Events
+
+Label events are triggered when WhatsApp label metadata changes or a label is applied to or removed from a chat. These
+events come from WhatsApp app-state sync and are forwarded as `label.edit` or `label.association`.
+
+### Label Edit
+
+Triggered when a WhatsApp label is created, renamed, reordered, activated/deactivated, or deleted.
+
+```json
+{
+  "event": "label.edit",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:03:00Z",
+  "payload": {
+    "label_id": "9",
+    "name": "Important",
+    "color": 2,
+    "predefined_id": "1",
+    "deleted": false,
+    "order_index": 1,
+    "is_active": true,
+    "type": "CUSTOM",
+    "is_immutable": false,
+    "mute_end_time_ms": 0
+  }
+}
+```
+
+### Label Association
+
+Triggered when a chat-level label is applied to or removed from a chat.
+
+```json
+{
+  "event": "label.association",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:04:00Z",
+  "payload": {
+    "label_id": "9",
+    "labeled": true,
+    "chat_id": "120363402106XXXXX@g.us"
+  }
+}
+```
+
+### Label Event Fields
+
+| **Field**                | **Type** | **Description**                                                                  |
+|--------------------------|----------|----------------------------------------------------------------------------------|
+| `event`                  | string   | `"label.edit"` for label metadata changes, or `"label.association"` for chat labels |
+| `device_id`              | string   | JID of the device that received this event                                       |
+| `timestamp`              | string   | RFC3339 formatted timestamp from the app-state event, or processing time fallback |
+| `payload.label_id`       | string   | WhatsApp label identifier                                                        |
+| `payload.name`           | string   | Label display name (only when included by WhatsApp on `label.edit`)              |
+| `payload.color`          | number   | Label color value (only when included by WhatsApp on `label.edit`)               |
+| `payload.predefined_id`  | string   | Predefined label identifier (only when included by WhatsApp on `label.edit`)      |
+| `payload.deleted`        | boolean  | Whether the label was deleted (only when included by WhatsApp on `label.edit`)    |
+| `payload.order_index`    | number   | Label ordering value (only when included by WhatsApp on `label.edit`)             |
+| `payload.is_active`      | boolean  | Whether the label is active (only when included by WhatsApp on `label.edit`)      |
+| `payload.type`           | string   | WhatsApp label type (only when included by WhatsApp on `label.edit`)              |
+| `payload.is_immutable`   | boolean  | Whether the label is immutable (only when included by WhatsApp on `label.edit`)   |
+| `payload.mute_end_time_ms` | number | Label mute end time in milliseconds (only when included by WhatsApp on `label.edit`) |
+| `payload.labeled`        | boolean  | Whether the label was applied (`true`) or removed (`false`) on `label.association` |
+| `payload.chat_id`        | string   | Chat JID associated with the label on `label.association`                         |
+| `payload.chat_lid`       | string   | Original LID chat identifier when WhatsApp supplied a LID before normalization    |
 
 ## Group Events
 
@@ -711,11 +822,11 @@ const axios = require('axios');
 // When you receive a call.offer webhook event
 app.post('/webhook', async (req, res) => {
   const { event, payload, device_id } = req.body;
-  
+
   if (event === 'call.offer' && !payload.auto_rejected) {
     // Apply your custom logic here
     const shouldReject = checkBusinessHours() || isBlacklisted(payload.from);
-    
+
     if (shouldReject) {
       try {
         await axios.post('http://localhost:3000/call/reject', {
@@ -733,7 +844,7 @@ app.post('/webhook', async (req, res) => {
       }
     }
   }
-  
+
   res.sendStatus(200);
 });
 ```

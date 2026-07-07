@@ -11,16 +11,30 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
 
-func submitWebhook(ctx context.Context, payload map[string]any, url string) error {
+func submitWebhook(ctx context.Context, payload map[string]any, url string, webhookConfig *chatstorage.DeviceWebhookConfig) error {
+	// Determine effective config - use device-specific if set, otherwise fall back to global
+	insecureSkipVerify := config.WhatsappWebhookInsecureSkipVerify
+	webhookSecret := config.WhatsappWebhookSecret
+
+	if webhookConfig != nil {
+		if webhookConfig.WebhookInsecureSkipVerify {
+			insecureSkipVerify = true
+		}
+		if webhookConfig.WebhookSecret != "" {
+			webhookSecret = webhookConfig.WebhookSecret
+		}
+	}
+
 	// Configure HTTP client with optional TLS skip verification
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: config.WhatsappWebhookInsecureSkipVerify,
+			InsecureSkipVerify: insecureSkipVerify,
 		},
 	}
 	client := &http.Client{
@@ -38,7 +52,7 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string) erro
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
 
-	secretKey := []byte(config.WhatsappWebhookSecret)
+	secretKey := []byte(webhookSecret)
 	signature, err := utils.GetMessageDigestOrSignature(postBody, secretKey)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create signature %v", err))

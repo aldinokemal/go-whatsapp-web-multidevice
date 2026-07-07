@@ -41,6 +41,17 @@ func IsSystemBroadcastJID(jid string) bool {
 	return jid == "status@broadcast" || jid == "0@s.whatsapp.net"
 }
 
+// IsNewsletterJID reports whether jid belongs to a WhatsApp channel
+// (newsletter). Channels are broadcast feeds with no conversation for an
+// agent to handle, and their local part is an 18-digit channel id — not a
+// phone number — so Chatwoot's contact creation rejects it with a 422
+// ("Phone number should be in e164 format"; E.164 caps at 15 digits).
+// Both the live-forward path (webhook_forward.go) and the history importer
+// (chatwoot/sync.go) share this single definition.
+func IsNewsletterJID(jid string) bool {
+	return strings.HasSuffix(jid, "@newsletter")
+}
+
 // Markdown translation between WhatsApp and Chatwoot.
 //
 // WhatsApp renders *bold*, _italic_, ~strikethrough~. Chatwoot renders the

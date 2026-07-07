@@ -8,6 +8,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -102,6 +103,13 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	// Create and configure the client with filtered logging to avoid noisy reconnection EOF errors
 	baseLogger := waLog.Stdout("Client", config.WhatsappLogLevel, true)
 	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
+	if proxyURL := config.WhatsappProxy; proxyURL != "" {
+		if err := client.SetProxyAddress(proxyURL); err != nil {
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %v", redactProxyURL(proxyURL), err)
+		} else {
+			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY")
+		}
+	}
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
 
@@ -121,7 +129,11 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	if dm != nil && instanceID != "" {
 		dm.EnsureDefault(instance)
 		instance.SetOnLoggedOut(func(deviceID string) {
-			dm.RemoveDevice(deviceID)
+			// Route the startup path through the same keep-slot cleanup as the lazy
+			// EnsureClient path, so a remote logout never deletes the device slot.
+			if err := dm.keepSlotLogout(context.Background(), deviceID); err != nil {
+				logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
+			}
 		})
 	}
 
