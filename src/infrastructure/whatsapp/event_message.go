@@ -104,7 +104,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	// Set from_name (pushname)
 	if pushname := evt.Info.PushName; pushname != "" {
 		payload["from_name"] = pushname
-	} else if client != nil && client.Store != nil && evt.Info.Chat != nil && utils.IsGroupJID(evt.Info.Chat.ToNonAD().String()) && evt.Info.Sender != nil {
+	} else if client != nil && client.Store != nil && utils.IsGroupJID(evt.Info.Chat.ToNonAD().String()) {
 		// Group participants often don't include their pushname in the message
 		// event itself. Resolve their group-specific display name from the
 		// group metadata so Chatwoot renders the sender by name instead of
