@@ -135,6 +135,49 @@ func chatwootLinkChatJID(destination string) string {
 	return clean + config.WhatsappTypeUser
 }
 
+func (h *ChatwootHandler) resolveChatwootReplyMessageID(deviceID, chatJID string, payload chatwoot.WebhookPayload) *string {
+	if h.ChatStorageRepo == nil {
+		return nil
+	}
+	ca := payload.ContentAttributes
+	var inReplyTo int64
+	var inReplyToExternalID string
+	if v, ok := ca["in_reply_to"]; ok {
+		switch n := v.(type) {
+		case int64:
+			inReplyTo = n
+		case int:
+			inReplyTo = int64(n)
+		case float64:
+			inReplyTo = int64(n)
+		}
+	}
+	if v, ok := ca["in_reply_to_external_id"].(string); ok {
+		inReplyToExternalID = v
+	}
+	if inReplyTo == 0 && inReplyToExternalID == "" {
+		return nil
+	}
+	// Resolve the WhatsApp message ID for the replied-to Chatwoot message. The
+	// reply_message_id field on the outgoing send request expects the WhatsApp
+	// message ID, not the Chatwoot message ID.
+	if inReplyTo != 0 {
+		link, err := h.ChatStorageRepo.GetChatwootMessageLinkByChatwootID(deviceID, inReplyTo)
+		if err == nil && link != nil && link.WhatsAppMessageID != "" {
+			id := link.WhatsAppMessageID
+			return &id
+		}
+	}
+	// Fall back to the external id (e.g. "WAID:..." or any pre-recorded id)
+	if inReplyToExternalID != "" {
+		id := strings.TrimPrefix(inReplyToExternalID, "WAID:")
+		return &id
+	}
+	return nil
+}
+
+
+
 // resolveSendDestination computes the WhatsApp send target from a Chatwoot
 // contact's stored destination (a JID or phone number). Group (@g.us) and
 // privacy-masked (@lid) JIDs are returned verbatim so the send layer's JID
@@ -343,6 +386,10 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 			Message: outgoingText,
 		}
 		req.Phone = sendDestination
+		// If the agent replied to a specific Chatwoot message, look up the
+		// WhatsApp message ID and pass it as ReplyMessageID so WhatsApp renders
+		// a quoted reply bubble instead of a standalone message.
+		req.ReplyMessageID = h.resolveChatwootReplyMessageID(storageDeviceID, linkChatJID, payload)
 
 		resp, err := h.SendUsecase.SendText(ctx, req)
 		if err != nil {

@@ -107,7 +107,8 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 	contextInfo.StanzaID = replyMessageID
 	contextInfo.Participant = proto.String(message.Sender)
 	contextInfo.QuotedMessage = &waE2E.Message{
-		Conversation: proto.String(message.Content),
+		Conversation:         proto.String(message.Content),
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(message.Content)},
 	}
 	return contextInfo
 }

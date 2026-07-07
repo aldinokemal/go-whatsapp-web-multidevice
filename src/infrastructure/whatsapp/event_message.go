@@ -104,6 +104,14 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	// Set from_name (pushname)
 	if pushname := evt.Info.PushName; pushname != "" {
 		payload["from_name"] = pushname
+	} else if client != nil && client.Store != nil && evt.Info.Chat != nil && utils.IsGroupJID(evt.Info.Chat.ToNonAD().String()) && evt.Info.Sender != nil {
+		// Group participants often don't include their pushname in the message
+		// event itself. Resolve their group-specific display name from the
+		// group metadata so Chatwoot renders the sender by name instead of
+		// by phone number.
+		if pn, perr := resolveGroupParticipantDisplayName(ctx, client, evt.Info.Chat.ToNonAD(), evt.Info.Sender.ToNonAD()); perr == nil && pn != "" {
+			payload["from_name"] = pn
+		}
 	}
 
 	// Modern WhatsApp clients (LID-migrated accounts on recent app builds) wrap
@@ -436,4 +444,50 @@ func buildWebhookContactsArrayPayload(contacts []*waE2E.ContactMessage) []webhoo
 		result = append(result, buildWebhookContactPayload(contact))
 	}
 	return result
+}
+
+// resolveGroupParticipantDisplayName looks up the sender's display name from
+// the WhatsApp group metadata. WhatsApp often omits the pushname from message
+// events for group participants, so when building the webhook payload we
+// fall back to the per-group display name (set by group admins) and finally
+// the participant's saved contact name. Returns "" when no name can be
+// resolved; callers fall back to the phone number.
+func resolveGroupParticipantDisplayName(ctx context.Context, client *whatsmeow.Client, chatJID, senderJID types.JID) (string, error) {
+	if client == nil {
+		return "", nil
+	}
+	// Use a fresh context with timeout since the event context may be canceled
+	// (the goroutine that processes events runs detached from the original request).
+	lookupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	info, err := client.GetGroupInfo(lookupCtx, chatJID)
+	if err != nil || info == nil {
+		return "", err
+	}
+	senderUser := senderJID.ToNonAD().User
+	for _, p := range info.Participants {
+		if p.JID.ToNonAD().User != senderUser {
+			continue
+		}
+		if p.DisplayName != "" {
+			return p.DisplayName, nil
+		}
+		if p.PhoneNumber != nil && !p.PhoneNumber.IsEmpty() {
+			contact, cerr := client.Store.Contacts.GetContact(lookupCtx, p.PhoneNumber.ToNonAD())
+			if cerr == nil && contact.Found {
+				if contact.FullName != "" {
+					return contact.FullName, nil
+				}
+				if contact.PushName != "" {
+					return contact.PushName, nil
+				}
+				if contact.BusinessName != "" {
+					return contact.BusinessName, nil
+				}
+			}
+		}
+		break
+	}
+	return "", nil
 }
