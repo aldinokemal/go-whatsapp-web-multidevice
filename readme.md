@@ -155,6 +155,13 @@ Download:
   | `call.offer`         | Incoming call received                        |
 
   If not configured (empty), all events will be forwarded.
+- **Webhook JID Filtering**
+
+  You can skip events for specific chats or senders (e.g. mute all groups) before they are forwarded:
+  - `--webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"` (comma-separated list)
+  - Or environment variable: `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`
+  - Supports the `@g.us` / `@s.whatsapp.net` / `@lid` wildcards (match a whole address space) and exact JIDs.
+  - This filters by conversation/sender and is independent of `--webhook-events` (which filters by event type). The Chatwoot integration keeps its own `CHATWOOT_IGNORE_JIDS`.
 - **Webhook TLS Configuration**
 
   If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed
@@ -222,9 +229,11 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
+| `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
 | `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS`  | Forward receipts from all linked devices (not only primary)   | `false`                                      | `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
+| `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (socks5/http/https) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
 | `WHATSAPP_PRESENCE_PULSE_ENABLED`       | Enable daily available/unavailable presence pulse             | `true`                                       | `WHATSAPP_PRESENCE_PULSE_ENABLED=false`       |
 | `WHATSAPP_PRESENCE_PULSE_INTERVAL`      | Interval between presence pulses                              | `24h`                                        | `WHATSAPP_PRESENCE_PULSE_INTERVAL=24h`        |
 | `WHATSAPP_PRESENCE_PULSE_DURATION`      | Duration to stay available during each pulse                  | `5m`                                         | `WHATSAPP_PRESENCE_PULSE_DURATION=5m`         |
@@ -575,8 +584,8 @@ You can fork or edit this source code !
 | ✅       | Add Device                             | POST   | /devices                            |
 | ✅       | Get Device Info                        | GET    | /devices/:device_id                 |
 | ✅       | Remove Device                          | DELETE | /devices/:device_id                 |
-| ❌       | Login Device (QR, reserved)            | GET    | /devices/:device_id/login           |
-| ❌       | Login Device (Code, reserved)          | POST   | /devices/:device_id/login/code      |
+| ✅       | Login Device (QR)                      | GET    | /devices/:device_id/login           |
+| ✅       | Login Device (Code)                    | POST   | /devices/:device_id/login/code      |
 | ✅       | Logout Device                          | POST   | /devices/:device_id/logout          |
 | ✅       | Reconnect Device                       | POST   | /devices/:device_id/reconnect       |
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
@@ -663,7 +672,6 @@ You can fork or edit this source code !
 
 - `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
 - `/health` is public and always registered at the root path, even when `APP_BASE_PATH` is set.
-- Device-specific login routes are reserved by the router but not implemented by the current usecase. Use `/app/login` or `/app/login-with-code` with `X-Device-Id` or `device_id` to pair a specific slot.
 - Chatwoot routes are registered only when `CHATWOOT_ENABLED=true`.
 
 ## User Interface
