@@ -162,7 +162,7 @@ func (h *ChatwootHandler) resolveChatwootReplyMessageID(deviceID, chatJID string
 	// reply_message_id field on the outgoing send request expects the WhatsApp
 	// message ID, not the Chatwoot message ID.
 	if inReplyTo != 0 {
-		link, err := h.ChatStorageRepo.GetChatwootMessageLinkByChatwootID(deviceID, inReplyTo)
+		link, err := h.ChatStorageRepo.GetChatwootMessageLinkByChatwootID(deviceID, int(inReplyTo))
 		if err == nil && link != nil && link.WhatsAppMessageID != "" {
 			id := link.WhatsAppMessageID
 			return &id
