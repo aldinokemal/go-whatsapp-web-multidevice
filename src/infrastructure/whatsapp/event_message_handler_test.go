@@ -39,7 +39,7 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 
 	repo := &messageHandlerRepoSpy{}
 	done := make(chan map[string]any, 1)
-	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string) error {
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
 		done <- payload
 		return nil
 	}
@@ -71,6 +71,86 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for webhook submission")
+	}
+}
+
+func TestHandleWebhookForwardSkipsBroadcastRegardlessOfChatwoot(t *testing.T) {
+	originalWebhookURLs := config.WhatsappWebhook
+	originalWebhookEvents := config.WhatsappWebhookEvents
+	originalChatwootEnabled := config.ChatwootEnabled
+	originalSubmit := submitWebhookFn
+	originalLog := log
+	defer func() {
+		config.WhatsappWebhook = originalWebhookURLs
+		config.WhatsappWebhookEvents = originalWebhookEvents
+		config.ChatwootEnabled = originalChatwootEnabled
+		submitWebhookFn = originalSubmit
+		log = originalLog
+	}()
+
+	log = waLog.Noop
+	config.WhatsappWebhook = []string{"https://example.test/webhook"}
+	config.WhatsappWebhookEvents = nil
+
+	delivered := make(chan map[string]any, 8)
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		delivered <- payload
+		return nil
+	}
+
+	// Broadcast/status messages must never reach webhooks, whether Chatwoot is
+	// enabled or not: the Chatwoot pipeline rejects status@broadcast anyway,
+	// and plain webhook consumers must not start receiving broadcast noise
+	// just because Chatwoot is turned on (regression from PR #671).
+	statusChat := types.NewJID("status", types.BroadcastServer)
+	for _, chatwootEnabled := range []bool{false, true} {
+		config.ChatwootEnabled = chatwootEnabled
+		handleWebhookForward(context.Background(), textEventForTest("broadcast-1", statusChat), nil)
+	}
+
+	// Control: a regular DM must still be forwarded, so the guard is proven
+	// to filter broadcasts specifically rather than everything.
+	config.ChatwootEnabled = false
+	dmChat := types.NewJID("628123456789", types.DefaultUserServer)
+	handleWebhookForward(context.Background(), textEventForTest("dm-1", dmChat), nil)
+
+	select {
+	case payload := <-delivered:
+		eventPayload, ok := payload["payload"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected payload map, got %T", payload["payload"])
+		}
+		if got := eventPayload["id"]; got != "dm-1" {
+			t.Fatalf("expected control message dm-1 to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for control message webhook submission")
+	}
+
+	// Give any (buggy) broadcast forwarding goroutines time to land, then
+	// assert nothing else was delivered.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case payload := <-delivered:
+		t.Fatalf("broadcast message was forwarded to webhook: %+v", payload)
+	default:
+	}
+}
+
+func textEventForTest(eventID string, chat types.JID) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     chat,
+				Sender:   types.NewJID("628111111111", types.DefaultUserServer),
+				IsFromMe: false,
+			},
+			ID:        eventID,
+			Timestamp: time.Date(2026, time.May, 16, 8, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{
+			Conversation: protoString("hello"),
+		},
 	}
 }
 

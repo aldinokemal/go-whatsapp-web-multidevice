@@ -49,8 +49,8 @@ type SyncOptions struct {
 type SyncRequest struct {
 	DeviceID      string `json:"device_id,omitempty"`
 	DaysLimit     int    `json:"days_limit,omitempty"`
-	IncludeMedia  bool   `json:"include_media"`
-	IncludeGroups bool   `json:"include_groups"`
+	IncludeMedia  *bool  `json:"include_media,omitempty"`
+	IncludeGroups *bool  `json:"include_groups,omitempty"`
 }
 
 // SyncResponse is the API response for sync operations
@@ -158,6 +158,23 @@ func (p *SyncProgress) AddMessages(count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.TotalMessages += count
+}
+
+// AddSyncedMessages adds count to the synced messages counter in a single
+// locked update — cheaper than calling IncrementSyncedMessages in a loop when
+// a per-chat batch result is known up front.
+func (p *SyncProgress) AddSyncedMessages(count int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.SyncedMessages += count
+}
+
+// AddFailedMessages adds count to the failed messages counter in a single
+// locked update.
+func (p *SyncProgress) AddFailedMessages(count int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.FailedMessages += count
 }
 
 // Clone returns a thread-safe copy of the progress

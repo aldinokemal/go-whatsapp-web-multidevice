@@ -35,6 +35,17 @@ type IChatStorageRepository interface {
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error
 
+	// Chatwoot correlation operations
+	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
+	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
+	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
+	GetLatestChatwootMessageLinkByConversation(conversationID int) (*ChatwootMessageLink, error)
+	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
+	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
+	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
+	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
+	MarkChatwootForwardEventDone(id int64) error
+
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
 	GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error)
@@ -54,7 +65,17 @@ type IChatStorageRepository interface {
 	SaveDeviceRecord(record *DeviceRecord) error
 	ListDeviceRecords() ([]*DeviceRecord, error)
 	GetDeviceRecord(deviceID string) (*DeviceRecord, error)
+	// GetDeviceRecordByJID fetches a device record by its JID.
+	GetDeviceRecordByJID(jid string) (*DeviceRecord, error)
 	DeleteDeviceRecord(deviceID string) error
+	// SetDeviceWebhookURL sets the webhook URL for a device.
+	SetDeviceWebhookURL(deviceID string, webhookURL *string) error
+	// GetDeviceWebhookURL retrieves the webhook URL for a device.
+	GetDeviceWebhookURL(deviceID string) (*string, error)
+	// SetDeviceWebhookConfig sets the full webhook configuration for a device.
+	SetDeviceWebhookConfig(deviceID string, config *DeviceWebhookConfig) error
+	// GetDeviceWebhookConfig retrieves the full webhook configuration for a device.
+	GetDeviceWebhookConfig(deviceID string) (*DeviceWebhookConfig, error)
 
 	// Schema operations
 	InitializeSchema() error

@@ -76,10 +76,11 @@ func (controller *Send) SendFile(c *fiber.Ctx) error {
 	err := c.BodyParser(&request)
 	utils.PanicIfNeeded(err)
 
-	file, err := c.FormFile("file")
-	utils.PanicIfNeeded(err)
+	// Try to get file but ignore error if not provided (e.g. file_url is used instead)
+	if file, errFile := c.FormFile("file"); errFile == nil {
+		request.File = file
+	}
 
-	request.File = file
 	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendFile(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)

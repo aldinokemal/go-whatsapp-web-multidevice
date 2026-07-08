@@ -13,6 +13,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
@@ -46,6 +47,7 @@ var (
 
 	// Usecase
 	appUsecase        domainApp.IAppUsecase
+	callUsecase       domainCall.ICallUsecase
 	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
 	userUsecase       domainUser.IUserUsecase
@@ -112,6 +114,11 @@ func initEnvConfig() {
 	if envDBKEYSURI := viper.GetString("db_keys_uri"); envDBKEYSURI != "" {
 		config.DBKeysURI = envDBKEYSURI
 	}
+	if viper.IsSet("chat_storage_max_open_conns") {
+		if n := viper.GetInt("chat_storage_max_open_conns"); n > 0 {
+			config.ChatStorageMaxOpenConns = n
+		}
+	}
 
 	// WhatsApp settings
 	if envAutoReply := viper.GetString("whatsapp_auto_reply"); envAutoReply != "" {
@@ -137,6 +144,16 @@ func initEnvConfig() {
 		events := strings.Split(envWebhookEvents, ",")
 		config.WhatsappWebhookEvents = events
 	}
+	if envWebhookIgnoreJids := viper.GetString("whatsapp_webhook_ignore_jids"); envWebhookIgnoreJids != "" {
+		parts := strings.Split(envWebhookIgnoreJids, ",")
+		jids := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				jids = append(jids, trimmed)
+			}
+		}
+		config.WhatsappWebhookIgnoreJids = jids
+	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
 	}
@@ -145,6 +162,12 @@ func initEnvConfig() {
 	}
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
+	}
+	// Outbound proxy for whatsmeow WebSocket. Standard HTTP_PROXY env does not
+	// apply to the underlying ws dialer; this binding plumbs the address into
+	// (*whatsmeow.Client).SetProxyAddress before Connect. See issue #581.
+	if envProxy := viper.GetString("whatsapp_proxy"); envProxy != "" {
+		config.WhatsappProxy = envProxy
 	}
 	if viper.IsSet("whatsapp_presence_pulse_enabled") {
 		config.WhatsappPresencePulseEnabled = viper.GetBool("whatsapp_presence_pulse_enabled")
@@ -185,6 +208,65 @@ func initEnvConfig() {
 	}
 	if viper.IsSet("chatwoot_days_limit_import_messages") {
 		config.ChatwootDaysLimitImportMessages = viper.GetInt("chatwoot_days_limit_import_messages")
+	}
+	if envChatwootImportDBURI := viper.GetString("chatwoot_import_db_uri"); envChatwootImportDBURI != "" {
+		config.ChatwootImportDBURI = envChatwootImportDBURI
+	}
+	if viper.IsSet("chatwoot_import_placeholder_media_message") {
+		config.ChatwootImportPlaceholderMediaMessage = viper.GetBool("chatwoot_import_placeholder_media_message")
+	}
+	if viper.IsSet("chatwoot_import_media_with_rest") {
+		config.ChatwootImportMediaWithREST = viper.GetBool("chatwoot_import_media_with_rest")
+	}
+	// Chatwoot auto-provisioning settings
+	if viper.IsSet("chatwoot_auto_create") {
+		config.ChatwootAutoCreate = viper.GetBool("chatwoot_auto_create")
+	}
+	if envChatwootInboxName := viper.GetString("chatwoot_inbox_name"); envChatwootInboxName != "" {
+		config.ChatwootInboxName = envChatwootInboxName
+	}
+	if envChatwootWebhookURL := viper.GetString("chatwoot_webhook_url"); envChatwootWebhookURL != "" {
+		config.ChatwootWebhookURL = envChatwootWebhookURL
+	}
+	if envChatwootWebhookSecret := viper.GetString("chatwoot_webhook_secret"); envChatwootWebhookSecret != "" {
+		config.ChatwootWebhookSecret = envChatwootWebhookSecret
+	}
+	// Chatwoot conversation handling settings
+	if viper.IsSet("chatwoot_reopen_conversation") {
+		config.ChatwootReopenConversation = viper.GetBool("chatwoot_reopen_conversation")
+	}
+	if viper.IsSet("chatwoot_conversation_pending") {
+		config.ChatwootConversationPending = viper.GetBool("chatwoot_conversation_pending")
+	}
+	if envChatwootIgnoreJids := viper.GetString("chatwoot_ignore_jids"); envChatwootIgnoreJids != "" {
+		parts := strings.Split(envChatwootIgnoreJids, ",")
+		jids := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				jids = append(jids, trimmed)
+			}
+		}
+		config.ChatwootIgnoreJids = jids
+	}
+	// Chatwoot outbound signature settings
+	if viper.IsSet("chatwoot_sign_msg") {
+		config.ChatwootSignMsg = viper.GetBool("chatwoot_sign_msg")
+	}
+	if envChatwootSignDelimiter := viper.GetString("chatwoot_sign_delimiter"); envChatwootSignDelimiter != "" {
+		config.ChatwootSignDelimiter = envChatwootSignDelimiter
+	}
+	// Chatwoot edit/delete propagation settings
+	if viper.IsSet("chatwoot_forward_edits") {
+		config.ChatwootForwardEdits = viper.GetBool("chatwoot_forward_edits")
+	}
+	if viper.IsSet("chatwoot_forward_deletes") {
+		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
+	}
+	if viper.IsSet("chatwoot_message_read") {
+		config.ChatwootMessageRead = viper.GetBool("chatwoot_message_read")
+	}
+	if viper.IsSet("chatwoot_message_delete") {
+		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
 	}
 }
 
@@ -292,6 +374,12 @@ func initFlags() {
 		config.WhatsappWebhookEvents,
 		`whitelist of events to forward to webhook (empty = all events) --webhook-events <string> | example: --webhook-events="message,message.ack,group.participants"`,
 	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.WhatsappWebhookIgnoreJids,
+		"webhook-ignore-jids", "",
+		config.WhatsappWebhookIgnoreJids,
+		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
+	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
 		"account-validation", "",
@@ -309,6 +397,12 @@ func initFlags() {
 		"presence-on-connect", "",
 		config.WhatsappPresenceOnConnect,
 		`presence to send on connect: "available", "unavailable", or "none" --presence-on-connect <string> | example: --presence-on-connect="unavailable"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.WhatsappProxy,
+		"whatsapp-proxy", "",
+		config.WhatsappProxy,
+		`outbound proxy for the WhatsApp WebSocket dialer --whatsapp-proxy <string> | example: --whatsapp-proxy="socks5://user:pass@host:1080"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappPresencePulseEnabled,
@@ -354,6 +448,102 @@ func initFlags() {
 		config.ChatwootDaysLimitImportMessages,
 		`days of message history to import to Chatwoot --chatwoot-days-limit-import-messages <int> | example: --chatwoot-days-limit-import-messages=7`,
 	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootImportDBURI,
+		"chatwoot-import-db-uri", "",
+		config.ChatwootImportDBURI,
+		`Postgres URI for direct Chatwoot history import. When set, historical sync bypasses the REST API and INSERTs directly into Chatwoot's database, preserving original WhatsApp timestamps and metadata. Live messages still use REST. Example: --chatwoot-import-db-uri="postgresql://postgres:pass@localhost:5432/chatwoot_production?sslmode=disable"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportPlaceholderMediaMessage,
+		"chatwoot-import-placeholder-media-message", "",
+		config.ChatwootImportPlaceholderMediaMessage,
+		`insert a placeholder body for media messages when media download fails during direct-DB import --chatwoot-import-placeholder-media-message <true/false> | example: --chatwoot-import-placeholder-media-message=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootImportMediaWithREST,
+		"chatwoot-import-media-with-rest", "",
+		config.ChatwootImportMediaWithREST,
+		`upload media history rows through Chatwoot REST while direct-DB import handles non-media rows --chatwoot-import-media-with-rest <true/false> | example: --chatwoot-import-media-with-rest=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootAutoCreate,
+		"chatwoot-auto-create", "",
+		config.ChatwootAutoCreate,
+		`auto-create (or reuse) the Chatwoot API inbox on startup and resolve the inbox id automatically --chatwoot-auto-create <true/false> | example: --chatwoot-auto-create=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootInboxName,
+		"chatwoot-inbox-name", "",
+		config.ChatwootInboxName,
+		`name of the Chatwoot inbox to create/reuse when auto-create is enabled --chatwoot-inbox-name <string> | example: --chatwoot-inbox-name="WhatsApp"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootWebhookURL,
+		"chatwoot-webhook-url", "",
+		config.ChatwootWebhookURL,
+		`public URL of this app's /chatwoot/webhook endpoint, registered on the auto-created inbox --chatwoot-webhook-url <string> | example: --chatwoot-webhook-url="https://my-api.com/chatwoot/webhook"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootWebhookSecret,
+		"chatwoot-webhook-secret", "",
+		config.ChatwootWebhookSecret,
+		`shared secret required for incoming Chatwoot webhooks --chatwoot-webhook-secret <string> | example: --chatwoot-webhook-secret="super-secret-key"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootReopenConversation,
+		"chatwoot-reopen-conversation", "",
+		config.ChatwootReopenConversation,
+		`reuse and reopen a resolved Chatwoot conversation for a returning contact instead of opening a new one --chatwoot-reopen-conversation <true/false> | example: --chatwoot-reopen-conversation=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootConversationPending,
+		"chatwoot-conversation-pending", "",
+		config.ChatwootConversationPending,
+		`open newly-created Chatwoot conversations in "pending" instead of "open" status --chatwoot-conversation-pending <true/false> | example: --chatwoot-conversation-pending=true`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootIgnoreJids,
+		"chatwoot-ignore-jids", "",
+		config.ChatwootIgnoreJids,
+		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net" wildcards) to never mirror to Chatwoot --chatwoot-ignore-jids <list> | example: --chatwoot-ignore-jids="@g.us,123@s.whatsapp.net"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootSignMsg,
+		"chatwoot-sign-msg", "",
+		config.ChatwootSignMsg,
+		`prefix Chatwoot agent replies with the agent's name before delivery to WhatsApp --chatwoot-sign-msg <true/false> | example: --chatwoot-sign-msg=true`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.ChatwootSignDelimiter,
+		"chatwoot-sign-delimiter", "",
+		config.ChatwootSignDelimiter,
+		`delimiter inserted between the agent signature and the message body --chatwoot-sign-delimiter <string> | example: --chatwoot-sign-delimiter="\n\n"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootForwardEdits,
+		"chatwoot-forward-edits", "",
+		config.ChatwootForwardEdits,
+		`mirror WhatsApp message edits into the Chatwoot conversation as threaded notes --chatwoot-forward-edits <true/false> | example: --chatwoot-forward-edits=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootForwardDeletes,
+		"chatwoot-forward-deletes", "",
+		config.ChatwootForwardDeletes,
+		`mirror WhatsApp delete-for-everyone events into the Chatwoot conversation as threaded notes --chatwoot-forward-deletes <true/false> | example: --chatwoot-forward-deletes=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootMessageRead,
+		"chatwoot-message-read", "",
+		config.ChatwootMessageRead,
+		`sync read state between WhatsApp and Chatwoot for linked messages --chatwoot-message-read <true/false> | example: --chatwoot-message-read=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootMessageDelete,
+		"chatwoot-message-delete", "",
+		config.ChatwootMessageDelete,
+		`delete linked Chatwoot/WhatsApp messages when deletion is reported by the opposite side --chatwoot-message-delete <true/false> | example: --chatwoot-message-delete=true`,
+	)
 }
 
 func initChatStorage() (*sql.DB, error) {
@@ -365,8 +555,12 @@ func initChatStorage() (*sql.DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	maxConns := config.ChatStorageMaxOpenConns
+	if maxConns < 1 {
+		maxConns = 1
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
@@ -416,13 +610,14 @@ func initApp() {
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
+	callUsecase = usecase.NewCallService()
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
 	userUsecase = usecase.NewUserService(chatStorageRepo)
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
-	deviceUsecase = usecase.NewDeviceService(dm)
+	deviceUsecase = usecase.NewDeviceService(dm, appUsecase)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

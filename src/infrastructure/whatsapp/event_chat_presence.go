@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -25,16 +24,14 @@ func handleChatPresence(ctx context.Context, evt *events.ChatPresence, deviceID 
 		log.Infof("%s stopped typing in %s", evt.Sender.ToNonAD(), evt.Chat.ToNonAD())
 	}
 
-	// Forward chat presence event to webhook if configured
-	if len(config.WhatsappWebhook) > 0 {
-		go func(e *events.ChatPresence, c *whatsmeow.Client) {
-			webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := forwardChatPresenceToWebhook(webhookCtx, e, deviceID, c); err != nil {
-				logrus.Errorf("Failed to forward chat_presence event to webhook: %v", err)
-			}
-		}(evt, client)
-	}
+	// Forward chat presence event to webhook
+	go func(e *events.ChatPresence, c *whatsmeow.Client) {
+		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := forwardChatPresenceToWebhook(webhookCtx, e, deviceID, c); err != nil {
+			logrus.Errorf("Failed to forward chat_presence event to webhook: %v", err)
+		}
+	}(evt, client)
 }
 
 // createChatPresencePayload creates a webhook payload for chat presence (typing) events.

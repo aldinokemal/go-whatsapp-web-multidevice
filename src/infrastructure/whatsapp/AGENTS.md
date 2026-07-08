@@ -1,10 +1,11 @@
 # WHATSAPP INFRASTRUCTURE
 
-Generated: 2026-05-24
+Generated: 2026-06-06
 
 ## OVERVIEW
 
-This package owns whatsmeow clients, multi-device lifecycle, JID normalization, event handling, presence pulse scheduling, webhook forwarding, and the event-side chatstorage wrapper.
+This package owns whatsmeow clients, multi-device lifecycle, JID normalization, events, send retry helpers,
+presence pulse scheduling, webhook forwarding, and the event-side chatstorage wrapper.
 
 ## WHERE TO LOOK
 
@@ -13,6 +14,8 @@ This package owns whatsmeow clients, multi-device lifecycle, JID normalization, 
 | Device lifecycle | `device_manager.go`, `device_instance.go`, `client_lifecycle.go` | Create/load/purge/reconnect and persisted registry behavior. |
 | Event routing | `event_handler.go`, `event_*.go` | Add new event types to the central switch. |
 | Message webhooks | `event_message.go`, `webhook_forward.go` | Payload construction, media fields, signatures, event filters. |
+| Chatwoot forward retry | `webhook_forward.go` | Queue-backed retries for WhatsApp-to-Chatwoot forward failures. |
+| Send retry / 463 | `send_retry.go`, `key_cache.go` | Reachout timelock retry and privacy-token store wiring. |
 | Presence behavior | `event_handler.go`, `event_chat_presence.go`, `presence_pulse.go` | Connect-time presence, chat presence webhooks, scheduled daily pulses. |
 | History import | `history_sync.go` | Stores chats/messages for history sync batches. |
 | JID conversion | `jid_utils.go`, `context_device.go` | LID normalization and request/device context. |
@@ -27,6 +30,8 @@ This package owns whatsmeow clients, multi-device lifecycle, JID normalization, 
 - Normalize `@lid` JIDs with `NormalizeJIDFromLID(ctx, jid, client)` before DB lookup/storage when a phone JID is needed.
 - Use `ToNonAD()` when persisting or emitting stable non-device JIDs.
 - Webhook forwarding uses goroutines and bounded contexts in selected handlers; keep failures logged without blocking the event loop.
+- `StartChatwootForwardRetryWorker` persists retry jobs in chat storage; queued events need stable `device_id`, event name, and WhatsApp message ID.
+- `chatstorage_wrapper.go` should provide device defaults for scoped repository methods, including message edit and device-scoped ID lookups.
 
 ## ANTI-PATTERNS
 
@@ -35,7 +40,9 @@ This package owns whatsmeow clients, multi-device lifecycle, JID normalization, 
 - Do not add an `IChatStorageRepository` method without implementing the wrapper method.
 - Do not remove the receipt `Device == 0` filter; linked devices produce duplicate receipts.
 - Do not start a second presence pulse loop; `cmd/helpers.go` uses `sync.Once` for process-wide startup.
+- Do not move privacy tokens to a volatile keys DB; long-lived sessions need them in durable primary WhatsApp storage.
 - Do not assume `client`, `client.Store`, or `client.Store.LIDs` is non-nil during LID resolution.
+- Do not replay Chatwoot forward events without device scoping; the retry queue uniqueness depends on it.
 
 ## TESTING
 

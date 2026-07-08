@@ -134,6 +134,60 @@ func (r *deviceChatStorage) DeleteMessageByDevice(deviceID, id, chatJID string) 
 	return r.base.DeleteMessageByDevice(deviceID, id, chatJID)
 }
 
+func (r *deviceChatStorage) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	if link != nil && link.DeviceID == "" {
+		link.DeviceID = r.deviceID
+	}
+	return r.base.UpsertChatwootMessageLink(link)
+}
+
+func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkByWhatsAppID(targetDeviceID, waMessageID)
+}
+
+func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
+}
+
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID)
+}
+
+func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetLatestUnreadChatwootMessageLinkByChat(targetDeviceID, waChatJID)
+}
+
+func (r *deviceChatStorage) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	if event != nil && event.DeviceID == "" {
+		event.DeviceID = r.deviceID
+	}
+	return r.base.EnqueueChatwootForwardEvent(event)
+}
+
+func (r *deviceChatStorage) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+	return r.base.ListDueChatwootForwardEvents(now, limit)
+}
+
+func (r *deviceChatStorage) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
+	return r.base.MarkChatwootForwardEventFailed(id, lastError, nextAttemptAt)
+}
+
+func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64) error {
+	return r.base.MarkChatwootForwardEventDone(id)
+}
+
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
 	if _, ok := DeviceFromContext(ctx); !ok && r.deviceID != "" {
 		ctx = ContextWithDevice(ctx, NewDeviceInstance(r.deviceID, nil, nil))
@@ -207,10 +261,40 @@ func (r *deviceChatStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceReco
 	return r.base.ListDeviceRecords()
 }
 
+// GetDeviceRecord delegates to the base repository.
 func (r *deviceChatStorage) GetDeviceRecord(deviceID string) (*domainChatStorage.DeviceRecord, error) {
 	return r.base.GetDeviceRecord(deviceID)
 }
 
+// GetDeviceRecordByJID fetches a device record by its JID.
+func (r *deviceChatStorage) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
+	return r.base.GetDeviceRecordByJID(jid)
+}
+
+// DeleteDeviceRecord delegates to the base repository.
 func (r *deviceChatStorage) DeleteDeviceRecord(deviceID string) error {
 	return r.base.DeleteDeviceRecord(deviceID)
+}
+
+// SetDeviceWebhookURL sets or clears the webhook URL for a device.
+// Pass a nil webhookURL to clear the device-specific webhook (falls back to global).
+// Pass a non-nil string pointer to set a device-specific webhook override.
+func (r *deviceChatStorage) SetDeviceWebhookURL(deviceID string, webhookURL *string) error {
+	return r.base.SetDeviceWebhookURL(deviceID, webhookURL)
+}
+
+// GetDeviceWebhookURL retrieves the configured webhook URL for a device.
+// Returns nil if no device-specific webhook is set (caller should use global).
+func (r *deviceChatStorage) GetDeviceWebhookURL(deviceID string) (*string, error) {
+	return r.base.GetDeviceWebhookURL(deviceID)
+}
+
+// SetDeviceWebhookConfig sets the complete webhook configuration for a device.
+func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *domainChatStorage.DeviceWebhookConfig) error {
+	return r.base.SetDeviceWebhookConfig(deviceID, config)
+}
+
+// GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
+func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	return r.base.GetDeviceWebhookConfig(deviceID)
 }

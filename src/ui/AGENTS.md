@@ -1,6 +1,6 @@
 # UI ADAPTERS
 
-Generated: 2026-05-24
+Generated: 2026-06-06
 
 ## OVERVIEW
 
@@ -10,9 +10,9 @@ Generated: 2026-05-24
 
 ```text
 ui/
-├── rest/          # Fiber handlers, helpers, middleware
-├── mcp/           # MCP tools and default-device context helper
-└── websocket/     # Browser device/status broadcast hub
+|-- rest/          # Fiber handlers, helpers, middleware
+|-- mcp/           # MCP tools and default-device context helper
+`-- websocket/     # Browser device/status broadcast hub
 ```
 
 ## WHERE TO LOOK
@@ -22,7 +22,9 @@ ui/
 | Add REST route | `rest/<domain>.go` | `InitRest*` registers paths and stores the domain service. |
 | Add REST middleware | `rest/middleware/` | Use `fiber.Test()` for middleware tests. |
 | Add MCP tool | `mcp/<domain>.go` | Define `tool*`, `handle*`, and register in `Add*Tools`. |
-| Device context | `rest/middleware/device.go`, `mcp/helpers/context.go` | REST uses headers/query; MCP uses default/only device. |
+| Device context | `rest/middleware/device.go`, `mcp/helpers/context.go` | REST uses header/query; MCP uses default/only device. |
+| Send transport fields | `rest/send.go`, `mcp/send.go` | REST receives full send DTOs; MCP send is a smaller tool subset with manual args. |
+| Chatwoot webhook | `rest/chatwoot.go` | Public route, optional shared secret, echo suppression, read/delete sync. |
 | Websocket changes | `websocket/websocket.go`, `../views/index.html` | Browser connects with `?device_id=`. |
 
 ## CONVENTIONS
@@ -31,12 +33,15 @@ ui/
 - REST success payloads use `utils.ResponseData{Status: 200, Code: "SUCCESS", Message: ..., Results: ...}`.
 - Device management routes are registered outside `DeviceMiddleware`; most operational routes are wrapped by it.
 - Chatwoot webhook is registered before basic auth so Chatwoot can POST without the app's Basic Auth header.
+- If `CHATWOOT_WEBHOOK_SECRET` is set, the public Chatwoot webhook must pass the shared-secret check before sending to WhatsApp.
 - MCP handlers validate argument types manually and return `mcp.NewToolResultText(...)`.
-- MCP tool coverage is intentionally smaller than REST; add only tools that are useful to agents.
+- MCP handlers must call `ContextWithDefaultDevice` before device-bound usecase calls.
+- MCP coverage is intentionally selective: send has 6 tools, query 5, app 5, and group 13.
 
 ## ANTI-PATTERNS
 
 - Do not put WhatsApp business logic in REST/MCP handlers.
-- Do not assume MCP receives a device header; use `ContextWithDefaultDevice`.
+- Do not assume MCP receives a device header or device ID argument; use `ContextWithDefaultDevice`.
 - Do not register device-scoped REST operations outside `DeviceMiddleware`.
 - Do not expose new unauthenticated REST paths unless they are health checks or explicitly public webhooks.
+- Do not remove Chatwoot `source_id` and sent-message cache echo guards without a replacement loop breaker.

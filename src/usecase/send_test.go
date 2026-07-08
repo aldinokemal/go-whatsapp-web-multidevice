@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
@@ -78,6 +80,42 @@ func TestResolveDocumentMIME(t *testing.T) {
 			got := resolveDocumentMIME(tt.filename, []byte("dummy"))
 			if got != tt.wantMIME {
 				t.Fatalf("resolveDocumentMIME() = %q, want %q", got, tt.wantMIME)
+			}
+		})
+	}
+}
+
+func TestBuildLinkMessageText(t *testing.T) {
+	tests := []struct {
+		name    string
+		caption string
+		link    string
+		want    string
+	}{
+		{
+			name: "returns link when caption is empty",
+			link: "https://example.com",
+			want: "https://example.com",
+		},
+		{
+			name:    "joins caption and link with newline",
+			caption: "Check this out",
+			link:    "https://example.com",
+			want:    "Check this out\nhttps://example.com",
+		},
+		{
+			name:    "ignores blank caption",
+			caption: "   ",
+			link:    "https://example.com",
+			want:    "https://example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildLinkMessageText(tt.caption, tt.link)
+			if got != tt.want {
+				t.Fatalf("buildLinkMessageText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -221,5 +259,63 @@ func TestMergeReplyContextLeavesExistingContextWhenReplyUnavailable(t *testing.T
 				t.Fatalf("expected no quoted message, got %#v", got.GetQuotedMessage())
 			}
 		})
+	}
+}
+
+func TestSendForwardMessageNotFound(t *testing.T) {
+	repo := &replyMessageRepo{}
+	service := serviceSend{chatStorageRepo: repo}
+	deviceID := "6289605618749@s.whatsapp.net"
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+
+	_, err := service.SendForward(ctx, domainSend.ForwardRequest{
+		MessageID: "missing-id",
+		Phone:     "628123456789@s.whatsapp.net",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing message")
+	}
+	if repo.gotID != "missing-id" {
+		t.Fatalf("expected lookup for missing-id, got %q", repo.gotID)
+	}
+	if repo.gotDeviceID != deviceID {
+		t.Fatalf("expected device-scoped lookup for %q, got %q", deviceID, repo.gotDeviceID)
+	}
+}
+
+func TestForwardDurationOptionExplicitZero(t *testing.T) {
+	zero := 0
+	got := forwardDurationOption(serviceSend{}, domainSend.ForwardRequest{
+		Phone:    "628123456789@s.whatsapp.net",
+		Duration: &zero,
+	})
+	if got == nil || *got != 0 {
+		t.Fatalf("expected explicit duration 0 to be honored, got %v", got)
+	}
+}
+
+func TestSendForwardUnsupportedType(t *testing.T) {
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{
+			MediaType: "call",
+			Content:   "incoming call",
+		},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+
+	_, err := service.SendForward(ctx, domainSend.ForwardRequest{
+		MessageID: "call-msg-id",
+		Phone:     "628123456789@s.whatsapp.net",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported type")
+	}
+	genericErr, ok := err.(pkgError.GenericError)
+	if !ok {
+		t.Fatalf("expected validation error, got %T: %v", err, err)
+	}
+	if genericErr.Error() != utils.ErrUnsupportedForwardType {
+		t.Fatalf("error = %q, want %q", genericErr.Error(), utils.ErrUnsupportedForwardType)
 	}
 }

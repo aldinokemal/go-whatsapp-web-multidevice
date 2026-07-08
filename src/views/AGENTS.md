@@ -1,6 +1,6 @@
 # EMBEDDED WEB UI
 
-Generated: 2026-05-24
+Generated: 2026-06-06
 
 ## OVERVIEW
 
@@ -10,11 +10,11 @@ The UI is embedded into the Go binary and served by Fiber. It uses Vue 3 plain J
 
 ```text
 views/
-├── index.html          # Imports all components, creates Vue app, manages selected device
-├── assets/app.css      # Local CSS
-├── assets/gowa.svg     # Logo
-└── components/         # One plain JS module per card/modal
-    └── generic/        # Reused form pieces
+|-- index.html          # Imports all components, creates Vue app, manages selected device
+|-- assets/app.css      # Local CSS
+|-- assets/gowa.svg     # Logo
+`-- components/         # One plain JS module per card/modal
+    `-- generic/        # Reused form pieces
 ```
 
 ## WHERE TO LOOK
@@ -23,6 +23,8 @@ views/
 |------|----------|-------|
 | Add card/modal | `components/<Name>.js`, `index.html` | Import, register component, and place tag in the right grid. |
 | Shared recipient fields | `components/generic/FormRecipient.js` | Used by send/message/group components. |
+| Send forms | `components/Send*.js` | Text/link use JSON payloads; media forms append fields to `FormData`. |
+| Reply Message ID UI | `SendMessage.js` and media/link send components | Keep optional `reply_message_id` omitted when blank. |
 | Device selector | `components/DeviceManager.js`, `index.html` | Sets `X-Device-Id` and websocket query param. |
 | Chat UI | `components/ChatList.js`, `components/ChatMessages.js` | Handles null/empty API result cases. |
 
