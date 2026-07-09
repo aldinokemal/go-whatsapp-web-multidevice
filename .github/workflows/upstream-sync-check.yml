@@ -1,0 +1,60 @@
+name: Upstream Sync Check
+
+# Weekly check for new commits on aldinokemal/go-whatsapp-web-multidevice.
+# When the fork's main is behind, it opens (or refreshes) a single tracking
+# issue listing the new upstream commits, so staying current is a reminder
+# that arrives on its own instead of something you have to remember to check.
+# The actual merge stays a reviewed PR (validated by ci.yml).
+
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/aldinokemal/go-whatsapp-web-multidevice.git 2>/dev/null || \
+            git remote set-url upstream https://github.com/aldinokemal/go-whatsapp-web-multidevice.git
+          git fetch upstream --quiet main
+      - name: Compare against upstream/main
+        id: cmp
+        run: |
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          {
+            echo "Fork \`main\` is **$behind** commit(s) behind \`aldinokemal/go-whatsapp-web-multidevice@main\`."
+            echo ""
+            echo "To sync: branch off main, \`git merge upstream/main\`, resolve the seam files, let CI validate the PR, then merge + deploy. See SAAS-INTEGRATION.md."
+            echo ""
+            echo "<details><summary>New upstream commits</summary>"
+            echo ""
+            echo '```'
+            git log --oneline --no-merges HEAD..upstream/main | head -80
+            echo '```'
+            echo "</details>"
+          } > body.md
+      - name: Open or refresh tracking issue
+        if: steps.cmp.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create upstream-sync --color ededed \
+            --description "Fork is behind aldinokemal/gowa" 2>/dev/null || true
+          existing=$(gh issue list --label upstream-sync --state open --json number --jq '.[0].number')
+          title="chore: upstream sync available (${{ steps.cmp.outputs.behind }} commit(s) behind)"
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --label upstream-sync --body-file body.md
+          else
+            gh issue edit "$existing" --title "$title" --body-file body.md
+          fi

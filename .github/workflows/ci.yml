@@ -1,0 +1,32 @@
+name: CI
+
+# Validates every PR and every push to main BEFORE it can be deployed.
+# The Go module lives in ./src. Runs on ubuntu (CGO available → the
+# sqlite/MIME tests that fail on a bare Windows/alpine env pass here).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        env:
+          CGO_ENABLED: "1"
+        run: go test ./...
