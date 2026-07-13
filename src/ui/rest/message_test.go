@@ -1,6 +1,15 @@
 package rest
 
-import "testing"
+import (
+	"io"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/gofiber/fiber/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestPublicStaticPath(t *testing.T) {
 	tests := []struct {
@@ -42,4 +51,25 @@ func TestPublicStaticPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPublicStaticFileURLUsesRequestScheme(t *testing.T) {
+	oldBasePath := config.AppBasePath
+	config.AppBasePath = "/api"
+	defer func() {
+		config.AppBasePath = oldBasePath
+	}()
+
+	app := fiber.New()
+	app.Get("/url", func(c fiber.Ctx) error {
+		return c.SendString(publicStaticFileURL(c, "statics/media/photo.jpg"))
+	})
+
+	resp, err := app.Test(httptest.NewRequest("GET", "http://example.com/url", nil))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "http://example.com/api/statics/media/photo.jpg", string(body))
 }

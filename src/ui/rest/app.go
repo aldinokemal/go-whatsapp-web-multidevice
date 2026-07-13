@@ -7,7 +7,7 @@ import (
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -30,13 +30,13 @@ func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 	return App{Service: service}
 }
 
-func (handler *App) Login(c *fiber.Ctx) error {
+func (handler *App) Login(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	response, err := handler.Service.Login(c.UserContext(), device.ID())
+	response, err := handler.Service.Login(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -45,19 +45,19 @@ func (handler *App) Login(c *fiber.Ctx) error {
 		Message: "Login success",
 		Results: map[string]any{
 			"device_id":   device.ID(),
-			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Protocol(), c.Hostname(), config.AppBasePath, response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Scheme(), c.Hostname(), config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
 }
 
-func (handler *App) LoginWithCode(c *fiber.Ctx) error {
+func (handler *App) LoginWithCode(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	pairCode, err := handler.Service.LoginWithCode(c.UserContext(), device.ID(), c.Query("phone"))
+	pairCode, err := handler.Service.LoginWithCode(c.Context(), device.ID(), c.Query("phone"))
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -71,13 +71,13 @@ func (handler *App) LoginWithCode(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) PasskeyChallenge(c *fiber.Ctx) error {
+func (handler *App) PasskeyChallenge(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	response, err := handler.Service.PasskeyChallenge(c.UserContext(), device.ID())
+	response, err := handler.Service.PasskeyChallenge(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -94,18 +94,18 @@ func (handler *App) PasskeyChallenge(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) PasskeyResponse(c *fiber.Ctx) error {
+func (handler *App) PasskeyResponse(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
 	var assertion types.WebAuthnResponse
-	if err := c.BodyParser(&assertion); err != nil {
+	if err := c.Bind().Body(&assertion); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid WebAuthn assertion payload: "+err.Error())
 	}
 
-	err = handler.Service.PasskeyResponse(c.UserContext(), device.ID(), &assertion)
+	err = handler.Service.PasskeyResponse(c.Context(), device.ID(), &assertion)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -116,13 +116,13 @@ func (handler *App) PasskeyResponse(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) PasskeyConfirm(c *fiber.Ctx) error {
+func (handler *App) PasskeyConfirm(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	err = handler.Service.PasskeyConfirm(c.UserContext(), device.ID())
+	err = handler.Service.PasskeyConfirm(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -133,13 +133,13 @@ func (handler *App) PasskeyConfirm(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) Logout(c *fiber.Ctx) error {
+func (handler *App) Logout(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	err = handler.Service.Logout(c.UserContext(), device.ID())
+	err = handler.Service.Logout(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -150,13 +150,13 @@ func (handler *App) Logout(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) Reconnect(c *fiber.Ctx) error {
+func (handler *App) Reconnect(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	err = handler.Service.Reconnect(c.UserContext(), device.ID())
+	err = handler.Service.Reconnect(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -167,8 +167,8 @@ func (handler *App) Reconnect(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) Devices(c *fiber.Ctx) error {
-	devices, err := handler.Service.FetchDevices(c.UserContext())
+func (handler *App) Devices(c fiber.Ctx) error {
+	devices, err := handler.Service.FetchDevices(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -179,13 +179,13 @@ func (handler *App) Devices(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
+func (handler *App) ConnectionStatus(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {
 		return err
 	}
 
-	isConnected, isLoggedIn, err := handler.Service.Status(c.UserContext(), device.ID())
+	isConnected, isLoggedIn, err := handler.Service.Status(c.Context(), device.ID())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -201,7 +201,7 @@ func (handler *App) ConnectionStatus(c *fiber.Ctx) error {
 	})
 }
 
-func getDeviceInstance(c *fiber.Ctx) (*whatsapp.DeviceInstance, error) {
+func getDeviceInstance(c fiber.Ctx) (*whatsapp.DeviceInstance, error) {
 	value := c.Locals("device")
 	if value == nil {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "device context is missing")

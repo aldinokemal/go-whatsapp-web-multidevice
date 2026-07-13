@@ -15,7 +15,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -95,7 +95,7 @@ func chatwootSecretMatches(expected, candidate string) bool {
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(candidate)) == 1
 }
 
-func chatwootWebhookAuthorized(c *fiber.Ctx) bool {
+func chatwootWebhookAuthorized(c fiber.Ctx) bool {
 	secret := strings.TrimSpace(config.ChatwootWebhookSecret)
 	if secret == "" {
 		return true
@@ -334,7 +334,7 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 // HandleWebhook is the shared (legacy / single-webhook) Chatwoot endpoint. The
 // device is resolved from the payload (conversation link, contact attrs, inbox
 // map, or env fallback).
-func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
+func (h *ChatwootHandler) HandleWebhook(c fiber.Ctx) error {
 	if !chatwootWebhookAuthorized(c) {
 		logrus.Warn("Chatwoot Webhook: Rejected request with invalid secret")
 		return c.SendStatus(fiber.StatusUnauthorized)
@@ -343,7 +343,7 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 	logrus.Debugf("Chatwoot Webhook raw body: %s", string(c.Body()))
 
 	var payload chatwoot.WebhookPayload
-	if err := c.BodyParser(&payload); err != nil {
+	if err := c.Bind().Body(&payload); err != nil {
 		return utils.ResponseError(c, "Invalid payload")
 	}
 	return h.processChatwootWebhook(c, payload, nil)
@@ -354,14 +354,14 @@ func (h *ChatwootHandler) HandleWebhook(c *fiber.Ctx) error {
 // trust-by-path: in addition to the shared secret it verifies that the payload's
 // account and inbox match the device's configured account and inbox, so a
 // webhook for one device cannot be delivered through another device's path.
-func (h *ChatwootHandler) HandleDeviceWebhook(c *fiber.Ctx) error {
+func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
 	if !chatwootWebhookAuthorized(c) {
 		logrus.Warn("Chatwoot Webhook: Rejected per-device request with invalid secret")
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
 	var payload chatwoot.WebhookPayload
-	if err := c.BodyParser(&payload); err != nil {
+	if err := c.Bind().Body(&payload); err != nil {
 		return utils.ResponseError(c, "Invalid payload")
 	}
 
@@ -412,7 +412,7 @@ func (h *ChatwootHandler) HandleDeviceWebhook(c *fiber.Ctx) error {
 // processChatwootWebhook performs the event gating shared by both webhook
 // endpoints, then delivers an agent reply using either the forced route (when
 // set by the per-device endpoint) or one resolved from the payload.
-func (h *ChatwootHandler) processChatwootWebhook(c *fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
+func (h *ChatwootHandler) processChatwootWebhook(c fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
 	contact := payload.Conversation.Meta.Sender
 	logrus.Debugf("Chatwoot Webhook: event=%s message_type=%s contact_id=%d contact_phone=%s",
 		payload.Event, payload.MessageType, contact.ID, contact.PhoneNumber)
@@ -465,7 +465,7 @@ func (h *ChatwootHandler) processChatwootWebhook(c *fiber.Ctx, payload chatwoot.
 	return h.deliverChatwootReply(c, payload, route, contact)
 }
 
-func (h *ChatwootHandler) deliverChatwootReply(c *fiber.Ctx, payload chatwoot.WebhookPayload, route chatwootWebhookRoute, contact chatwoot.Contact) error {
+func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.WebhookPayload, route chatwootWebhookRoute, contact chatwoot.Contact) error {
 	if h.DeviceManager == nil {
 		err := fmt.Errorf("device manager not initialized")
 		logrus.Errorf("Chatwoot Webhook: Failed to resolve device: %v", err)
@@ -485,10 +485,10 @@ func (h *ChatwootHandler) deliverChatwootReply(c *fiber.Ctx, payload chatwoot.We
 	// operations below. The send usecases resolve the WhatsApp client from this
 	// context (whatsapp.ClientFromContext), so without it the reply goes out
 	// from the global default device instead of the routed one — a cross-account
-	// mis-delivery in multi-device deployments. It is also stored on the fiber
-	// user-context because the read/revoke paths read c.UserContext().
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), instance)
-	c.SetUserContext(ctx)
+	// mis-delivery in multi-device deployments. It is also stored on the Fiber
+	// request context because the read/revoke paths read c.Context().
+	ctx := whatsapp.ContextWithDevice(c.Context(), instance)
+	c.SetContext(ctx)
 
 	destination := route.Destination
 	if destination == "" {
@@ -564,7 +564,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c *fiber.Ctx, payload chatwoot.We
 	return c.SendStatus(fiber.StatusOK)
 }
 
-func (h *ChatwootHandler) handleDeletedChatwootMessage(c *fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
+func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
 	if !config.ChatwootMessageDelete {
 		return c.SendStatus(fiber.StatusOK)
 	}
@@ -603,7 +603,7 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c *fiber.Ctx, payload cha
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), instance)
+	ctx := whatsapp.ContextWithDevice(c.Context(), instance)
 	if _, err := h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
 		MessageID: link.WhatsAppMessageID,
 		Phone:     link.WhatsAppChatJID,
@@ -644,7 +644,7 @@ func (h *ChatwootHandler) storeChatwootOutboundLink(route chatwootWebhookRoute, 
 	}
 }
 
-func (h *ChatwootHandler) markLatestInboundAsRead(c *fiber.Ctx, deviceID, chatJID string) {
+func (h *ChatwootHandler) markLatestInboundAsRead(c fiber.Ctx, deviceID, chatJID string) {
 	if !config.ChatwootMessageRead || h.MessageUsecase == nil || h.ChatStorageRepo == nil || chatJID == "" {
 		return
 	}
@@ -658,7 +658,7 @@ func (h *ChatwootHandler) markLatestInboundAsRead(c *fiber.Ctx, deviceID, chatJI
 		return
 	}
 
-	if _, err := h.MessageUsecase.MarkAsRead(c.UserContext(), domainMessage.MarkAsReadRequest{
+	if _, err := h.MessageUsecase.MarkAsRead(c.Context(), domainMessage.MarkAsReadRequest{
 		MessageID: link.WhatsAppMessageID,
 		Phone:     link.WhatsAppChatJID,
 	}); err != nil {
@@ -794,10 +794,10 @@ func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, at
 
 // SyncHistory triggers a message history sync to Chatwoot
 // POST /chatwoot/sync
-func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
+func (h *ChatwootHandler) SyncHistory(c fiber.Ctx) error {
 	var req chatwoot.SyncRequest
 	if strings.TrimSpace(string(c.Body())) != "" {
-		if err := c.BodyParser(&req); err != nil {
+		if err := c.Bind().Body(&req); err != nil {
 			return utils.ResponseError(c, "Invalid payload")
 		}
 	}
@@ -806,7 +806,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 		req.DeviceID = c.Query("device_id", config.ChatwootDeviceID)
 	}
 	if req.DaysLimit <= 0 {
-		req.DaysLimit = c.QueryInt("days", config.ChatwootDaysLimitImportMessages)
+		req.DaysLimit = fiber.Query[int](c, "days", config.ChatwootDaysLimitImportMessages)
 	}
 
 	// Resolve device
@@ -863,12 +863,12 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	if req.IncludeMedia != nil {
 		opts.IncludeMedia = *req.IncludeMedia
 	} else if c.Query("media") != "" {
-		opts.IncludeMedia = c.QueryBool("media", opts.IncludeMedia)
+		opts.IncludeMedia = fiber.Query[bool](c, "media", opts.IncludeMedia)
 	}
 	if req.IncludeGroups != nil {
 		opts.IncludeGroups = *req.IncludeGroups
 	} else if c.Query("groups") != "" {
-		opts.IncludeGroups = c.QueryBool("groups", opts.IncludeGroups)
+		opts.IncludeGroups = fiber.Query[bool](c, "groups", opts.IncludeGroups)
 	}
 
 	// Start async sync
@@ -898,7 +898,7 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 
 // SyncStatus returns the current sync progress
 // GET /chatwoot/sync/status
-func (h *ChatwootHandler) SyncStatus(c *fiber.Ctx) error {
+func (h *ChatwootHandler) SyncStatus(c fiber.Ctx) error {
 	deviceID := c.Query("device_id", config.ChatwootDeviceID)
 
 	instance, resolvedID, err := h.DeviceManager.ResolveDevice(deviceID)

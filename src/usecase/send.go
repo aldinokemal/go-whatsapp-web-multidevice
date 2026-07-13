@@ -26,7 +26,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
-	fiberUtils "github.com/gofiber/fiber/v2/utils"
+	fiberUtils "github.com/gofiber/utils/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"

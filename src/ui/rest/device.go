@@ -7,7 +7,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type Device struct {
@@ -34,8 +34,8 @@ func InitRestDevice(app fiber.Router, service device.IDeviceUsecase) Device {
 	return rest
 }
 
-func (handler *Device) ListDevices(c *fiber.Ctx) error {
-	devices, err := handler.Service.ListDevices(c.UserContext())
+func (handler *Device) ListDevices(c fiber.Ctx) error {
+	devices, err := handler.Service.ListDevices(c.Context())
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -46,9 +46,9 @@ func (handler *Device) ListDevices(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) GetDevice(c *fiber.Ctx) error {
+func (handler *Device) GetDevice(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	device, err := handler.Service.GetDevice(c.UserContext(), deviceID)
+	device, err := handler.Service.GetDevice(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -59,7 +59,7 @@ func (handler *Device) GetDevice(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) AddDevice(c *fiber.Ctx) error {
+func (handler *Device) AddDevice(c fiber.Ctx) error {
 	var req struct {
 		DeviceID                  string `json:"device_id"`
 		WebhookURL                string `json:"webhook_url"`
@@ -68,7 +68,7 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify"`
 	}
 
-	if err := c.BodyParser(&req); err != nil {
+	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
 			Status:  400,
 			Code:    "BAD_REQUEST",
@@ -87,7 +87,7 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 		}
 	}
 
-	device, err := handler.Service.AddDevice(c.UserContext(), req.DeviceID, webhook)
+	device, err := handler.Service.AddDevice(c.Context(), req.DeviceID, webhook)
 	utils.PanicIfNeeded(err)
 
 	result := map[string]any{
@@ -112,9 +112,9 @@ func (handler *Device) AddDevice(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) RemoveDevice(c *fiber.Ctx) error {
+func (handler *Device) RemoveDevice(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	err := handler.Service.RemoveDevice(c.UserContext(), deviceID)
+	err := handler.Service.RemoveDevice(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -125,9 +125,9 @@ func (handler *Device) RemoveDevice(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) LoginDevice(c *fiber.Ctx) error {
+func (handler *Device) LoginDevice(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	response, err := handler.Service.LoginDevice(c.UserContext(), deviceID)
+	response, err := handler.Service.LoginDevice(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -136,15 +136,15 @@ func (handler *Device) LoginDevice(c *fiber.Ctx) error {
 		Message: "Login success",
 		Results: map[string]any{
 			"device_id":   deviceID,
-			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Protocol(), c.Hostname(), config.AppBasePath, response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Scheme(), c.Hostname(), config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
 }
 
-func (handler *Device) LoginDeviceWithCode(c *fiber.Ctx) error {
+func (handler *Device) LoginDeviceWithCode(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	code, err := handler.Service.LoginDeviceWithCode(c.UserContext(), deviceID, c.Query("phone"))
+	code, err := handler.Service.LoginDeviceWithCode(c.Context(), deviceID, c.Query("phone"))
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -158,9 +158,9 @@ func (handler *Device) LoginDeviceWithCode(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) LogoutDevice(c *fiber.Ctx) error {
+func (handler *Device) LogoutDevice(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	err := handler.Service.LogoutDevice(c.UserContext(), deviceID)
+	err := handler.Service.LogoutDevice(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -171,9 +171,9 @@ func (handler *Device) LogoutDevice(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) ReconnectDevice(c *fiber.Ctx) error {
+func (handler *Device) ReconnectDevice(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	err := handler.Service.ReconnectDevice(c.UserContext(), deviceID)
+	err := handler.Service.ReconnectDevice(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -184,9 +184,9 @@ func (handler *Device) ReconnectDevice(c *fiber.Ctx) error {
 	})
 }
 
-func (handler *Device) Status(c *fiber.Ctx) error {
+func (handler *Device) Status(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	isConnected, isLoggedIn, err := handler.Service.GetStatus(c.UserContext(), deviceID)
+	isConnected, isLoggedIn, err := handler.Service.GetStatus(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -202,7 +202,7 @@ func (handler *Device) Status(c *fiber.Ctx) error {
 }
 
 // UpdateDeviceWebhook handles PATCH /devices/:device_id/webhook.
-func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
+func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
 	var req struct {
 		WebhookURL                *string `json:"webhook_url"`
@@ -211,7 +211,7 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify"`
 	}
 
-	if err := c.BodyParser(&req); err != nil {
+	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
 			Status:  400,
 			Code:    "BAD_REQUEST",
@@ -236,7 +236,7 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
 	}
 
-	err := handler.Service.SetDeviceWebhookConfig(c.UserContext(), deviceID, config)
+	err := handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -254,9 +254,9 @@ func (handler *Device) UpdateDeviceWebhook(c *fiber.Ctx) error {
 }
 
 // GetDeviceWebhook handles GET /devices/:device_id/webhook.
-func (handler *Device) GetDeviceWebhook(c *fiber.Ctx) error {
+func (handler *Device) GetDeviceWebhook(c fiber.Ctx) error {
 	deviceID := c.Params("device_id")
-	config, err := handler.Service.GetDeviceWebhookConfig(c.UserContext(), deviceID)
+	config, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
 	webhookURL := ""

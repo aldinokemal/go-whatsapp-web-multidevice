@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,13 +16,13 @@ func TestRequestTimeout_SetsDeadline(t *testing.T) {
 	app.Use(RequestTimeout(5 * time.Second))
 
 	var capturedCtx context.Context
-	app.Get("/test", func(c *fiber.Ctx) error {
-		capturedCtx = c.UserContext()
+	app.Get("/test", func(c fiber.Ctx) error {
+		capturedCtx = c.Context()
 		return c.SendString("ok")
 	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	assert.NoError(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 
@@ -36,8 +36,8 @@ func TestRequestTimeout_CancelsOnTimeout(t *testing.T) {
 	app := fiber.New()
 	app.Use(RequestTimeout(50 * time.Millisecond))
 
-	app.Get("/slow", func(c *fiber.Ctx) error {
-		ctx := c.UserContext()
+	app.Get("/slow", func(c fiber.Ctx) error {
+		ctx := c.Context()
 		select {
 		case <-time.After(200 * time.Millisecond):
 			return c.SendString("completed")
@@ -47,7 +47,7 @@ func TestRequestTimeout_CancelsOnTimeout(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("GET", "/slow", nil)
-	resp, err := app.Test(req, 500)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 500 * time.Millisecond, FailOnTimeout: true})
 	assert.NoError(t, err)
 	assert.Equal(t, 504, resp.StatusCode)
 

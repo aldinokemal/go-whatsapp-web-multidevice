@@ -4,7 +4,7 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type User struct {
@@ -27,14 +27,14 @@ func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	return rest
 }
 
-func (controller *User) UserInfo(c *fiber.Ctx) error {
+func (controller *User) UserInfo(c fiber.Ctx) error {
 	var request domainUser.InfoRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.Phone)
 
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 
 	response, err := controller.Service.Info(ctx, request)
 	utils.PanicIfNeeded(err)
@@ -47,14 +47,14 @@ func (controller *User) UserInfo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserAvatar(c *fiber.Ctx) error {
+func (controller *User) UserAvatar(c fiber.Ctx) error {
 	var request domainUser.AvatarRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.Phone)
 
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 
 	response, err := controller.Service.Avatar(ctx, request)
 	utils.PanicIfNeeded(err)
@@ -67,15 +67,15 @@ func (controller *User) UserAvatar(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserChangeAvatar(c *fiber.Ctx) error {
+func (controller *User) UserChangeAvatar(c fiber.Ctx) error {
 	var request domainUser.ChangeAvatarRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	request.Avatar, err = c.FormFile("avatar")
 	utils.PanicIfNeeded(err)
 
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 
 	err = controller.Service.ChangeAvatar(ctx, request)
 	utils.PanicIfNeeded(err)
@@ -87,8 +87,8 @@ func (controller *User) UserChangeAvatar(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+func (controller *User) UserMyPrivacySetting(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 	response, err := controller.Service.MyPrivacySetting(ctx)
 	utils.PanicIfNeeded(err)
 
@@ -100,9 +100,9 @@ func (controller *User) UserMyPrivacySetting(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
+func (controller *User) UserMyListGroups(c fiber.Ctx) error {
 	deviceVal := c.Locals("device")
-	ctx := c.UserContext()
+	ctx := c.Context()
 	if device, ok := deviceVal.(*whatsapp.DeviceInstance); ok {
 		ctx = whatsapp.ContextWithDevice(ctx, device)
 	}
@@ -118,8 +118,8 @@ func (controller *User) UserMyListGroups(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserMyListNewsletter(c *fiber.Ctx) error {
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+func (controller *User) UserMyListNewsletter(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 	response, err := controller.Service.MyListNewsletter(ctx)
 	utils.PanicIfNeeded(err)
 
@@ -131,8 +131,8 @@ func (controller *User) UserMyListNewsletter(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+func (controller *User) UserMyListContacts(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 	response, err := controller.Service.MyListContacts(ctx)
 	utils.PanicIfNeeded(err)
 
@@ -144,12 +144,12 @@ func (controller *User) UserMyListContacts(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserChangePushName(c *fiber.Ctx) error {
+func (controller *User) UserChangePushName(c fiber.Ctx) error {
 	var request domainUser.ChangePushNameRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
-	err = controller.Service.ChangePushName(c.UserContext(), request)
+	err = controller.Service.ChangePushName(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -159,12 +159,12 @@ func (controller *User) UserChangePushName(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserCheck(c *fiber.Ctx) error {
+func (controller *User) UserCheck(c fiber.Ctx) error {
 	var request domainUser.CheckRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
-	response, err := controller.Service.IsOnWhatsApp(c.UserContext(), request)
+	response, err := controller.Service.IsOnWhatsApp(c.Context(), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -175,14 +175,14 @@ func (controller *User) UserCheck(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
+func (controller *User) UserBusinessProfile(c fiber.Ctx) error {
 	var request domainUser.BusinessProfileRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.Phone)
 
-	ctx := whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
 
 	response, err := controller.Service.BusinessProfile(ctx, request)
 	utils.PanicIfNeeded(err)
@@ -195,7 +195,7 @@ func (controller *User) UserBusinessProfile(c *fiber.Ctx) error {
 	})
 }
 
-func getDeviceFromCtx(c *fiber.Ctx) *whatsapp.DeviceInstance {
+func getDeviceFromCtx(c fiber.Ctx) *whatsapp.DeviceInstance {
 	if c == nil {
 		return nil
 	}
