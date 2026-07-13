@@ -1163,37 +1163,59 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 	return rec, nil
 }
 
-// GetDeviceRecordByJID fetches a device registration by WhatsApp JID.
+// GetDeviceRecordByJID fetches a device registration by WhatsApp JID. A full AD JID
+// (number:NN@s.whatsapp.net) resolves the exact slot. A bare-number JID resolves only
+// while it is unambiguous: when several slots share the number (sibling companions,
+// issue #760) it returns nil so callers fall back to their global defaults instead of
+// acting on an arbitrary sibling's record (e.g. webhook routing).
 func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
 	if strings.TrimSpace(jid) == "" {
 		return nil, fmt.Errorf("jid is required")
 	}
 
-	rec := &domainChatStorage.DeviceRecord{}
-	err := r.db.QueryRow(`
+	rows, err := r.db.Query(`
 		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
 		FROM devices
-		WHERE jid = ?
-		LIMIT 1
-	`, jid).Scan(
-		&rec.DeviceID,
-		&rec.DisplayName,
-		&rec.JID,
-		&rec.ADJID,
-		&rec.WebhookURL,
-		&rec.WebhookSecret,
-		&rec.WebhookEvents,
-		&rec.WebhookInsecureSkipVerify,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+		WHERE jid = ? OR ad_jid = ?
+		LIMIT 2
+	`, jid, jid)
 	if err != nil {
 		return nil, err
 	}
-	return rec, nil
+	defer rows.Close()
+
+	var records []*domainChatStorage.DeviceRecord
+	for rows.Next() {
+		rec := &domainChatStorage.DeviceRecord{}
+		if err := rows.Scan(
+			&rec.DeviceID,
+			&rec.DisplayName,
+			&rec.JID,
+			&rec.ADJID,
+			&rec.WebhookURL,
+			&rec.WebhookSecret,
+			&rec.WebhookEvents,
+			&rec.WebhookInsecureSkipVerify,
+			&rec.CreatedAt,
+			&rec.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	switch len(records) {
+	case 0:
+		return nil, nil
+	case 1:
+		return records[0], nil
+	default:
+		logrus.Warnf("[CHATSTORAGE] %s matches multiple device slots; ignoring device-specific record (use the full AD JID or device id to disambiguate)", jid)
+		return nil, nil
+	}
 }
 
 // DeleteDeviceRecord removes a device registration entry.

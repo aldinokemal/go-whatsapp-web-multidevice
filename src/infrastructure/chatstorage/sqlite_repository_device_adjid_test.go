@@ -55,3 +55,38 @@ func TestDeviceRecordADJIDRoundTrip(t *testing.T) {
 		t.Fatalf("expected cleared JIDs after update, got %+v", rec)
 	}
 }
+
+// When two slots share a bare-number JID (sibling companions, issue #760) the
+// JID-based lookup used for per-device webhook routing is ambiguous and must return
+// nothing instead of an arbitrary sibling's record; the full AD JID resolves exactly.
+func TestGetDeviceRecordByJID_RefusesAmbiguousBareNumberResolvesADJID(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	nonAD := "6281777000021@s.whatsapp.net"
+	adA := "6281777000021:28@s.whatsapp.net"
+	adB := "6281777000021:32@s.whatsapp.net"
+	for _, rec := range []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", DisplayName: "A", JID: nonAD, ADJID: adA},
+		{DeviceID: "slot-b", DisplayName: "B", JID: nonAD, ADJID: adB},
+	} {
+		if err := repo.SaveDeviceRecord(rec); err != nil {
+			t.Fatalf("save device record %s: %v", rec.DeviceID, err)
+		}
+	}
+
+	rec, err := repo.GetDeviceRecordByJID(nonAD)
+	if err != nil {
+		t.Fatalf("ambiguous lookup should not error: %v", err)
+	}
+	if rec != nil {
+		t.Fatalf("expected nil for ambiguous bare-number lookup, got %+v", rec)
+	}
+
+	rec, err = repo.GetDeviceRecordByJID(adB)
+	if err != nil {
+		t.Fatalf("AD JID lookup: %v", err)
+	}
+	if rec == nil || rec.DeviceID != "slot-b" {
+		t.Fatalf("expected slot-b for AD JID lookup, got %+v", rec)
+	}
+}
