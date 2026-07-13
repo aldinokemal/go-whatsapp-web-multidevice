@@ -99,24 +99,29 @@ type MediaInfo struct {
 }
 
 // DeviceRecord tracks a registered device for persistence purposes.
+// JID holds the bare-number (NonAD) form used for chat storage partitioning; ADJID
+// holds the full companion identity (number:NN@s.whatsapp.net) that pins the slot to
+// one specific whatsmeow session. ADJID is empty until the first connect after
+// pairing (the :NN suffix is only known once the socket authenticates).
 type DeviceRecord struct {
-	DeviceID                 string    `db:"device_id"`
-	DisplayName              string    `db:"display_name"`
-	JID                      string    `db:"jid"`
-	WebhookURL               *string   `db:"webhook_url"`
-	WebhookSecret            string    `db:"webhook_secret"`
-	WebhookEvents            string    `db:"webhook_events"`
+	DeviceID                  string    `db:"device_id"`
+	DisplayName               string    `db:"display_name"`
+	JID                       string    `db:"jid"`
+	ADJID                     string    `db:"ad_jid"`
+	WebhookURL                *string   `db:"webhook_url"`
+	WebhookSecret             string    `db:"webhook_secret"`
+	WebhookEvents             string    `db:"webhook_events"`
 	WebhookInsecureSkipVerify bool      `db:"webhook_insecure_skip_verify"`
-	CreatedAt                time.Time `db:"created_at"`
-	UpdatedAt                time.Time `db:"updated_at"`
+	CreatedAt                 time.Time `db:"created_at"`
+	UpdatedAt                 time.Time `db:"updated_at"`
 }
 
 // DeviceWebhookConfig holds the complete webhook configuration for a device.
 type DeviceWebhookConfig struct {
-	WebhookURL               *string `json:"webhook_url,omitempty"`
-	WebhookSecret           string  `json:"webhook_secret,omitempty"`
-	WebhookEvents           string  `json:"webhook_events,omitempty"`
-	WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify,omitempty"`
+	WebhookURL                *string `json:"webhook_url,omitempty"`
+	WebhookSecret             string  `json:"webhook_secret,omitempty"`
+	WebhookEvents             string  `json:"webhook_events,omitempty"`
+	WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify,omitempty"`
 }
 
 // MessageFilter represents query filters for messages

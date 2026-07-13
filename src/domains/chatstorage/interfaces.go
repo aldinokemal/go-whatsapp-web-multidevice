@@ -65,7 +65,9 @@ type IChatStorageRepository interface {
 	SaveDeviceRecord(record *DeviceRecord) error
 	ListDeviceRecords() ([]*DeviceRecord, error)
 	GetDeviceRecord(deviceID string) (*DeviceRecord, error)
-	// GetDeviceRecordByJID fetches a device record by its JID.
+	// GetDeviceRecordByJID fetches a device record by its JID. A full AD JID resolves
+	// the exact slot; a bare-number JID resolves only while unambiguous — when several
+	// slots share the number it returns nil rather than an arbitrary sibling's record.
 	GetDeviceRecordByJID(jid string) (*DeviceRecord, error)
 	DeleteDeviceRecord(deviceID string) error
 	// SetDeviceWebhookURL sets the webhook URL for a device.

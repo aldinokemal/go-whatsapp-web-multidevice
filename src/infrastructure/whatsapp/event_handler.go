@@ -243,6 +243,7 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 					DeviceID:    instance.ID(),
 					DisplayName: displayName,
 					JID:         jid,
+					ADJID:       instance.ADJID(),
 					CreatedAt:   instance.CreatedAt(),
 				}); err != nil {
 					log.Warnf("Failed to persist device record for %s: %v", instance.ID(), err)
