@@ -59,6 +59,10 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	app := fiber.New(fiberConfig)
 
+	// CORS must precede the static routes so cross-origin UIs (gowa-ui) can
+	// fetch media under /statics and authenticate with the headers below.
+	app.Use(newCORSMiddleware())
+
 	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
 	app.Use(config.AppBasePath+"/components", static.New("views/components", static.Config{
 		FS:     EmbedViews,
@@ -75,10 +79,6 @@ func restServer(_ *cobra.Command, _ []string) {
 	if config.AppDebug {
 		app.Use(logger.New())
 	}
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
-	}))
 
 	// Device manager - needed for chatwoot webhook and health check
 	dm := whatsapp.GetDeviceManager()
@@ -123,6 +123,7 @@ func restServer(_ *cobra.Command, _ []string) {
 			account[ba[0]] = ba[1]
 		}
 
+		app.Use(middleware.WebsocketQueryAuth())
 		app.Use(newBasicAuthMiddleware(account))
 	}
 
@@ -146,6 +147,9 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// Device management routes (no device_id required)
 	rest.InitRestDevice(apiGroup, deviceUsecase)
+
+	// App info (version, limits) for standalone UIs; no device required
+	rest.InitRestAppInfo(apiGroup)
 
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
@@ -219,6 +223,14 @@ func restServer(_ *cobra.Command, _ []string) {
 			}
 		}
 	}
+}
+
+func newCORSMiddleware() fiber.Handler {
+	return cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", middleware.DeviceIDHeader},
+	})
 }
 
 func newBasicAuthMiddleware(accounts map[string]string) fiber.Handler {

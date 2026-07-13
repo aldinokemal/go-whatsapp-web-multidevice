@@ -8,6 +8,10 @@ info:
     Device scoping:
     - Send `X-Device-Id` on all device-scoped REST calls.
     - WebSocket: connect to `/ws?device_id=<id>`.
+    - WebSocket auth (when basic auth is enabled): browsers cannot set an
+      Authorization header on WebSocket connections, so also pass
+      `&authorization=<base64(user:pass)>` in the query string. Use TLS in
+      production since the credential is visible in the URL.
 servers:
   - url: http://localhost:3000
 tags:
@@ -313,6 +317,69 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /app/info:
+    get:
+      operationId: appInfo
+      tags:
+        - app
+      summary: Get server metadata
+      description: >
+        Returns server version, base path, media size limits, and enabled
+        features. Requires no device; intended for standalone UIs (gowa-ui)
+        that previously read these values from the embedded dashboard HTML.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Fetch app info success
+                  results:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                        example: 'v8.11.0'
+                      os:
+                        type: string
+                        example: 'GOWA'
+                      base_path:
+                        type: string
+                        example: ''
+                      max_file_size:
+                        type: integer
+                        format: int64
+                        description: Max document upload size in bytes
+                        example: 50000000
+                      max_video_size:
+                        type: integer
+                        format: int64
+                        description: Max video upload size in bytes
+                        example: 100000000
+                      max_image_size:
+                        type: integer
+                        format: int64
+                        description: Max image upload size in bytes
+                        example: 20000000
+                      chatwoot_enabled:
+                        type: boolean
+                        description: Whether Chatwoot integration routes are registered
         '500':
           description: Internal Server Error
           content:

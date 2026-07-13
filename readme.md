@@ -49,6 +49,11 @@ Download:
     - `device_id` query parameter
     - If only one device is registered, it will be used as the default
   - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
+  - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
+      (e.g. [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
+      `GET /app/info` exposes version and media size limits. Since browsers cannot set headers on WebSocket
+      connections, pass `/ws?device_id=<id>&authorization=<base64(user:pass)>` when basic auth is enabled
+      (use TLS — the credential is visible in the URL)
   - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
       device received the event:
 
@@ -600,6 +605,7 @@ You can fork or edit this source code !
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |
 | ✅       | Connection Status                      | GET    | /app/status                         |
+| ✅       | App Info (version, limits)             | GET    | /app/info                           |
 | ✅       | User Info                              | GET    | /user/info                          |
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
