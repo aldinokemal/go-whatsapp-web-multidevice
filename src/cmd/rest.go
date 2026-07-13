@@ -13,18 +13,18 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/uiasset"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
-	"github.com/dustin/go-humanize"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/basicauth"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/static"
-	"github.com/gofiber/template/html/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -41,12 +41,7 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
-	engine := html.NewFileSystem(http.FS(EmbedIndex), ".html")
-	engine.AddFunc("isEnableBasicAuth", func(token any) bool {
-		return token != nil
-	})
 	fiberConfig := fiber.Config{
-		Views:      engine,
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
 	}
@@ -64,18 +59,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	app.Use(newCORSMiddleware())
 
 	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
-	app.Use(config.AppBasePath+"/components", static.New("views/components", static.Config{
-		FS:     EmbedViews,
-		Browse: true,
-	}))
-	app.Use(config.AppBasePath+"/assets", static.New("views/assets", static.Config{
-		FS:     EmbedViews,
-		Browse: true,
-	}))
 
 	app.Use(middleware.Recovery())
 	app.Use(middleware.RequestTimeout(middleware.DefaultRequestTimeout))
-	app.Use(middleware.BasicAuth())
 	if config.AppDebug {
 		app.Use(logger.New())
 	}
@@ -166,16 +152,12 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
 
-	apiGroup.Get("/", func(c fiber.Ctx) error {
-		return c.Render("views/index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", c.Scheme(), c.Hostname()),
-			"AppVersion":     config.AppVersion,
-			"AppBasePath":    config.AppBasePath,
-			"BasicAuthToken": c.Context().Value(middleware.AuthorizationValue("BASIC_AUTH")),
-			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
-			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
-		})
-	})
+	// Dashboard: gowa-ui is a separate project released as one HTML file;
+	// serve the runtime-downloaded copy at "/" (behind basic auth like the
+	// rest of the API surface).
+	uiCtx, uiCancel := context.WithCancel(context.Background())
+	defer uiCancel()
+	registerUIRoute(apiGroup, uiCtx)
 
 	go websocket.RunHub()
 
@@ -223,6 +205,54 @@ func restServer(_ *cobra.Command, _ []string) {
 			}
 		}
 	}
+}
+
+func registerUIRoute(apiGroup fiber.Router, ctx context.Context) {
+	if !config.AppUIEnabled {
+		apiGroup.Get("/", func(c fiber.Ctx) error {
+			return c.JSON(utils.ResponseData{
+				Status:  200,
+				Code:    "SUCCESS",
+				Message: fmt.Sprintf("gowa %s — UI disabled", config.AppVersion),
+			})
+		})
+		return
+	}
+
+	uiManager := uiasset.New(uiasset.Config{
+		Repo:        config.AppUIRepo,
+		AssetName:   config.AppUIAssetName,
+		CacheDir:    config.PathUICache,
+		GithubToken: config.AppUIGithubToken,
+		Interval:    config.AppUIUpdateInterval,
+	})
+	if err := uiManager.LoadCache(); err != nil {
+		logrus.Infof("[UI_ASSET] no cached dashboard yet: %v", err)
+	}
+	if config.AppUIAutoUpdate {
+		go func() {
+			if err := uiManager.EnsureLatest(ctx); err != nil {
+				logrus.Warnf("[UI_ASSET] initial dashboard download failed: %v", err)
+			}
+		}()
+		go uiManager.StartAutoUpdate(ctx)
+	}
+
+	apiGroup.Get("/", func(c fiber.Ctx) error {
+		content, etag, ok := uiManager.Content()
+		if !ok {
+			c.Type("html")
+			return c.Send(uiasset.FallbackHTML(config.AppVersion, config.AppUIRepo))
+		}
+		quoted := `"` + etag + `"`
+		c.Set(fiber.HeaderCacheControl, "no-cache")
+		c.Set(fiber.HeaderETag, quoted)
+		if c.Get(fiber.HeaderIfNoneMatch) == quoted {
+			return c.SendStatus(fiber.StatusNotModified)
+		}
+		c.Type("html")
+		return c.Send(content)
+	})
 }
 
 func newCORSMiddleware() fiber.Handler {

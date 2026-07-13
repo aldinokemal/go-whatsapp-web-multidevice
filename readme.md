@@ -2,7 +2,7 @@
 <!-- markdownlint-disable-next-line MD033 -->
 <div align="center">
   <!-- markdownlint-disable-next-line MD033 -->
-  <img src="src/views/assets/gowa.svg" alt="GoWA Logo" width="200" height="200">
+  <img src="gallery/gowa.svg" alt="GoWA Logo" width="200" height="200">
 
 ## Golang WhatsApp - Built with Go for efficient memory use
 
@@ -691,32 +691,25 @@ You can fork or edit this source code !
 - Successfully setup MCP
   ![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
 
-### HTTP REST API UI
+### Web dashboard (gowa-ui)
 
-| Description          | Image                                                         |
-|----------------------|---------------------------------------------------------------|
-| Homepage             | ![Homepage](./gallery/homepage.png?v=1)                       |
-| Login                | ![Login](./gallery/login.png)                                 |
-| Login With Code      | ![Login With Code](./gallery/login-with-code.png)             |
-| Send Message         | ![Send Message](./gallery/send-message.png)                   |
-| Send Image           | ![Send Image](./gallery/send-image.png)                       |
-| Send File            | ![Send File](./gallery/send-file.png)                         |
-| Send Video           | ![Send Video](./gallery/send-video.png)                       |
-| Send Sticker         | ![Send Sticker](./gallery/send-sticker.png)                   |
-| Send Contact         | ![Send Contact](./gallery/send-contact.png)                   |
-| Send Location        | ![Send Location](./gallery/send-location.png)                 |
-| Send Audio           | ![Send Audio](./gallery/send-audio.png)                       |
-| Send Poll            | ![Send Poll](./gallery/send-poll.png)                         |
-| Send Presence        | ![Send Presence](./gallery/send-presence.png)                 |
-| Send Link            | ![Send Link](./gallery/send-link.png)                         |
-| My Group             | ![My Group](./gallery/group-list.png)                         |
-| Group Info From Link | ![Group Info From Link](./gallery/group-info-from-link.png)   |
-| Create Group         | ![Create Group](./gallery/group-create.png)                   |
-| Join Group with Link | ![Join Group with Link](./gallery/group-join-link.png)        |
-| Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
-| My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
-| My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |
-| Business Profile     | ![Business Profile](./gallery/business-profile.png)           |
+The dashboard lives in its own repository: [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui). Each
+gowa-ui release publishes a single self-contained `gowa-ui.html`; the server downloads the latest release at
+startup (and every `APP_UI_UPDATE_INTERVAL`, default 3h), verifies its sha256 digest, caches it under
+`storages/ui/`, and serves it at `/` behind basic auth.
+
+| Setting                  | Default              | Purpose                                                             |
+|--------------------------|----------------------|---------------------------------------------------------------------|
+| `APP_UI_ENABLED`         | `true`               | Serve the dashboard at `/`; `false` returns a JSON banner (API-only) |
+| `APP_UI_AUTO_UPDATE`     | `true`               | Download/refresh from GitHub; disable for air-gapped deployments     |
+| `APP_UI_REPO`            | `aldinokemal/gowa-ui`| Source repository (point at a fork to pin or customize)              |
+| `APP_UI_ASSET_NAME`      | `gowa-ui.html`       | Release asset filename to download                                   |
+| `APP_UI_UPDATE_INTERVAL` | `3h`                 | How often to check `releases/latest`                                 |
+| `APP_UI_GITHUB_TOKEN`    | (empty)              | Optional token to raise the GitHub API rate limit                    |
+
+Air-gapped servers: place a downloaded `gowa-ui.html` at `storages/ui/index.html` and set
+`APP_UI_AUTO_UPDATE=false`. The dashboard can also be self-hosted anywhere static and pointed at this
+server's URL (see the gowa-ui readme).
 
 ### Mac OS NOTE
 
