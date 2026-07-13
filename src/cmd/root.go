@@ -428,6 +428,18 @@ func initFlags() {
 		config.WhatsappPresencePulseDuration,
 		`duration to stay available during a presence pulse --presence-pulse-duration <duration> | example: --presence-pulse-duration=5m`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappFullHistorySync,
+		"whatsapp-full-history-sync", "",
+		config.WhatsappFullHistorySync,
+		`request a full message history sync from the phone at login (applies at pairing) --whatsapp-full-history-sync <true/false> | example: --whatsapp-full-history-sync=true`,
+	)
+	rootCmd.PersistentFlags().IntVarP(
+		&config.WhatsappFullHistorySyncDaysLimit,
+		"whatsapp-full-history-sync-days-limit", "",
+		config.WhatsappFullHistorySyncDaysLimit,
+		`days of history to request when full history sync is enabled (0 = whatsmeow default) --whatsapp-full-history-sync-days-limit <int> | example: --whatsapp-full-history-sync-days-limit=90`,
+	)
 
 	// Chatwoot flags
 	rootCmd.PersistentFlags().BoolVarP(
