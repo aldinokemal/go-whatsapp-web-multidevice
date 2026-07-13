@@ -231,6 +231,9 @@ func initEnvConfig() {
 	if envChatwootWebhookSecret := viper.GetString("chatwoot_webhook_secret"); envChatwootWebhookSecret != "" {
 		config.ChatwootWebhookSecret = envChatwootWebhookSecret
 	}
+	if envChatwootAllowedHosts := viper.GetString("chatwoot_allowed_hosts"); envChatwootAllowedHosts != "" {
+		config.ChatwootAllowedHosts = splitCommaTrimmed(envChatwootAllowedHosts)
+	}
 	// Chatwoot conversation handling settings
 	if viper.IsSet("chatwoot_reopen_conversation") {
 		config.ChatwootReopenConversation = viper.GetBool("chatwoot_reopen_conversation")
@@ -239,14 +242,7 @@ func initEnvConfig() {
 		config.ChatwootConversationPending = viper.GetBool("chatwoot_conversation_pending")
 	}
 	if envChatwootIgnoreJids := viper.GetString("chatwoot_ignore_jids"); envChatwootIgnoreJids != "" {
-		parts := strings.Split(envChatwootIgnoreJids, ",")
-		jids := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				jids = append(jids, trimmed)
-			}
-		}
-		config.ChatwootIgnoreJids = jids
+		config.ChatwootIgnoreJids = splitCommaTrimmed(envChatwootIgnoreJids)
 	}
 	// Chatwoot outbound signature settings
 	if viper.IsSet("chatwoot_sign_msg") {
@@ -490,6 +486,12 @@ func initFlags() {
 		config.ChatwootWebhookSecret,
 		`shared secret required for incoming Chatwoot webhooks --chatwoot-webhook-secret <string> | example: --chatwoot-webhook-secret="super-secret-key"`,
 	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootAllowedHosts,
+		"chatwoot-allowed-hosts", "",
+		config.ChatwootAllowedHosts,
+		`comma-separated allowlist of Chatwoot hosts a per-device config may target (hardens SSRF surface; empty = allow any public host) --chatwoot-allowed-hosts <list> | example: --chatwoot-allowed-hosts="app.chatwoot.com,chat.example.com"`,
+	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootReopenConversation,
 		"chatwoot-reopen-conversation", "",
@@ -627,4 +629,17 @@ func Execute(embedIndex embed.FS, embedViews embed.FS) {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// splitCommaTrimmed splits a comma-separated env value into trimmed, non-empty
+// entries. Shared by the Chatwoot ignore-jids and allowed-hosts settings.
+func splitCommaTrimmed(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
