@@ -806,10 +806,12 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 	return link, err
 }
 
-func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
 	// single-account mode). The `? = 1` guard keeps this a single query: when the
 	// flag is 0 the OR branch is never satisfied and the match is exact-account.
+	// The same trick scopes by config id when one is given (per-device callers):
+	// configID 0 leaves the match account-wide.
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
@@ -817,6 +819,7 @@ func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversati
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
+			AND (? = 0 OR chatwoot_config_id = ?)
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`
@@ -825,7 +828,7 @@ func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversati
 	if allowLegacyZero {
 		legacyZero = 1
 	}
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero))
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero, configID, configID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1001,6 +1004,17 @@ func (r *SQLiteRepository) CountChatwootMessageLinksByConfig(configID int64) (in
 	return count, err
 }
 
+// DeleteChatwootMessageLinksByConfig removes every message link written under a
+// device config. configID 0 (legacy/env links) is refused — those rows are not
+// owned by any per-device config.
+func (r *SQLiteRepository) DeleteChatwootMessageLinksByConfig(configID int64) error {
+	if configID == 0 {
+		return fmt.Errorf("refusing to delete legacy (config id 0) chatwoot message links")
+	}
+	_, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE chatwoot_config_id = ?", configID)
+	return err
+}
+
 const chatwootDeviceConfigColumns = `id, device_id, device_jid, chatwoot_url, account_id, inbox_id, api_token, enabled, created_at, updated_at`
 
 func (r *SQLiteRepository) scanChatwootDeviceConfig(scanner interface{ Scan(...any) error }) (*domainChatStorage.ChatwootDeviceConfig, error) {
@@ -1052,17 +1066,46 @@ func (r *SQLiteRepository) SaveChatwootDeviceConfig(cfg *domainChatStorage.Chatw
 		if err != nil {
 			return err
 		}
-		if id, err := res.LastInsertId(); err == nil {
-			cfg.ID = id
+		id, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("failed to load new chatwoot device config id: %w", err)
 		}
+		cfg.ID = id
 		return nil
 	}
 
-	// Updated an existing row — load its id so callers can scope links to it.
+	// Updated an existing row — load its id so callers can scope links to it. A
+	// zero id would silently unscope every link written for this config.
 	if cfg.ID == 0 {
-		_ = r.db.QueryRow("SELECT id FROM chatwoot_device_configs WHERE device_id = ?", cfg.DeviceID).Scan(&cfg.ID)
+		if err := r.db.QueryRow("SELECT id FROM chatwoot_device_configs WHERE device_id = ?", cfg.DeviceID).Scan(&cfg.ID); err != nil {
+			return fmt.Errorf("failed to reload chatwoot device config id: %w", err)
+		}
 	}
 	return nil
+}
+
+// UpdateChatwootDeviceConfigJID stamps the current WhatsApp JID onto the
+// device's config row. No-op (false, nil) when the device has no config or the
+// stored JID is already current.
+func (r *SQLiteRepository) UpdateChatwootDeviceConfigJID(deviceID, deviceJID string) (bool, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	deviceJID = strings.TrimSpace(deviceJID)
+	if deviceID == "" || deviceJID == "" {
+		return false, nil
+	}
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_device_configs
+		SET device_jid = ?, updated_at = ?
+		WHERE device_id = ? AND device_jid <> ?
+	`, deviceJID, time.Now(), deviceID, deviceJID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func (r *SQLiteRepository) GetChatwootDeviceConfig(deviceID string) (*domainChatStorage.ChatwootDeviceConfig, error) {
@@ -2491,5 +2534,7 @@ func (r *SQLiteRepository) getMigrations() []string {
 		`ALTER TABLE chatwoot_message_links ADD COLUMN chatwoot_account_id INTEGER NOT NULL DEFAULT 0`,
 		// Migration 42: Resolve Chatwoot replies by conversation scoped to the account (no cross-account collision)
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation_account ON chatwoot_message_links(chatwoot_conversation_id, chatwoot_account_id, updated_at)`,
+		// Migration 43: Count/delete message links by owning config without a full-table scan
+		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_config ON chatwoot_message_links(chatwoot_config_id)`,
 	}
 }

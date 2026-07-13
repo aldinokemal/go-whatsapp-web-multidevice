@@ -155,11 +155,122 @@ func TestSQLiteRepositoryConversationLookupIsAccountScoped(t *testing.T) {
 		}
 	}
 
-	got, err := repo.GetLatestChatwootMessageLinkByConversation(5, 2, false)
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(5, 2, false, 0)
 	if err != nil || got == nil {
 		t.Fatalf("scoped lookup: %v (%v)", err, got)
 	}
 	if got.DeviceID != "dev-b" {
 		t.Fatalf("account-scoped lookup returned wrong device: %+v", got)
+	}
+}
+
+// Two separate Chatwoot servers can collide on (conversation_id, account_id) —
+// fresh installs all start at account 1, conversation 1 — so per-device
+// (forced-route) callers additionally scope the lookup by their own config id.
+func TestSQLiteRepositoryConversationLookupIsConfigScoped(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	for _, l := range []*domainChatStorage.ChatwootMessageLink{
+		{DeviceID: "dev-a", WhatsAppMessageID: "a1", WhatsAppChatJID: "111@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "incoming"},
+		{DeviceID: "dev-b", WhatsAppMessageID: "b1", WhatsAppChatJID: "222@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 20, Direction: "incoming"},
+	} {
+		if err := repo.UpsertChatwootMessageLink(l); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 10)
+	if err != nil || got == nil || got.DeviceID != "dev-a" {
+		t.Fatalf("config-scoped lookup (10) = %+v err=%v, want dev-a", got, err)
+	}
+	got, err = repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 20)
+	if err != nil || got == nil || got.DeviceID != "dev-b" {
+		t.Fatalf("config-scoped lookup (20) = %+v err=%v, want dev-b", got, err)
+	}
+	// configID 0 keeps the account-wide behavior (shared/legacy endpoint).
+	got, err = repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 0)
+	if err != nil || got == nil {
+		t.Fatalf("unscoped lookup: %v (%v)", err, got)
+	}
+}
+
+func TestSQLiteRepositoryUpdateChatwootDeviceConfigJID(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	// Config created before the device paired: empty JID.
+	cfg := &domainChatStorage.ChatwootDeviceConfig{
+		DeviceID: "busine", ChatwootURL: "https://chat.example.com",
+		AccountID: 1, InboxID: 5, APIToken: "tok", Enabled: true,
+	}
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got, _ := repo.GetChatwootDeviceConfigByIdentifier("628@s.whatsapp.net"); got != nil {
+		t.Fatalf("precondition: JID must not resolve before stamping, got %+v", got)
+	}
+
+	// Device pairs: connect handler stamps the JID; the forward path (keyed by
+	// JID) must now resolve the config.
+	changed, err := repo.UpdateChatwootDeviceConfigJID("busine", "628@s.whatsapp.net")
+	if err != nil || !changed {
+		t.Fatalf("stamp JID: changed=%v err=%v", changed, err)
+	}
+	got, err := repo.GetChatwootDeviceConfigByIdentifier("628@s.whatsapp.net")
+	if err != nil || got == nil || got.ID != cfg.ID {
+		t.Fatalf("JID lookup after stamp = %+v err=%v", got, err)
+	}
+
+	// Idempotent: same JID again reports no change.
+	if changed, err := repo.UpdateChatwootDeviceConfigJID("busine", "628@s.whatsapp.net"); err != nil || changed {
+		t.Fatalf("re-stamp: changed=%v err=%v, want false,nil", changed, err)
+	}
+
+	// Re-pair with a new number: the stale JID is replaced.
+	if changed, err := repo.UpdateChatwootDeviceConfigJID("busine", "629@s.whatsapp.net"); err != nil || !changed {
+		t.Fatalf("re-pair stamp: changed=%v err=%v", changed, err)
+	}
+	if got, _ := repo.GetChatwootDeviceConfigByIdentifier("628@s.whatsapp.net"); got != nil {
+		t.Fatalf("stale JID must no longer resolve, got %+v", got)
+	}
+	if got, _ := repo.GetChatwootDeviceConfigByIdentifier("629@s.whatsapp.net"); got == nil {
+		t.Fatal("new JID must resolve after re-pair")
+	}
+
+	// No row / empty input: no-op.
+	if changed, err := repo.UpdateChatwootDeviceConfigJID("ghost", "630@s.whatsapp.net"); err != nil || changed {
+		t.Fatalf("unknown device: changed=%v err=%v, want false,nil", changed, err)
+	}
+}
+
+func TestSQLiteRepositoryDeleteChatwootMessageLinksByConfig(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	for _, l := range []*domainChatStorage.ChatwootMessageLink{
+		{DeviceID: "dev-a", WhatsAppMessageID: "a1", WhatsAppChatJID: "111@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "incoming"},
+		{DeviceID: "dev-a", WhatsAppMessageID: "a2", WhatsAppChatJID: "111@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "outgoing"},
+		{DeviceID: "dev-b", WhatsAppMessageID: "b1", WhatsAppChatJID: "222@s.whatsapp.net", ChatwootConversationID: 2, ChatwootAccountID: 1, ChatwootConfigID: 20, Direction: "incoming"},
+		{DeviceID: "dev-l", WhatsAppMessageID: "l1", WhatsAppChatJID: "333@s.whatsapp.net", ChatwootConversationID: 3, ChatwootAccountID: 1, ChatwootConfigID: 0, Direction: "incoming"},
+	} {
+		if err := repo.UpsertChatwootMessageLink(l); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	if err := repo.DeleteChatwootMessageLinksByConfig(10); err != nil {
+		t.Fatalf("delete by config: %v", err)
+	}
+	if n, _ := repo.CountChatwootMessageLinksByConfig(10); n != 0 {
+		t.Fatalf("config 10 links remaining: %d", n)
+	}
+	if n, _ := repo.CountChatwootMessageLinksByConfig(20); n != 1 {
+		t.Fatalf("config 20 links = %d, want 1 (untouched)", n)
+	}
+
+	// Legacy links (config 0) are never bulk-deleted.
+	if err := repo.DeleteChatwootMessageLinksByConfig(0); err == nil {
+		t.Fatal("deleting config-0 links must be refused")
+	}
+	if got, _ := repo.GetChatwootMessageLinkByWhatsAppID("dev-l", "l1"); got == nil {
+		t.Fatal("legacy link must survive")
 	}
 }

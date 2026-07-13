@@ -31,7 +31,7 @@ func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByInbox(accountID, inboxI
 	return nil, nil
 }
 
-func (r *deviceWebhookTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *deviceWebhookTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	return nil, nil
 }
 
@@ -73,9 +73,62 @@ func TestHandleDeviceWebhookValidatesAccountInbox(t *testing.T) {
 	if got := post(`{"event":"message_created","message_type":"outgoing","account":{"id":1},"conversation":{"id":5,"inbox_id":77}}`); got != fiber.StatusUnauthorized {
 		t.Fatalf("inbox mismatch status = %d, want 401", got)
 	}
-	// Matching account+inbox passes the gate (non-action event -> 200, no send).
-	if got := post(`{"event":"conversation_updated","account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`); got != fiber.StatusOK {
+	// Matching account+inbox passes the gate (incoming message -> 200, no send).
+	if got := post(`{"event":"message_created","message_type":"incoming","account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`); got != fiber.StatusOK {
 		t.Fatalf("matching status = %d, want 200", got)
+	}
+	// Non-message events lack the fields the gate checks; they must be
+	// acknowledged, not 401-ed, even when account/inbox don't match.
+	if got := post(`{"event":"conversation_updated","account":{"id":999}}`); got != fiber.StatusOK {
+		t.Fatalf("non-message event status = %d, want 200", got)
+	}
+}
+
+// TestProcessChatwootWebhookDropsUnroutablePayload proves the fail-fast is
+// enforced at delivery: in per-device mode an unmapped conversation must be
+// acknowledged WITHOUT resolving a device — an empty DeviceID would otherwise
+// fall through to the default device and send from the wrong WhatsApp account.
+func TestProcessChatwootWebhookDropsUnroutablePayload(t *testing.T) {
+	chatwoot.InitClientRegistry(nil)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	// Non-empty config table, no link/attr/inbox mapping for the payload.
+	handler := &ChatwootHandler{ChatStorageRepo: &deviceWebhookTestRepo{count: 2}}
+	route := handler.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+		Account:      chatwoot.Account{ID: 1},
+		Conversation: chatwoot.ConversationWebhook{ID: 5, InboxID: 9},
+	}, nil)
+	if !route.Unroutable {
+		t.Fatalf("unmapped payload in per-device mode must be marked unroutable, got %+v", route)
+	}
+
+	// End-to-end: the webhook handler must return 200 without touching the
+	// device manager (nil here — a delivery attempt would resolve the default
+	// device and panic on the nil usecases before responding).
+	app := fiber.New()
+	app.Post("/chatwoot/webhook", handler.HandleWebhook)
+	body := `{"event":"message_created","message_type":"outgoing","account":{"id":1},"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628999999999"}}},"content":"hi"}`
+	req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("unroutable payload status = %d, want 200", resp.StatusCode)
+	}
+
+	// Legacy mode stays deliverable: the same payload resolves the env device.
+	prev := config.ChatwootDeviceID
+	config.ChatwootDeviceID = "env-default-device"
+	t.Cleanup(func() { config.ChatwootDeviceID = prev })
+	legacy := &ChatwootHandler{ChatStorageRepo: &deviceWebhookTestRepo{count: 0}}
+	route = legacy.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+		Account:      chatwoot.Account{ID: 1},
+		Conversation: chatwoot.ConversationWebhook{ID: 5, InboxID: 9},
+	}, nil)
+	if route.Unroutable {
+		t.Fatalf("legacy mode must not mark payloads unroutable, got %+v", route)
 	}
 }
 
@@ -95,7 +148,7 @@ func TestResolveChatwootWebhookRouteFailsFastWhenConfigsExist(t *testing.T) {
 	route := handler.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
 		Account:      chatwoot.Account{ID: 1},
 		Conversation: chatwoot.ConversationWebhook{ID: 5, InboxID: 9},
-	})
+	}, nil)
 	if route.DeviceID != "" {
 		t.Fatalf("expected fail-fast (empty device), got %q", route.DeviceID)
 	}
@@ -105,7 +158,7 @@ func TestResolveChatwootWebhookRouteFailsFastWhenConfigsExist(t *testing.T) {
 	route = handlerLegacy.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
 		Account:      chatwoot.Account{ID: 1},
 		Conversation: chatwoot.ConversationWebhook{ID: 5, InboxID: 9},
-	})
+	}, nil)
 	if route.DeviceID != "env-default-device" {
 		t.Fatalf("legacy mode should use env device, got %q", route.DeviceID)
 	}

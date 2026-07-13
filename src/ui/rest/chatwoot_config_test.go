@@ -31,9 +31,10 @@ func TestMaskAPIToken(t *testing.T) {
 // the config handlers use; the rest is the embedded (nil) interface.
 type fakeConfigStore struct {
 	domainChatStorage.IChatStorageRepository
-	configs   map[string]*domainChatStorage.ChatwootDeviceConfig
-	linkCount map[int64]int
-	nextID    int64
+	configs            map[string]*domainChatStorage.ChatwootDeviceConfig
+	linkCount          map[int64]int
+	nextID             int64
+	deletedLinkConfigs []int64
 }
 
 func newFakeConfigStore() *fakeConfigStore {
@@ -74,6 +75,12 @@ func (f *fakeConfigStore) DeleteChatwootDeviceConfig(deviceID string) error {
 
 func (f *fakeConfigStore) CountChatwootMessageLinksByConfig(configID int64) (int, error) {
 	return f.linkCount[configID], nil
+}
+
+func (f *fakeConfigStore) DeleteChatwootMessageLinksByConfig(configID int64) error {
+	f.deletedLinkConfigs = append(f.deletedLinkConfigs, configID)
+	delete(f.linkCount, configID)
+	return nil
 }
 
 func (f *fakeConfigStore) CountChatwootDeviceConfigs() (int, error) {
@@ -151,13 +158,40 @@ func TestChatwootConfigCRUDFlow(t *testing.T) {
 		t.Fatal("enabled=false should have been applied")
 	}
 
-	// Delete.
+	// Delete removes the config AND its message links: stale links would keep
+	// winning the account-scoped reverse lookup after a delete-and-recreate
+	// rebind and hijack reply destinations.
+	configID := store.configs["dev"].ID
 	resp, _ = doJSON(t, app, http.MethodDelete, "/devices/dev/chatwoot/config", "")
 	if resp.StatusCode != fiber.StatusOK {
 		t.Fatalf("delete status = %d", resp.StatusCode)
 	}
 	if _, ok := store.configs["dev"]; ok {
 		t.Fatal("config not deleted")
+	}
+	if len(store.deletedLinkConfigs) != 1 || store.deletedLinkConfigs[0] != configID {
+		t.Fatalf("delete must remove the config's message links, got %v", store.deletedLinkConfigs)
+	}
+}
+
+// TestChatwootConfigMaskedTokenRoundTrip proves a client that echoes the masked
+// token from GET back into PUT keeps the stored secret — the mask must never be
+// stored as the credential itself.
+func TestChatwootConfigMaskedTokenRoundTrip(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+
+	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"super-secret-token"}`)
+
+	// GET shows "****oken"; a naive client PUTs that value straight back.
+	resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"****oken"}`)
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("masked-echo update status = %d body=%s", resp.StatusCode, body)
+	}
+	if got := store.configs["dev"].APIToken; got != "super-secret-token" {
+		t.Fatalf("masked token was stored as the credential: %q", got)
 	}
 }
 

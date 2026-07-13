@@ -878,6 +878,12 @@ func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo d
 		if link == nil || link.ChatwootConversationID == 0 {
 			continue
 		}
+		if !chatwootLinkMatchesClient(link, cw) {
+			// The link was written under a different Chatwoot account (e.g. before
+			// a delete-and-recreate rebind): its conversation id means nothing on
+			// the current destination.
+			continue
+		}
 
 		sourceID := link.ChatwootContactInboxSourceID
 		if sourceID == "" {
@@ -916,12 +922,29 @@ func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo 
 	if link == nil || link.ChatwootConversationID == 0 || link.ChatwootMessageID == 0 {
 		return false
 	}
+	if !chatwootLinkMatchesClient(link, cw) {
+		// Cross-account link (pre-rebind): the (conversation, message) ids would
+		// address an unrelated message on the current destination.
+		return false
+	}
 
 	if err := cw.DeleteMessage(link.ChatwootConversationID, link.ChatwootMessageID); err != nil {
 		logrus.Errorf("Chatwoot: Failed to delete Chatwoot message %d for WhatsApp %s: %v", link.ChatwootMessageID, targetID, err)
 		return false
 	}
 	return true
+}
+
+// chatwootLinkMatchesClient reports whether a stored message link belongs to
+// the Chatwoot account the client is bound to. Links with account id 0
+// (pre-migration legacy rows not yet backfilled) are accepted for
+// compatibility; any other mismatch means the link predates a rebind and its
+// Chatwoot ids must not be replayed against the current destination.
+func chatwootLinkMatchesClient(link *domainChatStorage.ChatwootMessageLink, cw *chatwoot.Client) bool {
+	if link == nil || cw == nil {
+		return false
+	}
+	return link.ChatwootAccountID == 0 || link.ChatwootAccountID == cw.AccountID
 }
 
 func chatwootForwardMessageID(payload map[string]any) string {
@@ -1136,7 +1159,17 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
 		return fmt.Errorf("decode retry payload %d: %w", event.ID, err)
 	}
-	return syncPayloadToChatwoot(context.Background(), payload, event.EventName, event.DeviceID, repo)
+	// Rebuild the device context the live path had: group-name and avatar
+	// lookups resolve the WhatsApp client from the context and would otherwise
+	// fall back to the global default device — the wrong client in multi-device
+	// deployments.
+	ctx := context.Background()
+	if dm := GetDeviceManager(); dm != nil {
+		if instance, _, err := dm.ResolveDevice(event.DeviceID); err == nil && instance != nil {
+			ctx = ContextWithDevice(ctx, instance)
+		}
+	}
+	return syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
 }
 
 func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageRepository) {

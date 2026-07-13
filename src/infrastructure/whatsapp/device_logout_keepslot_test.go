@@ -44,6 +44,12 @@ func (s *keepSlotStubStorage) DeleteDeviceRecord(deviceID string) error {
 	return nil
 }
 
+// The purge path drops the device's Chatwoot config with it; these slots have
+// none, so the lookup returns empty and the delete methods are never reached.
+func (s *keepSlotStubStorage) GetChatwootDeviceConfig(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return nil, nil
+}
+
 // assertStoreLacksJID fails if any device row in the container still matches the given
 // NonAD JID. Matching mirrors deleteStoreRowsForJID / LoadExistingDevices.
 func assertStoreLacksJID(t *testing.T, ctx context.Context, c *sqlstore.Container, nonADJID string) {

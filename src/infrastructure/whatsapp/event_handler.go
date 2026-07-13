@@ -248,6 +248,22 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 				}); err != nil {
 					log.Warnf("Failed to persist device record for %s: %v", instance.ID(), err)
 				}
+
+				// Keep the Chatwoot device config's JID current. The forward path
+				// resolves configs by JID, so a config created before the device
+				// paired (empty device_jid) — or one gone stale after a re-pair —
+				// would otherwise silently never match and every message would be
+				// skipped.
+				if config.ChatwootEnabled {
+					changed, err := repo.UpdateChatwootDeviceConfigJID(instance.ID(), jid)
+					if err != nil {
+						log.Warnf("Failed to update Chatwoot config JID for %s: %v", instance.ID(), err)
+					} else if changed {
+						if reg := chatwoot.GetClientRegistry(); reg != nil {
+							reg.Invalidate(instance.ID())
+						}
+					}
+				}
 			}
 		}
 	}

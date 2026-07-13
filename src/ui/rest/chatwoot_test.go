@@ -47,7 +47,7 @@ func (r *chatwootRouteTestRepo) CountChatwootDeviceConfigs() (int, error) {
 	return r.count, nil
 }
 
-func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	if r.link == nil || r.link.ChatwootConversationID != conversationID {
 		return nil, nil
 	}
@@ -318,7 +318,7 @@ func TestResolveChatwootWebhookRoutePrefersConversationLink(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, nil)
 
 	if route.DeviceID != "device-b@s.whatsapp.net" {
 		t.Fatalf("DeviceID = %q, want device-b@s.whatsapp.net", route.DeviceID)

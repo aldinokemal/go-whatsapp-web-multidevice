@@ -233,7 +233,7 @@ func TestSQLiteRepositoryGetsLatestChatwootMessageLinkByConversation(t *testing.
 		}
 	}
 
-	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID, 0, true)
+	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID, 0, true, 0)
 	if err != nil {
 		t.Fatalf("lookup latest conversation link: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestSQLiteRepositoryConversationLookupExcludesLegacyZeroInPerDeviceMode(t *
 	}
 
 	// Per-device mode: account 7 webhook must NOT match the account-0 legacy row.
-	got, err := repo.GetLatestChatwootMessageLinkByConversation(9, 7, false)
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(9, 7, false, 0)
 	if err != nil {
 		t.Fatalf("scoped lookup: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestSQLiteRepositoryConversationLookupExcludesLegacyZeroInPerDeviceMode(t *
 	}
 
 	// Legacy mode: the account-0 wildcard still resolves the historical link.
-	got, err = repo.GetLatestChatwootMessageLinkByConversation(9, 7, true)
+	got, err = repo.GetLatestChatwootMessageLinkByConversation(9, 7, true, 0)
 	if err != nil {
 		t.Fatalf("legacy lookup: %v", err)
 	}

@@ -157,8 +157,8 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
-func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*domainChatStorage.ChatwootMessageLink, error) {
-	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero)
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero, configID)
 }
 
 func (r *deviceChatStorage) BackfillChatwootMessageLinkAccount(accountID int) (int64, error) {
@@ -169,8 +169,16 @@ func (r *deviceChatStorage) CountChatwootMessageLinksByConfig(configID int64) (i
 	return r.base.CountChatwootMessageLinksByConfig(configID)
 }
 
+func (r *deviceChatStorage) DeleteChatwootMessageLinksByConfig(configID int64) error {
+	return r.base.DeleteChatwootMessageLinksByConfig(configID)
+}
+
 func (r *deviceChatStorage) SaveChatwootDeviceConfig(cfg *domainChatStorage.ChatwootDeviceConfig) error {
 	return r.base.SaveChatwootDeviceConfig(cfg)
+}
+
+func (r *deviceChatStorage) UpdateChatwootDeviceConfigJID(deviceID, deviceJID string) (bool, error) {
+	return r.base.UpdateChatwootDeviceConfigJID(deviceID, deviceJID)
 }
 
 func (r *deviceChatStorage) GetChatwootDeviceConfig(deviceID string) (*domainChatStorage.ChatwootDeviceConfig, error) {

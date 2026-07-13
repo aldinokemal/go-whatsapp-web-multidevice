@@ -12,6 +12,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -292,6 +293,30 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		if err := m.storage.DeleteDeviceData(deviceID); err != nil {
 			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s", deviceID)
 			recordErr(err)
+		}
+
+		// Drop the device's Chatwoot config (and its message links) with it. An
+		// orphaned row would keep claiming the device's JID under the unique
+		// device_jid index, blocking a re-created device for the same number from
+		// being configured.
+		if cfg, err := m.storage.GetChatwootDeviceConfig(deviceID); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to load chatwoot config for device %s", deviceID)
+			recordErr(err)
+		} else if cfg != nil {
+			if err := m.storage.DeleteChatwootDeviceConfig(deviceID); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot config for device %s", deviceID)
+				recordErr(err)
+			} else {
+				if cfg.ID != 0 {
+					if err := m.storage.DeleteChatwootMessageLinksByConfig(cfg.ID); err != nil {
+						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot links for device %s", deviceID)
+						recordErr(err)
+					}
+				}
+				if reg := chatwoot.GetClientRegistry(); reg != nil {
+					reg.Invalidate(deviceID)
+				}
+			}
 		}
 	}
 

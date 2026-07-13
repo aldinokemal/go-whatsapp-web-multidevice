@@ -119,12 +119,19 @@ func (r *ClientRegistry) ResolveByInbox(accountID, inboxID int) (*ResolvedConfig
 
 // Invalidate drops every cached entry for a device so the next Resolve rebuilds
 // the client with fresh credentials. Called after a config write/delete.
+//
+// Env-fallback entries (ConfigID 0) are always purged too: they were cached
+// while the config table was empty, under whatever identifier the caller used
+// (often a JID, with DeviceID set to that same identifier), so a device-id
+// match can never find them. Leaving them would keep routing forwards to the
+// env inbox after the first per-device config is written — exactly the
+// mis-delivery the fail-fast contract exists to prevent.
 func (r *ClientRegistry) Invalidate(deviceID string) {
 	deviceID = strings.TrimSpace(deviceID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for key, rc := range r.cache {
-		if key == deviceID || (rc != nil && rc.DeviceID == deviceID) {
+		if key == deviceID || rc == nil || rc.DeviceID == deviceID || rc.ConfigID == 0 {
 			delete(r.cache, key)
 		}
 	}

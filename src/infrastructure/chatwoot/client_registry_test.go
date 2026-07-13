@@ -128,6 +128,63 @@ func TestClientRegistryInvalidateRefreshes(t *testing.T) {
 	}
 }
 
+// A device that resolved to the env fallback while the table was empty must
+// not keep that client after the first per-device config is written. The
+// forward path caches under the JID (with DeviceID = JID), so the write-path
+// Invalidate(<user-facing id>) can only clear it by purging legacy entries
+// wholesale — this is the regression test for that purge.
+func TestClientRegistryInvalidatePurgesEnvFallbackEntries(t *testing.T) {
+	origURL, origTok, origAcc, origInbox := config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID
+	t.Cleanup(func() {
+		config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID = origURL, origTok, origAcc, origInbox
+	})
+	config.ChatwootURL = "https://env.example.com"
+	config.ChatwootAPIToken = "env-tok"
+	config.ChatwootAccountID = 1
+	config.ChatwootInboxID = 2
+
+	repo := &fakeConfigRepo{byIdentifier: map[string]*domainChatStorage.ChatwootDeviceConfig{}}
+	reg := NewClientRegistry(repo)
+
+	// Table empty: the forward path (keyed by JID) resolves the env fallback.
+	rc, err := reg.Resolve("628@s.whatsapp.net")
+	if err != nil || rc == nil || rc.ConfigID != 0 {
+		t.Fatalf("precondition: env fallback expected, got rc=%+v err=%v", rc, err)
+	}
+
+	// Operator creates this device's config via PUT (user-facing id "busine");
+	// the handler invalidates by that id only.
+	cfg := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 7, DeviceID: "busine", DeviceJID: "628@s.whatsapp.net",
+		ChatwootURL: "https://device.example.com", AccountID: 3, InboxID: 9,
+		APIToken: "tok", Enabled: true,
+	}
+	repo.byIdentifier["busine"] = cfg
+	repo.byIdentifier["628@s.whatsapp.net"] = cfg
+	repo.count = 1
+	reg.Invalidate("busine")
+
+	// The same device's next forward must use its own config, not the env inbox.
+	rc, err = reg.Resolve("628@s.whatsapp.net")
+	if err != nil || rc == nil {
+		t.Fatalf("resolve after config create: rc=%v err=%v", rc, err)
+	}
+	if rc.ConfigID != 7 || rc.Client.BaseURL != "https://device.example.com" {
+		t.Fatalf("stale env fallback survived Invalidate: %+v / %+v", rc, rc.Client)
+	}
+
+	// And an unrelated device that had also cached the env fallback fails fast.
+	reg2 := NewClientRegistry(&fakeConfigRepo{byIdentifier: map[string]*domainChatStorage.ChatwootDeviceConfig{}})
+	if rc, _ := reg2.Resolve("999@s.whatsapp.net"); rc == nil || rc.ConfigID != 0 {
+		t.Fatalf("precondition: env fallback expected for unrelated device")
+	}
+	reg2.repo.(*fakeConfigRepo).count = 1
+	reg2.Invalidate("busine")
+	if rc, _ := reg2.Resolve("999@s.whatsapp.net"); rc != nil {
+		t.Fatalf("unmapped device must fail-fast after first config write, got %+v", rc)
+	}
+}
+
 func TestClientRegistryResolveByInbox(t *testing.T) {
 	cfg := &domainChatStorage.ChatwootDeviceConfig{ID: 5, DeviceID: "d", ChatwootURL: "https://a.example.com", AccountID: 3, InboxID: 9, APIToken: "t", Enabled: true}
 	repo := &fakeConfigRepo{byInbox: map[[2]int]*domainChatStorage.ChatwootDeviceConfig{{3, 9}: cfg}}

@@ -45,9 +45,17 @@ type IChatStorageRepository interface {
 	// account id is 0 (pre-migration legacy links) — pass true only in legacy
 	// single-account mode; in per-device mode it must be false, or a colliding
 	// conversation id from another account could match a legacy row and misroute.
-	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool) (*ChatwootMessageLink, error)
+	// configID, when non-zero, further restricts the match to links written under
+	// that device config: separate Chatwoot servers can collide on
+	// (conversation_id, account_id), so per-device (forced-route) callers must
+	// scope by their own config.
+	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*ChatwootMessageLink, error)
 	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
 	CountChatwootMessageLinksByConfig(configID int64) (int, error)
+	// DeleteChatwootMessageLinksByConfig removes every link written under a
+	// device config. Called when the config is deleted so stale links cannot
+	// hijack reverse-route lookups after a delete-and-recreate rebind.
+	DeleteChatwootMessageLinksByConfig(configID int64) error
 	// BackfillChatwootMessageLinkAccount stamps the given account id onto legacy
 	// links whose account id is still 0, so they resolve under exact-account
 	// scoping instead of relying on the legacy-zero wildcard. Idempotent.
@@ -59,6 +67,12 @@ type IChatStorageRepository interface {
 
 	// Chatwoot per-device configuration (multi-device / multi-inbox routing)
 	SaveChatwootDeviceConfig(cfg *ChatwootDeviceConfig) error
+	// UpdateChatwootDeviceConfigJID stamps the device's current WhatsApp JID
+	// onto its config row (no-op without a row or when already current).
+	// Reports whether the stored JID changed. Called on connect so a config
+	// created before pairing — or stale after a re-pair — resolves on the
+	// JID-keyed forward path.
+	UpdateChatwootDeviceConfigJID(deviceID, deviceJID string) (bool, error)
 	GetChatwootDeviceConfig(deviceID string) (*ChatwootDeviceConfig, error)
 	GetChatwootDeviceConfigByIdentifier(identifier string) (*ChatwootDeviceConfig, error)
 	GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*ChatwootDeviceConfig, error)

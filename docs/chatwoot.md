@@ -304,7 +304,10 @@ through another's path.
 - Changing a config's **routing identity** (`chatwoot_url`/`account_id`/`inbox_id`) is rejected
   with `409` once that config has linked conversations — delete and recreate to rebind, so
   historical conversations are never silently repointed. Rotating `api_token` or toggling
-  `enabled` is always allowed.
+  `enabled` is always allowed. Deleting a config also deletes its message links: after a
+  rebind, stale links would otherwise keep answering reverse lookups for the old destination.
+- A config may be created **before the device pairs**: its WhatsApp JID is stamped onto the
+  config automatically when the device connects (and re-stamped after a re-pair).
 - **Direct-Postgres history import** (`CHATWOOT_IMPORT_DB_URI`) is driven by one global DSN and is
   therefore supported **only** in single-config (env) mode. Per-device configs use the REST import
   path.

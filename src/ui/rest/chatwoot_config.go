@@ -9,6 +9,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v2"
+	"github.com/sirupsen/logrus"
 )
 
 // chatwootConfigRequest is the PUT body for a per-device Chatwoot config. An
@@ -122,11 +123,16 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c *fiber.Ctx) error {
 	}
 
 	// Token: keep the stored token when omitted on update; required on create.
+	// A client that echoes back the masked value from a GET response also keeps
+	// the stored token — otherwise the mask itself would silently become the
+	// credential and every Chatwoot call would start failing with 401s.
 	apiToken := strings.TrimSpace(req.APIToken)
 	if apiToken == "" {
 		if existing == nil {
 			return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{Status: fiber.StatusBadRequest, Code: "INVALID_REQUEST", Message: "api_token is required"})
 		}
+		apiToken = existing.APIToken
+	} else if existing != nil && apiToken == maskAPIToken(existing.APIToken) {
 		apiToken = existing.APIToken
 	}
 
@@ -181,15 +187,33 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c *fiber.Ctx) error {
 	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: "Chatwoot device config saved", Results: chatwootConfigView(cfg)})
 }
 
-// DeleteChatwootConfig removes a device's Chatwoot config.
+// DeleteChatwootConfig removes a device's Chatwoot config, along with the
+// message links written under it. Stale links must not survive the config:
+// after a delete-and-recreate rebind they would still win the account-scoped
+// reverse lookup and hijack reply destinations toward the old mapping.
 // DELETE /devices/:device_id/chatwoot/config
 func (h *ChatwootHandler) DeleteChatwootConfig(c *fiber.Ctx) error {
-	deviceID := strings.TrimSpace(c.Params("device_id"))
+	// Resolve aliases/JIDs the same way GET and PUT do — a raw JID param would
+	// otherwise delete nothing and still report success. Fall back to the raw
+	// param so a config orphaned by device removal stays deletable.
+	deviceID, ok := h.resolveConfigDeviceID(c)
+	if !ok {
+		deviceID = strings.TrimSpace(c.Params("device_id"))
+	}
 	if deviceID == "" {
 		return utils.ResponseError(c, "device_id is required")
 	}
+	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfig(deviceID)
+	if err != nil {
+		return utils.ResponseError(c, fmt.Sprintf("failed to load config: %v", err))
+	}
 	if err := h.ChatStorageRepo.DeleteChatwootDeviceConfig(deviceID); err != nil {
 		return utils.ResponseError(c, fmt.Sprintf("failed to delete config: %v", err))
+	}
+	if cfg != nil && cfg.ID != 0 {
+		if err := h.ChatStorageRepo.DeleteChatwootMessageLinksByConfig(cfg.ID); err != nil {
+			logrus.Errorf("Chatwoot: failed to delete message links for config %d: %v", cfg.ID, err)
+		}
 	}
 	if reg := chatwoot.GetClientRegistry(); reg != nil {
 		reg.Invalidate(deviceID)
