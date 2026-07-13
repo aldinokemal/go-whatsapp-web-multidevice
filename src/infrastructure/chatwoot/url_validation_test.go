@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 )
@@ -121,6 +124,39 @@ func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	if _, ok := any(ssrfGuardedTransport()).(*http.Transport); !ok {
 		t.Error("ssrfGuardedTransport should return an *http.Transport")
 	}
+}
+
+// TestChatwootClientSSRFGuardBlocksConnect exercises the Dialer.Control guard
+// end to end: a guarded client must refuse to actually connect to a loopback
+// address (the DNS-rebinding case a one-time URL validation can't catch),
+// while the unguarded env client connects to the same address. This covers the
+// runtime behavior, not just that a Transport is wired.
+func TestChatwootClientSSRFGuardBlocksConnect(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close() // listens on 127.0.0.1
+
+	// Guarded per-device client: connect to the loopback server must be blocked.
+	guarded := NewClientFromConfig(srv.URL, "t", 1, 1)
+	if _, err := guarded.HTTPClient.Get(srv.URL); err == nil {
+		t.Fatal("guarded client connected to a loopback address, want block")
+	} else if !strings.Contains(err.Error(), "disallowed address") {
+		t.Fatalf("guarded client error = %v, want a disallowed-address block", err)
+	}
+
+	// Unguarded env client: the same loopback connection succeeds (trusted).
+	unguarded := NewClient()
+	unguarded.HTTPClient.Timeout = 5 * time.Second
+	resp, err := unguarded.HTTPClient.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("unguarded env client should reach loopback, got %v", err)
+	}
+	resp.Body.Close()
 }
 
 func TestValidateChatwootURL_Allowlist(t *testing.T) {
