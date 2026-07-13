@@ -1100,9 +1100,9 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 
 	// Try update first, then insert if no rows affected (cross-db compatible)
 	result, err := r.db.Exec(`
-		UPDATE devices SET display_name = ?, jid = ?, updated_at = ?
+		UPDATE devices SET display_name = ?, jid = ?, ad_jid = ?, updated_at = ?
 		WHERE device_id = ?
-	`, record.DisplayName, record.JID, record.UpdatedAt, record.DeviceID)
+	`, record.DisplayName, record.JID, record.ADJID, record.UpdatedAt, record.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -1110,9 +1110,9 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		_, err = r.db.Exec(`
-			INSERT INTO devices (device_id, display_name, jid, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?)
-		`, record.DeviceID, record.DisplayName, record.JID, record.CreatedAt, record.UpdatedAt)
+			INSERT INTO devices (device_id, display_name, jid, ad_jid, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, record.DeviceID, record.DisplayName, record.JID, record.ADJID, record.CreatedAt, record.UpdatedAt)
 	}
 	return err
 }
@@ -1120,7 +1120,7 @@ func (r *SQLiteRepository) SaveDeviceRecord(record *domainChatStorage.DeviceReco
 // ListDeviceRecords returns all registered devices.
 func (r *SQLiteRepository) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
 	rows, err := r.db.Query(`
-		SELECT device_id, display_name, jid, created_at, updated_at
+		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), created_at, updated_at
 		FROM devices
 		ORDER BY created_at ASC
 	`)
@@ -1132,7 +1132,7 @@ func (r *SQLiteRepository) ListDeviceRecords() ([]*domainChatStorage.DeviceRecor
 	var records []*domainChatStorage.DeviceRecord
 	for rows.Next() {
 		var rec domainChatStorage.DeviceRecord
-		if err := rows.Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+		if err := rows.Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.ADJID, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
 			return nil, err
 		}
 		records = append(records, &rec)
@@ -1149,11 +1149,11 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 
 	rec := &domainChatStorage.DeviceRecord{}
 	err := r.db.QueryRow(`
-		SELECT device_id, display_name, jid, created_at, updated_at
+		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), created_at, updated_at
 		FROM devices
 		WHERE device_id = ?
 		LIMIT 1
-	`, deviceID).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.CreatedAt, &rec.UpdatedAt)
+	`, deviceID).Scan(&rec.DeviceID, &rec.DisplayName, &rec.JID, &rec.ADJID, &rec.CreatedAt, &rec.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1163,36 +1163,59 @@ func (r *SQLiteRepository) GetDeviceRecord(deviceID string) (*domainChatStorage.
 	return rec, nil
 }
 
-// GetDeviceRecordByJID fetches a device registration by WhatsApp JID.
+// GetDeviceRecordByJID fetches a device registration by WhatsApp JID. A full AD JID
+// (number:NN@s.whatsapp.net) resolves the exact slot. A bare-number JID resolves only
+// while it is unambiguous: when several slots share the number (sibling companions,
+// issue #760) it returns nil so callers fall back to their global defaults instead of
+// acting on an arbitrary sibling's record (e.g. webhook routing).
 func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.DeviceRecord, error) {
 	if strings.TrimSpace(jid) == "" {
 		return nil, fmt.Errorf("jid is required")
 	}
 
-	rec := &domainChatStorage.DeviceRecord{}
-	err := r.db.QueryRow(`
-		SELECT device_id, display_name, jid, webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
+	rows, err := r.db.Query(`
+		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
 		FROM devices
-		WHERE jid = ?
-		LIMIT 1
-	`, jid).Scan(
-		&rec.DeviceID,
-		&rec.DisplayName,
-		&rec.JID,
-		&rec.WebhookURL,
-		&rec.WebhookSecret,
-		&rec.WebhookEvents,
-		&rec.WebhookInsecureSkipVerify,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+		WHERE jid = ? OR ad_jid = ?
+		LIMIT 2
+	`, jid, jid)
 	if err != nil {
 		return nil, err
 	}
-	return rec, nil
+	defer rows.Close()
+
+	var records []*domainChatStorage.DeviceRecord
+	for rows.Next() {
+		rec := &domainChatStorage.DeviceRecord{}
+		if err := rows.Scan(
+			&rec.DeviceID,
+			&rec.DisplayName,
+			&rec.JID,
+			&rec.ADJID,
+			&rec.WebhookURL,
+			&rec.WebhookSecret,
+			&rec.WebhookEvents,
+			&rec.WebhookInsecureSkipVerify,
+			&rec.CreatedAt,
+			&rec.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	switch len(records) {
+	case 0:
+		return nil, nil
+	case 1:
+		return records[0], nil
+	default:
+		logrus.Warnf("[CHATSTORAGE] %s matches multiple device slots; ignoring device-specific record (use the full AD JID or device id to disambiguate)", jid)
+		return nil, nil
+	}
 }
 
 // DeleteDeviceRecord removes a device registration entry.
@@ -2255,5 +2278,9 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 34: Store per-device webhook TLS verification override
 		`ALTER TABLE devices ADD COLUMN webhook_insecure_skip_verify BOOLEAN DEFAULT FALSE`,
+
+		// Migration 35: Store the full AD JID (number:NN@s.whatsapp.net) per slot so the
+		// slot<->companion mapping is precise when several slots share one number (issue #760)
+		`ALTER TABLE devices ADD COLUMN ad_jid VARCHAR(255) DEFAULT ''`,
 	}
 }
