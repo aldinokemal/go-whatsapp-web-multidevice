@@ -228,6 +228,36 @@ func TestDeleteStoreRowsForJID_DeletesExactCompanionOnly(t *testing.T) {
 	}
 }
 
+// Deleting by a full AD JID must never take a bare-number (Device-0) row of the same
+// number with it: such a row may be a legacy slot's usable session, and only the exact
+// companion row certainly belongs to the target.
+func TestDeleteStoreRowsForJID_ADTargetLeavesBareNumberRowAlone(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+
+	adJID := types.NewADJID("6281777000015", types.WhatsAppDomain, 28)
+	nonADJID := adJID.ToNonAD()
+	if err := newTestStoreDevice(container, adJID, "companion-28").Save(ctx); err != nil {
+		t.Fatalf("save companion 28: %v", err)
+	}
+	if err := newTestStoreDevice(container, nonADJID, "bare-number").Save(ctx); err != nil {
+		t.Fatalf("save bare-number row: %v", err)
+	}
+
+	manager := NewDeviceManager(container, nil, nil)
+	if err := manager.deleteStoreRowsForJID(ctx, adJID.String()); err != nil {
+		t.Fatalf("delete by AD JID: %v", err)
+	}
+
+	devices, err := container.GetAllDevices(ctx)
+	if err != nil {
+		t.Fatalf("get all devices: %v", err)
+	}
+	if len(devices) != 1 || devices[0].ID.String() != nonADJID.String() {
+		t.Fatalf("expected only the bare-number row to survive, got %d rows", len(devices))
+	}
+}
+
 // keepSlotLogout must use the slot's AD JID so it deletes only its own companion row,
 // leaving the sibling slot's session untouched.
 func TestKeepSlotLogout_DeletesOnlyOwnCompanionRow(t *testing.T) {

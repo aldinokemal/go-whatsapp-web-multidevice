@@ -228,9 +228,16 @@ func (m *DeviceManager) deleteStoreRowsForJID(ctx context.Context, jid string) e
 			if dev == nil || dev.ID == nil {
 				continue
 			}
-			if sameStoreIdentity(*dev.ID, target) {
-				matches = append(matches, dev)
+			if dev.ID.ToNonAD() != target.ToNonAD() {
+				continue
 			}
+			// Deletion is stricter than sync matching: an AD target deletes only its
+			// exact companion row. A bare-number (Device-0) row of the same number may
+			// be a legacy slot's usable session and must never be taken along.
+			if target.Device != 0 && dev.ID.Device != target.Device {
+				continue
+			}
+			matches = append(matches, dev)
 		}
 		if target.Device == 0 && len(matches) > 1 {
 			logrus.Warnf("[DEVICE_MANAGER] %d companion sessions in %s store match %s; skipping delete to avoid removing a sibling slot's session", len(matches), label, jid)
