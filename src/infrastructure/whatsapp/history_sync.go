@@ -164,6 +164,14 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				}
 			} else {
 				participant := msgKey.GetParticipant()
+				if participant == "" {
+					// History-sync group messages carry the sender in the
+					// WebMessageInfo-level `participant` (usually a @lid), NOT in
+					// key.participant (which is empty for synced group messages).
+					// Without this fallback, every inbound group message in a
+					// history sync is dropped below as "no participant info".
+					participant = msg.GetParticipant()
+				}
 				if participant != "" {
 					// For group messages, participant contains the actual sender
 					if parsedSenderJID, err := types.ParseJID(participant); err == nil {
