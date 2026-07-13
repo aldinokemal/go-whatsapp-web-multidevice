@@ -249,7 +249,11 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	contact := payload.Conversation.Meta.Sender
 	route.Destination = chatwootContactAttrString(contact.CustomAttributes, "gowa_whatsapp_jid")
 	if route.Destination == "" {
-		route.Destination = contact.PhoneNumber
+		if contact.PhoneNumber != "" {
+			route.Destination = contact.PhoneNumber
+		} else if contact.Identifier != "" {
+			route.Destination = contact.Identifier
+		}
 	}
 
 	// 2) Explicit contact override. In per-device mode the named device must be
