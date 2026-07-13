@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
@@ -14,7 +15,7 @@ type IDeviceUsecase interface {
 	// webhook configuration (url, secret, events, insecure_skip_verify) at creation time.
 	AddDevice(ctx context.Context, deviceID string, webhook *chatstorage.DeviceWebhookConfig) (*Device, error)
 	RemoveDevice(ctx context.Context, deviceID string) error
-	LoginDevice(ctx context.Context, deviceID string) error
+	LoginDevice(ctx context.Context, deviceID string) (app.LoginResponse, error)
 	LoginDeviceWithCode(ctx context.Context, deviceID string, phone string) (string, error)
 	LogoutDevice(ctx context.Context, deviceID string) error
 	ReconnectDevice(ctx context.Context, deviceID string) error

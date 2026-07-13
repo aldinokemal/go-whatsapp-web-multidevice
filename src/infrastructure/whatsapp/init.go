@@ -53,15 +53,17 @@ func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid typ
 		log.Errorf("Failed to get keys devices: %v", err)
 		return
 	}
-	targetJID := dev.ID.ToNonAD().String()
+	// Sibling companions of the same number are distinct sessions: a keys row for
+	// companion :32 does not satisfy companion :28 (issue #760). Legacy bare-number
+	// rows still match their AD counterpart.
 	for _, existing := range devices {
-		if existing != nil && existing.ID != nil && existing.ID.ToNonAD().String() == targetJID {
+		if existing != nil && existing.ID != nil && sameStoreIdentity(*existing.ID, *dev.ID) {
 			return
 		}
 	}
 
 	if err := keysDB.PutDevice(ctx, dev); err != nil {
-		log.Errorf("Failed to sync keys device %s: %v", targetJID, err)
+		log.Errorf("Failed to sync keys device %s: %v", dev.ID.String(), err)
 	}
 }
 
@@ -103,6 +105,13 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	// Create and configure the client with filtered logging to avoid noisy reconnection EOF errors
 	baseLogger := waLog.Stdout("Client", config.WhatsappLogLevel, true)
 	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
+	if proxyURL := config.WhatsappProxy; proxyURL != "" {
+		if err := client.SetProxyAddress(proxyURL); err != nil {
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %v", redactProxyURL(proxyURL), err)
+		} else {
+			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY")
+		}
+	}
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
 

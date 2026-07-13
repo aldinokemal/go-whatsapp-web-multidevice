@@ -261,13 +261,13 @@ func TestEnqueueChatwootForwardRetrySkipsPermanentFailure(t *testing.T) {
 // retryWorkerTestRepo records which terminal action the retry worker takes for a
 // due event so a test can distinguish "rescheduled" from "marked done/deleted".
 type retryWorkerTestRepo struct {
-	domainChatStorage.IChatStorageRepository
-	due       []*domainChatStorage.ChatwootForwardEvent
+	chatstorage.IChatStorageRepository
+	due       []*chatstorage.ChatwootForwardEvent
 	failedIDs []int64
 	doneIDs   []int64
 }
 
-func (r *retryWorkerTestRepo) ListDueChatwootForwardEvents(_ time.Time, _ int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+func (r *retryWorkerTestRepo) ListDueChatwootForwardEvents(_ time.Time, _ int) ([]*chatstorage.ChatwootForwardEvent, error) {
 	return r.due, nil
 }
 
@@ -292,7 +292,7 @@ func TestProcessDueChatwootForwardRetriesReschedulesOnRegistryUnavailable(t *tes
 	}
 
 	repo := &retryWorkerTestRepo{
-		due: []*domainChatStorage.ChatwootForwardEvent{
+		due: []*chatstorage.ChatwootForwardEvent{
 			{ID: 7, DeviceID: "dev", EventName: "message", WhatsAppMessageID: "wa-1", PayloadJSON: `{"payload":{"id":"wa-1"}}`},
 		},
 	}
