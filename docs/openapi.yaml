@@ -3645,6 +3645,205 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
 
+  /chatwoot/webhook/{device_id}:
+    post:
+      operationId: chatwootDeviceWebhook
+      tags:
+        - chatwoot
+      summary: Per-device Chatwoot webhook endpoint
+      description: |
+        Per-device variant of the Chatwoot webhook: configure each device's Chatwoot
+        inbox to POST here (the URL is returned as `webhook_url` by the device config
+        endpoints) so agent replies route deterministically to that device.
+        Route-by-config: in addition to the optional shared secret, the payload's
+        account and inbox must match the device's stored config or the request is
+        rejected with 401. Unknown device ids and non-message events are acknowledged
+        with 200 and ignored.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          description: Device ID (or WhatsApp JID) the webhook is bound to
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Chatwoot webhook payload (see Chatwoot documentation)
+      responses:
+        '200':
+          description: Webhook processed (or acknowledged and ignored)
+        '401':
+          description: Invalid secret, or payload account/inbox does not match the device's config
+
+  /chatwoot/configs:
+    get:
+      operationId: chatwootListConfigs
+      tags:
+        - chatwoot
+      summary: List per-device Chatwoot configs
+      description: Returns every per-device Chatwoot routing config. API tokens are masked.
+      responses:
+        '200':
+          description: Configs retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Chatwoot device configs
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatwootDeviceConfig'
+
+  /devices/{device_id}/chatwoot/config:
+    get:
+      operationId: chatwootGetDeviceConfig
+      tags:
+        - chatwoot
+      summary: Get a device's Chatwoot config
+      description: Returns the per-device Chatwoot routing config (API token masked).
+      parameters:
+        - $ref: '#/components/parameters/ChatwootConfigDeviceId'
+      responses:
+        '200':
+          description: Config retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Chatwoot device config
+                  results:
+                    $ref: '#/components/schemas/ChatwootDeviceConfig'
+        '404':
+          description: Device not found (DEVICE_NOT_FOUND) or no config for this device (CONFIG_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+    put:
+      operationId: chatwootUpsertDeviceConfig
+      tags:
+        - chatwoot
+      summary: Create or update a device's Chatwoot config
+      description: |
+        Routes this device's messages to its own Chatwoot destination (URL + account +
+        inbox + token) instead of the global CHATWOOT_* env config.
+        The URL is canonicalized and validated (http/https only, no embedded
+        credentials, hosts resolving to private/loopback/link-local/metadata addresses
+        are rejected unless allowlisted via CHATWOOT_ALLOWED_HOSTS).
+        On update, an empty `api_token` — or the masked value echoed back from a GET —
+        keeps the stored token. Changing the routing identity (url/account/inbox) is
+        rejected with 409 once the config has linked conversations; delete and
+        recreate the config to rebind.
+      parameters:
+        - $ref: '#/components/parameters/ChatwootConfigDeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - chatwoot_url
+                - account_id
+                - inbox_id
+              properties:
+                chatwoot_url:
+                  type: string
+                  example: 'https://chatwoot.example.com'
+                account_id:
+                  type: integer
+                  example: 1
+                inbox_id:
+                  type: integer
+                  example: 5
+                api_token:
+                  type: string
+                  description: Chatwoot agent/bot API token. Required on create; empty (or the masked value) keeps the stored token on update.
+                enabled:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Chatwoot device config saved
+                  results:
+                    $ref: '#/components/schemas/ChatwootDeviceConfig'
+        '400':
+          description: Invalid request (INVALID_REQUEST) or rejected URL (INVALID_CHATWOOT_URL)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '409':
+          description: Routing identity change rejected while linked conversations exist (CONFIG_HAS_LINKED_CONVERSATIONS)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+    delete:
+      operationId: chatwootDeleteDeviceConfig
+      tags:
+        - chatwoot
+      summary: Delete a device's Chatwoot config
+      description: |
+        Removes the device's Chatwoot routing config along with its stored message
+        links (stale links would otherwise keep answering reverse lookups for the old
+        destination after a rebind).
+      parameters:
+        - $ref: '#/components/parameters/ChatwootConfigDeviceId'
+      responses:
+        '200':
+          description: Config deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Chatwoot device config deleted
+                  results:
+                    type: object
+                    properties:
+                      device_id:
+                        type: string
+                        example: 'my-device-id'
+
 components:
   parameters:
     DeviceIdHeader:
@@ -3658,12 +3857,57 @@ components:
       schema:
         type: string
         example: 'my-device-id'
+    ChatwootConfigDeviceId:
+      name: device_id
+      in: path
+      required: true
+      description: Device ID (or WhatsApp JID) whose Chatwoot config is addressed
+      schema:
+        type: string
+        example: 'my-device-id'
 
   securitySchemes:
     basicAuth:
       type: http
       scheme: basic
   schemas:
+    ChatwootDeviceConfig:
+      type: object
+      description: Per-device Chatwoot routing config (API token masked on every read)
+      properties:
+        device_id:
+          type: string
+          example: 'my-device-id'
+        device_jid:
+          type: string
+          description: WhatsApp JID of the device; stamped automatically at login (empty before pairing)
+          example: '628123456789@s.whatsapp.net'
+        chatwoot_url:
+          type: string
+          example: 'https://chatwoot.example.com'
+        account_id:
+          type: integer
+          example: 1
+        inbox_id:
+          type: integer
+          example: 5
+        api_token:
+          type: string
+          description: Masked; only the last 4 characters are revealed
+          example: '****1234'
+        enabled:
+          type: boolean
+          example: true
+        webhook_url:
+          type: string
+          description: URL to set on this device's Chatwoot inbox so agent replies route back to this device
+          example: 'https://gowa.example.com/chatwoot/webhook/my-device-id'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     CreateGroupResponse:
       type: object
       properties:

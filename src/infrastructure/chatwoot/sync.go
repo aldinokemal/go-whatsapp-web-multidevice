@@ -3,6 +3,7 @@ package chatwoot
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +36,16 @@ type SyncService struct {
 	// inbound handling always use the REST client, regardless of this.
 	pgImporter *pgimport.Importer
 	pgInitMu   sync.Mutex
+
+	// allowPgImport gates the direct-Postgres import path. It is true only for
+	// the legacy/env config: ChatwootImportDBURI is a single global DSN, so
+	// per-device configs (which may target different Chatwoot databases) use the
+	// REST import path instead.
+	allowPgImport bool
+
+	// configID is the chatwoot_device_configs row id this service syncs for (0 =
+	// legacy/env). Stamped onto message links so reverse routing is config-scoped.
+	configID int64
 }
 
 // NewSyncService creates a new sync service instance
@@ -98,6 +109,11 @@ func (g *groupNameResolver) resolve(ctx context.Context, waClient *whatsmeow.Cli
 // path is selected. A configured-but-broken URI is a sync error, not a REST
 // fallback, because operators explicitly opted into direct DB import.
 func (s *SyncService) pgImporterForSync(ctx context.Context) (*pgimport.Importer, error) {
+	// Direct-Postgres import is driven by a single global DSN and is only valid
+	// for the legacy/env config. Per-device configs use the REST import path.
+	if !s.allowPgImport {
+		return nil, nil
+	}
 	if strings.TrimSpace(config.ChatwootImportDBURI) == "" {
 		return nil, nil
 	}
@@ -610,7 +626,7 @@ func (s *SyncService) syncMessageWithOptions(
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 
-	MarkMessageAsSent(msgID)
+	MarkMessageAsSent(s.client.AccountID, msgID)
 	if msgID != 0 && msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
 		if err := s.chatStorageRepo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
 			DeviceID:                     msg.DeviceID,
@@ -623,6 +639,13 @@ func (s *SyncService) syncMessageWithOptions(
 			SourceID:                     msgOpts.SourceID,
 			Direction:                    messageType,
 			IsRead:                       false,
+			// Scope the link to this service's Chatwoot account/config so reverse
+			// routing stays account-scoped. Without this, a REST history-sync link
+			// would default to account 0 and match the legacy wildcard in
+			// GetLatestChatwootMessageLinkByConversation, allowing cross-account
+			// mis-routing when conversation ids collide across accounts.
+			ChatwootConfigID:  s.configID,
+			ChatwootAccountID: s.client.AccountID,
 		}); err != nil {
 			return fmt.Errorf("failed to store chatwoot message link: %w", err)
 		}
@@ -731,26 +754,106 @@ func retrySyncOp(ctx context.Context, maxAttempts int, fn func() error) error {
 	return lastErr
 }
 
-// Global sync service instance for REST endpoints
+// Per-device sync services for REST endpoints and auto-sync. Each device-config
+// gets its own service bound to that device's Chatwoot client; the legacy/env
+// config uses the empty key. Progress is still tracked per device inside each
+// service, but the *client* must be per-config so a sync for one device targets
+// the right Chatwoot account.
+const legacySyncServiceKey = ""
+
 var (
-	globalSyncService     *SyncService
-	globalSyncServiceOnce sync.Once
+	syncServices   = make(map[string]*SyncService)
+	syncServicesMu sync.RWMutex
 )
 
-// GetSyncService returns a shared sync service instance
-func GetSyncService(
+// GetSyncServiceForDevice returns (creating on first use) the sync service for a
+// device key, bound to the given client. allowPgImport enables direct-Postgres
+// import and must be true only for the legacy/env config.
+//
+// A cached service is reused only while its client still addresses the same
+// destination with the same credentials. When a per-device config is rewritten
+// (token rotation, routing edit) the registry hands back a freshly built client,
+// so the cached service is rebuilt rather than continuing to use the stale one
+// until process restart. The previous service is left for any in-flight sync to
+// finish on; per-device services hold no pooled resources to close. Its
+// progress entries are carried over to the replacement so an in-flight run
+// stays visible — and keeps blocking a concurrent second run — across the
+// rebuild (SyncProgress values are pointers with their own lock, so the old
+// run keeps updating the same entries the new service reports).
+func GetSyncServiceForDevice(
+	key string,
 	client *Client,
 	chatStorageRepo domainChatStorage.IChatStorageRepository,
+	allowPgImport bool,
+	configID int64,
 ) *SyncService {
-	globalSyncServiceOnce.Do(func() {
-		globalSyncService = NewSyncService(client, chatStorageRepo)
-	})
-	return globalSyncService
+	syncServicesMu.RLock()
+	if s, ok := syncServices[key]; ok && sameChatwootClient(s.client, client) {
+		syncServicesMu.RUnlock()
+		return s
+	}
+	syncServicesMu.RUnlock()
+
+	syncServicesMu.Lock()
+	defer syncServicesMu.Unlock()
+	if s, ok := syncServices[key]; ok && sameChatwootClient(s.client, client) {
+		return s
+	}
+	s := NewSyncService(client, chatStorageRepo)
+	s.allowPgImport = allowPgImport
+	s.configID = configID
+	if old, ok := syncServices[key]; ok {
+		old.progressMu.RLock()
+		maps.Copy(s.progressMap, old.progressMap)
+		old.progressMu.RUnlock()
+	}
+	syncServices[key] = s
+	return s
 }
 
-// GetDefaultSyncService returns the global sync service if initialized
-func GetDefaultSyncService() *SyncService {
-	return globalSyncService
+// sameChatwootClient reports whether two clients target the same Chatwoot
+// destination with the same credentials. A nil client only matches another nil.
+func sameChatwootClient(a, b *Client) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.BaseURL == b.BaseURL &&
+		a.APIToken == b.APIToken &&
+		a.AccountID == b.AccountID &&
+		a.InboxID == b.InboxID
+}
+
+// LookupSyncServiceForDevice returns the existing sync service for a key without
+// creating one (nil if none has run yet). Used by status queries.
+func LookupSyncServiceForDevice(key string) *SyncService {
+	syncServicesMu.RLock()
+	defer syncServicesMu.RUnlock()
+	return syncServices[key]
+}
+
+// CloseAllSyncServices closes every per-device sync service, releasing any
+// direct-Postgres importer pools. Returns the first error encountered.
+func CloseAllSyncServices() error {
+	syncServicesMu.Lock()
+	defer syncServicesMu.Unlock()
+	var firstErr error
+	for key, s := range syncServices {
+		if err := s.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		delete(syncServices, key)
+	}
+	return firstErr
+}
+
+// SyncServiceKeyFor returns the map key for a resolved config: the legacy key
+// for the env config, else the device id. REST and auto-sync share it so a
+// device's running/progress state is found under one key.
+func SyncServiceKeyFor(rc *ResolvedConfig) string {
+	if rc == nil || rc.ConfigID == 0 {
+		return legacySyncServiceKey
+	}
+	return rc.DeviceID
 }
 
 // Close releases resources held by the sync service, including the optional
@@ -790,11 +893,22 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 		return
 	}
 
-	client := GetDefaultClient()
-	if !client.IsConfigured() {
-		// Provisioning may not have resolved the inbox yet; don't consume the
-		// latch so a later connect can retry once configuration completes.
-		logrus.Warn("Chatwoot Sync: Auto-sync skipped - Chatwoot not configured")
+	// Resolve the per-device Chatwoot client by the storage JID. In legacy mode
+	// (no per-device configs) this returns the env client.
+	reg := GetClientRegistry()
+	if reg == nil {
+		logrus.Warn("Chatwoot Sync: Auto-sync skipped - client registry not initialized")
+		return
+	}
+	rc, err := reg.Resolve(storageDeviceID)
+	if err != nil {
+		logrus.Warnf("Chatwoot Sync: Auto-sync skipped - resolve device %s: %v", storageDeviceID, err)
+		return
+	}
+	if rc == nil || rc.Client == nil || !rc.Client.IsConfigured() {
+		// No usable config yet (provisioning pending, or device unmapped); don't
+		// consume the latch so a later connect can retry once configured.
+		logrus.Warnf("Chatwoot Sync: Auto-sync skipped - no Chatwoot config for device %s", storageDeviceID)
 		return
 	}
 
@@ -802,7 +916,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 		return // already triggered this process for this device
 	}
 
-	syncService := GetSyncService(client, chatStorageRepo)
+	syncService := GetSyncServiceForDevice(SyncServiceKeyFor(rc), rc.Client, chatStorageRepo, rc.ConfigID == 0, rc.ConfigID)
 
 	go func() {
 		opts := DefaultSyncOptions()

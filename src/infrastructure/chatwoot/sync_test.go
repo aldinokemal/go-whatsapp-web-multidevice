@@ -236,6 +236,8 @@ func TestRetryable(t *testing.T) {
 		{"502", &HTTPStatusError{StatusCode: 502}, true},
 		{"503", &HTTPStatusError{StatusCode: 503}, true},
 		{"non-HTTP error", &testError{msg: "network"}, true},
+		{"registry unavailable", ErrClientRegistryUnavailable, false},
+		{"wrapped registry unavailable", fmt.Errorf("resolve: %w", ErrClientRegistryUnavailable), false},
 	}
 	for _, tt := range tests {
 		if got := Retryable(tt.err); got != tt.retryable {

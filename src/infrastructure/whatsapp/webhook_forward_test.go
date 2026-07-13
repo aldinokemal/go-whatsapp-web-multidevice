@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -251,6 +252,73 @@ func TestEnqueueChatwootForwardRetrySkipsPermanentFailure(t *testing.T) {
 	})
 	if queued {
 		t.Fatal("permanent Chatwoot failure should not be queued")
+	}
+	if len(repo.events) != 0 {
+		t.Fatalf("queued events = %d, want 0", len(repo.events))
+	}
+}
+
+// retryWorkerTestRepo records which terminal action the retry worker takes for a
+// due event so a test can distinguish "rescheduled" from "marked done/deleted".
+type retryWorkerTestRepo struct {
+	chatstorage.IChatStorageRepository
+	due       []*chatstorage.ChatwootForwardEvent
+	failedIDs []int64
+	doneIDs   []int64
+}
+
+func (r *retryWorkerTestRepo) ListDueChatwootForwardEvents(_ time.Time, _ int) ([]*chatstorage.ChatwootForwardEvent, error) {
+	return r.due, nil
+}
+
+func (r *retryWorkerTestRepo) MarkChatwootForwardEventFailed(id int64, _ string, _ time.Time) error {
+	r.failedIDs = append(r.failedIDs, id)
+	return nil
+}
+
+func (r *retryWorkerTestRepo) MarkChatwootForwardEventDone(id int64) error {
+	r.doneIDs = append(r.doneIDs, id)
+	return nil
+}
+
+func TestProcessDueChatwootForwardRetriesReschedulesOnRegistryUnavailable(t *testing.T) {
+	// Reproduces the P1 data-loss bug: when the registry is uninitialized, a due
+	// retry must be rescheduled, NOT marked done (which deletes it without ever
+	// delivering the message).
+	orig := getChatwootClientFn
+	t.Cleanup(func() { getChatwootClientFn = orig })
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return nil, chatwoot.ErrClientRegistryUnavailable
+	}
+
+	repo := &retryWorkerTestRepo{
+		due: []*chatstorage.ChatwootForwardEvent{
+			{ID: 7, DeviceID: "dev", EventName: "message", WhatsAppMessageID: "wa-1", PayloadJSON: `{"payload":{"id":"wa-1"}}`},
+		},
+	}
+
+	processDueChatwootForwardRetries(repo)
+
+	if len(repo.doneIDs) != 0 {
+		t.Fatalf("retry job must not be marked done on nil registry, got done=%v", repo.doneIDs)
+	}
+	if len(repo.failedIDs) != 1 || repo.failedIDs[0] != 7 {
+		t.Fatalf("retry job should be rescheduled, got failed=%v", repo.failedIDs)
+	}
+}
+
+func TestEnqueueChatwootForwardRetrySkipsRegistryUnavailable(t *testing.T) {
+	// An uninitialized registry is a wiring/startup condition, not a transient
+	// network failure. The live path must NOT enqueue a retry that would only
+	// fail the same way (and, in MCP-only deployments, accumulate forever).
+	repo := &chatwootForwardQueueTestRepo{}
+	payload := map[string]any{
+		"payload": map[string]any{"id": "wa-no-registry"},
+	}
+
+	queued := enqueueChatwootForwardRetry(repo, "device-a@s.whatsapp.net", "message", payload, chatwoot.ErrClientRegistryUnavailable)
+	if queued {
+		t.Fatal("registry-unavailable failure should not be queued")
 	}
 	if len(repo.events) != 0 {
 		t.Fatalf("queued events = %d, want 0", len(repo.events))

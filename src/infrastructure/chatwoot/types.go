@@ -94,8 +94,9 @@ type Attachment struct {
 }
 
 type ConversationWebhook struct {
-	ID   int              `json:"id"`
-	Meta ConversationMeta `json:"meta"`
+	ID      int              `json:"id"`
+	InboxID int              `json:"inbox_id"`
+	Meta    ConversationMeta `json:"meta"`
 }
 
 type ConversationMeta struct {
