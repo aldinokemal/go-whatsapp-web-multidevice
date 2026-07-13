@@ -52,6 +52,18 @@ var (
 	WhatsappPresencePulseInterval              = 24 * time.Hour
 	WhatsappPresencePulseDuration              = 5 * time.Minute
 
+	// WhatsappFullHistorySync asks the phone for a full message-history sync at
+	// login (whatsmeow RequireFullSync). Default false keeps the stock behavior
+	// of syncing only the recent window. Enable to pull older history into chat
+	// storage on connect / re-pair — e.g. to recover messages that arrived while
+	// a linked device was logged out.
+	WhatsappFullHistorySync = false
+	// WhatsappFullHistorySyncDaysLimit bounds how many days of history the phone
+	// is asked to send when WhatsappFullHistorySync is enabled. 0 keeps
+	// whatsmeow's default limit. Larger values recover more history but increase
+	// the sync payload and local storage footprint.
+	WhatsappFullHistorySyncDaysLimit = 0
+
 	// WhatsappProxy is forwarded to whatsmeow's *Client.SetProxyAddress before
 	// Connect. Accepts SOCKS5/HTTP/HTTPS schemes, e.g.
 	// "socks5://user:pass@host:1080" or "http://host:8080". Empty = direct

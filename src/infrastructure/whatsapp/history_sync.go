@@ -67,8 +67,11 @@ func processHistorySync(ctx context.Context, data *waHistorySync.HistorySync, ch
 	log.Infof("Processing history sync type: %s", syncType.String())
 
 	switch syncType {
-	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT:
-		// Process conversation messages
+	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT, waHistorySync.HistorySync_FULL:
+		// Process conversation messages. FULL arrives only when a full history
+		// sync was requested (see RequireFullSync in configureDeviceProps);
+		// persisting it is what makes the requested history reachable via
+		// GetChatMessages.
 		return processConversationMessages(ctx, data, chatStorageRepo, client)
 	case waHistorySync.HistorySync_PUSH_NAME:
 		// Process push names to update chat names
@@ -268,11 +271,18 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 		// Store or update the chat with latest message time
 		if len(messageBatch) > 0 {
+			// A FULL/backfill batch can carry only older messages; StoreChat
+			// overwrites last_message_time and the chat list sorts on it, so guard
+			// against moving an already-active chat backward in time.
+			chatLastTime := latestTimestamp
+			if existing, err := chatStorageRepo.GetChatByDevice(deviceID, chatJID); err == nil && existing != nil && existing.LastMessageTime.After(chatLastTime) {
+				chatLastTime = existing.LastMessageTime
+			}
 			chat := &domainChatStorage.Chat{
 				DeviceID:            deviceID,
 				JID:                 chatJID,
 				Name:                chatName,
-				LastMessageTime:     latestTimestamp,
+				LastMessageTime:     chatLastTime,
 				EphemeralExpiration: ephemeralExpiration,
 			}
 

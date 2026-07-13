@@ -182,6 +182,12 @@ func initEnvConfig() {
 			config.WhatsappPresencePulseDuration = duration
 		}
 	}
+	if viper.IsSet("whatsapp_full_history_sync") {
+		config.WhatsappFullHistorySync = viper.GetBool("whatsapp_full_history_sync")
+	}
+	if viper.IsSet("whatsapp_full_history_sync_days_limit") {
+		config.WhatsappFullHistorySyncDaysLimit = viper.GetInt("whatsapp_full_history_sync_days_limit")
+	}
 
 	// Chatwoot settings
 	if viper.IsSet("chatwoot_enabled") {

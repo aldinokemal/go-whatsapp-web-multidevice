@@ -2,7 +2,6 @@ package whatsapp
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -78,10 +76,10 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		panic("No device found")
 	}
 
-	// Configure device properties
-	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
-	store.DeviceProps.PlatformType = &config.AppPlatform
-	store.DeviceProps.Os = &osName
+	// Configure device properties (platform/OS + optional full history sync).
+	// Shared with the lazy multi-device path (DeviceManager.EnsureClient) so both
+	// pairing paths request full sync identically.
+	configureDeviceProps()
 
 	// Keep references for global state update after client creation
 	primaryDB := storeContainer

@@ -15,10 +15,12 @@ import (
 	fiberUtils "github.com/gofiber/fiber/v2/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 )
 
 // DeviceManager keeps a registry of active device instances.
@@ -763,6 +765,23 @@ func configureDeviceProps() {
 	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
+
+	// Optionally request a full history sync from the phone. store.DeviceProps is
+	// marshaled into the pairing payload, so this takes effect when a device links
+	// (a fresh QR/pairing-code link, including a re-pair after logout) — NOT on a
+	// plain reconnect of an already-linked session. Stock whatsmeow syncs only the
+	// recent window (RequireFullSync=false); enabling this asks the phone to send
+	// older history, delivered as FULL history-sync events that history_sync.go
+	// persists to chat storage.
+	if config.WhatsappFullHistorySync {
+		store.DeviceProps.RequireFullSync = proto.Bool(true)
+		if store.DeviceProps.HistorySyncConfig == nil {
+			store.DeviceProps.HistorySyncConfig = &waCompanionReg.DeviceProps_HistorySyncConfig{}
+		}
+		if config.WhatsappFullHistorySyncDaysLimit > 0 {
+			store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(uint32(config.WhatsappFullHistorySyncDaysLimit))
+		}
+	}
 }
 
 // StoreInfo returns configured store URIs for observability.
