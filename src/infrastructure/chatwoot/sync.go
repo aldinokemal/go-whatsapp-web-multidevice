@@ -3,6 +3,7 @@ package chatwoot
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -774,7 +775,11 @@ var (
 // (token rotation, routing edit) the registry hands back a freshly built client,
 // so the cached service is rebuilt rather than continuing to use the stale one
 // until process restart. The previous service is left for any in-flight sync to
-// finish on; per-device services hold no pooled resources to close.
+// finish on; per-device services hold no pooled resources to close. Its
+// progress entries are carried over to the replacement so an in-flight run
+// stays visible — and keeps blocking a concurrent second run — across the
+// rebuild (SyncProgress values are pointers with their own lock, so the old
+// run keeps updating the same entries the new service reports).
 func GetSyncServiceForDevice(
 	key string,
 	client *Client,
@@ -797,6 +802,11 @@ func GetSyncServiceForDevice(
 	s := NewSyncService(client, chatStorageRepo)
 	s.allowPgImport = allowPgImport
 	s.configID = configID
+	if old, ok := syncServices[key]; ok {
+		old.progressMu.RLock()
+		maps.Copy(s.progressMap, old.progressMap)
+		old.progressMu.RUnlock()
+	}
 	syncServices[key] = s
 	return s
 }

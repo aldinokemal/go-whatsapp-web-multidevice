@@ -51,7 +51,11 @@ func NewClientRegistry(repo domainChatStorage.IChatStorageRepository) *ClientReg
 // Chatwoot client. Returns (nil, nil) when the device has no usable config and
 // the env fallback does not apply (fail-fast).
 func (r *ClientRegistry) Resolve(identifier string) (*ResolvedConfig, error) {
-	identifier = strings.TrimSpace(identifier)
+	// The identifier is retained past this call (cache map key, ResolvedConfig
+	// DeviceID). Callers on the fiber paths hand us c.Params()/body-derived
+	// strings whose backing buffer fasthttp recycles after the request — without
+	// a copy the cached key's bytes would silently mutate under the next request.
+	identifier = strings.Clone(strings.TrimSpace(identifier))
 
 	r.mu.RLock()
 	if rc, ok := r.cache[identifier]; ok {

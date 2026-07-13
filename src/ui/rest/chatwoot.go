@@ -834,7 +834,10 @@ func (h *ChatwootHandler) SyncHistory(c *fiber.Ctx) error {
 	// (e.g. "628xxx@s.whatsapp.net"), not the user-assigned device alias (e.g. "busine").
 	storageDeviceID := instance.JID()
 	if storageDeviceID == "" {
-		storageDeviceID = resolvedID
+		// resolvedID may alias the request buffer (it derives from the request
+		// body/params), and this id outlives the request as the sync progress-map
+		// key — copy it so the key doesn't mutate when fasthttp recycles the buffer.
+		storageDeviceID = strings.Clone(resolvedID)
 	}
 
 	// Check if already running

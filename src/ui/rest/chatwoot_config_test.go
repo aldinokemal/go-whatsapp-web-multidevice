@@ -59,6 +59,16 @@ func (f *fakeConfigStore) GetChatwootDeviceConfig(deviceID string) (*domainChatS
 	return nil, nil
 }
 
+func (f *fakeConfigStore) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	for _, cfg := range f.configs {
+		if cfg.DeviceID == identifier || (cfg.DeviceJID != "" && cfg.DeviceJID == identifier) {
+			clone := *cfg
+			return &clone, nil
+		}
+	}
+	return nil, nil
+}
+
 func (f *fakeConfigStore) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
 	out := make([]*domainChatStorage.ChatwootDeviceConfig, 0, len(f.configs))
 	for _, cfg := range f.configs {
@@ -174,6 +184,70 @@ func TestChatwootConfigCRUDFlow(t *testing.T) {
 	}
 }
 
+// TestChatwootConfigWriteInvalidatesRegistry proves the PR's "registry
+// invalidated on write" claim end to end: after a PUT rotates the token (or a
+// DELETE removes the config), the registry must hand out a freshly built
+// client instead of the cached one.
+func TestChatwootConfigWriteInvalidatesRegistry(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+
+	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"token-one"}`)
+
+	reg := chatwoot.GetClientRegistry()
+	rc, err := reg.Resolve("dev")
+	if err != nil || rc == nil || rc.Client == nil || rc.Client.APIToken != "token-one" {
+		t.Fatalf("initial resolve: rc=%+v err=%v", rc, err)
+	}
+
+	// Rotate the token via PUT: the cached client must not survive.
+	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"token-two"}`)
+	rc, err = reg.Resolve("dev")
+	if err != nil || rc == nil || rc.Client == nil {
+		t.Fatalf("resolve after rotation: rc=%+v err=%v", rc, err)
+	}
+	if rc.Client.APIToken != "token-two" {
+		t.Fatalf("registry served stale client after PUT: token=%q, want token-two", rc.Client.APIToken)
+	}
+
+	// DELETE: the per-device client must be evicted (table empty again, so the
+	// next resolve falls back to the env config with ConfigID 0).
+	doJSON(t, app, http.MethodDelete, "/devices/dev/chatwoot/config", "")
+	rc, err = reg.Resolve("dev")
+	if err != nil {
+		t.Fatalf("resolve after delete: %v", err)
+	}
+	if rc != nil && rc.ConfigID != 0 {
+		t.Fatalf("registry served deleted per-device client: %+v", rc)
+	}
+}
+
+// TestChatwootConfigListEndpoint smoke-tests GET /chatwoot/configs: it must
+// return every config with the token masked.
+func TestChatwootConfigListEndpoint(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+
+	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"super-secret-token"}`)
+
+	resp, body := doJSON(t, app, http.MethodGet, "/chatwoot/configs", "")
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("list status = %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"device_id":"dev"`) {
+		t.Fatalf("list missing config: %s", body)
+	}
+	if strings.Contains(body, "super-secret-token") {
+		t.Fatalf("list leaked raw token: %s", body)
+	}
+	if !strings.Contains(body, "****oken") {
+		t.Fatalf("list should show masked token: %s", body)
+	}
+}
+
 // TestChatwootConfigMaskedTokenRoundTrip proves a client that echoes the masked
 // token from GET back into PUT keeps the stored secret — the mask must never be
 // stored as the credential itself.
@@ -219,6 +293,18 @@ func TestChatwootConfigRejectsRoutingEditWithLinks(t *testing.T) {
 		`{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":9,"api_token":"t"}`)
 	if resp.StatusCode != fiber.StatusConflict {
 		t.Fatalf("routing edit status = %d body=%s, want 409", resp.StatusCode, body)
+	}
+
+	// Same for the URL and account dimensions of the routing identity.
+	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.99","account_id":1,"inbox_id":5,"api_token":"t"}`)
+	if resp.StatusCode != fiber.StatusConflict {
+		t.Fatalf("url edit status = %d body=%s, want 409", resp.StatusCode, body)
+	}
+	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{"chatwoot_url":"https://203.0.113.10","account_id":2,"inbox_id":5,"api_token":"t"}`)
+	if resp.StatusCode != fiber.StatusConflict {
+		t.Fatalf("account edit status = %d body=%s, want 409", resp.StatusCode, body)
 	}
 
 	// Rotating only the token (same routing identity) is allowed.

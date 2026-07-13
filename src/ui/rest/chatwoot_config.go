@@ -223,6 +223,11 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c *fiber.Ctx) error {
 
 // resolveConfigDeviceID resolves the :device_id path param to a known device id
 // (DeviceMiddleware reads only header/query, so config routes resolve manually).
+//
+// The result is cloned: when ResolveDevice matches by exact id it returns the
+// param-derived string itself, whose backing buffer fasthttp recycles after the
+// request. Handlers persist this id (config rows, registry cache), so an
+// uncopied value would mutate under the next request.
 func (h *ChatwootHandler) resolveConfigDeviceID(c *fiber.Ctx) (string, bool) {
 	deviceID := strings.TrimSpace(c.Params("device_id"))
 	if deviceID == "" || h.DeviceManager == nil {
@@ -232,7 +237,7 @@ func (h *ChatwootHandler) resolveConfigDeviceID(c *fiber.Ctx) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return resolvedID, true
+	return strings.Clone(resolvedID), true
 }
 
 // deviceJID returns the WhatsApp storage JID for a device, used so the registry

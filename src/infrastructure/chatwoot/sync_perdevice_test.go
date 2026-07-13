@@ -56,6 +56,13 @@ func TestSyncServiceRebuiltOnClientChange(t *testing.T) {
 		t.Fatal("equivalent client should reuse the cached sync service")
 	}
 
+	// Simulate an in-flight run on the original service before rotation.
+	running := NewSyncProgress("628@s.whatsapp.net")
+	orig.progressMu.Lock()
+	orig.progressMap["628@s.whatsapp.net"] = running
+	orig.progressMu.Unlock()
+	running.SetRunning()
+
 	// A rotated token is a different client identity: the cached service must be
 	// rebuilt rather than continuing to use the stale (revoked) token.
 	rotated := NewClientFromConfig("https://a.example.com", "new-token", 1, 1)
@@ -68,6 +75,19 @@ func TestSyncServiceRebuiltOnClientChange(t *testing.T) {
 	}
 	if LookupSyncServiceForDevice("devRot") != got {
 		t.Fatal("cache should now hold the rebuilt service")
+	}
+
+	// The in-flight run must survive the rebuild: still visible in progress and
+	// still blocking a concurrent second run for the same device.
+	if !got.IsRunning("628@s.whatsapp.net") {
+		t.Fatal("rebuilt service lost the in-flight run guard")
+	}
+	if p := got.GetProgress("628@s.whatsapp.net"); p == nil || p.Status != "running" {
+		t.Fatalf("rebuilt service lost progress visibility: %+v", p)
+	}
+	running.SetCompleted()
+	if got.IsRunning("628@s.whatsapp.net") {
+		t.Fatal("completed run should unblock the device (shared progress pointer)")
 	}
 }
 
