@@ -8,7 +8,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,7 +63,7 @@ func chatwootConfigView(cfg *domainChatStorage.ChatwootDeviceConfig) map[string]
 
 // ListChatwootConfigs returns all per-device Chatwoot configs (tokens masked).
 // GET /chatwoot/configs
-func (h *ChatwootHandler) ListChatwootConfigs(c *fiber.Ctx) error {
+func (h *ChatwootHandler) ListChatwootConfigs(c fiber.Ctx) error {
 	if h.ChatStorageRepo == nil {
 		return utils.ResponseError(c, "storage not available")
 	}
@@ -80,7 +80,7 @@ func (h *ChatwootHandler) ListChatwootConfigs(c *fiber.Ctx) error {
 
 // GetChatwootConfig returns one device's Chatwoot config (token masked).
 // GET /devices/:device_id/chatwoot/config
-func (h *ChatwootHandler) GetChatwootConfig(c *fiber.Ctx) error {
+func (h *ChatwootHandler) GetChatwootConfig(c fiber.Ctx) error {
 	deviceID, ok := h.resolveConfigDeviceID(c)
 	if !ok {
 		return c.Status(fiber.StatusNotFound).JSON(utils.ResponseData{Status: fiber.StatusNotFound, Code: "DEVICE_NOT_FOUND", Message: "device not found"})
@@ -97,14 +97,14 @@ func (h *ChatwootHandler) GetChatwootConfig(c *fiber.Ctx) error {
 
 // UpsertChatwootConfig creates or updates a device's Chatwoot config.
 // PUT /devices/:device_id/chatwoot/config
-func (h *ChatwootHandler) UpsertChatwootConfig(c *fiber.Ctx) error {
+func (h *ChatwootHandler) UpsertChatwootConfig(c fiber.Ctx) error {
 	deviceID, ok := h.resolveConfigDeviceID(c)
 	if !ok {
 		return c.Status(fiber.StatusNotFound).JSON(utils.ResponseData{Status: fiber.StatusNotFound, Code: "DEVICE_NOT_FOUND", Message: "device not found"})
 	}
 
 	var req chatwootConfigRequest
-	if err := c.BodyParser(&req); err != nil {
+	if err := c.Bind().Body(&req); err != nil {
 		return utils.ResponseError(c, "Invalid request body")
 	}
 
@@ -192,7 +192,7 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c *fiber.Ctx) error {
 // after a delete-and-recreate rebind they would still win the account-scoped
 // reverse lookup and hijack reply destinations toward the old mapping.
 // DELETE /devices/:device_id/chatwoot/config
-func (h *ChatwootHandler) DeleteChatwootConfig(c *fiber.Ctx) error {
+func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 	// Resolve aliases/JIDs the same way GET and PUT do — a raw JID param would
 	// otherwise delete nothing and still report success. Fall back to the raw
 	// param so a config orphaned by device removal stays deletable.
@@ -228,7 +228,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c *fiber.Ctx) error {
 // param-derived string itself, whose backing buffer fasthttp recycles after the
 // request. Handlers persist this id (config rows, registry cache), so an
 // uncopied value would mutate under the next request.
-func (h *ChatwootHandler) resolveConfigDeviceID(c *fiber.Ctx) (string, bool) {
+func (h *ChatwootHandler) resolveConfigDeviceID(c fiber.Ctx) (string, bool) {
 	deviceID := strings.TrimSpace(c.Params("device_id"))
 	if deviceID == "" || h.DeviceManager == nil {
 		return "", false

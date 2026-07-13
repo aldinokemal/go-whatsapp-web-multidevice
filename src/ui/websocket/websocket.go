@@ -7,8 +7,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/websocket/v2"
+	"github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 )
 
 type client struct{}
@@ -78,7 +78,7 @@ func RunHub() {
 }
 
 func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
-	app.Use("/ws", func(c *fiber.Ctx) error {
+	app.Use("/ws", func(c fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 			return c.Next()
 		}

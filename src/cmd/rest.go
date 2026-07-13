@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,11 +19,11 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/dustin/go-humanize"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/basicauth"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/basicauth"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/logger"
+	"github.com/gofiber/fiber/v3/middleware/static"
 	"github.com/gofiber/template/html/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -45,30 +46,27 @@ func restServer(_ *cobra.Command, _ []string) {
 		return token != nil
 	})
 	fiberConfig := fiber.Config{
-		Views:                   engine,
-		EnableTrustedProxyCheck: true,
-		BodyLimit:               int(config.WhatsappSettingMaxVideoSize),
-		Network:                 "tcp",
+		Views:      engine,
+		TrustProxy: true,
+		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
 	}
 
 	// Configure proxy settings if trusted proxies are specified
 	if len(config.AppTrustedProxies) > 0 {
-		fiberConfig.TrustedProxies = config.AppTrustedProxies
+		fiberConfig.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: config.AppTrustedProxies}
 		fiberConfig.ProxyHeader = fiber.HeaderXForwardedHost
 	}
 
 	app := fiber.New(fiberConfig)
 
-	app.Static(config.AppBasePath+"/statics", "./statics")
-	app.Use(config.AppBasePath+"/components", filesystem.New(filesystem.Config{
-		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/components",
-		Browse:     true,
+	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
+	app.Use(config.AppBasePath+"/components", static.New("views/components", static.Config{
+		FS:     EmbedViews,
+		Browse: true,
 	}))
-	app.Use(config.AppBasePath+"/assets", filesystem.New(filesystem.Config{
-		Root:       http.FS(EmbedViews),
-		PathPrefix: "views/assets",
-		Browse:     true,
+	app.Use(config.AppBasePath+"/assets", static.New("views/assets", static.Config{
+		FS:     EmbedViews,
+		Browse: true,
 	}))
 
 	app.Use(middleware.Recovery())
@@ -78,8 +76,8 @@ func restServer(_ *cobra.Command, _ []string) {
 		app.Use(logger.New())
 	}
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept",
+		AllowOrigins: []string{"*"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
 	}))
 
 	// Device manager - needed for chatwoot webhook and health check
@@ -88,7 +86,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Health check endpoint (public, no auth)
 	// Registered at root path (ignoring AppBasePath) to ensure fixed availability
 	// for infrastructure health probes (Kubernetes liveness/readiness, Docker healthcheck, etc.)
-	app.Get("/health", func(c *fiber.Ctx) error {
+	app.Get("/health", func(c fiber.Ctx) error {
 		if dm != nil && dm.IsHealthy() {
 			return c.SendString("OK")
 		}
@@ -125,9 +123,7 @@ func restServer(_ *cobra.Command, _ []string) {
 			account[ba[0]] = ba[1]
 		}
 
-		app.Use(basicauth.New(basicauth.Config{
-			Users: account,
-		}))
+		app.Use(newBasicAuthMiddleware(account))
 	}
 
 	// Create base path group or use app directly
@@ -166,12 +162,12 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
 
-	apiGroup.Get("/", func(c *fiber.Ctx) error {
+	apiGroup.Get("/", func(c fiber.Ctx) error {
 		return c.Render("views/index", fiber.Map{
-			"AppHost":        fmt.Sprintf("%s://%s", c.Protocol(), c.Hostname()),
+			"AppHost":        fmt.Sprintf("%s://%s", c.Scheme(), c.Hostname()),
 			"AppVersion":     config.AppVersion,
 			"AppBasePath":    config.AppBasePath,
-			"BasicAuthToken": c.UserContext().Value(middleware.AuthorizationValue("BASIC_AUTH")),
+			"BasicAuthToken": c.Context().Value(middleware.AuthorizationValue("BASIC_AUTH")),
 			"MaxFileSize":    humanize.Bytes(uint64(config.WhatsappSettingMaxFileSize)),
 			"MaxVideoSize":   humanize.Bytes(uint64(config.WhatsappSettingMaxVideoSize)),
 		})
@@ -194,7 +190,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// the chat storage DB connection.
 	listenErr := make(chan error, 1)
 	go func() {
-		listenErr <- app.Listen(config.AppHost + ":" + config.AppPort)
+		listenErr <- app.Listen(config.AppHost+":"+config.AppPort, fiber.ListenConfig{ListenerNetwork: "tcp"})
 	}()
 
 	sigCh := make(chan os.Signal, 1)
@@ -223,4 +219,17 @@ func restServer(_ *cobra.Command, _ []string) {
 			}
 		}
 	}
+}
+
+func newBasicAuthMiddleware(accounts map[string]string) fiber.Handler {
+	return basicauth.New(basicauth.Config{
+		Authorizer: func(username, password string, _ fiber.Ctx) bool {
+			expectedPassword, ok := accounts[username]
+			if !ok {
+				return false
+			}
+
+			return subtle.ConstantTimeCompare([]byte(password), []byte(expectedPassword)) == 1
+		},
+	})
 }

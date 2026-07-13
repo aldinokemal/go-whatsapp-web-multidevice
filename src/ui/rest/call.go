@@ -4,7 +4,7 @@ import (
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type Call struct {
@@ -17,13 +17,13 @@ func InitRestCall(app fiber.Router, service domainCall.ICallUsecase) Call {
 	return rest
 }
 
-func (controller *Call) RejectCall(c *fiber.Ctx) error {
+func (controller *Call) RejectCall(c fiber.Ctx) error {
 	var request domainCall.RejectCallRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	err = controller.Service.RejectCall(
-		whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)),
+		whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)),
 		request.CallerJID,
 		request.CallID,
 	)
