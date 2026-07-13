@@ -1121,18 +1121,42 @@ func (r *SQLiteRepository) GetChatwootDeviceConfig(deviceID string) (*domainChat
 // user-facing device id or the WhatsApp storage JID, so the forward/link paths
 // (which key on JID) and the REST/reverse paths (which key on device id) both
 // resolve the same client.
+//
+// The two keys are resolved separately: device ids are arbitrary user-supplied
+// strings, so one row's device_id can collide with another row's device_jid
+// (each column is only unique on its own). A single OR query with LIMIT 1
+// would then pick a query-plan-dependent winner and misroute — instead the
+// collision is surfaced as an explicit error so the operator renames the
+// device rather than silently sending through the wrong Chatwoot account.
 func (r *SQLiteRepository) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {
 		return nil, nil
 	}
-	cfg, err := r.scanChatwootDeviceConfig(r.db.QueryRow(
-		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE device_id = ? OR (device_jid <> '' AND device_jid = ?) LIMIT 1",
-		identifier, identifier))
+
+	byID, err := r.scanChatwootDeviceConfig(r.db.QueryRow(
+		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE device_id = ? LIMIT 1", identifier))
 	if err == sql.ErrNoRows {
-		return nil, nil
+		byID = nil
+	} else if err != nil {
+		return nil, err
 	}
-	return cfg, err
+
+	byJID, err := r.scanChatwootDeviceConfig(r.db.QueryRow(
+		"SELECT "+chatwootDeviceConfigColumns+" FROM chatwoot_device_configs WHERE device_jid <> '' AND device_jid = ? LIMIT 1", identifier))
+	if err == sql.ErrNoRows {
+		byJID = nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	if byID != nil && byJID != nil && byID.ID != byJID.ID {
+		return nil, fmt.Errorf("chatwoot device config identifier %q is ambiguous: matches device_id of %q and device_jid of %q; rename one device", identifier, byID.DeviceID, byJID.DeviceID)
+	}
+	if byID != nil {
+		return byID, nil
+	}
+	return byJID, nil
 }
 
 // GetChatwootDeviceConfigByInbox resolves the device config bound to a Chatwoot

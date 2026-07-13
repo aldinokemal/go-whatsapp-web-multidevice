@@ -73,6 +73,47 @@ func TestSQLiteRepositoryChatwootDeviceConfigCRUD(t *testing.T) {
 	}
 }
 
+// One row's device_id can collide with another row's device_jid (each column
+// is only unique on its own). The identifier lookup must surface that as an
+// error instead of picking a query-plan-dependent winner.
+func TestSQLiteRepositoryChatwootDeviceConfigByIdentifierCollision(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	// Device "busine" paired as 628111...; another device was (unwisely) named
+	// with that same JID string as its user-facing id.
+	for _, cfg := range []*domainChatStorage.ChatwootDeviceConfig{
+		{DeviceID: "busine", DeviceJID: "628111111111@s.whatsapp.net", ChatwootURL: "https://a.example.com", AccountID: 1, InboxID: 1, APIToken: "t", Enabled: true},
+		{DeviceID: "628111111111@s.whatsapp.net", ChatwootURL: "https://b.example.com", AccountID: 2, InboxID: 2, APIToken: "t", Enabled: true},
+	} {
+		if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+			t.Fatalf("save %s: %v", cfg.DeviceID, err)
+		}
+	}
+
+	if _, err := repo.GetChatwootDeviceConfigByIdentifier("628111111111@s.whatsapp.net"); err == nil {
+		t.Fatal("colliding identifier must error, not silently pick a config")
+	}
+
+	// The unambiguous identifier still resolves.
+	got, err := repo.GetChatwootDeviceConfigByIdentifier("busine")
+	if err != nil || got == nil || got.DeviceID != "busine" {
+		t.Fatalf("unambiguous lookup = %+v err=%v", got, err)
+	}
+
+	// A row matching by both its own device_id and device_jid is NOT ambiguous.
+	self := &domainChatStorage.ChatwootDeviceConfig{
+		DeviceID: "629000000000@s.whatsapp.net", DeviceJID: "629000000000@s.whatsapp.net",
+		ChatwootURL: "https://c.example.com", AccountID: 3, InboxID: 3, APIToken: "t", Enabled: true,
+	}
+	if err := repo.SaveChatwootDeviceConfig(self); err != nil {
+		t.Fatalf("save self: %v", err)
+	}
+	got, err = repo.GetChatwootDeviceConfigByIdentifier("629000000000@s.whatsapp.net")
+	if err != nil || got == nil || got.ID != self.ID {
+		t.Fatalf("self-matching lookup = %+v err=%v", got, err)
+	}
+}
+
 func TestSQLiteRepositoryChatwootDeviceConfigByInboxAmbiguity(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 

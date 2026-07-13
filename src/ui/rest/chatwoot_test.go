@@ -47,8 +47,17 @@ func (r *chatwootRouteTestRepo) CountChatwootDeviceConfigs() (int, error) {
 	return r.count, nil
 }
 
+// GetLatestChatwootMessageLinkByConversation mirrors the real repo's matching
+// rules (account scope, legacy-zero wildcard, config scope) so a handler that
+// passed the wrong scope would get nil here instead of silently succeeding.
 func (r *chatwootRouteTestRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	if r.link == nil || r.link.ChatwootConversationID != conversationID {
+		return nil, nil
+	}
+	if r.link.ChatwootAccountID != accountID && !(allowLegacyZero && r.link.ChatwootAccountID == 0) {
+		return nil, nil
+	}
+	if configID != 0 && r.link.ChatwootConfigID != configID {
 		return nil, nil
 	}
 	cloned := *r.link
