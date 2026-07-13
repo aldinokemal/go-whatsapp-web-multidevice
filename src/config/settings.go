@@ -122,6 +122,13 @@ var (
 	// webhook requests remain unauthenticated for backward compatibility.
 	ChatwootWebhookSecret = ""
 
+	// ChatwootAllowedHosts optionally restricts which Chatwoot hosts a
+	// per-device config may point at. When non-empty, a config's chatwoot_url
+	// host must match one of these entries (exact, case-insensitive). It hardens
+	// the SSRF surface introduced by operator-supplied per-device URLs in
+	// deployments where authenticated API users are not fully trusted.
+	ChatwootAllowedHosts []string
+
 	// Chatwoot conversation handling. ChatwootReopenConversation reuses (and
 	// reopens) a resolved conversation for a returning contact instead of
 	// opening a new one; ChatwootConversationPending opens freshly-created

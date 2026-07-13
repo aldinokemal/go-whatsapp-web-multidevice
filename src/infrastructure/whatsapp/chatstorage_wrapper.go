@@ -157,8 +157,52 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
-func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID)
+func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero, configID)
+}
+
+func (r *deviceChatStorage) BackfillChatwootMessageLinkAccount(accountID int) (int64, error) {
+	return r.base.BackfillChatwootMessageLinkAccount(accountID)
+}
+
+func (r *deviceChatStorage) CountChatwootMessageLinksByConfig(configID int64) (int, error) {
+	return r.base.CountChatwootMessageLinksByConfig(configID)
+}
+
+func (r *deviceChatStorage) DeleteChatwootMessageLinksByConfig(configID int64) error {
+	return r.base.DeleteChatwootMessageLinksByConfig(configID)
+}
+
+func (r *deviceChatStorage) SaveChatwootDeviceConfig(cfg *domainChatStorage.ChatwootDeviceConfig) error {
+	return r.base.SaveChatwootDeviceConfig(cfg)
+}
+
+func (r *deviceChatStorage) UpdateChatwootDeviceConfigJID(deviceID, deviceJID string) (bool, error) {
+	return r.base.UpdateChatwootDeviceConfigJID(deviceID, deviceJID)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfig(deviceID string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfig(deviceID)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfigByIdentifier(identifier)
+}
+
+func (r *deviceChatStorage) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.GetChatwootDeviceConfigByInbox(accountID, inboxID)
+}
+
+func (r *deviceChatStorage) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.base.ListChatwootDeviceConfigs()
+}
+
+func (r *deviceChatStorage) DeleteChatwootDeviceConfig(deviceID string) error {
+	return r.base.DeleteChatwootDeviceConfig(deviceID)
+}
+
+func (r *deviceChatStorage) CountChatwootDeviceConfigs() (int, error) {
+	return r.base.CountChatwootDeviceConfigs()
 }
 
 func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {

@@ -1,11 +1,36 @@
 package whatsapp
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 )
+
+// TestSyncPayloadToChatwootFailFast verifies the forward path skips silently
+// (no error, no retry) when the device resolves to no Chatwoot config, and
+// propagates a transient resolution error so the caller can retry.
+func TestSyncPayloadToChatwootFailFast(t *testing.T) {
+	orig := getChatwootClientFn
+	t.Cleanup(func() { getChatwootClientFn = orig })
+
+	payload := map[string]any{"payload": map[string]any{"id": "wa-1", "chat_id": "628@s.whatsapp.net"}}
+
+	// No config for this device -> skip, return nil.
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) { return nil, nil }
+	if err := syncPayloadToChatwoot(context.Background(), payload, "message", "dev-unmapped", nil); err != nil {
+		t.Fatalf("unmapped device should skip with nil, got %v", err)
+	}
+
+	// Transient resolution error -> propagate (retryable).
+	wantErr := errors.New("storage down")
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) { return nil, wantErr }
+	if err := syncPayloadToChatwoot(context.Background(), payload, "message", "dev", nil); !errors.Is(err, wantErr) {
+		t.Fatalf("resolution error should propagate, got %v", err)
+	}
+}
 
 func TestChatwootMessageTypeFromPayload(t *testing.T) {
 	tests := []struct {
@@ -58,6 +83,8 @@ func TestBuildChatwootForwardMessageLink(t *testing.T) {
 
 	link := buildChatwootForwardMessageLink(
 		"device-a@s.whatsapp.net",
+		42, // configID
+		3,  // accountID
 		data,
 		chatwoot.MessageOptions{SourceID: "WAID:wa-live-1"},
 		&chatwootSyncResult{MessageID: 123, ConversationID: 456, InboxID: 789},
@@ -74,6 +101,9 @@ func TestBuildChatwootForwardMessageLink(t *testing.T) {
 	}
 	if link.ChatwootMessageID != 123 || link.ChatwootConversationID != 456 || link.ChatwootInboxID != 789 {
 		t.Fatalf("unexpected chatwoot ids: %+v", link)
+	}
+	if link.ChatwootConfigID != 42 || link.ChatwootAccountID != 3 {
+		t.Fatalf("unexpected scope ids: config=%d account=%d", link.ChatwootConfigID, link.ChatwootAccountID)
 	}
 	if link.Direction != "incoming" {
 		t.Fatalf("Direction = %q, want incoming", link.Direction)

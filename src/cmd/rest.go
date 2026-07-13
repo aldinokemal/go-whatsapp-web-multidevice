@@ -100,15 +100,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	// is stateless and shared with the authenticated sync routes registered below.
 	var chatwootHandler *rest.ChatwootHandler
 	if config.ChatwootEnabled {
-		// Auto-provision the Chatwoot inbox (create or reuse) when enabled, so
-		// CHATWOOT_INBOX_ID is resolved before any message is forwarded. Failures
-		// are logged but non-fatal — the operator can still set the inbox manually.
-		if config.ChatwootAutoCreate {
-			if err := chatwoot.EnsureInbox(chatwoot.GetDefaultClient()); err != nil {
-				logrus.Errorf("Chatwoot auto-create failed: %v", err)
-			}
-		}
-		whatsapp.StartChatwootForwardRetryWorker(chatStorageRepo)
+		// Auto-provision the inbox, install the per-device client registry, then
+		// start the retry worker (registry before worker — see initChatwootForwarding).
+		initChatwootForwarding(chatStorageRepo)
 
 		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"
@@ -116,6 +110,9 @@ func restServer(_ *cobra.Command, _ []string) {
 			webhookPath = config.AppBasePath + webhookPath
 		}
 		app.Post(webhookPath, chatwootHandler.HandleWebhook)
+		// Per-device webhook: each device's Chatwoot inbox is configured to POST
+		// here so agent replies route deterministically to the right device.
+		app.Post(webhookPath+"/:device_id", chatwootHandler.HandleDeviceWebhook)
 	}
 
 	if len(config.AppBasicAuthCredential) > 0 {
@@ -158,10 +155,15 @@ func restServer(_ *cobra.Command, _ []string) {
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
 	registerDeviceScopedRoutes(headerDeviceGroup)
 
-	// Chatwoot sync routes - require authentication (webhook is registered earlier without auth)
+	// Chatwoot sync + per-device config routes - require authentication (the
+	// webhooks are registered earlier without auth).
 	if config.ChatwootEnabled {
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
+		apiGroup.Get("/chatwoot/configs", chatwootHandler.ListChatwootConfigs)
+		apiGroup.Get("/devices/:device_id/chatwoot/config", chatwootHandler.GetChatwootConfig)
+		apiGroup.Put("/devices/:device_id/chatwoot/config", chatwootHandler.UpsertChatwootConfig)
+		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
 
 	apiGroup.Get("/", func(c *fiber.Ctx) error {
@@ -210,13 +212,10 @@ func restServer(_ *cobra.Command, _ []string) {
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
 			logrus.Warnf("HTTP server shutdown: %v", err)
 		}
-		// Release the Chatwoot direct-Postgres importer pool if one was
-		// opened. Safe when Chatwoot is disabled or the pool was never
-		// initialized — GetDefaultSyncService() returns nil.
-		if svc := chatwoot.GetDefaultSyncService(); svc != nil {
-			if err := svc.Close(); err != nil {
-				logrus.Warnf("Chatwoot sync close: %v", err)
-			}
+		// Release any Chatwoot direct-Postgres importer pools opened by per-device
+		// sync services. Safe when Chatwoot is disabled or none were initialized.
+		if err := chatwoot.CloseAllSyncServices(); err != nil {
+			logrus.Warnf("Chatwoot sync close: %v", err)
 		}
 		if chatStorageDB != nil {
 			if err := chatStorageDB.Close(); err != nil {

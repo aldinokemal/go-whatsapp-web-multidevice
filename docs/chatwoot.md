@@ -253,6 +253,69 @@ CHATWOOT_DEVICE_ID=my-support-device
 - If `CHATWOOT_DEVICE_ID` is **not set** and **multiple devices** exist, outbound messages will **fail**
 - If the specified device is not found or not connected, outbound messages will fail with a `DEVICE_NOT_AVAILABLE` error
 
+## Per-Device / Multi-Inbox Routing
+
+The `CHATWOOT_*` env vars above configure a **single** Chatwoot destination shared by all
+devices. To route **each WhatsApp device to its own Chatwoot inbox** (and even a different
+Chatwoot account/server per device), configure per-device mappings at runtime via the REST API.
+
+These per-device configs are stored in the `chatwoot_device_configs` table and become the single
+source of truth. The `CHATWOOT_*` env vars are used as a fallback **only while no per-device
+config rows exist** — once you create the first per-device config, every device must have its own
+config or its messages are skipped (fail-fast) rather than misrouted to the env inbox.
+
+### REST API (authenticated)
+
+```bash
+# List all per-device configs (api_token is masked in responses)
+curl http://your-api:3000/chatwoot/configs
+
+# Create/update a device's Chatwoot destination
+curl -X PUT http://your-api:3000/devices/<device_id>/chatwoot/config \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chatwoot_url": "https://app.chatwoot.com",
+    "account_id": 12345,
+    "inbox_id": 67890,
+    "api_token": "device-specific-token",
+    "enabled": true
+  }'
+
+# Read one device's config (api_token masked)
+curl http://your-api:3000/devices/<device_id>/chatwoot/config
+
+# Remove a device's config
+curl -X DELETE http://your-api:3000/devices/<device_id>/chatwoot/config
+```
+
+The PUT response includes a **`webhook_url`** — set this exact URL as the agent-reply webhook on
+that device's Chatwoot inbox (it is `<public-base>/chatwoot/webhook/<device_id>`). This per-device
+webhook path lets agent replies route deterministically back to the right device; it is validated
+against the device's configured account/inbox, so a webhook for one device cannot be delivered
+through another's path.
+
+### Behavior & safety notes
+
+- **api_token** is stored as-is in the local database and is masked (last 4 chars) in all API
+  reads. Treat the GOWA database as a secret store.
+- **`chatwoot_url`** is validated: only `http`/`https`, no embedded credentials, and hosts that
+  resolve to private/loopback/link-local/metadata addresses are rejected (SSRF hardening). Set
+  `CHATWOOT_ALLOWED_HOSTS` to a comma-separated allowlist to restrict it further.
+- Changing a config's **routing identity** (`chatwoot_url`/`account_id`/`inbox_id`) is rejected
+  with `409` once that config has linked conversations — delete and recreate to rebind, so
+  historical conversations are never silently repointed. Rotating `api_token` or toggling
+  `enabled` is always allowed. Deleting a config also deletes its message links: after a
+  rebind, stale links would otherwise keep answering reverse lookups for the old destination.
+- A config may be created **before the device pairs**: its WhatsApp JID is stamped onto the
+  config automatically when the device connects (and re-stamped after a re-pair).
+- **Direct-Postgres history import** (`CHATWOOT_IMPORT_DB_URI`) is driven by one global DSN and is
+  therefore supported **only** in single-config (env) mode. Per-device configs use the REST import
+  path.
+- **Known limitation:** if two *separate* Chatwoot servers happen to share the same `account_id`
+  **and** `inbox_id`, an agent-*initiated* conversation cannot be disambiguated from the webhook
+  payload alone — use the per-device `webhook_url` (above), which is always unambiguous. Replies to
+  existing conversations are always routed correctly.
+
 ## Message History Sync
 
 The history sync feature allows you to import existing WhatsApp message history into Chatwoot. This is useful when you want to have context from past conversations when starting to use Chatwoot.
