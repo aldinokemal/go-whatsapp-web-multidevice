@@ -181,6 +181,51 @@ func TestLoadCacheMissingIsAnError(t *testing.T) {
 	assert.Error(t, manager.LoadCache())
 }
 
+func TestPinnedSHARejectsMismatchedRelease(t *testing.T) {
+	fake := newFakeGithub(t, "v1.0.0", []byte("<html>unaudited build</html>"))
+	manager := newTestManager(t, fake)
+	manager.cfg.PinnedSHA256 = contentSHA([]byte("the build the operator audited"))
+
+	err := manager.EnsureLatest(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pinned sha256")
+	assert.Equal(t, 0, fake.downloads, "mismatched digest must be rejected before downloading")
+
+	_, _, ok := manager.Content()
+	assert.False(t, ok)
+}
+
+func TestPinnedSHAAcceptsMatchingRelease(t *testing.T) {
+	html := []byte("<html>audited build</html>")
+	fake := newFakeGithub(t, "v1.0.0", html)
+	manager := newTestManager(t, fake)
+	manager.cfg.PinnedSHA256 = contentSHA(html)
+
+	require.NoError(t, manager.EnsureLatest(context.Background()))
+
+	served, _, ok := manager.Content()
+	require.True(t, ok)
+	assert.Equal(t, html, served)
+}
+
+func TestPinnedSHARejectsTamperedCache(t *testing.T) {
+	manager := New(Config{
+		Repo:         "aldinokemal/gowa-ui",
+		AssetName:    "gowa-ui.html",
+		CacheDir:     t.TempDir(),
+		PinnedSHA256: contentSHA([]byte("expected build")),
+	})
+	require.NoError(t, os.WriteFile(
+		filepath.Join(manager.cfg.CacheDir, "index.html"), []byte("<html>tampered</html>"), 0o644))
+
+	err := manager.LoadCache()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pinned sha256")
+
+	_, _, ok := manager.Content()
+	assert.False(t, ok)
+}
+
 func TestFallbackHTMLMentionsRepoAndVersion(t *testing.T) {
 	page := string(FallbackHTML("v9.0.0", "aldinokemal/gowa-ui"))
 	assert.Contains(t, page, "v9.0.0")

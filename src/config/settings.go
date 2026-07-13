@@ -26,6 +26,7 @@ var (
 	AppUIAssetName      = "gowa-ui.html"
 	AppUIUpdateInterval = 3 * time.Hour
 	AppUIGithubToken    = "" // optional, raises the GitHub API rate limit
+	AppUIAssetSHA256    = "" // optional supply-chain pin: only serve the asset with this sha256
 
 	McpPort = "8080"
 	McpHost = "localhost"

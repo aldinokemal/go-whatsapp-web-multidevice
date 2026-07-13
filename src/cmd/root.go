@@ -126,6 +126,9 @@ func initEnvConfig() {
 	if envUIToken := viper.GetString("app_ui_github_token"); envUIToken != "" {
 		config.AppUIGithubToken = envUIToken
 	}
+	if envUIPin := viper.GetString("app_ui_asset_sha256"); envUIPin != "" {
+		config.AppUIAssetSHA256 = envUIPin
+	}
 
 	// Database settings
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {
@@ -363,6 +366,12 @@ func initFlags() {
 		"ui-update-interval", "",
 		config.AppUIUpdateInterval,
 		`how often to check for a newer dashboard release --ui-update-interval <duration> | example: --ui-update-interval=3h`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppUIAssetSHA256,
+		"ui-asset-sha256", "",
+		config.AppUIAssetSHA256,
+		`supply-chain pin: only serve the dashboard whose sha256 matches --ui-asset-sha256 <hex> (see the release's .sha256 asset)`,
 	)
 
 	// Database flags

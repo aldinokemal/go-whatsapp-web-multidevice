@@ -79,6 +79,11 @@ func (m *Manager) EnsureLatest(ctx context.Context) error {
 	etag := resp.Header.Get("ETag")
 	remoteSHA := strings.TrimPrefix(asset.Digest, "sha256:")
 
+	if m.cfg.PinnedSHA256 != "" && remoteSHA != "" && !strings.EqualFold(remoteSHA, m.cfg.PinnedSHA256) {
+		return fmt.Errorf("release %s asset digest %s does not match the pinned sha256 %s; refusing to download",
+			rel.TagName, remoteSHA, m.cfg.PinnedSHA256)
+	}
+
 	if current != nil && remoteSHA != "" && remoteSHA == current.sha256 {
 		// Same content; just remember the fresher ETag/tag for future checks.
 		m.current.Store(&cachedAsset{html: current.html, sha256: current.sha256, tag: rel.TagName, etag: etag})
@@ -92,6 +97,10 @@ func (m *Manager) EnsureLatest(ctx context.Context) error {
 	}
 	if remoteSHA != "" && downloadedSHA != remoteSHA {
 		return fmt.Errorf("digest mismatch: release says %s, downloaded %s", remoteSHA, downloadedSHA)
+	}
+	if m.cfg.PinnedSHA256 != "" && !strings.EqualFold(downloadedSHA, m.cfg.PinnedSHA256) {
+		return fmt.Errorf("downloaded asset sha256 %s does not match the pinned sha256 %s; refusing to serve",
+			downloadedSHA, m.cfg.PinnedSHA256)
 	}
 
 	if err = m.persist(html, rel.TagName, downloadedSHA, etag); err != nil {

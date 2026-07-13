@@ -2,8 +2,10 @@ package uiasset
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -29,17 +31,18 @@ func (m *Manager) LoadCache() error {
 		return err
 	}
 
-	asset := cachedAsset{html: html}
+	asset := cachedAsset{html: html, sha256: contentSHA(html)}
 	if metaRaw, metaErr := os.ReadFile(filepath.Join(m.cfg.CacheDir, metaFileName)); metaErr == nil {
 		var meta cacheMeta
 		if json.Unmarshal(metaRaw, &meta) == nil && meta.AssetName == m.cfg.AssetName {
-			asset.sha256 = meta.SHA256
 			asset.tag = meta.Tag
 			asset.etag = meta.ETag
 		}
 	}
-	if asset.sha256 == "" {
-		asset.sha256 = contentSHA(html)
+
+	if m.cfg.PinnedSHA256 != "" && !strings.EqualFold(asset.sha256, m.cfg.PinnedSHA256) {
+		return fmt.Errorf("cached dashboard sha256 %s does not match the pinned sha256 %s; refusing to serve",
+			asset.sha256, m.cfg.PinnedSHA256)
 	}
 
 	m.current.Store(&asset)

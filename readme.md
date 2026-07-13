@@ -706,6 +706,11 @@ startup (and every `APP_UI_UPDATE_INTERVAL`, default 3h), verifies its sha256 di
 | `APP_UI_ASSET_NAME`      | `gowa-ui.html`       | Release asset filename to download                                   |
 | `APP_UI_UPDATE_INTERVAL` | `3h`                 | How often to check `releases/latest`                                 |
 | `APP_UI_GITHUB_TOKEN`    | (empty)              | Optional token to raise the GitHub API rate limit                    |
+| `APP_UI_ASSET_SHA256`    | (empty)              | Supply-chain pin: refuse any dashboard whose sha256 differs          |
+
+Trust model: the release digest proves the download matches what GitHub advertises, not who published it.
+Operators who audit a specific build can pin it with `APP_UI_ASSET_SHA256` (each release ships a `.sha256`
+asset), point `APP_UI_REPO` at their own fork, or pre-seed the cache and disable auto-update entirely.
 
 Air-gapped servers: place a downloaded `gowa-ui.html` at `storages/ui/index.html` and set
 `APP_UI_AUTO_UPDATE=false`. The dashboard can also be self-hosted anywhere static and pointed at this

@@ -26,6 +26,11 @@ type Config struct {
 	GithubToken string
 	// Interval between update checks; jittered by ±10%.
 	Interval time.Duration
+	// PinnedSHA256 optionally pins the exact dashboard build (hex sha256).
+	// The release digest alone proves the download matches what GitHub
+	// advertises, not that the publisher is trustworthy; the pin is an
+	// operator-controlled trust anchor independent of the release metadata.
+	PinnedSHA256 string
 }
 
 type cachedAsset struct {

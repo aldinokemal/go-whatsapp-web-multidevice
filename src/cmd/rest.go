@@ -220,11 +220,12 @@ func registerUIRoute(apiGroup fiber.Router, ctx context.Context) {
 	}
 
 	uiManager := uiasset.New(uiasset.Config{
-		Repo:        config.AppUIRepo,
-		AssetName:   config.AppUIAssetName,
-		CacheDir:    config.PathUICache,
-		GithubToken: config.AppUIGithubToken,
-		Interval:    config.AppUIUpdateInterval,
+		Repo:         config.AppUIRepo,
+		AssetName:    config.AppUIAssetName,
+		CacheDir:     config.PathUICache,
+		GithubToken:  config.AppUIGithubToken,
+		Interval:     config.AppUIUpdateInterval,
+		PinnedSHA256: config.AppUIAssetSHA256,
 	})
 	if err := uiManager.LoadCache(); err != nil {
 		logrus.Infof("[UI_ASSET] no cached dashboard yet: %v", err)
