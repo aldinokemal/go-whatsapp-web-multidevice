@@ -1,6 +1,8 @@
 package uiasset
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +12,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+func contentSHA(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 const (
 	cacheFileName = "index.html"

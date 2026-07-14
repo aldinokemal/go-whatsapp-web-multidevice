@@ -257,8 +257,12 @@ func registerUIRoute(apiGroup fiber.Router, ctx context.Context) {
 }
 
 func newCORSMiddleware() fiber.Handler {
+	origins := []string{"*"}
+	if len(config.AppCORSAllowedOrigins) > 0 {
+		origins = config.AppCORSAllowedOrigins
+	}
 	return cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
+		AllowOrigins: origins,
 		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", middleware.DeviceIDHeader},
 	})

@@ -102,6 +102,9 @@ func initEnvConfig() {
 		proxies := strings.Split(envTrustedProxies, ",")
 		config.AppTrustedProxies = proxies
 	}
+	if envCORSOrigins := viper.GetString("app_cors_allowed_origins"); envCORSOrigins != "" {
+		config.AppCORSAllowedOrigins = strings.Split(envCORSOrigins, ",")
+	}
 
 	// Web UI settings. Guard on GetString != "" rather than viper.IsSet:
 	// IsSet does not consult AutomaticEnv, so plain environment variables
@@ -334,6 +337,12 @@ func initFlags() {
 		"trusted-proxies", "",
 		config.AppTrustedProxies,
 		`trusted proxy IP ranges for reverse proxy deployments --trusted-proxies <string> | example: --trusted-proxies="0.0.0.0/0" or --trusted-proxies="10.0.0.0/8,172.16.0.0/12"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.AppCORSAllowedOrigins,
+		"cors-allowed-origins", "",
+		config.AppCORSAllowedOrigins,
+		`allowed CORS origins, any origin when empty --cors-allowed-origins <string> | example: --cors-allowed-origins="https://ui.example.com,https://ops.example.com"`,
 	)
 
 	// Web UI flags

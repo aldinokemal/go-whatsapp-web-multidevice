@@ -2237,6 +2237,16 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		return fmt.Errorf("failed to store message: %w", err)
 	}
 
+	// The individual writes cannot honor the context (database/sql Exec;
+	// busy_timeout bounds each statement), so enforce the deadline here: once
+	// it has passed, skip the chat bump. Losing it is invisible — the next
+	// stored message repairs it — while the message row above is already safe.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 

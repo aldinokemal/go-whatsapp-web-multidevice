@@ -1,15 +1,8 @@
 package uiasset
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 )
-
-func contentSHA(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
 
 // FallbackHTML is served at "/" until a dashboard download succeeds.
 func FallbackHTML(version, repo string) []byte {
