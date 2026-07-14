@@ -2511,7 +2511,7 @@ paths:
           schema:
             type: string
           required: true
-          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
           example: '6289685028129@s.whatsapp.net'
       requestBody:
         content:
@@ -2571,7 +2571,7 @@ paths:
           schema:
             type: string
           required: true
-          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
           example: '6289685028129@s.whatsapp.net'
       requestBody:
         content:
@@ -2619,7 +2619,7 @@ paths:
           schema:
             type: string
           required: true
-          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group)
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
           example: '6289685028129@s.whatsapp.net'
       requestBody:
         content:
