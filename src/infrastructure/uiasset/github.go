@@ -16,6 +16,11 @@ import (
 // githubAPIBase is a variable so tests can point it at a local server.
 var githubAPIBase = "https://api.github.com"
 
+// maxAssetBytes bounds the release download so a hostile or misconfigured
+// release cannot exhaust memory: the dashboard is a single HTML file (~1 MB),
+// so 64 MiB is generous headroom. A variable so tests can lower it.
+var maxAssetBytes int64 = 64 << 20
+
 type releaseAsset struct {
 	Name               string `json:"name"`
 	Digest             string `json:"digest"` // "sha256:<hex>", may be empty
@@ -131,9 +136,14 @@ func (m *Manager) download(ctx context.Context, url string) ([]byte, string, err
 	}
 
 	hasher := sha256.New()
-	body, err := io.ReadAll(io.TeeReader(resp.Body, hasher))
+	// Read one byte past the limit so truncation is detected as an explicit
+	// error instead of a silently short (and wrongly hashed) asset.
+	body, err := io.ReadAll(io.LimitReader(io.TeeReader(resp.Body, hasher), maxAssetBytes+1))
 	if err != nil {
 		return nil, "", err
+	}
+	if int64(len(body)) > maxAssetBytes {
+		return nil, "", fmt.Errorf("asset exceeds the %d MiB download limit; refusing", maxAssetBytes>>20)
 	}
 	return body, hex.EncodeToString(hasher.Sum(nil)), nil
 }

@@ -226,6 +226,24 @@ func TestPinnedSHARejectsTamperedCache(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestEnsureLatestRejectsOversizedAsset(t *testing.T) {
+	previous := maxAssetBytes
+	maxAssetBytes = 16
+	t.Cleanup(func() { maxAssetBytes = previous })
+
+	fake := newFakeGithub(t, "v1.0.0", []byte("<html>this asset is larger than the limit</html>"))
+	manager := newTestManager(t, fake)
+
+	err := manager.EnsureLatest(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "download limit")
+
+	_, _, ok := manager.Content()
+	assert.False(t, ok, "oversized asset must not be served")
+	_, statErr := os.Stat(filepath.Join(manager.cfg.CacheDir, "index.html"))
+	assert.True(t, os.IsNotExist(statErr), "oversized asset must not be cached")
+}
+
 func TestFallbackHTMLMentionsRepoAndVersion(t *testing.T) {
 	page := string(FallbackHTML("v9.0.0", "aldinokemal/gowa-ui"))
 	assert.Contains(t, page, "v9.0.0")

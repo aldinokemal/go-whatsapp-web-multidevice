@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -69,7 +71,9 @@ func (m *Manager) persistMeta(tag, sha, etag string) {
 		DownloadedAt: time.Now().UTC(),
 	}
 	if raw, err := json.MarshalIndent(meta, "", "  "); err == nil {
-		_ = atomicWrite(filepath.Join(m.cfg.CacheDir, metaFileName), raw)
+		if writeErr := atomicWrite(filepath.Join(m.cfg.CacheDir, metaFileName), raw); writeErr != nil {
+			logrus.Warnf("[UI_ASSET] cache metadata write failed (ETag/tag lost on restart): %v", writeErr)
+		}
 	}
 }
 
