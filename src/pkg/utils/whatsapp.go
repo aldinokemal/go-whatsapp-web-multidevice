@@ -969,6 +969,24 @@ func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, erro
 	return parsedJID, nil
 }
 
+// GetGroupInfoWithRetry calls client.GetGroupInfo and retries once if the
+// websocket was disconnected mid-query (whatsmeow auto-reconnects within ~1s).
+func GetGroupInfoWithRetry(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+	info, err := client.GetGroupInfo(ctx, jid)
+	if err == nil {
+		return info, nil
+	}
+	if client.IsConnected() {
+		return info, err
+	}
+	logrus.Debugf("GetGroupInfo failed and client disconnected, waiting for auto-reconnect: %v", err)
+	time.Sleep(2 * time.Second)
+	if !client.IsConnected() {
+		return nil, fmt.Errorf("client still disconnected after retry wait: %w", err)
+	}
+	return client.GetGroupInfo(ctx, jid)
+}
+
 // MustLogin ensures the WhatsApp client is logged in
 func MustLogin(client *whatsmeow.Client) {
 	if client == nil {
