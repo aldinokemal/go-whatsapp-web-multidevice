@@ -1,6 +1,9 @@
 package rest
 
 import (
+	"net/url"
+	"strings"
+
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -52,7 +55,11 @@ func (controller *Chat) GetChatMessages(c fiber.Ctx) error {
 	var request domainChat.GetChatMessagesRequest
 
 	// Parse path parameter
-	request.ChatJID = c.Params("chat_jid")
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return err
+	}
+	request.ChatJID = chatJID
 
 	// Parse query parameters
 	request.Limit = fiber.Query[int](c, "limit", 50)
@@ -89,7 +96,11 @@ func (controller *Chat) PinChat(c fiber.Ctx) error {
 	var request domainChat.PinChatRequest
 
 	// Parse path parameter
-	request.ChatJID = c.Params("chat_jid")
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return err
+	}
+	request.ChatJID = chatJID
 
 	// Parse JSON body
 	if err := c.Bind().Body(&request); err != nil {
@@ -116,7 +127,11 @@ func (controller *Chat) SetDisappearingTimer(c fiber.Ctx) error {
 	var request domainChat.SetDisappearingTimerRequest
 
 	// Parse path parameter
-	request.ChatJID = c.Params("chat_jid")
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return err
+	}
+	request.ChatJID = chatJID
 
 	// Parse JSON body
 	if err := c.Bind().Body(&request); err != nil {
@@ -143,7 +158,11 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 	var request domainChat.ArchiveChatRequest
 
 	// Parse path parameter
-	request.ChatJID = c.Params("chat_jid")
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return err
+	}
+	request.ChatJID = chatJID
 
 	// Parse JSON body
 	if err := c.Bind().Body(&request); err != nil {
@@ -164,4 +183,16 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 		Message: response.Message,
 		Results: response,
 	})
+}
+
+// chatJIDParam returns the chat_jid path parameter with percent-encoding
+// decoded. Fiber does not unescape path params, so URL-encoding clients send
+// "...%40g.us" which would miss every chat-storage lookup. strings.Clone
+// detaches the no-escapes passthrough from fiber's reusable param buffer.
+func chatJIDParam(c fiber.Ctx) (string, error) {
+	decoded, err := url.PathUnescape(c.Params("chat_jid"))
+	if err != nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "invalid chat_jid path parameter: "+err.Error())
+	}
+	return strings.Clone(decoded), nil
 }
