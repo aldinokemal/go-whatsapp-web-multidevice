@@ -47,16 +47,39 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 		return response, err
 	}
 
+	// In group chats, whatsmeow requires the read receipt's "participant" to be
+	// the ORIGINAL AUTHOR of the message, not our own device JID — passing our
+	// own JID makes the server register a self-receipt no-op (no blue ticks for
+	// the actual sender). Resolve the true sender from chat storage, same
+	// pattern as ReactMessage/RevokeMessage. Falls back to the current device
+	// JID (correct for DMs, and for storage misses) when no usable sender JID
+	// can be resolved.
+	senderJID := *client.Store.ID
+	senderSource := "self-fallback"
+	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if lookupErr != nil {
+		logrus.Warnf("Failed to lookup message %s for mark-as-read: %v, using self-fallback", request.MessageID, lookupErr)
+	} else if message != nil && !message.IsFromMe && message.Sender != "" {
+		parsed, parseErr := utils.ParseJID(message.Sender)
+		if parseErr != nil {
+			logrus.Warnf("Failed to parse sender JID '%s' for mark-as-read: %v, using self-fallback", message.Sender, parseErr)
+		} else {
+			senderJID = parsed
+			senderSource = "storage"
+		}
+	}
+
 	ids := []types.MessageID{request.MessageID}
-	if err = client.MarkRead(ctx, ids, time.Now(), dataWaRecipient, *client.Store.ID); err != nil {
+	if err = client.MarkRead(ctx, ids, time.Now(), dataWaRecipient, senderJID); err != nil {
 		return response, err
 	}
 
 	logrus.Info(map[string]any{
-		"phone":      request.Phone,
-		"message_id": request.MessageID,
-		"chat":       dataWaRecipient.String(),
-		"sender":     client.Store.ID.String(),
+		"phone":         request.Phone,
+		"message_id":    request.MessageID,
+		"chat":          dataWaRecipient.String(),
+		"sender":        senderJID.String(),
+		"sender_source": senderSource,
 	})
 
 	response.MessageID = request.MessageID
