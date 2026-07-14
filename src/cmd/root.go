@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
 	"os"
 	"strings"
@@ -35,9 +34,6 @@ import (
 )
 
 var (
-	EmbedIndex embed.FS
-	EmbedViews embed.FS
-
 	// Whatsapp
 	whatsappCli *whatsmeow.Client
 
@@ -105,6 +101,36 @@ func initEnvConfig() {
 	if envTrustedProxies := viper.GetString("app_trusted_proxies"); envTrustedProxies != "" {
 		proxies := strings.Split(envTrustedProxies, ",")
 		config.AppTrustedProxies = proxies
+	}
+	if envCORSOrigins := viper.GetString("app_cors_allowed_origins"); envCORSOrigins != "" {
+		config.AppCORSAllowedOrigins = strings.Split(envCORSOrigins, ",")
+	}
+
+	// Web UI settings. Guard on GetString != "" rather than viper.IsSet:
+	// IsSet does not consult AutomaticEnv, so plain environment variables
+	// (e.g. in Docker) would be ignored for bool/duration keys.
+	if viper.GetString("app_ui_enabled") != "" {
+		config.AppUIEnabled = viper.GetBool("app_ui_enabled")
+	}
+	if viper.GetString("app_ui_auto_update") != "" {
+		config.AppUIAutoUpdate = viper.GetBool("app_ui_auto_update")
+	}
+	if envUIRepo := viper.GetString("app_ui_repo"); envUIRepo != "" {
+		config.AppUIRepo = envUIRepo
+	}
+	if envUIAsset := viper.GetString("app_ui_asset_name"); envUIAsset != "" {
+		config.AppUIAssetName = envUIAsset
+	}
+	if viper.GetString("app_ui_update_interval") != "" {
+		if interval := viper.GetDuration("app_ui_update_interval"); interval > 0 {
+			config.AppUIUpdateInterval = interval
+		}
+	}
+	if envUIToken := viper.GetString("app_ui_github_token"); envUIToken != "" {
+		config.AppUIGithubToken = envUIToken
+	}
+	if envUIPin := viper.GetString("app_ui_asset_sha256"); envUIPin != "" {
+		config.AppUIAssetSHA256 = envUIPin
 	}
 
 	// Database settings
@@ -311,6 +337,50 @@ func initFlags() {
 		"trusted-proxies", "",
 		config.AppTrustedProxies,
 		`trusted proxy IP ranges for reverse proxy deployments --trusted-proxies <string> | example: --trusted-proxies="0.0.0.0/0" or --trusted-proxies="10.0.0.0/8,172.16.0.0/12"`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.AppCORSAllowedOrigins,
+		"cors-allowed-origins", "",
+		config.AppCORSAllowedOrigins,
+		`allowed CORS origins, any origin when empty --cors-allowed-origins <string> | example: --cors-allowed-origins="https://ui.example.com,https://ops.example.com"`,
+	)
+
+	// Web UI flags
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.AppUIEnabled,
+		"ui-enabled", "",
+		config.AppUIEnabled,
+		`serve the gowa-ui dashboard at "/" --ui-enabled <bool>`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.AppUIAutoUpdate,
+		"ui-auto-update", "",
+		config.AppUIAutoUpdate,
+		`download the latest gowa-ui release at startup and periodically --ui-auto-update <bool> | disable for air-gapped deployments with a pre-seeded storages/ui cache`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppUIRepo,
+		"ui-repo", "",
+		config.AppUIRepo,
+		`GitHub repository the dashboard is downloaded from --ui-repo <string> | example: --ui-repo="aldinokemal/gowa-ui"`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppUIAssetName,
+		"ui-asset-name", "",
+		config.AppUIAssetName,
+		`release asset name to download --ui-asset-name <string>`,
+	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.AppUIUpdateInterval,
+		"ui-update-interval", "",
+		config.AppUIUpdateInterval,
+		`how often to check for a newer dashboard release --ui-update-interval <duration> | example: --ui-update-interval=3h`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppUIAssetSHA256,
+		"ui-asset-sha256", "",
+		config.AppUIAssetSHA256,
+		`supply-chain pin: only serve the dashboard whose sha256 matches --ui-asset-sha256 <hex> (see the release's .sha256 asset)`,
 	)
 
 	// Database flags
@@ -580,7 +650,7 @@ func initApp() {
 	}
 
 	//preparing folder if not exist
-	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia)
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia, config.PathUICache)
 	if err != nil {
 		logrus.Errorln(err)
 	}
@@ -623,9 +693,7 @@ func initApp() {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-func Execute(embedIndex embed.FS, embedViews embed.FS) {
-	EmbedIndex = embedIndex
-	EmbedViews = embedViews
+func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

@@ -16,6 +16,18 @@ var (
 	AppBasicAuthCredential []string
 	AppBasePath            = ""
 	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
+	AppCORSAllowedOrigins  []string // CORS allowed origins; empty means "*" (any origin)
+
+	// Web UI (gowa-ui) runtime download settings. The dashboard is a separate
+	// project released as a single HTML file; gowa fetches the latest release
+	// asset and serves it at "/".
+	AppUIEnabled        = true
+	AppUIAutoUpdate     = true
+	AppUIRepo           = "aldinokemal/gowa-ui"
+	AppUIAssetName      = "gowa-ui.html"
+	AppUIUpdateInterval = 3 * time.Hour
+	AppUIGithubToken    = "" // optional, raises the GitHub API rate limit
+	AppUIAssetSHA256    = "" // optional supply-chain pin: only serve the asset with this sha256
 
 	McpPort = "8080"
 	McpHost = "localhost"
@@ -24,6 +36,7 @@ var (
 	PathSendItems = "statics/senditems"
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
+	PathUICache   = "storages/ui"
 
 	DBURI     = "file:storages/whatsapp.db"
 	DBKeysURI = ""

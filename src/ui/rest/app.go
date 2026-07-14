@@ -30,6 +30,29 @@ func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 	return App{Service: service}
 }
 
+// InitRestAppInfo registers /app/info outside the device-scoped group so
+// standalone UIs can read server metadata before any device exists.
+func InitRestAppInfo(app fiber.Router) {
+	app.Get("/app/info", AppInfo)
+}
+
+func AppInfo(c fiber.Ctx) error {
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Fetch app info success",
+		Results: map[string]any{
+			"version":          config.AppVersion,
+			"os":               config.AppOs,
+			"base_path":        config.AppBasePath,
+			"max_file_size":    config.WhatsappSettingMaxFileSize,
+			"max_video_size":   config.WhatsappSettingMaxVideoSize,
+			"max_image_size":   config.WhatsappSettingMaxImageSize,
+			"chatwoot_enabled": config.ChatwootEnabled,
+		},
+	})
+}
+
 func (handler *App) Login(c fiber.Ctx) error {
 	device, err := getDeviceInstance(c)
 	if err != nil {

@@ -2203,15 +2203,52 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	normalizedJID := whatsapp.NormalizeJIDFromLID(ctx, jid, client)
 	chatJID := normalizedJID.String()
 
-	// Get chat name (no pushname available for sent messages) - device scoped
-	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
+	// Extract media info from the protobuf message if available
+	var mediaType, filename, mediaURL, directPath string
+	var mediaKey, fileSHA256, fileEncSHA256 []byte
+	var fileLength uint64
+	if msg != nil {
+		mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
+	}
 
-	// Check context again before database operations
+	// Store the message BEFORE the chat row. The reverse order left a visible
+	// inconsistency when the context deadline expired between the two writes:
+	// the chat surfaced with a fresh last_message_time while the message
+	// itself was missing. Losing only the chat bump is invisible instead —
+	// the next stored message repairs it.
+	message := &domainChatStorage.Message{
+		ID:            messageID,
+		ChatJID:       chatJID,
+		DeviceID:      deviceID,
+		Sender:        senderJID,
+		Content:       content,
+		Timestamp:     timestamp,
+		IsFromMe:      true,
+		MediaType:     mediaType,
+		Filename:      filename,
+		URL:           mediaURL,
+		DirectPath:    directPath,
+		MediaKey:      mediaKey,
+		FileSHA256:    fileSHA256,
+		FileEncSHA256: fileEncSHA256,
+		FileLength:    fileLength,
+	}
+	if err := r.StoreMessage(message); err != nil {
+		return fmt.Errorf("failed to store message: %w", err)
+	}
+
+	// The individual writes cannot honor the context (database/sql Exec;
+	// busy_timeout bounds each statement), so enforce the deadline here: once
+	// it has passed, skip the chat bump. Losing it is invisible — the next
+	// stored message repairs it — while the message row above is already safe.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
+
+	// Get chat name (no pushname available for sent messages) - device scoped
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
 
 	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -2236,41 +2273,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		return fmt.Errorf("failed to store chat: %w", err)
 	}
 
-	// Check context one more time before storing message
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	// Extract media info from the protobuf message if available
-	var mediaType, filename, mediaURL, directPath string
-	var mediaKey, fileSHA256, fileEncSHA256 []byte
-	var fileLength uint64
-	if msg != nil {
-		mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength = utils.ExtractMediaInfo(msg)
-	}
-
-	// Store the sent message
-	message := &domainChatStorage.Message{
-		ID:            messageID,
-		ChatJID:       chatJID,
-		DeviceID:      deviceID,
-		Sender:        senderJID,
-		Content:       content,
-		Timestamp:     timestamp,
-		IsFromMe:      true,
-		MediaType:     mediaType,
-		Filename:      filename,
-		URL:           mediaURL,
-		DirectPath:    directPath,
-		MediaKey:      mediaKey,
-		FileSHA256:    fileSHA256,
-		FileEncSHA256: fileEncSHA256,
-		FileLength:    fileLength,
-	}
-
-	return r.StoreMessage(message)
+	return nil
 }
 
 // _____________________________________________________________________________________________________________________

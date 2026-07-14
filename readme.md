@@ -2,7 +2,7 @@
 <!-- markdownlint-disable-next-line MD033 -->
 <div align="center">
   <!-- markdownlint-disable-next-line MD033 -->
-  <img src="src/views/assets/gowa.svg" alt="GoWA Logo" width="200" height="200">
+  <img src="gallery/gowa.svg" alt="GoWA Logo" width="200" height="200">
 
 ## Golang WhatsApp - Built with Go for efficient memory use
 
@@ -49,6 +49,11 @@ Download:
     - `device_id` query parameter
     - If only one device is registered, it will be used as the default
   - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
+  - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
+      (e.g. [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
+      `GET /app/info` exposes version and media size limits. Since browsers cannot set headers on WebSocket
+      connections, pass `/ws?device_id=<id>&authorization=<base64(user:pass)>` when basic auth is enabled
+      (use TLS — the credential is visible in the URL)
   - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
       device received the event:
 
@@ -218,6 +223,7 @@ To use environment variables:
 | `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
+| `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty)                  | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
 | `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db`                  | `DB_URI=postgres://user:pass@host/db`         |
 | `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
 | `CHAT_STORAGE_MAX_OPEN_CONNS`           | Max concurrent SQLite connections for chat storage            | `5`                                          | `CHAT_STORAGE_MAX_OPEN_CONNS=10`              |
@@ -600,6 +606,7 @@ You can fork or edit this source code !
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |
 | ✅       | Connection Status                      | GET    | /app/status                         |
+| ✅       | App Info (version, limits)             | GET    | /app/info                           |
 | ✅       | User Info                              | GET    | /user/info                          |
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
 | ✅       | User Change Avatar                     | POST   | /user/avatar                        |
@@ -685,32 +692,31 @@ You can fork or edit this source code !
 - Successfully setup MCP
   ![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
 
-### HTTP REST API UI
+### Web dashboard (gowa-ui)
 
-| Description          | Image                                                         |
-|----------------------|---------------------------------------------------------------|
-| Homepage             | ![Homepage](./gallery/homepage.png?v=1)                       |
-| Login                | ![Login](./gallery/login.png)                                 |
-| Login With Code      | ![Login With Code](./gallery/login-with-code.png)             |
-| Send Message         | ![Send Message](./gallery/send-message.png)                   |
-| Send Image           | ![Send Image](./gallery/send-image.png)                       |
-| Send File            | ![Send File](./gallery/send-file.png)                         |
-| Send Video           | ![Send Video](./gallery/send-video.png)                       |
-| Send Sticker         | ![Send Sticker](./gallery/send-sticker.png)                   |
-| Send Contact         | ![Send Contact](./gallery/send-contact.png)                   |
-| Send Location        | ![Send Location](./gallery/send-location.png)                 |
-| Send Audio           | ![Send Audio](./gallery/send-audio.png)                       |
-| Send Poll            | ![Send Poll](./gallery/send-poll.png)                         |
-| Send Presence        | ![Send Presence](./gallery/send-presence.png)                 |
-| Send Link            | ![Send Link](./gallery/send-link.png)                         |
-| My Group             | ![My Group](./gallery/group-list.png)                         |
-| Group Info From Link | ![Group Info From Link](./gallery/group-info-from-link.png)   |
-| Create Group         | ![Create Group](./gallery/group-create.png)                   |
-| Join Group with Link | ![Join Group with Link](./gallery/group-join-link.png)        |
-| Manage Participant   | ![Manage Participant](./gallery/group-manage-participant.png) |
-| My Newsletter        | ![My Newsletter](./gallery/newsletter-list.png)               |
-| My Contacts          | ![My Contacts](./gallery/contact-list.png)                    |
-| Business Profile     | ![Business Profile](./gallery/business-profile.png)           |
+The dashboard lives in its own repository: [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui). Each
+gowa-ui release publishes a single self-contained `gowa-ui.html`; the server downloads the latest release at
+startup (and every `APP_UI_UPDATE_INTERVAL`, default 3h), verifies its sha256 digest, caches it under
+`storages/ui/`, and serves it at `/` behind basic auth.
+
+| Setting                  | Default              | Purpose                                                             |
+|--------------------------|----------------------|---------------------------------------------------------------------|
+| `APP_UI_ENABLED`         | `true`               | Serve the dashboard at `/`; `false` returns a JSON banner (API-only) |
+| `APP_UI_AUTO_UPDATE`     | `true`               | Download/refresh from GitHub; disable for air-gapped deployments     |
+| `APP_UI_REPO`            | `aldinokemal/gowa-ui`| Repository the updater follows — always its latest release, not a version pin |
+| `APP_UI_ASSET_NAME`      | `gowa-ui.html`       | Release asset filename to download                                   |
+| `APP_UI_UPDATE_INTERVAL` | `3h`                 | How often to check `releases/latest`                                 |
+| `APP_UI_GITHUB_TOKEN`    | (empty)              | Optional token to raise the GitHub API rate limit                    |
+| `APP_UI_ASSET_SHA256`    | (empty)              | Supply-chain pin: refuse any dashboard whose sha256 differs          |
+
+Trust model: the release digest proves the download matches what GitHub advertises, not who published it.
+Operators who audit a specific build can pin it with `APP_UI_ASSET_SHA256` (each release ships a `.sha256`
+asset — this is the only setting that pins an exact build), point `APP_UI_REPO` at a fork they control
+(the updater still tracks that repo's latest release), or pre-seed the cache and disable auto-update entirely.
+
+Air-gapped servers: place a downloaded `gowa-ui.html` at `storages/ui/index.html` and set
+`APP_UI_AUTO_UPDATE=false`. The dashboard can also be self-hosted anywhere static and pointed at this
+server's URL (see the gowa-ui readme).
 
 ### Mac OS NOTE
 
