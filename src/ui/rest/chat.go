@@ -57,7 +57,12 @@ func (controller *Chat) GetChatMessages(c fiber.Ctx) error {
 	// Parse path parameter
 	chatJID, err := chatJIDParam(c)
 	if err != nil {
-		return err
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
 	}
 	request.ChatJID = chatJID
 
@@ -98,7 +103,12 @@ func (controller *Chat) PinChat(c fiber.Ctx) error {
 	// Parse path parameter
 	chatJID, err := chatJIDParam(c)
 	if err != nil {
-		return err
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
 	}
 	request.ChatJID = chatJID
 
@@ -129,7 +139,12 @@ func (controller *Chat) SetDisappearingTimer(c fiber.Ctx) error {
 	// Parse path parameter
 	chatJID, err := chatJIDParam(c)
 	if err != nil {
-		return err
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
 	}
 	request.ChatJID = chatJID
 
@@ -160,7 +175,12 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 	// Parse path parameter
 	chatJID, err := chatJIDParam(c)
 	if err != nil {
-		return err
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
 	}
 	request.ChatJID = chatJID
 
@@ -192,7 +212,7 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 func chatJIDParam(c fiber.Ctx) (string, error) {
 	decoded, err := url.PathUnescape(c.Params("chat_jid"))
 	if err != nil {
-		return "", fiber.NewError(fiber.StatusBadRequest, "invalid chat_jid path parameter: "+err.Error())
+		return "", err
 	}
 	return strings.Clone(decoded), nil
 }

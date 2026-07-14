@@ -1,9 +1,12 @@
 package rest
 
 import (
+	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -52,10 +55,10 @@ func TestChatJIDParamDecodesPercentEncoding(t *testing.T) {
 
 func TestChatJIDParamRejectsMalformedEscape(t *testing.T) {
 	app := fiber.New()
-	app.Get("/chat/:chat_jid/messages", func(c fiber.Ctx) error {
-		_, err := chatJIDParam(c)
-		return err
-	})
+	// The decode error path responds before the service is touched, so a
+	// zero-value controller is enough to exercise the real handler.
+	controller := &Chat{}
+	app.Get("/chat/:chat_jid/messages", controller.GetChatMessages)
 
 	req := httptest.NewRequest("GET", "/chat/placeholder/messages", nil)
 	// httptest.NewRequest rejects invalid escapes up front, so smuggle the
@@ -65,4 +68,11 @@ func TestChatJIDParamRejectsMalformedEscape(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	var envelope utils.ResponseData
+	require.NoError(t, json.Unmarshal(body, &envelope), "error must be the JSON envelope, got: %s", body)
+	require.Equal(t, "BAD_REQUEST", envelope.Code)
+	require.Contains(t, envelope.Message, "invalid chat_jid path parameter")
 }
