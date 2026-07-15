@@ -307,7 +307,7 @@ func (service serviceUser) MyListContacts(ctx context.Context) (response domainU
 	for jid, contact := range contacts {
 		response.Data = append(response.Data, domainUser.MyListContactsResponseData{
 			JID:  jid,
-			Name: contact.FullName,
+			Name: contactInfoDisplayName(contact),
 		})
 	}
 
