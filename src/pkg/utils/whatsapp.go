@@ -980,7 +980,13 @@ func GetGroupInfoWithRetry(ctx context.Context, client *whatsmeow.Client, jid ty
 		return info, err
 	}
 	logrus.Debugf("GetGroupInfo failed and client disconnected, waiting for auto-reconnect: %v", err)
-	time.Sleep(2 * time.Second)
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	if !client.IsConnected() {
 		return nil, fmt.Errorf("client still disconnected after retry wait: %w", err)
 	}
