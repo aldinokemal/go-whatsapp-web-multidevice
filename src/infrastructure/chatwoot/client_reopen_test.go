@@ -10,8 +10,8 @@ import (
 )
 
 // reopenCounters tallies the calls FindOrCreateConversation makes against the
-// fake Chatwoot server so each case can assert exactly which paths ran. Both
-// FindConversation and FindLatestConversation hit the same GET endpoint, so we
+// fake Chatwoot server so each case can assert exactly which paths ran. Listing
+// conversations hits the same GET endpoint for open and latest selection, so we
 // only distinguish create POSTs from toggle POSTs (the behaviorally meaningful
 // branches).
 type reopenCounters struct {
@@ -21,7 +21,7 @@ type reopenCounters struct {
 }
 
 // reopenServer builds an httptest server that serves the contact's
-// conversation list (for both Find and FindLatest), a toggle_status endpoint,
+// conversation list (for open and latest selection), a toggle_status endpoint,
 // and a conversation-create endpoint, recording calls into the returned
 // counters. listPayload is the conversation list returned by the GET; toggleOK
 // controls whether toggle_status succeeds.
@@ -55,9 +55,9 @@ func reopenServer(t *testing.T, listPayload []map[string]any, toggleOK bool, cre
 }
 
 func TestFindOrCreateConversation_ReopenReturnsOpenWithoutReopening(t *testing.T) {
-	// (a) When FindConversation finds an OPEN conversation, it is returned
-	// immediately: no FindLatest, no create, no toggle — even with reopen
-	// enabled. There is nothing to resurrect.
+	// (a) When an OPEN conversation exists, it is returned immediately: no
+	// create, no toggle — even with reopen enabled. There is nothing to
+	// resurrect.
 	origReopen := config.ChatwootReopenConversation
 	config.ChatwootReopenConversation = true
 	defer func() { config.ChatwootReopenConversation = origReopen }()
@@ -85,8 +85,8 @@ func TestFindOrCreateConversation_ReopenReturnsOpenWithoutReopening(t *testing.T
 
 func TestFindOrCreateConversation_ReopenResolvedTogglesOpen(t *testing.T) {
 	// (b) No OPEN conversation, but a RESOLVED one exists and reopen=true:
-	// FindLatestConversation returns the resolved conv, ToggleConversationStatus
-	// is called with "open", and the returned conv carries the UPDATED status.
+	// the latest conversation is selected, ToggleConversationStatus is called
+	// with "open", and the returned conv carries the UPDATED status.
 	// No new conversation is created.
 	origReopen := config.ChatwootReopenConversation
 	origPending := config.ChatwootConversationPending
@@ -160,7 +160,7 @@ func TestFindOrCreateConversation_ReopenResolvedTogglesPendingWhenConfigured(t *
 
 func TestFindOrCreateConversation_ReopenNoConversationFallsThroughToCreate(t *testing.T) {
 	// (c) reopen=true but the contact has NO conversation at all in our inbox:
-	// FindLatestConversation returns nil, so the method falls through to
+	// latest selection returns nil, so the method falls through to
 	// CreateConversation. No toggle happens.
 	origReopen := config.ChatwootReopenConversation
 	config.ChatwootReopenConversation = true
@@ -187,9 +187,9 @@ func TestFindOrCreateConversation_ReopenNoConversationFallsThroughToCreate(t *te
 
 func TestFindOrCreateConversation_ReopenDisabledSkipsLatestAndToggles(t *testing.T) {
 	// (d) reopen=false: even though a resolved conversation exists for the
-	// contact, the reopen branch is skipped entirely — FindLatest is never
-	// consulted and no toggle happens. With no OPEN conversation found, the
-	// method goes straight to creating a new one.
+	// contact, the reopen branch is skipped entirely — latest selection is
+	// never consulted and no toggle happens. With no OPEN conversation found,
+	// the method goes straight to creating a new one.
 	origReopen := config.ChatwootReopenConversation
 	config.ChatwootReopenConversation = false
 	defer func() { config.ChatwootReopenConversation = origReopen }()

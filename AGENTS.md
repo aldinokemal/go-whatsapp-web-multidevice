@@ -29,9 +29,9 @@ go-whatsapp-web-multidevice/
 |   |-- views/                   # Embedded Vue 3 plain JS UI
 |   |-- statics/                 # Runtime media, QR codes, send items
 |   `-- storages/                # Runtime SQLite DBs and history dumps
-|-- docs/                        # OpenAPI, webhook payload docs, SDK config
+|-- docs/                        # OpenAPI, webhook payload, Chatwoot docs
 |-- docker/                      # Multi-stage Alpine image and entrypoint
-|-- gallery/                     # Static screenshots and project images
+|-- gallery/                     # Project logo assets
 `-- .github/workflows/           # Docker publish, release, latest promotion
 ```
 

@@ -249,33 +249,20 @@ func TestCreateInbox_ZeroIDOrUndecodable(t *testing.T) {
 	}
 }
 
-// --- FindLatestConversation ------------------------------------------------
+// --- selectLatestConversation ----------------------------------------------
 
-func TestFindLatestConversation_ReturnsHighestIDRegardlessOfStatus(t *testing.T) {
-	// Unlike FindConversation, this returns the highest-id conversation in this
-	// inbox EVEN IF it is resolved — that is the conversation the reopen path
-	// resurrects. A higher-id conversation in a different inbox must be skipped
-	// so we never resurrect the wrong thread, and a lower-id open conversation
-	// in the right inbox must lose to the higher-id resolved one.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/accounts/1/contacts/7/conversations" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
-		}
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"payload": []map[string]any{
-				{"id": 10, "inbox_id": 2, "status": "open"},     // right inbox, lower id
-				{"id": 99, "inbox_id": 88, "status": "open"},    // higher id but wrong inbox -> skip
-				{"id": 20, "inbox_id": 2, "status": "resolved"}, // right inbox, highest -> winner
-			},
-		})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindLatestConversation(7)
-	if err != nil {
-		t.Fatalf("FindLatestConversation: %v", err)
+func TestSelectLatestConversation_ReturnsHighestIDRegardlessOfStatus(t *testing.T) {
+	// Returns the highest-id conversation in this inbox EVEN IF it is resolved
+	// — that is the conversation the reopen path resurrects. A higher-id
+	// conversation in a different inbox must be skipped so we never resurrect
+	// the wrong thread, and a lower-id open conversation in the right inbox
+	// must lose to the higher-id resolved one.
+	items := []conversationListItem{
+		{ID: 10, InboxID: 2, Status: "open"},     // right inbox, lower id
+		{ID: 99, InboxID: 88, Status: "open"},    // higher id but wrong inbox -> skip
+		{ID: 20, InboxID: 2, Status: "resolved"}, // right inbox, highest -> winner
 	}
+	conv := selectLatestConversation(items, 2, 7)
 	if conv == nil || conv.ID != 20 {
 		t.Fatalf("conv = %+v, want ID 20 (highest in inbox 2, even though resolved)", conv)
 	}
@@ -290,66 +277,24 @@ func TestFindLatestConversation_ReturnsHighestIDRegardlessOfStatus(t *testing.T)
 	}
 }
 
-func TestFindLatestConversation_SkipsOtherInboxesEntirely(t *testing.T) {
+func TestSelectLatestConversation_SkipsOtherInboxesEntirely(t *testing.T) {
 	// When every conversation belongs to another inbox, there is no latest for
-	// THIS inbox -> (nil, nil), so the reopen path falls through to creating a
+	// THIS inbox -> nil, so the reopen path falls through to creating a
 	// fresh conversation in our inbox.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"payload": []map[string]any{
-				{"id": 50, "inbox_id": 88, "status": "open"},
-				{"id": 51, "inbox_id": 89, "status": "resolved"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindLatestConversation(7)
-	if err != nil {
-		t.Fatalf("FindLatestConversation: %v", err)
+	items := []conversationListItem{
+		{ID: 50, InboxID: 88, Status: "open"},
+		{ID: 51, InboxID: 89, Status: "resolved"},
 	}
+	conv := selectLatestConversation(items, 2, 7)
 	if conv != nil {
 		t.Fatalf("conv = %+v, want nil (no conversation in our inbox)", conv)
 	}
 }
 
-func TestFindLatestConversation_EmptyPayloadReturnsNil(t *testing.T) {
-	// No conversations at all -> (nil, nil).
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{"payload": []map[string]any{}})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindLatestConversation(7)
-	if err != nil {
-		t.Fatalf("FindLatestConversation: %v", err)
-	}
+func TestSelectLatestConversation_EmptyPayloadReturnsNil(t *testing.T) {
+	conv := selectLatestConversation(nil, 2, 7)
 	if conv != nil {
 		t.Fatalf("conv = %+v, want nil", conv)
-	}
-}
-
-func TestFindLatestConversation_Non200(t *testing.T) {
-	// Shares listContactConversations with FindConversation, so the error Op is
-	// the same "list contact conversations".
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusBadGateway, map[string]any{"error": "down"})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindLatestConversation(7)
-	if conv != nil {
-		t.Fatalf("conv = %+v, want nil", conv)
-	}
-	var httpErr *HTTPStatusError
-	if !errors.As(err, &httpErr) {
-		t.Fatalf("err = %v, want *HTTPStatusError", err)
-	}
-	if httpErr.StatusCode != http.StatusBadGateway || httpErr.Op != "list contact conversations" {
-		t.Errorf("err = %+v, want 502 'list contact conversations'", httpErr)
 	}
 }
 
