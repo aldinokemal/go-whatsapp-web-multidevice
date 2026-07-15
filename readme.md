@@ -65,6 +65,14 @@ Download:
         }
         ```
 
+- `v9`
+  - **UI moved to a separate repository**: The web dashboard is no longer bundled in this repo. It now lives at
+      [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui) and ships as a single self-contained
+      `gowa-ui.html`. This server is now a pure API backend that downloads the latest dashboard release at
+      startup, verifies its sha256 digest, caches it under `storages/ui/`, and serves it at `/`.
+      See [Web dashboard (gowa-ui)](#web-dashboard-gowa-ui) for the `APP_UI_*` settings, supply-chain pinning,
+      and air-gapped deployment.
+
 ## Feature
 
 - Send WhatsApp message via http API, [docs/openapi.yaml](./docs/openapi.yaml) for more details

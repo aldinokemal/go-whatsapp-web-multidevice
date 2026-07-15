@@ -535,33 +535,20 @@ func TestUpdateContactName(t *testing.T) {
 	}
 }
 
-// --- FindConversation ------------------------------------------------------
+// --- selectOpenConversation ------------------------------------------------
 
-func TestFindConversation_ReturnsFirstOpenMatchingInbox(t *testing.T) {
+func TestSelectOpenConversation_ReturnsFirstOpenMatchingInbox(t *testing.T) {
 	// The first conversation that is both in this client's inbox AND not
 	// resolved wins. Earlier entries that fail either condition are skipped:
 	// a resolved conversation in the right inbox, and an open conversation
 	// in a different inbox, both come before the valid one.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/accounts/1/contacts/7/conversations" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
-		}
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"payload": []map[string]any{
-				{"id": 10, "inbox_id": 2, "status": "resolved"}, // right inbox, resolved -> skip
-				{"id": 11, "inbox_id": 99, "status": "open"},    // wrong inbox -> skip
-				{"id": 12, "inbox_id": 2, "status": "open"},     // match
-				{"id": 13, "inbox_id": 2, "status": "pending"},  // also valid but later
-			},
-		})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindConversation(7)
-	if err != nil {
-		t.Fatalf("FindConversation: %v", err)
+	items := []conversationListItem{
+		{ID: 10, InboxID: 2, Status: "resolved"}, // right inbox, resolved -> skip
+		{ID: 11, InboxID: 99, Status: "open"},    // wrong inbox -> skip
+		{ID: 12, InboxID: 2, Status: "open"},     // match
+		{ID: 13, InboxID: 2, Status: "pending"},  // also valid but later
 	}
+	conv := selectOpenConversation(items, 2, 7)
 	if conv == nil || conv.ID != 12 {
 		t.Fatalf("conv = %+v, want ID 12", conv)
 	}
@@ -573,67 +560,27 @@ func TestFindConversation_ReturnsFirstOpenMatchingInbox(t *testing.T) {
 	}
 }
 
-func TestFindConversation_NonResolvedNonResolvedStatuses(t *testing.T) {
+func TestSelectOpenConversation_AcceptsNonResolvedStatuses(t *testing.T) {
 	// "resolved" is the only excluded status; any other status (here
 	// "pending") for the right inbox is considered an active conversation.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"payload": []map[string]any{
-				{"id": 20, "inbox_id": 2, "status": "pending"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindConversation(7)
-	if err != nil {
-		t.Fatalf("FindConversation: %v", err)
+	items := []conversationListItem{
+		{ID: 20, InboxID: 2, Status: "pending"},
 	}
+	conv := selectOpenConversation(items, 2, 7)
 	if conv == nil || conv.ID != 20 {
 		t.Fatalf("conv = %+v, want ID 20", conv)
 	}
 }
 
-func TestFindConversation_NoneMatch(t *testing.T) {
-	// All candidates are either resolved or in the wrong inbox -> nil, nil.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"payload": []map[string]any{
-				{"id": 30, "inbox_id": 2, "status": "resolved"},
-				{"id": 31, "inbox_id": 99, "status": "open"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindConversation(7)
-	if err != nil {
-		t.Fatalf("FindConversation: %v", err)
+func TestSelectOpenConversation_NoneMatch(t *testing.T) {
+	// All candidates are either resolved or in the wrong inbox -> nil.
+	items := []conversationListItem{
+		{ID: 30, InboxID: 2, Status: "resolved"},
+		{ID: 31, InboxID: 99, Status: "open"},
 	}
+	conv := selectOpenConversation(items, 2, 7)
 	if conv != nil {
 		t.Fatalf("conv = %+v, want nil", conv)
-	}
-}
-
-func TestFindConversation_Non200(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusBadGateway, map[string]any{"error": "down"})
-	}))
-	defer server.Close()
-
-	c := newTestClient(t, server.URL)
-	conv, err := c.FindConversation(7)
-	if conv != nil {
-		t.Fatalf("conv = %+v, want nil", conv)
-	}
-	var httpErr *HTTPStatusError
-	if !errors.As(err, &httpErr) {
-		t.Fatalf("err = %v, want *HTTPStatusError", err)
-	}
-	if httpErr.StatusCode != http.StatusBadGateway || httpErr.Op != "list contact conversations" {
-		t.Errorf("err = %+v, want 502 'list contact conversations'", httpErr)
 	}
 }
 
@@ -740,7 +687,7 @@ func TestCreateConversation_ZeroID(t *testing.T) {
 // --- FindOrCreateConversation ---------------------------------------------
 
 func TestFindOrCreateConversation_ReturnsFoundWithoutCreating(t *testing.T) {
-	// When FindConversation returns an existing conversation, no POST is made.
+	// When an open conversation already exists, no POST is made.
 	createCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -771,8 +718,7 @@ func TestFindOrCreateConversation_ReturnsFoundWithoutCreating(t *testing.T) {
 }
 
 func TestFindOrCreateConversation_CreatesWhenNotFound(t *testing.T) {
-	// FindConversation returns (nil, nil) -> the method falls through to
-	// CreateConversation.
+	// No open conversation -> the method falls through to CreateConversation.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
@@ -796,8 +742,8 @@ func TestFindOrCreateConversation_CreatesWhenNotFound(t *testing.T) {
 }
 
 func TestFindOrCreateConversation_SwallowsFindErrorThenCreates(t *testing.T) {
-	// FindConversation failing is logged but NOT propagated: the method still
-	// proceeds to create. This codifies the current swallow-and-create
+	// Listing conversations failing is logged but NOT propagated: the method
+	// still proceeds to create. This codifies the current swallow-and-create
 	// behavior — a find error must not block conversation creation.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

@@ -594,6 +594,10 @@ func contactDisplayName(ctx context.Context, client *whatsmeow.Client, jid types
 	if err != nil || !contact.Found {
 		return ""
 	}
+	return contactInfoDisplayName(contact)
+}
+
+func contactInfoDisplayName(contact types.ContactInfo) string {
 	switch {
 	case contact.FullName != "":
 		return contact.FullName

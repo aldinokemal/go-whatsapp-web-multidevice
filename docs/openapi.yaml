@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 8.11.0
+  version: 9.0.0
   description: |
     This API is used for sending whatsapp via API.
 
@@ -359,7 +359,7 @@ paths:
                     properties:
                       version:
                         type: string
-                        example: 'v8.11.0'
+                        example: 'v9.0.0'
                       os:
                         type: string
                         example: 'GOWA'

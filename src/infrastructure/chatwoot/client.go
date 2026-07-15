@@ -422,9 +422,8 @@ type conversationListItem struct {
 }
 
 // listContactConversations fetches all conversations for a contact via the
-// contact-specific endpoint. Shared by FindConversation (which wants the
-// active one) and FindLatestConversation (which wants the most recent one to
-// reopen).
+// contact-specific endpoint. Used by FindOrCreateConversation to pick an open
+// conversation or the latest one for reopen.
 func (c *Client) listContactConversations(contactID int) ([]conversationListItem, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/contacts/%d/conversations", c.BaseURL, c.AccountID, contactID)
 	req, err := http.NewRequest("GET", endpoint, nil)
@@ -477,26 +476,6 @@ func selectLatestConversation(items []conversationListItem, inboxID, contactID i
 		}
 	}
 	return latest
-}
-
-func (c *Client) FindConversation(contactID int) (*Conversation, error) {
-	items, err := c.listContactConversations(contactID)
-	if err != nil {
-		return nil, err
-	}
-	return selectOpenConversation(items, c.InboxID, contactID), nil
-}
-
-// FindLatestConversation returns the most recent conversation for the contact
-// in this client's inbox, regardless of status. The reopen path uses it to
-// resurrect a resolved conversation instead of opening a new thread. Returns
-// (nil, nil) when the contact has no conversation in this inbox.
-func (c *Client) FindLatestConversation(contactID int) (*Conversation, error) {
-	items, err := c.listContactConversations(contactID)
-	if err != nil {
-		return nil, err
-	}
-	return selectLatestConversation(items, c.InboxID, contactID), nil
 }
 
 // ToggleConversationStatus sets a conversation's status (open/resolved/pending)
