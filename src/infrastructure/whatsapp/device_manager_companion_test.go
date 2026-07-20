@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -197,6 +198,94 @@ func TestDeleteStoreRowsForJID_RefusesAmbiguousBareNumber(t *testing.T) {
 
 	if got := countStoreRows(t, ctx, manager, nonAD); got != 2 {
 		t.Fatalf("expected both sibling rows to survive an ambiguous delete, got %d", got)
+	}
+}
+
+// deleteStoreRowsForJID on the bare-number path must refuse when more than one device
+// slot claims the number, even if only ONE store row survives: that lone row may belong
+// to a sibling slot whose own companion was already evicted. Deleting it on behalf of the
+// slot being logged out would destroy the sibling's live session (issue #760, legacy /
+// un-backfilled window). This is stricter than the store-row-count guard, which only
+// fires when 2+ rows share the number.
+func TestDeleteStoreRowsForJID_RefusesWhenMultipleSlotsClaimBareNumber(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+
+	// Exactly ONE surviving store row for the number...
+	ad := types.NewADJID("6281777000099", types.WhatsAppDomain, 40)
+	nonAD := ad.ToNonAD().String()
+	if err := newTestStoreDevice(container, ad, "companion-40").Save(ctx); err != nil {
+		t.Fatalf("save companion 40: %v", err)
+	}
+
+	// ...but TWO un-backfilled slots (empty ADJID) claim the bare number.
+	storage := &registryStubStorage{records: []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", JID: nonAD},
+		{DeviceID: "slot-b", JID: nonAD},
+	}}
+	manager := NewDeviceManager(container, nil, storage)
+
+	if err := manager.deleteStoreRowsForJID(ctx, nonAD); err != nil {
+		t.Fatalf("ambiguous slot-ownership delete should warn-and-skip, got error: %v", err)
+	}
+	if got := countStoreRows(t, ctx, manager, nonAD); got != 1 {
+		t.Fatalf("expected the row to survive when 2 slots claim the number, got %d", got)
+	}
+}
+
+// errListStorage is a storage whose ListDeviceRecords always fails, to exercise the
+// fail-closed branch of the bare-number slot-ownership guard.
+type errListStorage struct {
+	keepSlotStubStorage
+}
+
+func (errListStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
+	return nil, errors.New("storage unavailable")
+}
+
+// When slot ownership cannot be resolved (storage error), the bare-number delete must
+// fail CLOSED: refuse to delete and surface the error, never silently proceed. A guard
+// that disables itself on error is worse than no guard.
+func TestDeleteStoreRowsForJID_FailsClosedWhenSlotLookupErrors(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+
+	ad := types.NewADJID("6281777000101", types.WhatsAppDomain, 42)
+	nonAD := ad.ToNonAD().String()
+	if err := newTestStoreDevice(container, ad, "companion-42").Save(ctx); err != nil {
+		t.Fatalf("save companion 42: %v", err)
+	}
+
+	manager := NewDeviceManager(container, nil, &errListStorage{})
+	if err := manager.deleteStoreRowsForJID(ctx, nonAD); err == nil {
+		t.Fatal("expected an error when slot ownership cannot be resolved, got nil")
+	}
+	if got := countStoreRows(t, ctx, manager, nonAD); got != 1 {
+		t.Fatalf("expected the row to survive a fail-closed refusal, got %d", got)
+	}
+}
+
+// A single slot claiming the bare number is unambiguous: the bare-number delete proceeds.
+func TestDeleteStoreRowsForJID_DeletesWhenSingleSlotClaimsBareNumber(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+
+	ad := types.NewADJID("6281777000100", types.WhatsAppDomain, 41)
+	nonAD := ad.ToNonAD().String()
+	if err := newTestStoreDevice(container, ad, "companion-41").Save(ctx); err != nil {
+		t.Fatalf("save companion 41: %v", err)
+	}
+
+	storage := &registryStubStorage{records: []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", JID: nonAD},
+	}}
+	manager := NewDeviceManager(container, nil, storage)
+
+	if err := manager.deleteStoreRowsForJID(ctx, nonAD); err != nil {
+		t.Fatalf("unambiguous bare-number delete: %v", err)
+	}
+	if got := countStoreRows(t, ctx, manager, nonAD); got != 0 {
+		t.Fatalf("expected the lone row to be deleted when a single slot claims it, got %d", got)
 	}
 }
 
