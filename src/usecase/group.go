@@ -180,7 +180,7 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 		return response, err
 	}
 
-	groupInfo, err := client.GetGroupInfo(ctx, groupJID)
+	groupInfo, err := utils.GetGroupInfoWithRetry(ctx, client, groupJID)
 	if err != nil {
 		return response, err
 	}
@@ -451,7 +451,7 @@ func (service serviceGroup) GroupInfo(ctx context.Context, request domainGroup.G
 	}
 
 	// Fetch group information from WhatsApp
-	groupInfo, err := client.GetGroupInfo(ctx, groupJID)
+	groupInfo, err := utils.GetGroupInfoWithRetry(ctx, client, groupJID)
 	if err != nil {
 		return response, err
 	}

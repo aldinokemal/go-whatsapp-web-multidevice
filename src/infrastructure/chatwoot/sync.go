@@ -93,7 +93,7 @@ func (g *groupNameResolver) resolve(ctx context.Context, waClient *whatsmeow.Cli
 	}
 	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	info, err := waClient.GetGroupInfo(lookupCtx, jid)
+	info, err := utils.GetGroupInfoWithRetry(lookupCtx, waClient, jid)
 	if err != nil || info == nil || info.Name == "" {
 		return ""
 	}

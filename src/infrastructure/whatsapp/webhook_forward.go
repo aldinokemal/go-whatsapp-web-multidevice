@@ -1282,7 +1282,7 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	defer cancel()
 
 	logrus.Debugf("Chatwoot: Fetching group info for %s", groupJID)
-	groupInfo, err := client.GetGroupInfo(freshCtx, jid)
+	groupInfo, err := utils.GetGroupInfoWithRetry(freshCtx, client, jid)
 	if err != nil {
 		logrus.Warnf("Chatwoot: Failed to get group info for %s: %v", groupJID, err)
 		return ""

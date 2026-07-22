@@ -1441,7 +1441,7 @@ func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []s
 		// Handle @everyone keyword - fetch all group participants
 		if mention == "@everyone" {
 			if recipientJID.Server == types.GroupServer {
-				groupInfo, err := client.GetGroupInfo(ctx, recipientJID)
+				groupInfo, err := utils.GetGroupInfoWithRetry(ctx, client, recipientJID)
 				if err == nil && groupInfo != nil {
 					for _, participant := range groupInfo.Participants {
 						result = append(result, participant.JID.String())
