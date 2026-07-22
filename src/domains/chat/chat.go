@@ -65,12 +65,13 @@ type MessageInfo struct {
 	MediaType string         `json:"media_type"`
 	Reactions []ReactionInfo `json:"reactions,omitempty"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
-	CallMetadata string `json:"call_metadata,omitempty"`
-	Filename     string `json:"filename"`
-	URL          string `json:"url"`
-	FileLength   uint64 `json:"file_length"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	CallMetadata     string `json:"call_metadata,omitempty"`
+	ReferralMetadata  string `json:"referral_metadata,omitempty"`
+	Filename          string `json:"filename"`
+	URL               string `json:"url"`
+	FileLength        uint64 `json:"file_length"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 type PaginationResponse struct {
