@@ -49,6 +49,7 @@ var (
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
 	WhatsappWebhookIgnoreJids         []string         // JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks
+	WhatsappWebhookAllDeviceReceipts           = false // Forward receipts from all linked devices, not only the primary device
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
 	WhatsappLogLevel                           = "ERROR"
 	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB

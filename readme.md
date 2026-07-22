@@ -244,6 +244,7 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS`  | Forward receipts from all linked devices (not only primary)   | `false`                                      | `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
 | `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (socks5/http/https) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
