@@ -1028,6 +1028,22 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 	return true
 }
 
+func buildInReplyToAttrs(linkRepo domainChatStorage.IChatStorageRepository, deviceID, rid string) map[string]any {
+	attrs := map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+	// Translate the WhatsApp message ID into the Chatwoot message ID so
+	// Chatwoot renders the reply bubble as a threaded link. Without this,
+	// the reply shows up as a standalone message on the Chatwoot side.
+	if linkRepo != nil && deviceID != "" {
+		if link, lerr := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, rid); lerr == nil && link != nil && link.ChatwootMessageID != 0 {
+			attrs["in_reply_to"] = link.ChatwootMessageID
+			logrus.Debugf("Chatwoot: Linked incoming reply %s -> Chatwoot msg %d", rid, link.ChatwootMessageID)
+		} else if lerr != nil {
+			logrus.Warnf("Chatwoot: Failed to look up chatwoot message link for incoming reply %s: %v", rid, lerr)
+		}
+	}
+	return attrs
+}
+
 func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
 	resolved, err := getChatwootClientFn(deviceID)
 	if err != nil {
@@ -1090,7 +1106,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
-			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			msgOpts.ContentAttributes = buildInReplyToAttrs(linkRepo, deviceID, rid)
 		}
 	case "message.edited", "message.revoked", "message.deleted":
 		var threadID string
@@ -1108,7 +1124,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 			msgOpts.SourceID = "WAID:" + id
 		}
 		if rid, _ := data["replied_to_id"].(string); rid != "" {
-			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			msgOpts.ContentAttributes = buildInReplyToAttrs(linkRepo, deviceID, rid)
 		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
