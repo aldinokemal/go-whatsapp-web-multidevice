@@ -819,17 +819,16 @@ func ParseJID(arg string) (types.JID, error) {
 	return recipient, nil
 }
 
-// FormatJID formats a JID string by removing any :number suffix
+// FormatJID formats a JID string by removing any :device suffix.
+// The suffix is stripped for every server, not just @s.whatsapp.net: messages
+// sent from WhatsApp Web/Desktop arrive with one, and whatsmeow rejects an AD
+// JID as a send recipient (ErrRecipientADJID).
 func FormatJID(jid string) types.JID {
-	// Remove any :number suffix if present
-	if idx := strings.LastIndex(jid, ":"); idx != -1 && strings.Contains(jid, "@s.whatsapp.net") {
-		jid = jid[:idx] + jid[strings.Index(jid, "@s.whatsapp.net"):]
-	}
 	formattedJID, err := ParseJID(jid)
 	if err != nil {
 		return types.JID{}
 	}
-	return formattedJID
+	return formattedJID.ToNonAD()
 }
 
 // ExtractedMedia represents extracted media information

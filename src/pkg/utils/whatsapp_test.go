@@ -724,3 +724,52 @@ func TestIsForwardableStorageMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatJIDStripsDeviceSuffix(t *testing.T) {
+	tests := []struct {
+		name string
+		jid  string
+		want string
+	}{
+		{
+			name: "PhoneNumberJIDWithoutDevice",
+			jid:  "6281234567890@s.whatsapp.net",
+			want: "6281234567890@s.whatsapp.net",
+		},
+		{
+			name: "PhoneNumberJIDWithDevice",
+			jid:  "6281234567890:12@s.whatsapp.net",
+			want: "6281234567890@s.whatsapp.net",
+		},
+		{
+			name: "LIDWithoutDevice",
+			jid:  "123456789012345@lid",
+			want: "123456789012345@lid",
+		},
+		{
+			// Messages sent from WhatsApp Web/Desktop carry a device suffix.
+			// whatsmeow rejects AD JIDs as a send recipient, so it must be stripped
+			// for @lid senders too, not just @s.whatsapp.net ones.
+			name: "LIDWithDevice",
+			jid:  "123456789012345:12@lid",
+			want: "123456789012345@lid",
+		},
+		{
+			name: "BareNumberGetsDefaultServer",
+			jid:  "6281234567890",
+			want: "6281234567890@s.whatsapp.net",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatJID(tt.jid)
+			if got.String() != tt.want {
+				t.Errorf("FormatJID(%q) = %q, want %q", tt.jid, got.String(), tt.want)
+			}
+			if got.Device != 0 {
+				t.Errorf("FormatJID(%q) kept device %d, want 0", tt.jid, got.Device)
+			}
+		})
+	}
+}
