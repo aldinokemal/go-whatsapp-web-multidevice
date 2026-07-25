@@ -538,14 +538,11 @@ paths:
       operationId: loginDevice
       tags:
         - device
-      summary: Reserved device QR login route (not implemented)
-      deprecated: true
-      description: |
-        This route is registered, but the current usecase returns
-        "device login per ID is not implemented yet".
-
-        To pair a specific device slot today, call `GET /app/login` with
-        `X-Device-Id: <device_id>` or `?device_id=<device_id>`.
+      summary: Login a device with QR code
+      description: >-
+        Start QR pairing for a specific device slot and return a link to the QR
+        image to scan. Equivalent to `GET /app/login` with
+        `X-Device-Id: <device_id>`, with the device taken from the path instead.
       parameters:
         - name: device_id
           in: path
@@ -554,6 +551,12 @@ paths:
             type: string
           description: Device ID
       responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceLoginResponse'
         '404':
           description: Device not found
           content:
@@ -561,7 +564,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
-          description: Not implemented by the current usecase
+          description: Internal Server Error
           content:
             application/json:
               schema:
@@ -572,14 +575,11 @@ paths:
       operationId: loginDeviceWithCode
       tags:
         - device
-      summary: Reserved device pairing-code login route (not implemented)
-      deprecated: true
-      description: |
-        This route is registered, but the current usecase returns
-        "device login with code is not implemented yet".
-
-        To pair a specific device slot today, call `GET /app/login-with-code`
-        with `X-Device-Id: <device_id>` or `?device_id=<device_id>`.
+      summary: Login a device with pairing code
+      description: >-
+        Start pairing-code login for a specific device slot and return the code to
+        enter on the phone. Equivalent to `GET /app/login-with-code` with
+        `X-Device-Id: <device_id>`, with the device taken from the path instead.
       parameters:
         - name: device_id
           in: path
@@ -595,6 +595,12 @@ paths:
           example: '628912344551'
           description: Phone number to pair with
       responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceLoginWithCodeResponse'
         '404':
           description: Device not found
           content:
@@ -602,7 +608,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
         '500':
-          description: Not implemented by the current usecase
+          description: Internal Server Error
           content:
             application/json:
               schema:
@@ -4511,6 +4517,51 @@ components:
             is_logged_in:
               type: boolean
               example: true
+    DeviceLoginResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Login success
+        status:
+          type: integer
+          example: 200
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: 'my-device-id'
+            qr_link:
+              type: string
+              example: 'http://localhost:3000/statics/images/qrcode/scan-qr-b0b7bb43-9a22-455a-814f-5a225c743310.png'
+            qr_duration:
+              type: integer
+              example: 30
+    DeviceLoginWithCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Login with code started
+        status:
+          type: integer
+          example: 200
+        results:
+          type: object
+          properties:
+            device_id:
+              type: string
+              example: 'my-device-id'
+            pair_code:
+              type: string
+              example: ABCD-1234
     DeviceInfo:
       type: object
       properties:
