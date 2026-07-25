@@ -213,6 +213,11 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		oriImagePath   string
 	)
 
+	// Prefix every temp file with a UUID, as the video path already does.
+	// Without it two concurrent sends of the same filename share one path on
+	// disk and the async cleanup below deletes the other request's files.
+	generateUUID := fiberUtils.UUIDv4()
+
 	if request.ImageURL != nil && *request.ImageURL != "" {
 		// Download image from URL
 		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
@@ -245,20 +250,20 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 			imageData = pngBuffer.Bytes()
 		}
 
-		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
-		imageName = fileName
+		imageName = generateUUID + fileName
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
 		err = os.WriteFile(oriImagePath, imageData, 0644)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save downloaded image %v", err))
 		}
 	} else if request.Image != nil {
 		// Save image to server
-		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
+		imageName = generateUUID + request.Image.Filename
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
 		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
 		if err != nil {
 			return response, err
 		}
-		imageName = request.Image.Filename
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
