@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -47,7 +46,11 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	// Pass the body to NewRequestWithContext so it sets ContentLength and GetBody.
+	// Building the request with a nil body makes Go fall back to chunked transfer
+	// encoding with no Content-Length, which some receivers (notably PHP reading
+	// php://input behind nginx/FPM) deliver to the application as an empty body.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(postBody))
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("error when create http object %v", err))
 	}
@@ -66,8 +69,14 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	var sleepDuration = 1 * time.Second
 
 	for attempt = 0; attempt < maxAttempts; attempt++ {
-		// Create new request body for each attempt
-		req.Body = io.NopCloser(bytes.NewBuffer(postBody))
+		// Rewind the body for each attempt. GetBody returns a fresh reader while
+		// leaving ContentLength intact, unlike assigning req.Body directly.
+		body, err := req.GetBody()
+		if err != nil {
+			return pkgError.WebhookError(fmt.Sprintf("error when rewind body %v", err))
+		}
+		req.Body = body
+
 		resp, err := client.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
