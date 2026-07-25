@@ -106,9 +106,10 @@ func initEnvConfig() {
 		config.AppCORSAllowedOrigins = strings.Split(envCORSOrigins, ",")
 	}
 
-	// Web UI settings. Guard on GetString != "" rather than viper.IsSet:
-	// IsSet does not consult AutomaticEnv, so plain environment variables
-	// (e.g. in Docker) would be ignored for bool/duration keys.
+	// Web UI settings. Guarded on GetString != "" so an unset key keeps the
+	// default instead of being overwritten by the zero value of GetBool /
+	// GetDuration. viper.IsSet works equally well here (it does consult
+	// AutomaticEnv), so either guard is fine for new keys.
 	if viper.GetString("app_ui_enabled") != "" {
 		config.AppUIEnabled = viper.GetBool("app_ui_enabled")
 	}
