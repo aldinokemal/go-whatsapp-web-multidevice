@@ -355,6 +355,74 @@ func seedChatMessage(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, me
 	}
 }
 
+func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsRoundTrip(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-ignore-groups"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	// Never configured -> nil.
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected nil WebhookIgnoreGroups for a never-configured device, got %v", *cfg.WebhookIgnoreGroups)
+	}
+
+	// Explicitly set to true.
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups: &trueVal,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+	cfg, err = repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || !*cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=true after set, got %v", cfg.WebhookIgnoreGroups)
+	}
+
+	// Explicitly set to false (must persist as false, not fall back to nil).
+	falseVal := false
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups: &falseVal,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+	cfg, err = repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=false after explicit set, got %v", cfg.WebhookIgnoreGroups)
+	}
+
+	// GetDeviceRecordByJID must also surface the field (used by the webhook resolver).
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+		JID:      "5511999990000@s.whatsapp.net",
+	}); err != nil {
+		t.Fatalf("failed to set jid on device record: %v", err)
+	}
+	rec, err := repo.GetDeviceRecordByJID("5511999990000@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("expected device record, got nil")
+	}
+	if rec.WebhookIgnoreGroups == nil || *rec.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=false via GetDeviceRecordByJID, got %v", rec.WebhookIgnoreGroups)
+	}
+}
+
 func seedReaction(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, messageID, reactorJID string) {
 	t.Helper()
 	if err := repo.StoreReaction(&domainChatStorage.Reaction{

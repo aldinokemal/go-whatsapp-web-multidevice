@@ -137,6 +137,7 @@ type DeviceRecord struct {
 	WebhookSecret             string    `db:"webhook_secret"`
 	WebhookEvents             string    `db:"webhook_events"`
 	WebhookInsecureSkipVerify bool      `db:"webhook_insecure_skip_verify"`
+	WebhookIgnoreGroups       *bool     `db:"webhook_ignore_groups"`
 	CreatedAt                 time.Time `db:"created_at"`
 	UpdatedAt                 time.Time `db:"updated_at"`
 }
@@ -147,6 +148,10 @@ type DeviceWebhookConfig struct {
 	WebhookSecret             string  `json:"webhook_secret,omitempty"`
 	WebhookEvents             string  `json:"webhook_events,omitempty"`
 	WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify,omitempty"`
+	// WebhookIgnoreGroups overrides WHATSAPP_WEBHOOK_IGNORE_JIDS's "@g.us" wildcard
+	// for this device specifically. nil means "never configured" — the resolver
+	// falls back to whether the global ignore list contains "@g.us".
+	WebhookIgnoreGroups *bool `json:"webhook_ignore_groups,omitempty"`
 }
 
 // MessageFilter represents query filters for messages
