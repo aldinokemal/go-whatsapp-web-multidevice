@@ -208,8 +208,8 @@ Fields commonly found inside the `payload` object:
 
 `sender_display_name` is added only when `payload.from` is a non-empty string. It is omitted when `from` is missing,
 empty, or not a singular string. Resolution is best-effort and never prevents a webhook from being delivered: a contact
-lookup failure falls back deterministically to the JID user part, or to the original `from` value when it cannot be
-parsed.
+lookup failure falls through the remaining applicable precedence candidates (including a live event push name when
+available), then deterministically to the JID user part, or to the original `from` value when it cannot be parsed.
 
 For another sender, the resolver prefers the saved contact full name, then the live WhatsApp push name supplied by the
 event (when available), the stored contact push name, the contact business name, and the JID user part. For the active
