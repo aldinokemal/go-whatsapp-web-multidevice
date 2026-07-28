@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -28,11 +29,16 @@ func (s *addDeviceStubUsecase) AddDevice(_ context.Context, deviceID string, web
 	return &domainDevice.Device{ID: deviceID}, nil
 }
 
+func (s *addDeviceStubUsecase) LoginDevice(_ context.Context, _ string) (domainApp.LoginResponse, error) {
+	return domainApp.LoginResponse{ImagePath: "statics/qrcode/scan-qr-dev1.png"}, nil
+}
+
 func newAddDeviceTestApp(stub *addDeviceStubUsecase) *fiber.App {
 	app := fiber.New()
 	app.Use(middleware.Recovery())
 	controller := Device{Service: stub}
 	app.Post("/devices", controller.AddDevice)
+	app.Get("/devices/:device_id/login", controller.LoginDevice)
 	return app
 }
 
@@ -111,5 +117,30 @@ func TestAddDevice_NoWebhookFields(t *testing.T) {
 	}
 	if parsed.Results["id"] != "dev2" {
 		t.Fatalf("expected result id dev2, got %v", parsed.Results["id"])
+	}
+}
+
+// TestLoginDevice_QRLinkKeepsRequestPort verifies the QR link points back at the
+// host:port the client connected to, so it stays reachable when the app is
+// served on a non-default port.
+func TestLoginDevice_QRLinkKeepsRequestPort(t *testing.T) {
+	app := newAddDeviceTestApp(&addDeviceStubUsecase{})
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "http://172.168.0.101:3000/devices/dev1/login", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Results map[string]any `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	want := "http://172.168.0.101:3000/statics/qrcode/scan-qr-dev1.png"
+	if parsed.Results["qr_link"] != want {
+		t.Fatalf("expected qr_link %q, got %v", want, parsed.Results["qr_link"])
 	}
 }
