@@ -7,8 +7,10 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/stretchr/testify/assert"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -417,5 +419,112 @@ func TestBuildEventPayloadContactsArrayIncludesPhoneNumbers(t *testing.T) {
 	}
 	if contacts[1].PhoneNumber != "+62 813 9876 5432" {
 		t.Fatalf("expected second phone number, got %q", contacts[1].PhoneNumber)
+	}
+}
+
+func TestBuildEventPayloadIncludesSenderDisplayName(t *testing.T) {
+	accountJID := types.NewJID("628111111111", types.DefaultUserServer)
+	senderJID := types.NewJID("628123456789", types.DefaultUserServer)
+	contacts := &senderDisplayNameContactGetter{
+		contacts: map[types.JID]types.ContactInfo{
+			senderJID: {
+				Found:    true,
+				FullName: "Saved Contact",
+			},
+		},
+	}
+	client := &whatsmeow.Client{
+		Store: &store.Device{
+			ID:       &accountJID,
+			PushName: "Active Account",
+			Contacts: contacts,
+		},
+	}
+
+	tests := []struct {
+		name      string
+		isFromMe  bool
+		sender    types.JID
+		message   *waE2E.Message
+		wantEvent string
+		wantName  string
+	}{
+		{
+			name:      "message",
+			sender:    senderJID,
+			message:   &waE2E.Message{Conversation: protoString("hello")},
+			wantEvent: EventTypeMessage,
+			wantName:  "Saved Contact",
+		},
+		{
+			name:   "reaction before early return",
+			sender: senderJID,
+			message: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+				Key: &waCommon.MessageKey{
+					RemoteJID: protoString("628100000000@s.whatsapp.net"),
+					ID:        protoString("target-message"),
+				},
+				Text: protoString("👍"),
+			}},
+			wantEvent: EventTypeMessageReaction,
+			wantName:  "Saved Contact",
+		},
+		{
+			name:   "revoke before early return",
+			sender: senderJID,
+			message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: protoProtocolMessageType(waE2E.ProtocolMessage_REVOKE),
+				Key:  &waCommon.MessageKey{ID: protoString("revoked-message")},
+			}},
+			wantEvent: EventTypeMessageRevoked,
+			wantName:  "Saved Contact",
+		},
+		{
+			name:   "edit before early return",
+			sender: senderJID,
+			message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: protoProtocolMessageType(waE2E.ProtocolMessage_MESSAGE_EDIT),
+				Key:  &waCommon.MessageKey{ID: protoString("edited-message")},
+				EditedMessage: &waE2E.Message{
+					Conversation: protoString("updated"),
+				},
+			}},
+			wantEvent: EventTypeMessageEdited,
+			wantName:  "Saved Contact",
+		},
+		{
+			name:      "outgoing active account",
+			isFromMe:  true,
+			sender:    accountJID,
+			message:   &waE2E.Message{Conversation: protoString("hello")},
+			wantEvent: EventTypeMessage,
+			wantName:  "Active Account",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:     types.NewJID("628100000000", types.DefaultUserServer),
+						Sender:   tt.sender,
+						IsFromMe: tt.isFromMe,
+					},
+					ID:        "sender-display-name",
+					PushName:  "Live Push",
+					Timestamp: time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC),
+				},
+				Message: tt.message,
+			}
+
+			eventType, payload, err := buildEventPayload(context.Background(), client, evt)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantEvent, eventType)
+			assert.Equal(t, tt.sender.String(), payload["from"])
+			assert.Equal(t, "Live Push", payload["from_name"])
+			assert.Equal(t, tt.wantName, payload["sender_display_name"])
+		})
 	}
 }

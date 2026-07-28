@@ -161,6 +161,16 @@ func hasDisplayName(value string) bool {
 	return strings.TrimSpace(value) != ""
 }
 
+func addSenderDisplayName(ctx context.Context, client *whatsmeow.Client, payload map[string]any, isFromMe bool, livePushName string) {
+	senderJID, ok := payload["from"].(string)
+	if !ok || senderJID == "" {
+		return
+	}
+
+	resolver := NewSenderDisplayNameResolver(client, "")
+	payload["sender_display_name"] = resolver.Resolve(ctx, senderJID, isFromMe, livePushName)
+}
+
 // SenderDisplayNameCache memoizes labels for the lifetime of one response or
 // webhook payload build.
 type SenderDisplayNameCache struct {
