@@ -214,7 +214,8 @@ func publicStaticFileURL(c fiber.Ctx, filePath string) string {
 	if staticPath == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s://%s%s%s", c.Scheme(), c.Hostname(), config.AppBasePath, staticPath)
+	// Host() keeps the port, Hostname() drops it.
+	return fmt.Sprintf("%s://%s%s%s", c.Scheme(), c.Host(), config.AppBasePath, staticPath)
 }
 
 func publicStaticPath(filePath string) string {

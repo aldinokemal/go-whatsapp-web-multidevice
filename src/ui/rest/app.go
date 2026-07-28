@@ -68,7 +68,7 @@ func (handler *App) Login(c fiber.Ctx) error {
 		Message: "Login success",
 		Results: map[string]any{
 			"device_id":   device.ID(),
-			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Scheme(), c.Hostname(), config.AppBasePath, response.ImagePath),
+			"qr_link":     fmt.Sprintf("%s://%s%s/%s", c.Scheme(), c.Host(), config.AppBasePath, response.ImagePath),
 			"qr_duration": response.Duration,
 		},
 	})
