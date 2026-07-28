@@ -207,31 +207,42 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Convert entities to domain objects
+	client := whatsapp.ClientFromContext(ctx)
+	deviceDisplayName := ""
+	if instance, ok := whatsapp.DeviceFromContext(ctx); ok && instance != nil {
+		deviceDisplayName = instance.DisplayName()
+	}
+	senderDisplayNameCache := whatsapp.NewSenderDisplayNameCache(
+		whatsapp.NewSenderDisplayNameResolver(client, deviceDisplayName),
+	)
+
 	messageInfos := make([]domainChat.MessageInfo, 0, len(messages))
 	for _, message := range messages {
 		messageInfo := domainChat.MessageInfo{
-			ID:           message.ID,
-			ChatJID:      message.ChatJID,
-			SenderJID:    message.Sender,
-			Content:      message.Content,
-			Timestamp:    message.Timestamp.Format(time.RFC3339),
-			IsFromMe:     message.IsFromMe,
-			MediaType:    message.MediaType,
-			CallMetadata: message.CallMetadata,
-			Filename:     message.Filename,
-			URL:          message.URL,
-			FileLength:   message.FileLength,
-			CreatedAt:    message.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:    message.UpdatedAt.Format(time.RFC3339),
+			ID:                message.ID,
+			ChatJID:           message.ChatJID,
+			SenderJID:         message.Sender,
+			SenderDisplayName: senderDisplayNameCache.Resolve(ctx, message.Sender, message.IsFromMe, ""),
+			Content:           message.Content,
+			Timestamp:         message.Timestamp.Format(time.RFC3339),
+			IsFromMe:          message.IsFromMe,
+			MediaType:         message.MediaType,
+			CallMetadata:      message.CallMetadata,
+			Filename:          message.Filename,
+			URL:               message.URL,
+			FileLength:        message.FileLength,
+			CreatedAt:         message.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:         message.UpdatedAt.Format(time.RFC3339),
 		}
 		if len(message.Reactions) > 0 {
 			messageInfo.Reactions = make([]domainChat.ReactionInfo, 0, len(message.Reactions))
 			for _, reaction := range message.Reactions {
 				messageInfo.Reactions = append(messageInfo.Reactions, domainChat.ReactionInfo{
-					Emoji:     reaction.Emoji,
-					SenderJID: reaction.ReactorJID,
-					IsFromMe:  reaction.IsFromMe,
-					Timestamp: reaction.Timestamp.Format(time.RFC3339),
+					Emoji:             reaction.Emoji,
+					SenderJID:         reaction.ReactorJID,
+					SenderDisplayName: senderDisplayNameCache.Resolve(ctx, reaction.ReactorJID, reaction.IsFromMe, ""),
+					IsFromMe:          reaction.IsFromMe,
+					Timestamp:         reaction.Timestamp.Format(time.RFC3339),
 				})
 			}
 		}
