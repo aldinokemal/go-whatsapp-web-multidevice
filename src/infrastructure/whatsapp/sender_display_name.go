@@ -41,8 +41,8 @@ type SenderDisplayNameResolver struct {
 }
 
 // NewSenderDisplayNameResolver creates a resolver for one active WhatsApp
-// client. The supplied device display name takes precedence for that account's
-// own messages after an operator-saved full contact name.
+// client. A supplied device display name takes precedence for that account's
+// own messages; its stored push name is used only when no explicit name exists.
 func NewSenderDisplayNameResolver(client *whatsmeow.Client, deviceDisplayName string) *SenderDisplayNameResolver {
 	var contacts contactInfoGetter
 	var accountJID types.JID
@@ -50,6 +50,9 @@ func NewSenderDisplayNameResolver(client *whatsmeow.Client, deviceDisplayName st
 		contacts = client.Store.Contacts
 		if client.Store.ID != nil {
 			accountJID = client.Store.ID.ToNonAD()
+		}
+		if !hasDisplayName(deviceDisplayName) {
+			deviceDisplayName = client.Store.PushName
 		}
 	}
 	return newSenderDisplayNameResolver(contacts, client, accountJID, deviceDisplayName)
@@ -71,6 +74,10 @@ func (r *SenderDisplayNameResolver) Resolve(ctx context.Context, senderJID strin
 	jid, validJID := r.normalizeJID(ctx, senderJID)
 	activeAccount := isFromMe || (validJID && r.isAccountJID(ctx, jid))
 
+	if activeAccount {
+		return r.activeAccountDisplayName(jid, validJID, senderJID)
+	}
+
 	var contact types.ContactInfo
 	if validJID && r.contacts != nil {
 		stored, err := r.contacts.GetContact(ctx, jid)
@@ -82,9 +89,6 @@ func (r *SenderDisplayNameResolver) Resolve(ctx context.Context, senderJID strin
 		}
 	}
 
-	if activeAccount && hasDisplayName(r.deviceDisplayName) {
-		return r.deviceDisplayName
-	}
 	if hasDisplayName(livePushName) {
 		return livePushName
 	}
@@ -95,6 +99,25 @@ func (r *SenderDisplayNameResolver) Resolve(ctx context.Context, senderJID strin
 		return jid.User
 	}
 	return senderJID
+}
+
+func (r *SenderDisplayNameResolver) activeAccountDisplayName(senderJID types.JID, validSenderJID bool, rawSenderJID string) string {
+	if hasDisplayName(r.deviceDisplayName) {
+		return r.deviceDisplayName
+	}
+	if hasDisplayName(r.accountJID.User) {
+		return r.accountJID.User
+	}
+	if accountJID := r.accountJID.String(); accountJID != "" {
+		return accountJID
+	}
+	if validSenderJID && hasDisplayName(senderJID.User) {
+		return senderJID.User
+	}
+	if validSenderJID && senderJID.String() != "" {
+		return senderJID.String()
+	}
+	return rawSenderJID
 }
 
 func (r *SenderDisplayNameResolver) normalizeJID(ctx context.Context, senderJID string) (types.JID, bool) {

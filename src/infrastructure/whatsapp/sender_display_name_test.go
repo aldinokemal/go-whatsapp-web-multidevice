@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -135,8 +137,10 @@ func TestSenderDisplayNameResolver(t *testing.T) {
 			want:   "not-a-jid",
 		},
 		{
-			name:       "supplied device display name wins for active account",
-			getter:     &senderDisplayNameContactGetter{},
+			name: "supplied device display name wins for active account",
+			getter: &senderDisplayNameContactGetter{contacts: map[types.JID]types.ContactInfo{
+				account: {Found: true, FullName: "Saved Self", PushName: "Stored Self", BusinessName: "Self Business"},
+			}},
 			sender:     "628111111111:4@s.whatsapp.net",
 			isFromMe:   true,
 			livePush:   "Live Push",
@@ -144,11 +148,13 @@ func TestSenderDisplayNameResolver(t *testing.T) {
 			want:       "Configured Device",
 		},
 		{
-			name:     "live push name wins over active account identifier",
-			getter:   &senderDisplayNameContactGetter{},
+			name: "active account ignores contact and live push names before identifier fallback",
+			getter: &senderDisplayNameContactGetter{contacts: map[types.JID]types.ContactInfo{
+				account: {Found: true, FullName: "Saved Self", PushName: "Stored Self", BusinessName: "Self Business"},
+			}},
 			sender:   account.String(),
 			livePush: "Live Push",
-			want:     "Live Push",
+			want:     "628111111111",
 		},
 		{
 			name:   "active account falls back to account identifier",
@@ -176,6 +182,30 @@ func TestSenderDisplayNameResolver(t *testing.T) {
 				t.Fatalf("Resolve(%q, %t, %q) = %q, want %q", tt.sender, tt.isFromMe, tt.livePush, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewSenderDisplayNameResolverDerivesClientPushNameForActiveAccount(t *testing.T) {
+	ctx := context.Background()
+	account := types.NewJID("628111111111", types.DefaultUserServer)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &account, PushName: "Client Push"}}
+
+	resolver := NewSenderDisplayNameResolver(client, "")
+	if got := resolver.Resolve(ctx, account.String(), false, "Live Push"); got != "Client Push" {
+		t.Fatalf("Resolve() = %q, want %q", got, "Client Push")
+	}
+
+	resolver = NewSenderDisplayNameResolver(client, "Configured Device")
+	if got := resolver.Resolve(ctx, account.String(), false, "Live Push"); got != "Configured Device" {
+		t.Fatalf("Resolve() = %q, want %q", got, "Configured Device")
+	}
+}
+
+func TestSenderDisplayNameResolverFallsBackToFullAccountJID(t *testing.T) {
+	resolver := newSenderDisplayNameResolver(nil, nil, types.NewJID("", "account.example"), "")
+
+	if got := resolver.Resolve(context.Background(), "628222222222@s.whatsapp.net", true, "Live Push"); got != "account.example" {
+		t.Fatalf("Resolve() = %q, want %q", got, "account.example")
 	}
 }
 
@@ -209,13 +239,13 @@ func TestSenderDisplayNameCache(t *testing.T) {
 	}
 
 	selfCache := NewSenderDisplayNameCache(resolver)
-	if got := selfCache.Resolve(ctx, "628111111111:4@s.whatsapp.net", true, ""); got != "My Push" {
-		t.Fatalf("first self Resolve() = %q, want %q", got, "My Push")
+	if got := selfCache.Resolve(ctx, "628111111111:4@s.whatsapp.net", true, "Live Push"); got != "628111111111" {
+		t.Fatalf("first self Resolve() = %q, want %q", got, "628111111111")
 	}
-	if got := selfCache.Resolve(ctx, account.String(), true, ""); got != "My Push" {
-		t.Fatalf("second self Resolve() = %q, want %q", got, "My Push")
+	if got := selfCache.Resolve(ctx, account.String(), true, ""); got != "628111111111" {
+		t.Fatalf("second self Resolve() = %q, want %q", got, "628111111111")
 	}
-	if getter.calls != 3 {
-		t.Fatalf("self contact lookups = %d, want 3", getter.calls)
+	if getter.calls != 2 {
+		t.Fatalf("self contact lookups = %d, want 2", getter.calls)
 	}
 }
