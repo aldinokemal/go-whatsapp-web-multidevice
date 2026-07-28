@@ -5185,6 +5185,16 @@ components:
           type: string
           example: '6289685028129@s.whatsapp.net'
           description: Sender JID
+        sender_display_name:
+          type: string
+          example: 'Saved Contact'
+          description: >-
+            Human-readable sender label resolved dynamically when this response is produced, not stored with the message.
+            For other senders, it prefers the saved contact full name, then the stored contact push name, business name,
+            JID user part, and raw JID. For the active account, it prefers the device display name (falling back to the
+            stored account push name), account JID user part, account JID, sender JID user part, and raw sender JID.
+            A contact rename can therefore change the label returned for historical messages. `sender_jid` remains the
+            stable sender identifier.
         content:
           type: string
           example: 'Hello, how are you?'
@@ -5249,6 +5259,16 @@ components:
           type: string
           example: '628123456789@s.whatsapp.net'
           description: JID of the user who reacted
+        sender_display_name:
+          type: string
+          example: 'Saved Contact'
+          description: >-
+            Human-readable sender label resolved dynamically when this response is produced, not stored with the reaction.
+            For other senders, it prefers the saved contact full name, then the stored contact push name, business name,
+            JID user part, and raw JID. For the active account, it prefers the device display name (falling back to the
+            stored account push name), account JID user part, account JID, sender JID user part, and raw sender JID.
+            A contact rename can therefore change the label returned for historical reactions. `sender_jid` remains the
+            stable sender identifier.
         is_from_me:
           type: boolean
           example: false

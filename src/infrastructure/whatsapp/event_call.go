@@ -59,7 +59,13 @@ func createCallOfferPayload(ctx context.Context, evt *events.CallOffer, deviceID
 
 	// Add call details
 	payload["call_id"] = evt.CallID
-	payload["from"] = evt.CallCreator.ToNonAD().String()
+	senderJID := evt.CallCreator
+	if senderJID.Server == "lid" {
+		payload["from_lid"] = senderJID.ToNonAD().String()
+	}
+	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
+	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addSenderDisplayName(ctx, client, payload, false, "")
 	payload["auto_rejected"] = autoRejected
 
 	// Add caller platform info if available

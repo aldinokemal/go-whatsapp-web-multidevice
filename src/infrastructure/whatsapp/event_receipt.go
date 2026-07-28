@@ -57,6 +57,7 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addSenderDisplayName(ctx, client, payload, false, "")
 
 	// Receipt type
 	if evt.Type == types.ReceiptTypeDelivered {
