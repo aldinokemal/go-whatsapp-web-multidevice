@@ -182,6 +182,109 @@ func TestGetChatMessagesMapsReactions(t *testing.T) {
 	}
 }
 
+func TestGetChatMessagesScopesSenderDisplayNameCacheToOneResponse(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	senderJID := types.NewJID("628123456789", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	chatJID := "120363999000111@g.us"
+	now := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
+	contacts := &countingContactStore{
+		contacts: map[types.JID]types.ContactInfo{
+			senderJID: {
+				Found:    true,
+				FullName: "Saved Participant",
+			},
+		},
+	}
+	repo := &chatUsecaseRepoStub{
+		chat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			Name:            "Study Group",
+			LastMessageTime: now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		messages: []*domainChatStorage.Message{
+			{
+				ID:        "msg-1",
+				ChatJID:   chatJID,
+				DeviceID:  deviceID,
+				Sender:    senderJID.String(),
+				Content:   "hello",
+				Timestamp: now,
+				CreatedAt: now,
+				UpdatedAt: now,
+				Reactions: []domainChatStorage.Reaction{
+					{
+						MessageID:  "msg-1",
+						ChatJID:    chatJID,
+						DeviceID:   deviceID,
+						ReactorJID: senderJID.String(),
+						Emoji:      "\U0001f44d",
+						Timestamp:  now.Add(time.Minute),
+					},
+				},
+			},
+			{
+				ID:        "msg-2",
+				ChatJID:   chatJID,
+				DeviceID:  deviceID,
+				Sender:    senderJID.String(),
+				Content:   "again",
+				Timestamp: now.Add(2 * time.Minute),
+				CreatedAt: now.Add(2 * time.Minute),
+				UpdatedAt: now.Add(2 * time.Minute),
+			},
+		},
+	}
+	client := &whatsmeow.Client{
+		Store: &store.Device{
+			ID:       &accountJID,
+			PushName: "Primary Account",
+			Contacts: contacts,
+		},
+	}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+	service := NewChatService(repo)
+	request := domainChat.GetChatMessagesRequest{
+		ChatJID: chatJID,
+		Limit:   50,
+	}
+
+	firstResponse, err := service.GetChatMessages(ctx, request)
+	if err != nil {
+		t.Fatalf("first GetChatMessages: %v", err)
+	}
+	if len(firstResponse.Data) != 2 || len(firstResponse.Data[0].Reactions) != 1 {
+		t.Fatalf("first response messages/reactions = %#v", firstResponse.Data)
+	}
+	if firstResponse.Data[0].SenderDisplayName != "Saved Participant" ||
+		firstResponse.Data[0].Reactions[0].SenderDisplayName != "Saved Participant" ||
+		firstResponse.Data[1].SenderDisplayName != "Saved Participant" {
+		t.Fatalf("first response sender display names = %#v", firstResponse.Data)
+	}
+	if contacts.reads != 1 {
+		t.Fatalf("contact reads after first response = %d, want 1", contacts.reads)
+	}
+
+	secondResponse, err := service.GetChatMessages(ctx, request)
+	if err != nil {
+		t.Fatalf("second GetChatMessages: %v", err)
+	}
+	if len(secondResponse.Data) != 2 || len(secondResponse.Data[0].Reactions) != 1 {
+		t.Fatalf("second response messages/reactions = %#v", secondResponse.Data)
+	}
+	if secondResponse.Data[0].SenderDisplayName != "Saved Participant" ||
+		secondResponse.Data[0].Reactions[0].SenderDisplayName != "Saved Participant" ||
+		secondResponse.Data[1].SenderDisplayName != "Saved Participant" {
+		t.Fatalf("second response sender display names = %#v", secondResponse.Data)
+	}
+	if contacts.reads != 2 {
+		t.Fatalf("contact reads after second response = %d, want 2", contacts.reads)
+	}
+}
+
 func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 	payload, err := json.Marshal(domainChat.MessageInfo{
 		SenderJID:         "628123456789@s.whatsapp.net",
