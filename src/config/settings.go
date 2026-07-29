@@ -29,9 +29,6 @@ var (
 	AppUIGithubToken    = "" // optional, raises the GitHub API rate limit
 	AppUIAssetSHA256    = "" // optional supply-chain pin: only serve the asset with this sha256
 
-	McpPort = "8080"
-	McpHost = "localhost"
-
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
 	PathMedia     = "statics/media"
