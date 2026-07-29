@@ -28,6 +28,9 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 		mcpg.WithIdempotentHintAnnotation(false),
 		mcpg.WithRawInputSchema(json.RawMessage(sendSchema)),
 	)
+	// NewTool defaults InputSchema.Type to "object"; clear it so only
+	// RawInputSchema is set, or MarshalJSON rejects the tool as conflicting.
+	tool.InputSchema = mcpg.ToolInputSchema{}
 	mcpServer.AddTool(tool, s.handleSend)
 }
 

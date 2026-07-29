@@ -113,6 +113,9 @@ func initEnvConfig() {
 	if viper.GetString("app_ui_enabled") != "" {
 		config.AppUIEnabled = viper.GetBool("app_ui_enabled")
 	}
+	if viper.GetString("mcp_enabled") != "" {
+		config.McpEnabled = viper.GetBool("mcp_enabled")
+	}
 	if viper.GetString("app_ui_auto_update") != "" {
 		config.AppUIAutoUpdate = viper.GetBool("app_ui_auto_update")
 	}
@@ -382,6 +385,12 @@ func initFlags() {
 		"ui-asset-sha256", "",
 		config.AppUIAssetSHA256,
 		`supply-chain pin: only serve the dashboard whose sha256 matches --ui-asset-sha256 <hex> (see the release's .sha256 asset)`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.McpEnabled,
+		"mcp-enabled", "",
+		config.McpEnabled,
+		`serve the MCP endpoint at /mcp --mcp-enabled <bool>`,
 	)
 
 	// Database flags

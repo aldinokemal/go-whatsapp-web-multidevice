@@ -31,6 +31,9 @@ func (h *GroupHandler) AddGroupTools(mcpServer *server.MCPServer) {
 		mcpg.WithIdempotentHintAnnotation(false),
 		mcpg.WithRawInputSchema(json.RawMessage(groupSchema)),
 	)
+	// NewTool defaults InputSchema.Type to "object"; clear it so only
+	// RawInputSchema is set, or MarshalJSON rejects the tool as conflicting.
+	tool.InputSchema = mcpg.ToolInputSchema{}
 	mcpServer.AddTool(tool, h.handleGroup)
 }
 

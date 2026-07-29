@@ -31,6 +31,9 @@ func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 		mcpg.WithIdempotentHintAnnotation(true),
 		mcpg.WithRawInputSchema(json.RawMessage(chatSchema)),
 	)
+	// NewTool defaults InputSchema.Type to "object"; clear it so only
+	// RawInputSchema is set, or MarshalJSON rejects the tool as conflicting.
+	tool.InputSchema = mcpg.ToolInputSchema{}
 	mcpServer.AddTool(tool, h.handleChat)
 }
 
