@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
@@ -748,6 +749,25 @@ func parseParticipantRequestChange(action string) (whatsmeow.ParticipantRequestC
 		return whatsmeow.ParticipantChangeReject, nil
 	default:
 		return whatsmeow.ParticipantRequestChange(""), fmt.Errorf("invalid join request action: %s", action)
+	}
+}
+
+func toBool(value any) (bool, error) {
+	switch v := value.(type) {
+	case bool:
+		return v, nil
+	case string:
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, fmt.Errorf("unable to parse boolean value %q", v)
+		}
+		return parsed, nil
+	case float64:
+		return v != 0, nil
+	case int:
+		return v != 0, nil
+	default:
+		return false, fmt.Errorf("unsupported boolean value type %T", value)
 	}
 }
 
