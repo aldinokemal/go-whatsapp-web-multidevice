@@ -12,9 +12,9 @@ import (
 )
 
 type stubResolver struct {
-	inst   *whatsapp.DeviceInstance
-	gotID  string
-	err    error
+	inst  *whatsapp.DeviceInstance
+	gotID string
+	err   error
 }
 
 func (s *stubResolver) ResolveDevice(deviceID string) (*whatsapp.DeviceInstance, string, error) {
