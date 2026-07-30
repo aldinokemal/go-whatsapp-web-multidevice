@@ -32,6 +32,14 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 		// Stateless: no server-initiated notifications or subscriptions are
 		// used, and it avoids tying a session store to Fiber's shutdown.
 		server.WithStateLess(true),
+		// No server-initiated notifications are used, so the standalone GET
+		// SSE stream is never needed. Without this, a GET reaches mcp-go's
+		// "for { select { case <-writeChan: ...; case <-ctx.Done(): } }"
+		// loop; ctx there is the *fasthttp.RequestCtx, whose Done() channel
+		// only closes on server shutdown (not client disconnect), so the
+		// goroutine, the fasthttp body-stream writer, and the connection/FD
+		// would all be pinned forever through the fasthttp adaptor.
+		server.WithDisableStreaming(true),
 		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			if dm == nil {
 				return ctx
@@ -48,5 +56,10 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 	)
 
 	handler := adaptor.HTTPHandler(httpServer)
-	router.All("/mcp", handler)
+	// POST carries JSON-RPC calls; DELETE is part of the streamable-HTTP
+	// session lifecycle. GET is intentionally not mounted: with streaming
+	// disabled mcp-go would just 405 it, so Fiber's own 404 for an
+	// unmounted method is equivalent and keeps the route surface narrow.
+	router.Post("/mcp", handler)
+	router.Delete("/mcp", handler)
 }

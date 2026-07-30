@@ -94,3 +94,52 @@ func TestMcpEndpointRequiresBasicAuth(t *testing.T) {
 	rec, _ = mcpRPC(t, app, initializeRPC, true)
 	assert.Equal(t, 200, rec.Code)
 }
+
+// TestMcpEndpointGetDoesNotHang guards C1: a GET on /mcp must not reach
+// mcp-go's standalone SSE notification stream, which blocks forever behind
+// the fasthttp adaptor (ctx.Done() only fires on server shutdown, never on
+// client disconnect). Only POST and DELETE are mounted, so GET must come
+// back as a client error without app.Test's default timeout ever tripping.
+func TestMcpEndpointGetDoesNotHang(t *testing.T) {
+	app := newMcpTestApp(false)
+
+	req := httptest.NewRequest("GET", "/mcp", nil)
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.True(t, resp.StatusCode == fiber.StatusNotFound || resp.StatusCode == fiber.StatusMethodNotAllowed,
+		"GET /mcp returned %d, want 404 or 405", resp.StatusCode)
+}
+
+// TestMcpToolCallRejectsInvalidArgumentsViaSchema guards I1: with
+// WithInputSchemaValidation enabled, a call missing a conditionally-required
+// field (here: type=text without message) must be rejected by mcp-go's
+// validator before the handler runs. The test app wires uimcp.Deps{} with a
+// nil DeviceManager and nil usecases, so the handler itself would fail on
+// device resolution first ("device identification required...") rather than
+// panic — that generic tool error would make an isError:true assertion pass
+// whether or not validation ran. So this test asserts on the actual
+// validator error text ("input schema validation failed"), which can only
+// appear if WithInputSchemaValidation rejected the call before the handler
+// (and its device check) ever ran; the test must fail if validation is
+// disabled again.
+func TestMcpToolCallRejectsInvalidArgumentsViaSchema(t *testing.T) {
+	app := newMcpTestApp(false)
+
+	const callRPC = `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"whatsapp_send","arguments":{"type":"text","phone":"628"}}}`
+	rec, res := mcpRPC(t, app, callRPC, false)
+	require.Equal(t, 200, rec.Code)
+
+	result, ok := res["result"].(map[string]any)
+	require.True(t, ok, "tools/call response missing result: %v", res)
+	require.Equal(t, true, result["isError"], "expected schema validation failure to surface as isError:true, got: %v", res)
+
+	content, ok := result["content"].([]any)
+	require.True(t, ok && len(content) > 0, "tools/call error result missing content: %v", res)
+	text, _ := content[0].(map[string]any)["text"].(string)
+	assert.Contains(t, text, "input schema validation failed",
+		"expected mcp-go's validator to reject the missing 'message' field before the handler ran, got: %q", text)
+	assert.Contains(t, text, "message", "expected the validator error to name the missing field, got: %q", text)
+}

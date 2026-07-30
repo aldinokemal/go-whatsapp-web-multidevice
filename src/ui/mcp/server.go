@@ -28,6 +28,10 @@ func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 		"WhatsApp Web Multidevice MCP Server",
 		config.AppVersion,
 		server.WithToolCapabilities(true),
+		// Enforce the schemas' allOf/if/then conditionals at the mcp-go
+		// layer, before any handler runs (SEP-1303). Without this,
+		// inputValidator stays nil and the conditionals are advisory only.
+		server.WithInputSchemaValidation(),
 	)
 	InitMcpSend(deps.Send, resolver).AddSendTools(s)
 	InitMcpMessage(deps.Message, resolver).AddMessageTools(s)
