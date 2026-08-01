@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -718,6 +719,12 @@ func int64Arg(request mcp.CallToolRequest, key string) (int64, bool, error) {
 	}
 	switch v := val.(type) {
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v {
+			return 0, false, fmt.Errorf("argument %q must be an integer", key)
+		}
+		if v <= math.MinInt64 || v >= math.MaxInt64 {
+			return 0, false, fmt.Errorf("argument %q is out of range", key)
+		}
 		return int64(v), true, nil
 	case int64:
 		return v, true, nil
