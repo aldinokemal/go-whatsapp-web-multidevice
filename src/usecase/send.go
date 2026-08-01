@@ -1378,10 +1378,16 @@ func (service serviceSend) SendEvent(ctx context.Context, request domainSend.Eve
 		return response, err
 	}
 
+	// Mirror the field set phone clients produce: recipients ignore event
+	// creations missing the explicit lifecycle/reminder fields.
 	eventMessage := &waE2E.EventMessage{
 		Name:               proto.String(request.Name),
 		StartTime:          proto.Int64(request.StartTime),
 		ExtraGuestsAllowed: proto.Bool(request.ExtraGuestsAllowed),
+		IsCanceled:         proto.Bool(false),
+		IsScheduleCall:     proto.Bool(false),
+		HasReminder:        proto.Bool(true),
+		ReminderOffsetSec:  proto.Int64(3600),
 	}
 	if request.Description != "" {
 		eventMessage.Description = proto.String(request.Description)
