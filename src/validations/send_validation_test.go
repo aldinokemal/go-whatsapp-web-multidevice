@@ -798,6 +798,7 @@ func TestValidateSendPoll(t *testing.T) {
 func TestValidateSendEvent(t *testing.T) {
 	endTimeValid := int64(2063140600)
 	endTimeBeforeStart := int64(2063130000)
+	endTimeEqualStart := int64(2063137000)
 
 	type args struct {
 		request domainSend.EventRequest
@@ -874,6 +875,29 @@ func TestValidateSendEvent(t *testing.T) {
 				Name:      "Team Meeting",
 				StartTime: 2063137000,
 				EndTime:   &endTimeBeforeStart,
+			}},
+			err: pkgError.ValidationError("end_time must be after start_time"),
+		},
+		{
+			name: "should error with negative start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: -1,
+			}},
+			err: pkgError.ValidationError("start_time must be a unix timestamp in seconds"),
+		},
+		{
+			name: "should error with end time equal to start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: 2063137000,
+				EndTime:   &endTimeEqualStart,
 			}},
 			err: pkgError.ValidationError("end_time must be after start_time"),
 		},

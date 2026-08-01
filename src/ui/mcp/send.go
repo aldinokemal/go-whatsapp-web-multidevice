@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	mcpHelpers "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/helpers"
@@ -697,7 +698,40 @@ func (s *SendHandler) toolSendEvent() mcp.Tool {
 		mcp.WithBoolean("extra_guests_allowed",
 			mcp.Description("Whether attendees may bring extra guests (default: false)"),
 		),
+		mcp.WithNumber("duration",
+			mcp.Description("Optional disappearing message duration in seconds (0, 86400, 604800, 7776000)"),
+		),
 	)
+}
+
+// int64Arg reads an MCP number argument as int64 without routing through the
+// platform-sized int helpers, which truncate unix timestamps past 2038 on
+// 32-bit builds (e.g. the armv7 image).
+func int64Arg(request mcp.CallToolRequest, key string) (int64, bool, error) {
+	args := request.GetArguments()
+	if args == nil {
+		return 0, false, nil
+	}
+	val, exists := args[key]
+	if !exists || val == nil {
+		return 0, false, nil
+	}
+	switch v := val.(type) {
+	case float64:
+		return int64(v), true, nil
+	case int64:
+		return v, true, nil
+	case int:
+		return int64(v), true, nil
+	case string:
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0, false, fmt.Errorf("argument %q cannot be converted to int64", key)
+		}
+		return parsed, true, nil
+	default:
+		return 0, false, fmt.Errorf("argument %q is not an integer", key)
+	}
 }
 
 func (s *SendHandler) handleSendEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -716,9 +750,12 @@ func (s *SendHandler) handleSendEvent(ctx context.Context, request mcp.CallToolR
 		return nil, err
 	}
 
-	startTime, err := request.RequireInt("start_time")
+	startTime, ok, err := int64Arg(request, "start_time")
 	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("required argument \"start_time\" not found")
 	}
 
 	eventRequest := domainSend.EventRequest{
@@ -727,13 +764,29 @@ func (s *SendHandler) handleSendEvent(ctx context.Context, request mcp.CallToolR
 		},
 		Name:               name,
 		Description:        request.GetString("description", ""),
-		StartTime:          int64(startTime),
+		StartTime:          startTime,
 		LocationName:       request.GetString("location_name", ""),
 		ExtraGuestsAllowed: request.GetBool("extra_guests_allowed", false),
 	}
-	if endTime := request.GetInt("end_time", 0); endTime > 0 {
-		endTime64 := int64(endTime)
-		eventRequest.EndTime = &endTime64
+
+	// An explicitly supplied end_time is always passed through so validation
+	// can reject values that are not after start_time.
+	endTime, ok, err := int64Arg(request, "end_time")
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		eventRequest.EndTime = &endTime
+	}
+
+	if args := request.GetArguments(); args != nil {
+		if _, ok := args["duration"]; ok {
+			duration, err := request.RequireInt("duration")
+			if err != nil {
+				return nil, err
+			}
+			eventRequest.Duration = &duration
+		}
 	}
 
 	res, err := s.sendService.SendEvent(ctx, eventRequest)
