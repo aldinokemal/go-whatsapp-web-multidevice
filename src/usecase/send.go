@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math"
@@ -1351,6 +1352,68 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
+	return response, nil
+}
+
+func (service serviceSend) SendEvent(ctx context.Context, request domainSend.EventRequest) (response domainSend.GenericResponse, err error) {
+	err = validations.ValidateSendEvent(ctx, request)
+	if err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Recipients encrypt their RSVP responses with the event's message secret
+	// (same mechanism as poll votes), so the creation message must carry one.
+	msgSecret := make([]byte, 32)
+	if _, err = rand.Read(msgSecret); err != nil {
+		return response, err
+	}
+
+	eventMessage := &waE2E.EventMessage{
+		Name:               proto.String(request.Name),
+		StartTime:          proto.Int64(request.StartTime),
+		ExtraGuestsAllowed: proto.Bool(request.ExtraGuestsAllowed),
+	}
+	if request.Description != "" {
+		eventMessage.Description = proto.String(request.Description)
+	}
+	if request.EndTime != nil {
+		eventMessage.EndTime = proto.Int64(*request.EndTime)
+	}
+	if request.LocationName != "" {
+		eventMessage.Location = &waE2E.LocationMessage{
+			Name: proto.String(request.LocationName),
+		}
+	}
+	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+		eventMessage.ContextInfo = &waE2E.ContextInfo{
+			Expiration: proto.Uint32(uint32(*request.BaseRequest.Duration)),
+		}
+	}
+
+	msg := &waE2E.Message{
+		EventMessage:       eventMessage,
+		MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: msgSecret},
+	}
+
+	content := "📅 " + request.Name
+
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, content)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Send event success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
 }
 

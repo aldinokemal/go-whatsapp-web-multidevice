@@ -489,6 +489,37 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 	return nil
 }
 
+func ValidateSendEvent(ctx context.Context, request domainSend.EventRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.Name, validation.Required),
+		validation.Field(&request.StartTime, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	// Custom validation for phone number format
+	if err := validatePhoneNumber(request.Phone); err != nil {
+		return err
+	}
+
+	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	if request.StartTime < 0 {
+		return pkgError.ValidationError("start_time must be a unix timestamp in seconds")
+	}
+
+	if request.EndTime != nil && *request.EndTime <= request.StartTime {
+		return pkgError.ValidationError("end_time must be after start_time")
+	}
+
+	return nil
+}
+
 func ValidateSendPresence(ctx context.Context, request domainSend.PresenceRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Type, validation.In("available", "unavailable")),

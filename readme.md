@@ -406,6 +406,7 @@ protocol. Below is the complete list of available tools:
 - `whatsapp_send_document` - Send document/file messages from URLs
 - `whatsapp_send_audio` - Send audio files from URLs, including voice-note mode
 - `whatsapp_send_poll` - Send WhatsApp polls
+- `whatsapp_send_event` - Send WhatsApp calendar events with RSVP
 
 ##### **📋 Chat & Contact Management**
 
@@ -635,6 +636,7 @@ You can fork or edit this source code !
 | ✅       | Send Link                              | POST   | /send/link                          |
 | ✅       | Send Location                          | POST   | /send/location                      |
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
+| ✅       | Send Calendar Event                    | POST   | /send/event                         |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
 | ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
 | ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |

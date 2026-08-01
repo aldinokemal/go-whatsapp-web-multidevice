@@ -32,6 +32,7 @@ func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(s.toolSendDocument(), s.handleSendDocument)
 	mcpServer.AddTool(s.toolSendAudio(), s.handleSendAudio)
 	mcpServer.AddTool(s.toolSendPoll(), s.handleSendPoll)
+	mcpServer.AddTool(s.toolSendEvent(), s.handleSendEvent)
 	mcpServer.AddTool(s.toolForwardMessage(), s.handleForwardMessage)
 }
 
@@ -663,6 +664,84 @@ func (s *SendHandler) handleSendPoll(ctx context.Context, request mcp.CallToolRe
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Poll sent successfully with ID %s", res.MessageID)), nil
+}
+
+func (s *SendHandler) toolSendEvent() mcp.Tool {
+	return mcp.NewTool("whatsapp_send_event",
+		mcp.WithDescription("Send a calendar event to a WhatsApp contact or group. Recipients can RSVP to the event."),
+		mcp.WithTitleAnnotation("Send Event"),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(false),
+		mcp.WithString("phone",
+			mcp.Required(),
+			mcp.Description("Phone number or group ID to send the event to"),
+		),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("The event name"),
+		),
+		mcp.WithNumber("start_time",
+			mcp.Required(),
+			mcp.Description("Event start time as a unix timestamp in seconds"),
+		),
+		mcp.WithString("description",
+			mcp.Description("Optional event description"),
+		),
+		mcp.WithNumber("end_time",
+			mcp.Description("Optional event end time as a unix timestamp in seconds"),
+		),
+		mcp.WithString("location_name",
+			mcp.Description("Optional location name shown on the event"),
+		),
+		mcp.WithBoolean("extra_guests_allowed",
+			mcp.Description("Whether attendees may bring extra guests (default: false)"),
+		),
+	)
+}
+
+func (s *SendHandler) handleSendEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ctx, err := mcpHelpers.ContextWithDefaultDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := request.RequireString("phone")
+	if err != nil {
+		return nil, err
+	}
+
+	name, err := request.RequireString("name")
+	if err != nil {
+		return nil, err
+	}
+
+	startTime, err := request.RequireInt("start_time")
+	if err != nil {
+		return nil, err
+	}
+
+	eventRequest := domainSend.EventRequest{
+		BaseRequest: domainSend.BaseRequest{
+			Phone: phone,
+		},
+		Name:               name,
+		Description:        request.GetString("description", ""),
+		StartTime:          int64(startTime),
+		LocationName:       request.GetString("location_name", ""),
+		ExtraGuestsAllowed: request.GetBool("extra_guests_allowed", false),
+	}
+	if endTime := request.GetInt("end_time", 0); endTime > 0 {
+		endTime64 := int64(endTime)
+		eventRequest.EndTime = &endTime64
+	}
+
+	res, err := s.sendService.SendEvent(ctx, eventRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Event sent successfully with ID %s", res.MessageID)), nil
 }
 
 func (s *SendHandler) toolForwardMessage() mcp.Tool {

@@ -1806,6 +1806,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /send/event:
+    post:
+      operationId: sendEvent
+      tags:
+        - send
+      summary: Send Calendar Event
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  description: The WhatsApp phone number to send the event to, including the '@s.whatsapp.net' suffix.
+                  example: '6289685024421@s.whatsapp.net'
+                name:
+                  type: string
+                  description: The name of the event.
+                  example: 'Team Meeting'
+                description:
+                  type: string
+                  description: Optional description of the event.
+                  example: 'Quarterly planning session'
+                start_time:
+                  type: integer
+                  format: int64
+                  description: Event start time as a unix timestamp in seconds.
+                  example: 2063137000
+                end_time:
+                  type: integer
+                  format: int64
+                  description: Optional event end time as a unix timestamp in seconds. Must be after start_time.
+                  example: 2063140600
+                location_name:
+                  type: string
+                  description: Optional location name shown on the event.
+                  example: 'Head Office'
+                extra_guests_allowed:
+                  type: boolean
+                  description: Whether attendees may bring extra guests.
+                  example: false
+                duration:
+                  type: integer
+                  example: 86400
+                  description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
+              required:
+                - phone
+                - name
+                - start_time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/presence:
     post:
       operationId: sendPresence
