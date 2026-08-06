@@ -60,6 +60,10 @@ func (s *serviceDevice) AddDevice(ctx context.Context, deviceID string, webhook 
 		return nil, err
 	}
 
+	// CreateDevice generates an ID when none was requested; the webhook config
+	// below must be saved against the actual ID, not the (possibly empty) request value.
+	deviceID = inst.ID()
+
 	// Apply the device-specific webhook configuration if provided. Failures are
 	// surfaced instead of logged away: the caller was promised the webhook config,
 	// so a silent partial success would leave the API reporting a webhook that was
