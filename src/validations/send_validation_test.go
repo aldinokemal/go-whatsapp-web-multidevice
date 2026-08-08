@@ -795,6 +795,122 @@ func TestValidateSendPoll(t *testing.T) {
 	}
 }
 
+func TestValidateSendEvent(t *testing.T) {
+	endTimeValid := int64(2063140600)
+	endTimeBeforeStart := int64(2063130000)
+	endTimeEqualStart := int64(2063137000)
+
+	type args struct {
+		request domainSend.EventRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with normal condition",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: 2063137000,
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with all optional fields",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:               "Team Meeting",
+				Description:        "Quarterly planning session",
+				StartTime:          2063137000,
+				EndTime:            &endTimeValid,
+				LocationName:       "Head Office",
+				ExtraGuestsAllowed: true,
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty phone",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "",
+				},
+				Name:      "Team Meeting",
+				StartTime: 2063137000,
+			}},
+			err: pkgError.ValidationError("phone: cannot be blank."),
+		},
+		{
+			name: "should error with empty name",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "",
+				StartTime: 2063137000,
+			}},
+			err: pkgError.ValidationError("name: cannot be blank."),
+		},
+		{
+			name: "should error with missing start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name: "Team Meeting",
+			}},
+			err: pkgError.ValidationError("start_time: cannot be blank."),
+		},
+		{
+			name: "should error with end time before start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: 2063137000,
+				EndTime:   &endTimeBeforeStart,
+			}},
+			err: pkgError.ValidationError("end_time must be after start_time"),
+		},
+		{
+			name: "should error with negative start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: -1,
+			}},
+			err: pkgError.ValidationError("start_time must be a unix timestamp in seconds"),
+		},
+		{
+			name: "should error with end time equal to start time",
+			args: args{request: domainSend.EventRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Name:      "Team Meeting",
+				StartTime: 2063137000,
+				EndTime:   &endTimeEqualStart,
+			}},
+			err: pkgError.ValidationError("end_time must be after start_time"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendEvent(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
 func TestValidateSendPresence(t *testing.T) {
 	type args struct {
 		request domainSend.PresenceRequest
