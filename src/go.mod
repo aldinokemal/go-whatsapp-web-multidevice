@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.72.0
 	go.mau.fi/libsignal v0.2.2
-	go.mau.fi/whatsmeow v0.0.0-20260722203353-e9a033b24933
+	go.mau.fi/whatsmeow v0.0.0-20260804144817-1494ba731cb0
 	golang.org/x/image v0.44.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.53.0
@@ -46,7 +46,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
-	github.com/mattn/go-isatty v0.0.23 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/petermattis/goid v0.0.0-20260713124913-97594f28f5ca // indirect
