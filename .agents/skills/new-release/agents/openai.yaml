@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Release"
+  short_description: "Safely publish a tagged project release"
+  default_prompt: "Use $new-release v9.1.0 to publish and verify a project release."
