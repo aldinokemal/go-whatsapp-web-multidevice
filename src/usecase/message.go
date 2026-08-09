@@ -288,6 +288,10 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 	return nil
 }
 
+func (service serviceMessage) lookupDownloadMediaMessage(ctx context.Context, messageID string) (*domainChatStorage.Message, error) {
+	return service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), messageID)
+}
+
 // DownloadMedia implements message.IMessageService.
 func (service serviceMessage) DownloadMedia(ctx context.Context, request domainMessage.DownloadMediaRequest) (response domainMessage.DownloadMediaResponse, err error) {
 	if err = validations.ValidateDownloadMedia(ctx, request); err != nil {
@@ -304,8 +308,10 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, err
 	}
 
-	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// The same WhatsApp message ID is stored by both the sending and receiving
+	// devices. A global lookup can return the other device's row and make the
+	// chat ownership check reject valid receiver-side downloads.
+	message, err := service.lookupDownloadMediaMessage(ctx, request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
