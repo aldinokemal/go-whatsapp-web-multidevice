@@ -61,4 +61,10 @@ func TestResolveDeviceContext(t *testing.T) {
 		_, _, err := resolveDeviceContext(context.Background(), callReq(nil), &stubResolver{})
 		require.ErrorContains(t, err, "device identification required")
 	})
+
+	t.Run("nil device stored in context errors", func(t *testing.T) {
+		ctx := whatsapp.ContextWithDevice(context.Background(), nil)
+		_, _, err := resolveDeviceContext(ctx, callReq(nil), &stubResolver{})
+		require.ErrorContains(t, err, "device identification required")
+	})
 }

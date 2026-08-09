@@ -10,6 +10,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/sirupsen/logrus"
 )
 
 // Register mounts the MCP streamable-HTTP endpoint at /mcp on the given
@@ -49,6 +50,7 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 			if err != nil {
 				// Leave the context empty; handlers surface a tool error
 				// ("device identification required") on use.
+				logrus.Debugf("MCP device resolution failed for %q: %v", deviceID, err)
 				return ctx
 			}
 			return whatsapp.ContextWithDevice(ctx, inst)

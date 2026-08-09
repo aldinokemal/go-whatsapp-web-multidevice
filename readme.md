@@ -544,7 +544,7 @@ You can fork or edit this source code !
 
 ### MCP (Model Context Protocol) API
 
-- Served at `/mcp` by the REST server (streamable HTTP transport) whenever `MCP_ENABLED` is true.
+- Served at `/mcp` by the REST server (streamable HTTP transport) whenever `MCP_ENABLED` is true; with `APP_BASE_PATH` set, the route is `<base-path>/mcp`.
 - Available tools are listed in the "Available MCP Tools" section above.
 - Compatible with MCP-enabled AI tools and agents
 

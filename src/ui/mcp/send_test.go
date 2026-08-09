@@ -93,7 +93,7 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "text", "phone": "628", "message": "hi",
-			"reply_message_id": "R1", "mentions": []any{"629"},
+			"reply_message_id": "R1", "mentions": []any{"629"}, "is_forwarded": true,
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, res)
@@ -103,6 +103,7 @@ func TestHandleSendDispatch(t *testing.T) {
 		assert.Equal(t, "hi", svc.lastText.Message)
 		assert.Equal(t, "R1", *svc.lastText.ReplyMessageID)
 		assert.Equal(t, []string{"629"}, svc.lastText.Mentions)
+		assert.True(t, svc.lastText.IsForwarded)
 	})
 
 	t.Run("image", func(t *testing.T) {
@@ -186,11 +187,14 @@ func TestHandleSendDispatch(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
-			"type": "poll", "phone": "628", "question": "q", "options": []any{"a", "b"}, "max_answer": 2,
+			"type": "poll", "phone": "628", "question": "q", "options": []any{"a", "b"},
+			"max_answer": 2, "is_forwarded": true,
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastPoll)
 		assert.Equal(t, 2, svc.lastPoll.MaxAnswer)
+		assert.Equal(t, "628", svc.lastPoll.Phone)
+		assert.True(t, svc.lastPoll.IsForwarded)
 	})
 
 	t.Run("link", func(t *testing.T) {

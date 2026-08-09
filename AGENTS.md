@@ -85,7 +85,7 @@ go-whatsapp-web-multidevice/
 - `domains/` defines DTOs and interfaces. Current contracts expose some whatsmeow and multipart types; follow existing contracts but do not add executable business logic there.
 - Usecases validate first, then obtain the device/client from context, then call whatsmeow/storage.
 - Device-scoped REST routes must pass `whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))`.
-- MCP device resolution: `route.go`'s `HTTPContextFunc` reads the connection's `X-Device-Id` header into context; `resolveDeviceContext` (`src/ui/mcp/device.go`) lets a per-call `device_id` tool argument override it, else falls back to the default/only device.
+- MCP device resolution: `route.go`'s `HTTPContextFunc` resolves the connection's `X-Device-Id` header into context (an empty header resolves the default/only device); `resolveDeviceContext` (`src/ui/mcp/device.go`) lets a per-call `device_id` tool argument override it, else errors.
 - Optional boolean filters use `*bool` so nil means "not provided".
 - Tests are colocated as `*_test.go`, mostly table-driven with `testify/assert` and occasional `testify/suite`.
 - Tests that mutate config, package globals, or background worker state should stay serial and restore state with `defer`.

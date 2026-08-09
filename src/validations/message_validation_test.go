@@ -277,10 +277,6 @@ func TestValidateStarMessage(t *testing.T) {
 			err := ValidateStarMessage(context.Background(), tt.args.request)
 			if tt.err == nil {
 				assert.NoError(t, err)
-			} else if tt.name == "should error with empty phone and message id" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "message_id: cannot be blank")
-				assert.Contains(t, err.Error(), "phone: cannot be blank")
 			} else {
 				assert.Equal(t, tt.err, err)
 			}

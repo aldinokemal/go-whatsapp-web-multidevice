@@ -29,7 +29,7 @@ func resolveDeviceContext(ctx context.Context, request mcpg.CallToolRequest, res
 		}
 		return whatsapp.ContextWithDevice(ctx, inst), inst, nil
 	}
-	if inst, ok := whatsapp.DeviceFromContext(ctx); ok {
+	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
 		return ctx, inst, nil
 	}
 	return ctx, nil, errors.New("device identification required: set the X-Device-Id header or pass device_id")

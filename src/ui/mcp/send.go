@@ -117,7 +117,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 		})
 	case "poll":
 		res, err = s.sendService.SendPoll(ctx, domainSend.PollRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
+			BaseRequest: base,
 			Question:    request.GetString("question", ""),
 			Options:     request.GetStringSlice("options", nil),
 			MaxAnswer:   request.GetInt("max_answer", 1),

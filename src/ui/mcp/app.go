@@ -71,7 +71,7 @@ func (h *AppHandler) handleApp(ctx context.Context, request mcpg.CallToolRequest
 		}
 		qrBytes, readErr := os.ReadFile(resp.ImagePath)
 		if readErr != nil {
-			return mcpg.NewToolResultStructured(structured, fallback), nil
+			return mcpg.NewToolResultStructured(structured, fmt.Sprintf("%s. QR image unavailable: %v", fallback, readErr)), nil
 		}
 		result := mcpg.NewToolResultImage(fallback, base64.StdEncoding.EncodeToString(qrBytes), "image/png")
 		result.StructuredContent = structured
