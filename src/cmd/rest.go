@@ -16,6 +16,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/uiasset"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -136,6 +137,19 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	// App info (version, limits) for standalone UIs; no device required
 	rest.InitRestAppInfo(apiGroup)
+
+	// MCP endpoint — same usecase instances as REST, so both surfaces share
+	// one whatsmeow session. Sits behind the basic-auth middleware above.
+	if config.McpEnabled {
+		uimcp.Register(apiGroup, dm, uimcp.Deps{
+			App:     appUsecase,
+			Send:    sendUsecase,
+			Chat:    chatUsecase,
+			User:    userUsecase,
+			Message: messageUsecase,
+			Group:   groupUsecase,
+		})
+	}
 
 	// Device-scoped operations (header-based)
 	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))

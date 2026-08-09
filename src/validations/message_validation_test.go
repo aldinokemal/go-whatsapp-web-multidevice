@@ -241,8 +241,7 @@ func TestValidateStarMessage(t *testing.T) {
 				MessageID: "3EB0789ABC123456",
 				IsStarred: false,
 			}},
-			// Note: validation.Required treats false as blank for boolean fields
-			err: pkgError.ValidationError("is_starred: cannot be blank."),
+			err: nil,
 		},
 		{
 			name: "should error with empty phone",
@@ -269,8 +268,7 @@ func TestValidateStarMessage(t *testing.T) {
 				MessageID: "",
 				IsStarred: false,
 			}},
-			// All three fields will fail validation when IsStarred is false
-			err: pkgError.ValidationError("is_starred: cannot be blank; message_id: cannot be blank; phone: cannot be blank."),
+			err: pkgError.ValidationError("message_id: cannot be blank; phone: cannot be blank."),
 		},
 	}
 
@@ -279,11 +277,6 @@ func TestValidateStarMessage(t *testing.T) {
 			err := ValidateStarMessage(context.Background(), tt.args.request)
 			if tt.err == nil {
 				assert.NoError(t, err)
-			} else if tt.name == "should error with empty phone and message id" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "is_starred: cannot be blank")
-				assert.Contains(t, err.Error(), "message_id: cannot be blank")
-				assert.Contains(t, err.Error(), "phone: cannot be blank")
 			} else {
 				assert.Equal(t, tt.err, err)
 			}

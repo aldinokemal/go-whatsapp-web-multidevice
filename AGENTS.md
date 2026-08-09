@@ -6,7 +6,8 @@ Branch: fix/chatwoot-postgres
 
 ## OVERVIEW
 
-Go WhatsApp Web Multi-Device is a Go 1.25.5 WhatsApp Web API server with REST and MCP SSE modes.
+Go WhatsApp Web Multi-Device is a Go 1.25.5 WhatsApp Web API server. MCP is not a separate mode: the `rest`
+command serves it at `/mcp` (streamable HTTP) whenever `config.McpEnabled` is true.
 It uses whatsmeow sessions, Fiber, plain Vue 3 modules, and SQLite-backed chat/session storage by default.
 
 ## STRUCTURE
@@ -15,7 +16,7 @@ It uses whatsmeow sessions, Fiber, plain Vue 3 modules, and SQLite-backed chat/s
 go-whatsapp-web-multidevice/
 |-- src/                         # Go module root; run Go commands here
 |   |-- main.go                  # go:embed views, then cmd.Execute
-|   |-- cmd/                     # Cobra root, rest, mcp, global app wiring
+|   |-- cmd/                     # Cobra root, rest (mounts MCP), global app wiring
 |   |-- config/                  # Mutable package globals bound from flags/env
 |   |-- domains/                 # Interfaces and DTOs; see child AGENTS
 |   |-- usecase/                 # Business orchestration; see child AGENTS
@@ -42,7 +43,7 @@ go-whatsapp-web-multidevice/
 | Add message type | `src/domains/send/`, `src/usecase/send.go`, `src/ui/rest/send.go` | REST is primary; MCP support is selective. |
 | Add quoted reply support | `src/domains/send/`, `src/usecase/send.go`, `src/views/components/Send*.js` | Optional `reply_message_id`; use device-scoped quote lookup. |
 | Add REST endpoint | `src/ui/rest/`, `src/usecase/`, `src/domains/` | Handler parses request, usecase validates/executes, domain owns DTO/interface. |
-| Add MCP tool | `src/ui/mcp/` | Register in `Add*Tools`; resolve a device with `helpers.ContextWithDefaultDevice`. |
+| Add MCP tool | `src/ui/mcp/` | Register in `Add*Tools`; resolve a device with `resolveDeviceContext` (`src/ui/mcp/device.go`). |
 | Handle WhatsApp event | `src/infrastructure/whatsapp/event_*.go` | Register the concrete event in `event_handler.go`. |
 | Presence behavior | `src/infrastructure/whatsapp/event_handler.go`, `presence_pulse.go`, `src/cmd/helpers.go` | Connect-time and scheduled pulse presence. |
 | Add chat storage method | `src/domains/chatstorage/interfaces.go`, `sqlite_repository.go`, `chatstorage_wrapper.go` | Update domain, repository, and wrapper together. |
@@ -72,19 +73,19 @@ go-whatsapp-web-multidevice/
 | `NormalizeJIDFromLID` | function | `src/infrastructure/whatsapp/jid_utils.go` | Converts `@lid` JIDs to phone JIDs where whatsmeow can resolve them. |
 | `pgimport.Importer` | struct | `src/infrastructure/chatwoot/pgimport/conn.go` | Direct Chatwoot Postgres importer for historical messages. |
 | `DeviceMiddleware` | middleware | `src/ui/rest/middleware/device.go` | Resolves `X-Device-Id` or `device_id` and injects device context. |
-| `ContextWithDefaultDevice` | helper | `src/ui/mcp/helpers/context.go` | MCP equivalent of REST device middleware for default/only device. |
+| `resolveDeviceContext` | helper | `src/ui/mcp/device.go` | Resolves the MCP call's device: `device_id` tool argument, else the `X-Device-Id`-derived device from `route.go`'s `HTTPContextFunc`, else error. |
 
 ## CONVENTIONS
 
 - Go commands run from `src/`; the repo root is not the Go module root.
 - Local runtime paths are relative to process cwd, so direct local runs should start from `src/`.
 - Config priority is Cobra flags, then env/Viper, then `.env` loaded from `src/`.
-- REST and MCP share the same app initialization and cannot safely run together against the same whatsmeow state in one process.
-- Process-wide helpers in `cmd/helpers.go` guard auto-reconnect and presence-pulse startup for both REST and MCP.
+- MCP is not a separate process: `rest` mounts it at `/mcp` in the same app initialization, sharing one whatsmeow state.
+- Process-wide helpers in `cmd/helpers.go` guard auto-reconnect and presence-pulse startup for the shared REST+MCP process.
 - `domains/` defines DTOs and interfaces. Current contracts expose some whatsmeow and multipart types; follow existing contracts but do not add executable business logic there.
 - Usecases validate first, then obtain the device/client from context, then call whatsmeow/storage.
 - Device-scoped REST routes must pass `whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))`.
-- MCP handlers do not receive `X-Device-Id`; they resolve the default/only device via `ContextWithDefaultDevice`.
+- MCP device resolution: `route.go`'s `HTTPContextFunc` resolves the connection's `X-Device-Id` header into context (an empty header resolves the default/only device); `resolveDeviceContext` (`src/ui/mcp/device.go`) lets a per-call `device_id` tool argument override it, else errors.
 - Optional boolean filters use `*bool` so nil means "not provided".
 - Tests are colocated as `*_test.go`, mostly table-driven with `testify/assert` and occasional `testify/suite`.
 - Tests that mutate config, package globals, or background worker state should stay serial and restore state with `defer`.
@@ -103,9 +104,9 @@ go-whatsapp-web-multidevice/
 
 ## UNIQUE STYLES
 
-- Cobra subcommands are registered by `init()` side effects in `cmd/rest.go` and `cmd/mcp.go`.
+- Cobra subcommands are registered by `init()` side effects in `cmd/rest.go`; there is no separate `cmd/mcp.go` — `rest` mounts MCP itself.
 - The app uses mutable package globals for config, clients, repositories, and usecases instead of dependency injection from `main`.
-- REST has wider coverage than MCP: REST send has 12 routes; MCP exposes send, query, app, and group tool subsets.
+- MCP exposes 5 consolidated tools (`src/ui/mcp/`) — `whatsapp_send`, `whatsapp_message`, `whatsapp_chat`, `whatsapp_group`, `whatsapp_app` — each dispatching on a `type`/`action` argument, versus one REST route per operation.
 - Chat storage migrations are Go string literals in the repository, not external migration files.
 - The embedded UI uses Vue 3 from CDN, Fomantic UI modals/toasts, and custom delimiters `[[`, `]]`.
 - Release workflows generate GoReleaser YAML into `/tmp`; there is no committed `.goreleaser.yml`.
@@ -117,7 +118,6 @@ go-whatsapp-web-multidevice/
 
 ```bash
 cd src && go run . rest
-cd src && go run . mcp
 cd src && go build -o whatsapp
 cd src && go test ./...
 cd src && go vet ./...

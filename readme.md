@@ -37,6 +37,9 @@ Download:
     - for example: `./whatsapp rest` instead of ~~./whatsapp~~
   - For MCP mode, you need to run `<binary> mcp`
     - for example: `./whatsapp mcp`
+    - **Update**: as of `v9`, MCP is no longer a separate mode — it's served by the REST server at `/mcp` (no
+      standalone `mcp` subcommand). See
+      [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol) for details and migration notes.
 - `v7`
   - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
       from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
@@ -367,96 +370,57 @@ If you want to build for Raspberry Pi or other ARM devices without needing a C t
 
 ### MCP Server (Model Context Protocol)
 
-This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a
-standardized protocol.
-
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `cd src`
-4. run `go run . mcp` or build the binary and run `./whatsapp mcp`
-5. The MCP server will start on `http://localhost:8080` by default
-
-#### MCP Server Options
-
-- `--host localhost` - Set the host for MCP server (default: localhost)
-- `--port 8080` - Set the port for MCP server (default: 8080)
+MCP is not a separate mode or process — it's served by the REST server itself. Whenever `./whatsapp rest` is
+running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` (default
+`http://localhost:3000/mcp`) using the streamable HTTP transport. Disable it with `MCP_ENABLED=false` or
+`--mcp-enabled=false` (default: enabled).
 
 #### Available MCP Tools
 
-The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized
-protocol. Below is the complete list of available tools:
+There are 5 consolidated tools; agents pick behavior via a `type`/`action` argument instead of one tool per
+operation:
 
-##### **📱 Connection Management**
+| Tool               | `type` / `action` values                                                                                                                                     |
+|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
+| `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `star`, `unstar`, `download_media`                                                                          |
+| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
+| `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
+| `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 
-- `whatsapp_connection_status` - Check whether the WhatsApp client is connected and logged in
-- `whatsapp_login_qr` - Initiate QR code based login flow with image output
-- `whatsapp_login_with_code` - Generate pairing code for multi-device login using phone number
-- `whatsapp_logout` - Sign out the current WhatsApp session
-- `whatsapp_reconnect` - Attempt to reconnect to WhatsApp using stored session
+#### Device selection
 
-##### **💬 Messaging & Communication**
-
-- `whatsapp_send_text` - Send text messages with reply and forwarding support
-- `whatsapp_send_contact` - Send contact cards with name and phone number
-- `whatsapp_send_link` - Send links with custom captions
-- `whatsapp_send_location` - Send location coordinates (latitude/longitude)
-- `whatsapp_send_image` - Send images with captions, compression, and view-once options
-- `whatsapp_send_video` - Send videos from URLs with captions, compression, view-once, and GIF playback options
-- `whatsapp_send_sticker` - Send stickers with automatic WebP conversion (supports JPG/PNG/GIF)
-- `whatsapp_send_document` - Send document/file messages from URLs
-- `whatsapp_send_audio` - Send audio files from URLs, including voice-note mode
-- `whatsapp_send_poll` - Send WhatsApp polls
-
-##### **📋 Chat & Contact Management**
-
-- `whatsapp_list_contacts` - Retrieve all contacts in your WhatsApp account
-- `whatsapp_list_chats` - Get recent chats with pagination and search filters
-- `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
-- `whatsapp_download_message_media` - Download images/videos from messages
-- `whatsapp_archive_chat` - Archive or unarchive a chat conversation
-- `whatsapp_react_message` - React to a WhatsApp message
-- `whatsapp_edit_message` - Edit a previously sent WhatsApp message
-- `whatsapp_revoke_message` - Delete a WhatsApp message for everyone
-- `whatsapp_delete_message` - Delete a WhatsApp message for the current account only
-- `whatsapp_mark_as_read` - Mark a WhatsApp message as read
-- `whatsapp_star_message` - Star or unstar a WhatsApp message
-
-##### **👥 Group Management**
-
-- `whatsapp_group_create` - Create new groups with optional initial participants
-- `whatsapp_group_join_via_link` - Join groups using invite links
-- `whatsapp_group_leave` - Leave groups by group ID
-- `whatsapp_group_participants` - List all participants in a group
-- `whatsapp_group_manage_participants` - Add, remove, promote, or demote group members
-- `whatsapp_group_invite_link` - Get or reset group invite links
-- `whatsapp_group_info` - Get detailed group information
-- `whatsapp_group_set_name` - Update group display name
-- `whatsapp_group_set_topic` - Update group description/topic
-- `whatsapp_group_set_locked` - Toggle admin-only group info editing
-- `whatsapp_group_set_announce` - Toggle announcement-only mode
-- `whatsapp_group_join_requests` - List pending join requests
-- `whatsapp_group_manage_join_requests` - Approve or reject join requests
-
-#### MCP Endpoints
-
-- SSE endpoint: `http://localhost:8080/sse`
-- Message endpoint: `http://localhost:8080/message`
+For multi-device deployments, the `X-Device-Id` header on the MCP client connection selects the device used by
+every tool call on that connection (falls back to the default device if omitted, same as REST). Any individual
+call can override it with an optional `device_id` argument.
 
 ### MCP Configuration
 
-Make sure you have the MCP server running: `./whatsapp mcp`
-
-For AI tools that support MCP with SSE (like Cursor), add this configuration:
+Point your MCP client at the `/mcp` endpoint. It inherits the REST server's basic auth, so include the same
+`Authorization` header your REST calls use:
 
 ```json
 {
   "mcpServers": {
     "whatsapp": {
-      "url": "http://localhost:8080/sse"
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Basic dXNlcjpzZWNyZXQ=",
+        "X-Device-Id": "628123456789"
+      }
     }
   }
 }
 ```
+
+`headers` is optional: include `Authorization` only when basic auth is configured, and `X-Device-Id` only for
+multi-device setups.
+
+#### Migrating from the standalone MCP mode
+
+- `./whatsapp mcp` → `./whatsapp rest` (MCP is now included automatically)
+- `http://localhost:8080/sse` → `http://localhost:3000/mcp`
+- 40 granular tools → 5 consolidated tools (agents pick actions via the `type`/`action` field)
 
 ### Production Mode REST (docker)
 
@@ -580,8 +544,7 @@ You can fork or edit this source code !
 
 ### MCP (Model Context Protocol) API
 
-- MCP server provides standardized tools for AI agents to interact with WhatsApp
-- Supports Server-Sent Events (SSE) transport
+- Served at `/mcp` by the REST server (streamable HTTP transport) whenever `MCP_ENABLED` is true; with `APP_BASE_PATH` set, the route is `<base-path>/mcp`.
 - Available tools are listed in the "Available MCP Tools" section above.
 - Compatible with MCP-enabled AI tools and agents
 
@@ -735,5 +698,3 @@ server's URL (see the gowa-ui readme).
 
 - This project is unofficial and not affiliated with WhatsApp.
 - Please use official WhatsApp API to avoid any issues.
-- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in
-  the future.
