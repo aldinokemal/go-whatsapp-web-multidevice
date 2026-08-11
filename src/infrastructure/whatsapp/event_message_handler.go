@@ -174,7 +174,9 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 	// Forward to webhook if any webhook is configured (global or per-device)
 	// The forwardPayloadToConfiguredWebhooks function itself handles the no-op case
 	go func(e *events.Message, c *whatsmeow.Client) {
-		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Detach from the event/request context so a cancelled parent doesn't abort
+		// the webhook forward (or its Chatwoot link lookup) before the 30s timeout.
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
 			logrus.Error("Failed forward to webhook: ", err)
