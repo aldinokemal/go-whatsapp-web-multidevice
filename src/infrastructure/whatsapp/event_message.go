@@ -171,7 +171,36 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 		return "", nil, err
 	}
 
+	if payloadHasNoRenderableContent(payload) {
+		// None of the known text/media/structured fields matched, so this
+		// message type isn't recognized by buildMessageBody/buildOptionalFields
+		// (e.g. templates, interactive/native-flow messages, polls, group
+		// invites, payment requests). Downstream (Chatwoot) will render it as
+		// "(Unsupported message type)" with no way to tell which WhatsApp
+		// message kind caused it; dump the raw proto here so a future
+		// occurrence is diagnosable directly from logs instead of guesswork.
+		logrus.Warnf("Unrecognized message type from %s (id=%s): %s", evt.Info.Sender.String(), evt.Info.ID, msg.String())
+	}
+
 	return EventTypeMessage, payload, nil
+}
+
+// payloadHasNoRenderableContent reports whether none of the fields
+// buildMessageBody/buildOptionalFields/buildMediaFields/buildOtherMessageTypes
+// populate for a recognized message type are present. Kept in sync with the
+// field names those functions write to payload.
+func payloadHasNoRenderableContent(payload map[string]any) bool {
+	renderableKeys := []string{
+		"body",
+		"image", "audio", "video", "video_note", "document", "sticker",
+		"contact", "contacts_array", "list", "live_location", "location", "order",
+	}
+	for _, key := range renderableKeys {
+		if _, ok := payload[key]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
