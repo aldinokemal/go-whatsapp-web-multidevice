@@ -15,6 +15,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 var reMention = regexp.MustCompile(`\B@\w+`)
@@ -171,15 +172,16 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 		return "", nil, err
 	}
 
-	if payloadHasNoRenderableContent(payload) {
-		// None of the known text/media/structured fields matched, so this
-		// message type isn't recognized by buildMessageBody/buildOptionalFields
-		// (e.g. templates, interactive/native-flow messages, polls, group
-		// invites, payment requests). Downstream (Chatwoot) will render it as
-		// "(Unsupported message type)" with no way to tell which WhatsApp
-		// message kind caused it; dump the raw proto here so a future
-		// occurrence is diagnosable directly from logs instead of guesswork.
-		logrus.Warnf("Unrecognized message type from %s (id=%s): %s", evt.Info.Sender.String(), evt.Info.ID, msg.String())
+	if payloadHasNoRenderableContent(payload) && !hasRecognizedMessageType(msg) {
+		// Neither a recognized message type nor any renderable payload field:
+		// this is genuinely an unhandled kind (e.g. templates, interactive/
+		// native-flow messages, polls, group invites, payment requests).
+		// Downstream (Chatwoot) will render it as "(Unsupported message
+		// type)" with no way to tell which WhatsApp message kind caused it.
+		// Log which proto field is populated — never its value, since that
+		// can carry customer message content, media URLs, and decryption
+		// keys — so a future occurrence is diagnosable from logs alone.
+		logrus.Warnf("Unrecognized message type from %s (id=%s): populated proto fields=%v", evt.Info.Sender.String(), evt.Info.ID, populatedMessageFields(msg))
 	}
 
 	return EventTypeMessage, payload, nil
@@ -189,6 +191,12 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 // buildMessageBody/buildOptionalFields/buildMediaFields/buildOtherMessageTypes
 // populate for a recognized message type are present. Kept in sync with the
 // field names those functions write to payload.
+//
+// This alone is not sufficient to conclude the message type is unrecognized:
+// a known media type (image/audio/video/document/sticker/video_note) with a
+// failed/expired download leaves its field unset here too, even though
+// buildMediaFields correctly identified it. Callers must also check
+// hasRecognizedMessageType before treating this as "unhandled type".
 func payloadHasNoRenderableContent(payload map[string]any) bool {
 	renderableKeys := []string{
 		"body",
@@ -201,6 +209,47 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		}
 	}
 	return true
+}
+
+// hasRecognizedMessageType reports whether msg is one of the kinds
+// buildMediaFields/buildOtherMessageTypes know how to handle, independent of
+// whether extraction actually produced payload content (e.g. a media
+// download can fail while the type itself is still recognized). Keep this in
+// sync with the Get*Message() checks in those two functions.
+func hasRecognizedMessageType(msg *waE2E.Message) bool {
+	switch {
+	case msg.GetAudioMessage() != nil,
+		msg.GetDocumentMessage() != nil,
+		msg.GetImageMessage() != nil,
+		msg.GetStickerMessage() != nil,
+		msg.GetVideoMessage() != nil,
+		msg.GetPtvMessage() != nil,
+		msg.GetContactMessage() != nil,
+		msg.GetContactsArrayMessage() != nil,
+		msg.GetListMessage() != nil,
+		msg.GetLiveLocationMessage() != nil,
+		msg.GetLocationMessage() != nil,
+		msg.GetOrderMessage() != nil:
+		return true
+	default:
+		return false
+	}
+}
+
+// populatedMessageFields lists the proto field names set on msg (e.g.
+// "interactiveMessage", "templateMessage"), using reflection purely for
+// field descriptors — never field values — so this is safe to log at warn
+// level even though the message itself may carry customer content.
+func populatedMessageFields(msg *waE2E.Message) []string {
+	if msg == nil {
+		return nil
+	}
+	var names []string
+	msg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		names = append(names, string(fd.Name()))
+		return true
+	})
+	return names
 }
 
 func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
