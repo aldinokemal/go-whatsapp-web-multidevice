@@ -786,14 +786,19 @@ func (s *SendHandler) handleSendEvent(ctx context.Context, request mcp.CallToolR
 		eventRequest.EndTime = &endTime
 	}
 
-	if args := request.GetArguments(); args != nil {
-		if _, ok := args["duration"]; ok {
-			duration, err := request.RequireInt("duration")
-			if err != nil {
-				return nil, err
-			}
-			eventRequest.Duration = &duration
+	// duration goes through the same strict integer path as the timestamps:
+	// RequireInt casts float64 to int, so fractional values like 86400.5
+	// would silently truncate onto the duration whitelist.
+	duration64, ok, err := int64Arg(request, "duration")
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if duration64 < math.MinInt32 || duration64 > math.MaxInt32 {
+			return nil, errors.New("argument \"duration\" is out of range")
 		}
+		duration := int(duration64)
+		eventRequest.Duration = &duration
 	}
 
 	res, err := s.sendService.SendEvent(ctx, eventRequest)
