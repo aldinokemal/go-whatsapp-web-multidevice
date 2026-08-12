@@ -1095,6 +1095,87 @@ func TestFormatInteractiveMessageSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("cta_copy button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_copy"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Copy","copy_code":"SAVE10"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "📋 Copy: SAVE10"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("header subtitle is included alongside title", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{
+				Title:    proto.String("Promo"),
+				Subtitle: proto.String("Only this week"),
+			},
+		}
+		want := "Promo\nOnly this week"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("single_select button falls back to native-flow title when display_text absent", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("single_select"),
+							ButtonParamsJSON: proto.String(`{"title":"Choose a plan","sections":[]}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[single_select] Choose a plan"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("carousel summarizes each card, skipping empty ones", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Check our products")},
+			InteractiveMessage: &waE2E.InteractiveMessage_CarouselMessage_{
+				CarouselMessage: &waE2E.InteractiveMessage_CarouselMessage{
+					Cards: []*waE2E.InteractiveMessage{
+						{
+							Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Shoes")},
+							InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+								NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+									Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+										{
+											Name:             proto.String("cta_url"),
+											ButtonParamsJSON: proto.String(`{"display_text":"Buy","url":"https://example.com/shoes"}`),
+										},
+									},
+								},
+							},
+						},
+						{}, // empty card: no header/body/footer/buttons, must not add a blank "Card 2: " line
+					},
+				},
+			},
+		}
+		want := "Check our products\nCard 1: Shoes\n🔗 Buy: https://example.com/shoes"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
 	t.Run("no header, body, footer, or buttons yields generic sentinel", func(t *testing.T) {
 		im := &waE2E.InteractiveMessage{}
 		want := "Interactive message"
@@ -1105,24 +1186,33 @@ func TestFormatInteractiveMessageSummary(t *testing.T) {
 }
 
 // TestExtractStructuredMessageContentInteractive covers the data["interactive"]
-// dispatch branch in extractStructuredMessageContent, which — unlike the other
-// structured branches in this file — asserts against the concrete *waE2E.InteractiveMessage
-// type rather than a structural interface, since Header/Body/Footer/NativeFlowMessage
-// are themselves concrete generated types with no shared interface to fake against.
+// dispatch branch in extractStructuredMessageContent. Unlike the other
+// structured branches in this file, buildOtherMessageTypes pre-renders
+// InteractiveMessage to a plain string at construction time (via
+// formatInteractiveMessageSummary) instead of storing the raw proto, so this
+// value survives the JSON round-trip the Chatwoot forward retry queue
+// performs — see the comment at that call site in event_message.go.
 func TestExtractStructuredMessageContentInteractive(t *testing.T) {
-	t.Run("real InteractiveMessage dispatches to the formatter", func(t *testing.T) {
-		im := &waE2E.InteractiveMessage{
-			Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Hello")},
-		}
-		got := extractStructuredMessageContent(map[string]any{"interactive": im})
+	t.Run("pre-rendered string is returned as-is", func(t *testing.T) {
+		got := extractStructuredMessageContent(map[string]any{"interactive": "Hello"})
 		if got != "Hello" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
-	t.Run("non-InteractiveMessage value yields generic sentinel", func(t *testing.T) {
-		got := extractStructuredMessageContent(map[string]any{"interactive": "raw"})
-		if got != "Interactive message" {
+	t.Run("non-string value falls through to empty string", func(t *testing.T) {
+		// Would only happen from a bug elsewhere (buildOtherMessageTypes
+		// always stores a string) — falling through to the caller's own
+		// placeholder logic is safer than guessing at a sentinel here.
+		got := extractStructuredMessageContent(map[string]any{"interactive": 42})
+		if got != "" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("empty string falls through to empty string", func(t *testing.T) {
+		got := extractStructuredMessageContent(map[string]any{"interactive": ""})
+		if got != "" {
 			t.Fatalf("got %q", got)
 		}
 	})

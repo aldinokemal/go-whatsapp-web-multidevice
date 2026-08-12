@@ -374,7 +374,71 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 		}
 	}
 
+	buildInteractiveHeaderMedia(ctx, client, msg.GetInteractiveMessage().GetHeader(), payload)
+
 	return nil
+}
+
+// buildInteractiveHeaderMedia extracts the image/video/document that can ride
+// along an InteractiveMessage's header (common for marketing CTA messages: a
+// product photo above the button). Without this, buildMediaFields only looks
+// at the top-level message — which is empty for InteractiveMessage, since
+// it's a distinct oneof case from GetImageMessage()/GetVideoMessage()/
+// GetDocumentMessage() — so header media silently never reached Chatwoot.
+// header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
+// handled: no existing payload field/attachment path covers them here.
+func buildInteractiveHeaderMedia(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header, payload map[string]any) {
+	if header == nil {
+		return
+	}
+
+	if imageMedia := header.GetImageMessage(); imageMedia != nil {
+		if config.WhatsappAutoDownloadMedia {
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
+			if err != nil {
+				logrus.Errorf("Failed to download interactive header image: %v", err)
+			} else {
+				payload["image"] = buildAutoDownloadPayload(extracted)
+			}
+		} else {
+			payload["image"] = map[string]any{
+				"url":     imageMedia.GetURL(),
+				"caption": imageMedia.GetCaption(),
+			}
+		}
+	}
+
+	if videoMedia := header.GetVideoMessage(); videoMedia != nil {
+		if config.WhatsappAutoDownloadMedia {
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
+			if err != nil {
+				logrus.Errorf("Failed to download interactive header video: %v", err)
+			} else {
+				payload["video"] = buildAutoDownloadPayload(extracted)
+			}
+		} else {
+			payload["video"] = map[string]any{
+				"url":     videoMedia.GetURL(),
+				"caption": videoMedia.GetCaption(),
+			}
+		}
+	}
+
+	if documentMedia := header.GetDocumentMessage(); documentMedia != nil {
+		if config.WhatsappAutoDownloadMedia {
+			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
+			if err != nil {
+				logrus.Errorf("Failed to download interactive header document: %v", err)
+			} else {
+				payload["document"] = buildAutoDownloadPayload(extracted)
+			}
+		} else {
+			payload["document"] = map[string]any{
+				"url":      documentMedia.GetURL(),
+				"filename": documentMedia.GetFileName(),
+			}
+		}
+	}
 }
 
 // buildAutoDownloadPayload builds the media payload for auto-downloaded media.
@@ -419,7 +483,15 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 		// website", cta_call, single/multi-select, etc.) arrive as this type
 		// instead of Conversation/ExtendedTextMessage, so they carried no
 		// body text and rendered as "(Unsupported message type)" in Chatwoot.
-		payload["interactive"] = interactiveMessage
+		//
+		// Rendered to a string here, not stored as the raw proto: a failed
+		// live forward gets re-marshaled through JSON for the retry queue
+		// (see enqueueChatwootForwardRetry/replayChatwootForwardEvent), which
+		// turns *waE2E.InteractiveMessage into a generic map[string]any —
+		// the type assertion in extractStructuredMessageContent would then
+		// miss on retry and silently downgrade to the generic sentinel,
+		// losing the CTA label/URL/phone/code the live path just extracted.
+		payload["interactive"] = formatInteractiveMessageSummary(interactiveMessage)
 	}
 }
 

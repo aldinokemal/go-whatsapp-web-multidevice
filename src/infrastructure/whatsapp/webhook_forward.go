@@ -686,11 +686,11 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
-	if interactive, ok := data["interactive"]; ok && interactive != nil {
-		if im, ok := interactive.(*waE2E.InteractiveMessage); ok {
-			return formatInteractiveMessageSummary(im)
-		}
-		return "Interactive message"
+	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+		// Pre-rendered by buildOtherMessageTypes at construction time (not
+		// stored as the raw proto) so it survives the JSON round-trip on the
+		// Chatwoot forward retry path; see the comment at that call site.
+		return interactive
 	}
 
 	return ""
@@ -710,6 +710,9 @@ func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
 		if title := header.GetTitle(); title != "" {
 			parts = append(parts, title)
 		}
+		if subtitle := header.GetSubtitle(); subtitle != "" {
+			parts = append(parts, subtitle)
+		}
 	}
 	if body := im.GetBody(); body != nil {
 		if text := body.GetText(); text != "" {
@@ -725,6 +728,17 @@ func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
 	for _, button := range im.GetNativeFlowMessage().GetButtons() {
 		if line := formatNativeFlowButton(button); line != "" {
 			parts = append(parts, line)
+		}
+	}
+
+	// Carousels put their CTA/quick-reply buttons on each card rather than on
+	// the top-level NativeFlowMessage, so the loop above sees none of them —
+	// summarize each card (itself a full InteractiveMessage) separately.
+	if carousel := im.GetCarouselMessage(); carousel != nil {
+		for i, card := range carousel.GetCards() {
+			if cardSummary := formatInteractiveMessageSummary(card); cardSummary != "" && cardSummary != "Interactive message" {
+				parts = append(parts, fmt.Sprintf("Card %d: %s", i+1, cardSummary))
+			}
 		}
 	}
 
@@ -744,6 +758,10 @@ type nativeFlowButtonParams struct {
 	URL         string `json:"url"`
 	PhoneNumber string `json:"phone_number"`
 	Copy        string `json:"copy_code"`
+	// Title is the visible label field used by picker-style buttons (e.g.
+	// single_select's {"title":...,"sections":...}), which don't set
+	// display_text at all.
+	Title string `json:"title"`
 }
 
 func formatNativeFlowButton(button *waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton) string {
@@ -782,8 +800,12 @@ func formatNativeFlowButton(button *waE2E.InteractiveMessage_NativeFlowMessage_N
 		}
 	}
 
-	if params.DisplayText != "" {
-		return fmt.Sprintf("[%s] %s", name, params.DisplayText)
+	label := params.DisplayText
+	if label == "" {
+		label = params.Title
+	}
+	if label != "" {
+		return fmt.Sprintf("[%s] %s", name, label)
 	}
 	return fmt.Sprintf("[%s]", name)
 }
