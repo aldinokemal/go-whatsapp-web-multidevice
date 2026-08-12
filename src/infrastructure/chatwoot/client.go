@@ -866,9 +866,14 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 
 		mimeType := mime.TypeByExtension(ext)
 		if mimeType == "" {
-			if ext == ".oga" {
+			switch ext {
+			case ".oga", ".ogg":
+				// The runtime image ships no /etc/mime.types, so
+				// mime.TypeByExtension never resolves these on its own.
+				// WhatsApp voice notes are saved as .ogg (Opus-in-Ogg);
+				// .oga is the alternate extension for the same container.
 				mimeType = "audio/ogg"
-			} else {
+			default:
 				mimeType = "application/octet-stream"
 			}
 		}
