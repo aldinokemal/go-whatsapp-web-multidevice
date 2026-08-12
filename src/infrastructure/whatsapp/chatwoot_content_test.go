@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
 )
 
 // --- Fakes implementing the structural interfaces extractStructuredMessageContent
@@ -987,6 +989,148 @@ func TestGroupNameCache(t *testing.T) {
 		name, ok := getCachedGroupName(jid)
 		if !ok || name != "" {
 			t.Fatalf("expected ('', true) for empty cached name, got (%q, %v)", name, ok)
+		}
+	})
+}
+
+// TestFormatInteractiveMessageSummary pins the text rendering of
+// InteractiveMessage (business/Cloud API messages with native buttons), which
+// can't be exercised end-to-end without a real Business-API sender — these
+// build the real protobuf type directly instead of relying on a live message.
+func TestFormatInteractiveMessageSummary(t *testing.T) {
+	t.Run("header, body, footer, and cta_url button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{Title: proto.String("Promo")},
+			Body:   &waE2E.InteractiveMessage_Body{Text: proto.String("Confira nossa oferta")},
+			Footer: &waE2E.InteractiveMessage_Footer{Text: proto.String("Equipe Vendas")},
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_url"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Visitar site","url":"https://example.com"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "Promo\nConfira nossa oferta\nEquipe Vendas\n🔗 Visitar site: https://example.com"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("cta_call button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_call"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Ligar agora","phone_number":"+5511999999999"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "📞 Ligar agora: +5511999999999"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("cta_url button missing url falls back to raw name", func(t *testing.T) {
+		// A cta_url button whose JSON has no url is unusable as a link, so it
+		// must not silently print a broken "🔗 Label: " line.
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_url"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Visitar site"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[cta_url] Visitar site"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unrecognized button name falls back to raw name and display text", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("single_select"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Choose an option"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[single_select] Choose an option"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unrecognized button with no display text falls back to bare name", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{Name: proto.String("review_and_pay")},
+					},
+				},
+			},
+		}
+		want := "[review_and_pay]"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no header, body, footer, or buttons yields generic sentinel", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{}
+		want := "Interactive message"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+}
+
+// TestExtractStructuredMessageContentInteractive covers the data["interactive"]
+// dispatch branch in extractStructuredMessageContent, which — unlike the other
+// structured branches in this file — asserts against the concrete *waE2E.InteractiveMessage
+// type rather than a structural interface, since Header/Body/Footer/NativeFlowMessage
+// are themselves concrete generated types with no shared interface to fake against.
+func TestExtractStructuredMessageContentInteractive(t *testing.T) {
+	t.Run("real InteractiveMessage dispatches to the formatter", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Hello")},
+		}
+		got := extractStructuredMessageContent(map[string]any{"interactive": im})
+		if got != "Hello" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("non-InteractiveMessage value yields generic sentinel", func(t *testing.T) {
+		got := extractStructuredMessageContent(map[string]any{"interactive": "raw"})
+		if got != "Interactive message" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("nil interactive value falls through to empty string", func(t *testing.T) {
+		got := extractStructuredMessageContent(map[string]any{"interactive": nil})
+		if got != "" {
+			t.Fatalf("got %q", got)
 		}
 	})
 }
