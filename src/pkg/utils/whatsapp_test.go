@@ -773,3 +773,39 @@ func TestFormatJIDStripsDeviceSuffix(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractContextInfoInteractiveMessage pins that quoted/forwarded context
+// on an InteractiveMessage (business/Cloud API CTA buttons) is preserved.
+// Before this case existed, BuildEventMessage/BuildForwarded silently lost
+// replied_to_id/quoted_body and the forwarded flag for these messages, even
+// though every other message type carries them through ExtractContextInfo.
+func TestExtractContextInfoInteractiveMessage(t *testing.T) {
+	t.Run("interactive message with context info", func(t *testing.T) {
+		msg := &waE2E.Message{
+			InteractiveMessage: &waE2E.InteractiveMessage{
+				Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Check this out")},
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID: proto.String("ABC123"),
+				},
+			},
+		}
+		ci := ExtractContextInfo(msg)
+		if ci == nil {
+			t.Fatal("expected non-nil ContextInfo")
+		}
+		if ci.GetStanzaID() != "ABC123" {
+			t.Fatalf("got StanzaID %q, want %q", ci.GetStanzaID(), "ABC123")
+		}
+	})
+
+	t.Run("interactive message with no context info yields nil", func(t *testing.T) {
+		msg := &waE2E.Message{
+			InteractiveMessage: &waE2E.InteractiveMessage{
+				Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Check this out")},
+			},
+		}
+		if ci := ExtractContextInfo(msg); ci != nil {
+			t.Fatalf("expected nil ContextInfo, got %+v", ci)
+		}
+	})
+}

@@ -374,7 +374,74 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 		}
 	}
 
+	if mediaPaths := collectInteractiveMedia(ctx, client, msg.GetInteractiveMessage()); len(mediaPaths) > 0 {
+		// Stored separately from the singular image/video/document fields
+		// above (rather than reusing them) because a carousel can carry
+		// media on *every* card: reusing those fields would have each card's
+		// extraction silently overwrite the previous one, dropping all but
+		// the last image. []string (not a proto or map) survives the JSON
+		// round-trip the Chatwoot forward retry queue performs, same
+		// reasoning as the "interactive" field below.
+		payload["interactive_media"] = mediaPaths
+	}
+
 	return nil
+}
+
+// collectInteractiveMedia extracts every image/video/document reachable from
+// an InteractiveMessage: the root header (common for marketing CTA messages —
+// a product photo above the button) and, recursively, each carousel card's
+// own header (a carousel's cards are themselves full InteractiveMessage
+// values). Without this, buildMediaFields only looks at the top-level
+// message — which is empty for InteractiveMessage, since it's a distinct
+// oneof case from GetImageMessage()/GetVideoMessage()/GetDocumentMessage() —
+// so header media silently never reached Chatwoot. Returns nil when
+// WHATSAPP_AUTO_DOWNLOAD_MEDIA is disabled: as with top-level media, a
+// URL-only reference isn't something Chatwoot can fetch itself, so there's
+// nothing usable to attach (see extractMediaPath in webhook_forward.go).
+// header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
+// handled: no existing payload field/attachment path covers them here.
+func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage) []string {
+	if im == nil || !config.WhatsappAutoDownloadMedia {
+		return nil
+	}
+
+	var paths []string
+	paths = append(paths, extractInteractiveHeaderMediaPaths(ctx, client, im.GetHeader())...)
+	for _, card := range im.GetCarouselMessage().GetCards() {
+		paths = append(paths, collectInteractiveMedia(ctx, client, card)...)
+	}
+	return paths
+}
+
+func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header) []string {
+	if header == nil {
+		return nil
+	}
+
+	var paths []string
+	if imageMedia := header.GetImageMessage(); imageMedia != nil {
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header image: %v", err)
+		} else {
+			paths = append(paths, extracted.MediaPath)
+		}
+	}
+	if videoMedia := header.GetVideoMessage(); videoMedia != nil {
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header video: %v", err)
+		} else {
+			paths = append(paths, extracted.MediaPath)
+		}
+	}
+	if documentMedia := header.GetDocumentMessage(); documentMedia != nil {
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header document: %v", err)
+		} else {
+			paths = append(paths, extracted.MediaPath)
+		}
+	}
+	return paths
 }
 
 // buildAutoDownloadPayload builds the media payload for auto-downloaded media.
@@ -412,6 +479,22 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 
 	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
+	}
+
+	if interactiveMessage := msg.GetInteractiveMessage(); interactiveMessage != nil {
+		// Business/Cloud API messages with native buttons (cta_url "visit
+		// website", cta_call, single/multi-select, etc.) arrive as this type
+		// instead of Conversation/ExtendedTextMessage, so they carried no
+		// body text and rendered as "(Unsupported message type)" in Chatwoot.
+		//
+		// Rendered to a string here, not stored as the raw proto: a failed
+		// live forward gets re-marshaled through JSON for the retry queue
+		// (see enqueueChatwootForwardRetry/replayChatwootForwardEvent), which
+		// turns *waE2E.InteractiveMessage into a generic map[string]any —
+		// the type assertion in extractStructuredMessageContent would then
+		// miss on retry and silently downgrade to the generic sentinel,
+		// losing the CTA label/URL/phone/code the live path just extracted.
+		payload["interactive"] = formatInteractiveMessageSummary(interactiveMessage)
 	}
 }
 
