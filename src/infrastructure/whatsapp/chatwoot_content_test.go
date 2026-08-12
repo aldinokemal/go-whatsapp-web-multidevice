@@ -532,6 +532,45 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 			t.Fatalf("expected 3 attachments, got %v", atts)
 		}
 	})
+
+	t.Run("interactive_media []string yields one attachment per carousel card", func(t *testing.T) {
+		// Live path shape: collectInteractiveMedia (event_message.go) returns
+		// []string directly. Must NOT collide with the singular mediaFields —
+		// a carousel can have media on every card, which the singular
+		// "image"/"video"/"document" keys can't represent without one
+		// overwriting another.
+		content, atts := buildChatwootMessageContent(map[string]any{
+			"interactive":      "Check our products",
+			"interactive_media": []string{"/tmp/wa/card1.jpg", "/tmp/wa/card2.jpg"},
+		}, false, "")
+		if content != "Check our products" {
+			t.Fatalf("expected interactive text passthrough, got %q", content)
+		}
+		if len(atts) != 2 || atts[0] != "/tmp/wa/card1.jpg" || atts[1] != "/tmp/wa/card2.jpg" {
+			t.Fatalf("expected 2 attachments in card order, got %v", atts)
+		}
+	})
+
+	t.Run("interactive_media []any (post-retry JSON shape) yields attachments", func(t *testing.T) {
+		// A failed live forward is re-marshaled through JSON for the retry
+		// queue (enqueueChatwootForwardRetry/replayChatwootForwardEvent),
+		// which turns []string into []any of strings — must still work.
+		_, atts := buildChatwootMessageContent(map[string]any{
+			"interactive_media": []any{"/tmp/wa/card1.jpg", "/tmp/wa/card2.jpg"},
+		}, false, "")
+		if len(atts) != 2 || atts[0] != "/tmp/wa/card1.jpg" || atts[1] != "/tmp/wa/card2.jpg" {
+			t.Fatalf("expected 2 attachments, got %v", atts)
+		}
+	})
+
+	t.Run("interactive_media empty slice yields no attachments", func(t *testing.T) {
+		_, atts := buildChatwootMessageContent(map[string]any{
+			"interactive_media": []string{},
+		}, false, "")
+		if len(atts) != 0 {
+			t.Fatalf("expected no attachments, got %v", atts)
+		}
+	})
 }
 
 // TestExtractStructuredMessageContentVariants drives every non-text branch of the
@@ -1122,6 +1161,21 @@ func TestFormatInteractiveMessageSummary(t *testing.T) {
 			},
 		}
 		want := "Promo\nOnly this week"
+		if got := formatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("header image caption is included, since it never reaches payload body", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{
+				Title: proto.String("Summer sale"),
+				Media: &waE2E.InteractiveMessage_Header_ImageMessage{
+					ImageMessage: &waE2E.ImageMessage{Caption: proto.String("New arrivals, 20% off")},
+				},
+			},
+		}
+		want := "Summer sale\nNew arrivals, 20% off"
 		if got := formatInteractiveMessageSummary(im); got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}

@@ -528,6 +528,30 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
 	}
 
+	// interactive_media carries zero or more paths collected from an
+	// InteractiveMessage's header and, for carousels, every card's header
+	// (see collectInteractiveMedia in event_message.go) — a plain []string
+	// rather than one of the singular mediaFields above, since a carousel
+	// can have media on more than one card and reusing e.g. "image" would
+	// have each extraction overwrite the last. []any covers the shape after
+	// a JSON round-trip on the Chatwoot forward retry path.
+	switch paths := data["interactive_media"].(type) {
+	case []string:
+		for _, path := range paths {
+			if path != "" {
+				attachments = append(attachments, path)
+				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+			}
+		}
+	case []any:
+		for _, v := range paths {
+			if path, ok := v.(string); ok && path != "" {
+				attachments = append(attachments, path)
+				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+			}
+		}
+	}
+
 	// Handle empty content
 	if content == "" && len(attachments) == 0 {
 		content = "(Unsupported message type)"
@@ -713,6 +737,14 @@ func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
 		if subtitle := header.GetSubtitle(); subtitle != "" {
 			parts = append(parts, subtitle)
 		}
+		// Media captions on interactive headers never reach payload["body"]
+		// (ExtractMediaCaption only handles top-level Get*Message() cases,
+		// not InteractiveMessage.Header) — surface them here instead of
+		// silently dropping them, since collectInteractiveMedia forwards the
+		// file itself but nothing else carries the caption text.
+		if caption := interactiveHeaderMediaCaption(header); caption != "" {
+			parts = append(parts, caption)
+		}
 	}
 	if body := im.GetBody(); body != nil {
 		if text := body.GetText(); text != "" {
@@ -746,6 +778,25 @@ func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
 		return "Interactive message"
 	}
 	return strings.Join(parts, "\n")
+}
+
+// interactiveHeaderMediaCaption returns the caption on whichever media type
+// (if any) an InteractiveMessage header carries. Mirrors utils.ExtractMediaCaption's
+// per-type checks, scoped to the Header oneof instead of top-level Get*Message().
+func interactiveHeaderMediaCaption(header *waE2E.InteractiveMessage_Header) string {
+	if header == nil {
+		return ""
+	}
+	if img := header.GetImageMessage(); img != nil {
+		return img.GetCaption()
+	}
+	if vid := header.GetVideoMessage(); vid != nil {
+		return vid.GetCaption()
+	}
+	if doc := header.GetDocumentMessage(); doc != nil {
+		return doc.GetCaption()
+	}
+	return ""
 }
 
 // nativeFlowButtonParams covers the fields used by the button types this

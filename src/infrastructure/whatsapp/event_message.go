@@ -374,71 +374,74 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 		}
 	}
 
-	buildInteractiveHeaderMedia(ctx, client, msg.GetInteractiveMessage().GetHeader(), payload)
+	if mediaPaths := collectInteractiveMedia(ctx, client, msg.GetInteractiveMessage()); len(mediaPaths) > 0 {
+		// Stored separately from the singular image/video/document fields
+		// above (rather than reusing them) because a carousel can carry
+		// media on *every* card: reusing those fields would have each card's
+		// extraction silently overwrite the previous one, dropping all but
+		// the last image. []string (not a proto or map) survives the JSON
+		// round-trip the Chatwoot forward retry queue performs, same
+		// reasoning as the "interactive" field below.
+		payload["interactive_media"] = mediaPaths
+	}
 
 	return nil
 }
 
-// buildInteractiveHeaderMedia extracts the image/video/document that can ride
-// along an InteractiveMessage's header (common for marketing CTA messages: a
-// product photo above the button). Without this, buildMediaFields only looks
-// at the top-level message — which is empty for InteractiveMessage, since
-// it's a distinct oneof case from GetImageMessage()/GetVideoMessage()/
-// GetDocumentMessage() — so header media silently never reached Chatwoot.
+// collectInteractiveMedia extracts every image/video/document reachable from
+// an InteractiveMessage: the root header (common for marketing CTA messages —
+// a product photo above the button) and, recursively, each carousel card's
+// own header (a carousel's cards are themselves full InteractiveMessage
+// values). Without this, buildMediaFields only looks at the top-level
+// message — which is empty for InteractiveMessage, since it's a distinct
+// oneof case from GetImageMessage()/GetVideoMessage()/GetDocumentMessage() —
+// so header media silently never reached Chatwoot. Returns nil when
+// WHATSAPP_AUTO_DOWNLOAD_MEDIA is disabled: as with top-level media, a
+// URL-only reference isn't something Chatwoot can fetch itself, so there's
+// nothing usable to attach (see extractMediaPath in webhook_forward.go).
 // header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
 // handled: no existing payload field/attachment path covers them here.
-func buildInteractiveHeaderMedia(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header, payload map[string]any) {
+func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage) []string {
+	if im == nil || !config.WhatsappAutoDownloadMedia {
+		return nil
+	}
+
+	var paths []string
+	paths = append(paths, extractInteractiveHeaderMediaPaths(ctx, client, im.GetHeader())...)
+	for _, card := range im.GetCarouselMessage().GetCards() {
+		paths = append(paths, collectInteractiveMedia(ctx, client, card)...)
+	}
+	return paths
+}
+
+func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header) []string {
 	if header == nil {
-		return
+		return nil
 	}
 
+	var paths []string
 	if imageMedia := header.GetImageMessage(); imageMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
-			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
-			if err != nil {
-				logrus.Errorf("Failed to download interactive header image: %v", err)
-			} else {
-				payload["image"] = buildAutoDownloadPayload(extracted)
-			}
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header image: %v", err)
 		} else {
-			payload["image"] = map[string]any{
-				"url":     imageMedia.GetURL(),
-				"caption": imageMedia.GetCaption(),
-			}
+			paths = append(paths, extracted.MediaPath)
 		}
 	}
-
 	if videoMedia := header.GetVideoMessage(); videoMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
-			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
-			if err != nil {
-				logrus.Errorf("Failed to download interactive header video: %v", err)
-			} else {
-				payload["video"] = buildAutoDownloadPayload(extracted)
-			}
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header video: %v", err)
 		} else {
-			payload["video"] = map[string]any{
-				"url":     videoMedia.GetURL(),
-				"caption": videoMedia.GetCaption(),
-			}
+			paths = append(paths, extracted.MediaPath)
 		}
 	}
-
 	if documentMedia := header.GetDocumentMessage(); documentMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
-			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
-			if err != nil {
-				logrus.Errorf("Failed to download interactive header document: %v", err)
-			} else {
-				payload["document"] = buildAutoDownloadPayload(extracted)
-			}
+		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia); err != nil {
+			logrus.Errorf("Failed to download interactive header document: %v", err)
 		} else {
-			payload["document"] = map[string]any{
-				"url":      documentMedia.GetURL(),
-				"filename": documentMedia.GetFileName(),
-			}
+			paths = append(paths, extracted.MediaPath)
 		}
 	}
+	return paths
 }
 
 // buildAutoDownloadPayload builds the media payload for auto-downloaded media.
