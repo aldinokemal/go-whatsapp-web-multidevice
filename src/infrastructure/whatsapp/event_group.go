@@ -85,7 +85,7 @@ func handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup, deviceID st
 
 	// Forward joined group event to webhook
 	go func(e *events.JoinedGroup, c *whatsmeow.Client) {
-		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		if err := forwardJoinedGroupToWebhook(webhookCtx, e, deviceID, c); err != nil {
 			logrus.Errorf("Failed to forward joined group event to webhook: %v", err)
