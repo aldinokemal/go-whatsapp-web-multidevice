@@ -413,6 +413,14 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
 	}
+
+	if interactiveMessage := msg.GetInteractiveMessage(); interactiveMessage != nil {
+		// Business/Cloud API messages with native buttons (cta_url "visit
+		// website", cta_call, single/multi-select, etc.) arrive as this type
+		// instead of Conversation/ExtendedTextMessage, so they carried no
+		// body text and rendered as "(Unsupported message type)" in Chatwoot.
+		payload["interactive"] = interactiveMessage
+	}
 }
 
 func buildWebhookContactPayload(contact *waE2E.ContactMessage) webhookContactPayload {

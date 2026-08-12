@@ -14,6 +14,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -685,7 +686,106 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
+	if interactive, ok := data["interactive"]; ok && interactive != nil {
+		if im, ok := interactive.(*waE2E.InteractiveMessage); ok {
+			return formatInteractiveMessageSummary(im)
+		}
+		return "Interactive message"
+	}
+
 	return ""
+}
+
+// formatInteractiveMessageSummary renders an InteractiveMessage (business/
+// Cloud API messages with native buttons: cta_url, cta_call, single/multi
+// select, etc.) as plain text, since Chatwoot has no native concept of a
+// WhatsApp interactive button. Buttons are described in buttonParamsJSON as
+// a per-button-type JSON blob (undocumented, reverse-engineered from
+// traffic), so only the fields relevant to rendering are decoded and
+// anything unrecognized still shows the button's raw name.
+func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
+	var parts []string
+
+	if header := im.GetHeader(); header != nil {
+		if title := header.GetTitle(); title != "" {
+			parts = append(parts, title)
+		}
+	}
+	if body := im.GetBody(); body != nil {
+		if text := body.GetText(); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if footer := im.GetFooter(); footer != nil {
+		if text := footer.GetText(); text != "" {
+			parts = append(parts, text)
+		}
+	}
+
+	for _, button := range im.GetNativeFlowMessage().GetButtons() {
+		if line := formatNativeFlowButton(button); line != "" {
+			parts = append(parts, line)
+		}
+	}
+
+	if len(parts) == 0 {
+		return "Interactive message"
+	}
+	return strings.Join(parts, "\n")
+}
+
+// nativeFlowButtonParams covers the fields used by the button types this
+// forwarder renders specially (cta_url, cta_call, cta_copy). Other button
+// names (e.g. single_select, review_and_pay) fall through to displaying the
+// raw button name, since their params carry structured picker/payment data
+// that doesn't reduce to a single line of text.
+type nativeFlowButtonParams struct {
+	DisplayText string `json:"display_text"`
+	URL         string `json:"url"`
+	PhoneNumber string `json:"phone_number"`
+	Copy        string `json:"copy_code"`
+}
+
+func formatNativeFlowButton(button *waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton) string {
+	if button == nil {
+		return ""
+	}
+	name := button.GetName()
+
+	var params nativeFlowButtonParams
+	_ = json.Unmarshal([]byte(button.GetButtonParamsJSON()), &params)
+
+	switch name {
+	case "cta_url":
+		label := params.DisplayText
+		if label == "" {
+			label = "Link"
+		}
+		if params.URL != "" {
+			return fmt.Sprintf("🔗 %s: %s", label, params.URL)
+		}
+	case "cta_call":
+		label := params.DisplayText
+		if label == "" {
+			label = "Call"
+		}
+		if params.PhoneNumber != "" {
+			return fmt.Sprintf("📞 %s: %s", label, params.PhoneNumber)
+		}
+	case "cta_copy":
+		label := params.DisplayText
+		if label == "" {
+			label = "Copy code"
+		}
+		if params.Copy != "" {
+			return fmt.Sprintf("📋 %s: %s", label, params.Copy)
+		}
+	}
+
+	if params.DisplayText != "" {
+		return fmt.Sprintf("[%s] %s", name, params.DisplayText)
+	}
+	return fmt.Sprintf("[%s]", name)
 }
 
 func extractContactDetails(contact any) (name string, phone string, ok bool) {
