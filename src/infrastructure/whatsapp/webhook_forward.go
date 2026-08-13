@@ -602,10 +602,12 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 }
 
 // buildReactionChatwootContent renders the note posted for a reaction event.
-// It never mentions the WhatsApp message id: syncPayloadToChatwoot already
-// threads this note onto the reacted-to message via
-// ContentAttributes.in_reply_to_external_id, so Chatwoot nests it under that
-// message's bubble - repeating the raw id in the text would just be noise.
+// It never mentions the WhatsApp message id: whenever reacted_message_id is
+// present, syncPayloadToChatwoot already threads this note onto the
+// reacted-to message via ContentAttributes.in_reply_to_external_id, so
+// Chatwoot nests it under that message's bubble - repeating the raw id in
+// the text would just be noise. When reacted_message_id is absent the note
+// is posted standalone, un-threaded, but still readable.
 func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	reaction, _ := data["reaction"].(string)
 

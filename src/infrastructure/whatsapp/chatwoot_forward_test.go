@@ -389,10 +389,10 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		expected string
 	}{
 		{
-			// The target id is not repeated in the text: syncPayloadToChatwoot
-			// already threads this note onto the reacted-to message via
-			// in_reply_to_external_id, so Chatwoot nests it under that message's
-			// bubble regardless of whether reacted_message_id is present here.
+			// The target id is not repeated in the text: when reacted_message_id
+			// is present, syncPayloadToChatwoot already threads this note onto
+			// the reacted-to message via in_reply_to_external_id, so Chatwoot
+			// nests it under that message's bubble.
 			name: "reaction with sender name and target id",
 			payload: map[string]any{
 				"reaction":           "👍",
