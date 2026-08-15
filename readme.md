@@ -37,9 +37,6 @@ Download:
     - for example: `./whatsapp rest` instead of ~~./whatsapp~~
   - For MCP mode, you need to run `<binary> mcp`
     - for example: `./whatsapp mcp`
-    - **Update**: as of `v9`, MCP is no longer a separate mode — it's served by the REST server at `/mcp` (no
-      standalone `mcp` subcommand). See
-      [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol) for details and migration notes.
 - `v7`
   - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
       from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
@@ -69,6 +66,10 @@ Download:
         ```
 
 - `v9`
+  - **MCP and API are unified under `rest`**: MCP is no longer a separate mode or process. Run
+    `./whatsapp rest` to serve both the REST API and MCP; MCP is available at `/mcp` (no standalone `mcp`
+    subcommand). See [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol) for migration
+    details.
   - **UI moved to a separate repository**: The web dashboard is no longer bundled in this repo. It now lives at
       [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui) and ships as a single self-contained
       `gowa-ui.html`. This server is now a pure API backend that downloads the latest dashboard release at
