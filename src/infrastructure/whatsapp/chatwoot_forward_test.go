@@ -389,13 +389,17 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		expected string
 	}{
 		{
+			// The target id is not repeated in the text: when reacted_message_id
+			// is present, syncPayloadToChatwoot already threads this note onto
+			// the reacted-to message via in_reply_to_external_id, so Chatwoot
+			// nests it under that message's bubble.
 			name: "reaction with sender name and target id",
 			payload: map[string]any{
 				"reaction":           "👍",
 				"reacted_message_id": "wamid-123",
 			},
 			fromName: "Alice",
-			expected: "Alice reacted 👍 to message wamid-123",
+			expected: "Alice reacted 👍",
 		},
 		{
 			name: "reaction falls back to phone",
@@ -405,7 +409,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 				"from":               "628123456789@s.whatsapp.net",
 			},
 			fromName: "",
-			expected: "628123456789 reacted 🔥 to message wamid-456",
+			expected: "628123456789 reacted 🔥",
 		},
 		{
 			name: "reaction removal",
@@ -414,7 +418,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 				"reacted_message_id": "wamid-789",
 			},
 			fromName: "Bob",
-			expected: "Bob removed a reaction from message wamid-789",
+			expected: "Bob removed a reaction",
 		},
 		{
 			name: "reaction falls back to sender jid when pushname missing",
@@ -424,7 +428,7 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 				"from":               "628777000111@s.whatsapp.net",
 			},
 			fromName: "",
-			expected: "628777000111 reacted 😂 to message wamid-999",
+			expected: "628777000111 reacted 😂",
 		},
 		{
 			name: "missing target id still produces readable text",
