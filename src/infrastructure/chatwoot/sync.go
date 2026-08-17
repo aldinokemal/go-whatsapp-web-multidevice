@@ -639,6 +639,11 @@ func (s *SyncService) syncMessageWithOptions(
 			SourceID:                     msgOpts.SourceID,
 			Direction:                    messageType,
 			IsRead:                       false,
+			// Carry the view-once discriminator over from chat storage: a link
+			// imported as a plain message would suppress the later delivery of
+			// the recovered content instead of letting it upgrade the
+			// placeholder.
+			IsViewOncePlaceholder: msg.MediaType == domainChatStorage.MediaTypeViewOnceUnavailable,
 			// Scope the link to this service's Chatwoot account/config so reverse
 			// routing stays account-scoped. Without this, a REST history-sync link
 			// would default to account 0 and match the legacy wildcard in

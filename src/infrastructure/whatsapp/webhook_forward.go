@@ -48,6 +48,13 @@ var (
 // reasonable concurrency (64 shards means max 64 concurrent contact operations).
 const mutexShardCount = 64
 
+// chatwootForwardTimeout bounds the detached Chatwoot forward goroutine. A
+// single forward can chain several Chatwoot calls (contact, conversation,
+// message, attachment uploads), so it is generous compared to the webhook
+// delivery timeout — it exists to stop a wedged request from leaking the
+// goroutine, not to police latency.
+const chatwootForwardTimeout = 60 * time.Second
+
 // contactMutexShards provides sharded locks to prevent race conditions when creating Chatwoot contacts.
 // This approach prevents memory leaks that would occur with a sync.Map that grows indefinitely.
 var contactMutexShards [mutexShardCount]sync.Mutex
@@ -138,7 +145,19 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 
 	if chatwootAllowed {
-		go forwardToChatwoot(ctx, payload, eventName)
+		// The Chatwoot forward outlives this function: callers are free to
+		// cancel ctx the moment it returns (the view-once placeholder handler
+		// does exactly that, with a `defer cancel()` around its forward), which
+		// would abort the child's in-flight Chatwoot HTTP calls with "context
+		// canceled" mid-conversation. Give the child a lifetime of its own —
+		// values (device instance, link repository) are preserved, only the
+		// cancelation is dropped — and bound it so a stuck request cannot leak
+		// the goroutine.
+		go func() {
+			chatwootCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), chatwootForwardTimeout)
+			defer cancel()
+			forwardToChatwoot(chatwootCtx, payload, eventName)
+		}()
 	}
 
 	return webhookErr
@@ -562,9 +581,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	// Gated on BOTH flags: a delivered view-once whose media extraction failed
 	// has view_once without unavailable, and must keep the generic fallback
 	// rather than masquerade as a privacy withholding.
-	viewOnce, _ := data["view_once"].(bool)
-	unavailable, _ := data["unavailable"].(bool)
-	if viewOnce && unavailable && content == "" && len(attachments) == 0 {
+	if isViewOncePlaceholderPayload(data) && content == "" && len(attachments) == 0 {
 		content = viewOncePlaceholderNotice
 		// The group-prefix block above only runs for non-empty content, so a
 		// group placeholder would otherwise reach Chatwoot anonymous.
@@ -993,9 +1010,6 @@ func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID 
 	}
 	chatJID, _ := data["chat_id"].(string)
 
-	viewOnce, _ := data["view_once"].(bool)
-	unavailable, _ := data["unavailable"].(bool)
-
 	return &domainChatStorage.ChatwootMessageLink{
 		DeviceID:                     deviceID,
 		WhatsAppMessageID:            waMessageID,
@@ -1007,26 +1021,71 @@ func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID 
 		SourceID:                     opts.SourceID,
 		Direction:                    chatwootMessageTypeFromPayload(data),
 		IsRead:                       false,
-		IsViewOncePlaceholder:        viewOnce && unavailable,
+		IsViewOncePlaceholder:        isViewOncePlaceholderPayload(data),
 		ChatwootConfigID:             configID,
 		ChatwootAccountID:            accountID,
 	}
 }
 
-// chatwootLinkSkipsForward decides whether an existing message link suppresses
-// this forward. Normally yes (dedup), with one exception: a link created from a
-// view-once "unavailable" placeholder may be UPGRADED by a later delivery of
-// the real content (same wa_message_id, no `unavailable` flag) — the recovered
-// media must not be permanently lost behind the notice.
-func chatwootLinkSkipsForward(existing *domainChatStorage.ChatwootMessageLink, data map[string]any) bool {
-	if existing == nil || existing.ChatwootMessageID == 0 {
-		return false
+// chatwootLinkAction is what the pre-sync inspection of the message link
+// decides for a `message` forward.
+type chatwootLinkAction int
+
+const (
+	// chatwootLinkSkip: an equivalent message is already linked, or already in
+	// flight — drop this forward.
+	chatwootLinkSkip chatwootLinkAction = iota
+	// chatwootLinkReserve: nothing recorded yet — write a stub row claiming
+	// (device_id, wa_message_id) before the first network call, then sync.
+	chatwootLinkReserve
+	// chatwootLinkForward: another delivery of this message is in flight but
+	// this one carries strictly more (the real content over a reserved
+	// placeholder) — sync it too.
+	chatwootLinkForward
+	// chatwootLinkClaimUpgrade: a placeholder is already linked in Chatwoot and
+	// the real content just arrived — claim the upgrade atomically, then sync.
+	chatwootLinkClaimUpgrade
+)
+
+// decideChatwootLinkAction resolves what to do with a `message` forward given
+// the link row currently on file and whether THIS payload is a view-once
+// "unavailable" placeholder (notice only, no content).
+//
+// Two independent deliveries can carry the same wa_message_id: the withheld
+// view-once placeholder and, later, the recovered real content. The placeholder
+// must never permanently mask the content (hence the upgrade), and the two must
+// never race into duplicate Chatwoot messages (hence the reservation stub,
+// recognisable by chatwoot_message_id == 0).
+func decideChatwootLinkAction(existing *domainChatStorage.ChatwootMessageLink, isPlaceholder bool) chatwootLinkAction {
+	if existing == nil {
+		return chatwootLinkReserve
 	}
+	if existing.ChatwootMessageID == 0 {
+		// A reservation stub: the other delivery is mid-flight, no Chatwoot
+		// message exists yet.
+		if existing.IsViewOncePlaceholder && !isPlaceholder {
+			// Real content over a reserved placeholder: it must go through, the
+			// notice alone would lose the message.
+			return chatwootLinkForward
+		}
+		// Either the real content is already in flight (our notice is
+		// redundant) or the very same delivery is — the first caller wins.
+		return chatwootLinkSkip
+	}
+	if existing.IsViewOncePlaceholder && !isPlaceholder {
+		return chatwootLinkClaimUpgrade
+	}
+	return chatwootLinkSkip
+}
+
+// isViewOncePlaceholderPayload reports whether a forward payload is the
+// view-once "unavailable" placeholder. Both flags are required: a delivered
+// view-once whose media extraction failed carries view_once without
+// unavailable and is an ordinary message.
+func isViewOncePlaceholderPayload(data map[string]any) bool {
+	viewOnce, _ := data["view_once"].(bool)
 	unavailable, _ := data["unavailable"].(bool)
-	if existing.IsViewOncePlaceholder && !unavailable {
-		return false
-	}
-	return true
+	return viewOnce && unavailable
 }
 
 func extractReceiptMessageIDs(data map[string]any) []string {
@@ -1327,8 +1386,10 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 
-	// Sync to Chatwoot
-	var upgradeClaimWaID string
+	// Sync to Chatwoot.
+	// upgradeClaimWaID: this call holds an atomic placeholder-upgrade claim.
+	// reservedStubWaID: this call wrote the reservation stub and owns rolling it back.
+	var upgradeClaimWaID, reservedStubWaID string
 	if eventName == "message" && deviceID != "" && linkRepo != nil {
 		if waMessageID, _ := data["id"].(string); waMessageID != "" {
 			existing, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
@@ -1336,17 +1397,52 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 				logrus.Errorf("Chatwoot: Failed to lookup message link for %s: %v", waMessageID, err)
 				return err
 			}
-			if chatwootLinkSkipsForward(existing, data) {
-				logrus.Debugf("Chatwoot: Skipping already-linked message %s -> %d", waMessageID, existing.ChatwootMessageID)
+			isPlaceholder := isViewOncePlaceholderPayload(data)
+			switch decideChatwootLinkAction(existing, isPlaceholder) {
+			case chatwootLinkSkip:
+				logrus.Debugf("Chatwoot: Skipping already-linked message %s", waMessageID)
 				return nil
-			}
-			if existing != nil && existing.ChatwootMessageID != 0 {
+			case chatwootLinkReserve:
+				// Reserve (device_id, wa_message_id) BEFORE the first network
+				// call. Without it, a view-once placeholder and the recovered
+				// content arriving together would both read "no link yet" and
+				// create two Chatwoot messages. The primary key makes the
+				// second writer lose; it then sees a stub (chatwoot_message_id
+				// == 0) and decides from there. Every failure path below drops
+				// the stub again, so only a hard crash mid-forward can strand
+				// one — the same window in which the pre-existing code would
+				// have created a Chatwoot message with no link at all.
+				chatJID, _ := data["chat_id"].(string)
+				stub := &domainChatStorage.ChatwootMessageLink{
+					DeviceID:                     deviceID,
+					WhatsAppMessageID:            waMessageID,
+					WhatsAppChatJID:              chatJID,
+					ChatwootContactInboxSourceID: chatJID,
+					SourceID:                     msgOpts.SourceID,
+					Direction:                    chatwootMessageTypeFromPayload(data),
+					IsViewOncePlaceholder:        isPlaceholder,
+					ChatwootConfigID:             resolved.ConfigID,
+					ChatwootAccountID:            cw.AccountID,
+				}
+				if err := linkRepo.UpsertChatwootMessageLink(stub); err != nil {
+					logrus.Errorf("Chatwoot: Failed to reserve message link for %s: %v", waMessageID, err)
+					return err
+				}
+				reservedStubWaID = waMessageID
+			case chatwootLinkForward:
+				// The placeholder notice reserved the row and is still being
+				// posted; losing the recovered content is not an option, so
+				// both go out. Whichever finishes last owns the link — if that
+				// is the notice, a later redelivery of the content upgrades it
+				// again. Duplicated notice, never a lost message.
+				logrus.Debugf("Chatwoot: forwarding recovered content over reserved placeholder %s", waMessageID)
+			case chatwootLinkClaimUpgrade:
 				// Placeholder upgrade: claim it atomically FIRST — two
-				// concurrent recovered deliveries would otherwise both pass
-				// the check above and create duplicate Chatwoot messages.
-				// The winner syncs; losers are ordinary duplicates. On a
-				// failed forward the claim is released so the retry (or a
-				// later delivery) can upgrade again.
+				// concurrent recovered deliveries would otherwise both decide
+				// to upgrade and create duplicate Chatwoot messages. The winner
+				// syncs; losers are ordinary duplicates. On a failed forward the
+				// claim is released so the retry (or a later delivery) can
+				// upgrade again.
 				claimed, claimErr := linkRepo.ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID)
 				if claimErr != nil {
 					logrus.Errorf("Chatwoot: Failed to claim placeholder upgrade for %s: %v", waMessageID, claimErr)
@@ -1364,21 +1460,50 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 
 	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
 	if err != nil {
-		if upgradeClaimWaID != "" {
-			if relErr := linkRepo.ReleaseViewOncePlaceholderUpgrade(deviceID, upgradeClaimWaID); relErr != nil {
-				logrus.Errorf("Chatwoot: Failed to release placeholder claim for %s: %v", upgradeClaimWaID, relErr)
-			}
-		}
+		releaseChatwootForwardReservation(linkRepo, deviceID, upgradeClaimWaID, reservedStubWaID)
 		return err
 	}
 	if eventName == "message" && linkRepo != nil {
 		if link := buildChatwootForwardMessageLink(deviceID, resolved.ConfigID, cw.AccountID, data, msgOpts, result); link != nil {
 			if err := linkRepo.UpsertChatwootMessageLink(link); err != nil {
 				logrus.Errorf("Chatwoot: Failed to store message link for %s: %v", link.WhatsAppMessageID, err)
+				// The Chatwoot message exists but the link does not describe it.
+				// Left alone, a consumed upgrade claim (or a stub still holding
+				// chatwoot_message_id == 0) makes every future delivery dedupe
+				// against a row that still points at the placeholder notice —
+				// the recovered content would be lost for good. Undo the
+				// reservation and surface the error so the caller enqueues a
+				// retry: an eventual duplicate message in Chatwoot is a far
+				// better outcome than a permanently missing one.
+				if upgradeClaimWaID != "" || reservedStubWaID != "" {
+					releaseChatwootForwardReservation(linkRepo, deviceID, upgradeClaimWaID, reservedStubWaID)
+					return err
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// releaseChatwootForwardReservation undoes whatever this forward reserved
+// before syncing, so a retry is not mistaken for a duplicate and dropped: an
+// upgrade claim goes back to the placeholder state, a reservation stub is
+// removed entirely. Failures are logged only — the caller is already reporting
+// the original error.
+func releaseChatwootForwardReservation(linkRepo domainChatStorage.IChatStorageRepository, deviceID, upgradeClaimWaID, reservedStubWaID string) {
+	if linkRepo == nil {
+		return
+	}
+	if upgradeClaimWaID != "" {
+		if err := linkRepo.ReleaseViewOncePlaceholderUpgrade(deviceID, upgradeClaimWaID); err != nil {
+			logrus.Errorf("Chatwoot: Failed to release placeholder claim for %s: %v", upgradeClaimWaID, err)
+		}
+	}
+	if reservedStubWaID != "" {
+		if err := linkRepo.DeleteChatwootMessageLink(deviceID, reservedStubWaID); err != nil {
+			logrus.Errorf("Chatwoot: Failed to drop reserved message link for %s: %v", reservedStubWaID, err)
+		}
+	}
 }
 
 func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {

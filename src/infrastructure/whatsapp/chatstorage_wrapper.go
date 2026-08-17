@@ -158,6 +158,13 @@ func (r *deviceChatStorage) ReleaseViewOncePlaceholderUpgrade(deviceID, waMessag
 	return r.base.ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID)
 }
 
+func (r *deviceChatStorage) DeleteChatwootMessageLink(deviceID, waMessageID string) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.DeleteChatwootMessageLink(deviceID, waMessageID)
+}
+
 func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

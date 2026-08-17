@@ -6,6 +6,10 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -23,6 +27,21 @@ func ensureTestLogger(t *testing.T) {
 	t.Cleanup(func() { log = prev })
 }
 
+// loggedInJID is the device JID the fake client reports as logged in. It
+// deliberately differs from the alias handed to the device-scoped wrapper in
+// these tests: the placeholder must be partitioned by the logged-in JID, which
+// is what CreateMessage and the REST chat queries use.
+const loggedInJID = "628987654321@s.whatsapp.net"
+
+// fakeLoggedInClient builds the minimum client the placeholder path reads: a
+// store carrying the logged-in device JID (with a device suffix, to prove it is
+// stripped).
+func fakeLoggedInClient() *whatsmeow.Client {
+	jid := types.NewJID("628987654321", types.DefaultUserServer)
+	jid.Device = 3
+	return &whatsmeow.Client{Store: &store.Device{ID: &jid}}
+}
+
 // viewOnceFakeRepo overrides only the methods persistViewOncePlaceholder
 // touches; anything else panics via the embedded nil interface.
 type viewOnceFakeRepo struct {
@@ -30,11 +49,16 @@ type viewOnceFakeRepo struct {
 	storedChat    *domainChatStorage.Chat
 	storedMessage *domainChatStorage.Message
 	chatName      string
+	// nameDeviceID / getChatDeviceID record the partition key the resolver and
+	// the existing-chat lookup were asked about.
+	nameDeviceID    string
+	getChatDeviceID string
 }
 
-// The device-scoped wrapper resolves GetChat/name via the *ByDevice variants
-// on its base, injecting its own key — the fake implements those.
+// The placeholder path addresses the repository through the *ByDevice variants
+// with an explicit device id — the fake implements those.
 func (r *viewOnceFakeRepo) GetChatByDevice(deviceID, jid string) (*domainChatStorage.Chat, error) {
+	r.getChatDeviceID = deviceID
 	return nil, nil
 }
 func (r *viewOnceFakeRepo) StoreChat(chat *domainChatStorage.Chat) error {
@@ -46,6 +70,7 @@ func (r *viewOnceFakeRepo) StoreMessage(message *domainChatStorage.Message) erro
 	return nil
 }
 func (r *viewOnceFakeRepo) GetChatNameWithPushNameByDevice(deviceID string, jid types.JID, chatJID string, senderUser string, pushName string) string {
+	r.nameDeviceID = deviceID
 	return r.chatName
 }
 
@@ -72,13 +97,9 @@ func TestBuildViewOncePlaceholderEvent(t *testing.T) {
 
 	envelope := buildViewOncePlaceholderEvent(context.Background(), nil, evt)
 
-	if envelope["event"] != EventTypeMessage {
-		t.Fatalf("event = %v, want %q", envelope["event"], EventTypeMessage)
-	}
+	assert.Equal(t, EventTypeMessage, envelope["event"])
 	payload, ok := envelope["payload"].(map[string]any)
-	if !ok {
-		t.Fatalf("payload is %T, want map[string]any", envelope["payload"])
-	}
+	require.True(t, ok, "payload is %T, want map[string]any", envelope["payload"])
 
 	want := map[string]any{
 		"id":          "3EB0C127D7BACC83D6B9",
@@ -91,13 +112,9 @@ func TestBuildViewOncePlaceholderEvent(t *testing.T) {
 		"from_name":   "John Doe",
 	}
 	for key, expected := range want {
-		if payload[key] != expected {
-			t.Errorf("payload[%q] = %v, want %v", key, payload[key], expected)
-		}
+		assert.Equal(t, expected, payload[key], "payload[%q]", key)
 	}
-	if _, hasBody := payload["body"]; hasBody {
-		t.Errorf("payload must not carry a body: the content was never delivered")
-	}
+	assert.NotContains(t, payload, "body", "the content was never delivered")
 }
 
 func viewOnceEvent() *events.UndecryptableMessage {
@@ -117,31 +134,60 @@ func viewOnceEvent() *events.UndecryptableMessage {
 	}
 }
 
-// Persistence must go through the device-scoped wrapper with an EMPTY
-// DeviceID (the wrapper injects its partition key), leave media_type empty,
-// and resolve the chat name via the shared resolver — never a raw PushName.
+// The partition key is the logged-in JID, never the registration alias the
+// device-scoped wrapper may still carry. Anything short of a logged-in client
+// yields "" so the caller skips persistence instead of guessing.
+func TestPlaceholderDeviceID(t *testing.T) {
+	loggedIn := fakeLoggedInClient()
+	cases := []struct {
+		name   string
+		client *whatsmeow.Client
+		want   string
+	}{
+		{"nil client", nil, ""},
+		{"no store", &whatsmeow.Client{}, ""},
+		{"store without id (not logged in)", &whatsmeow.Client{Store: &store.Device{}}, ""},
+		{"logged in: device suffix stripped", loggedIn, loggedInJID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, placeholderDeviceID(tc.client))
+		})
+	}
+}
+
+// Persistence must be partitioned by the LOGGED-IN JID (not the wrapper's
+// alias, whose partition nothing queries), carry the view_once_unavailable
+// discriminator so history importers can flag the Chatwoot link, and resolve
+// the chat name via the shared device-scoped resolver — never a raw PushName.
 func TestPersistViewOncePlaceholder(t *testing.T) {
+	fake := &viewOnceFakeRepo{chatName: "resolved-name"}
+	repo := newDeviceChatStorage("device-alias", fake)
+
+	persistViewOncePlaceholder(context.Background(), viewOnceEvent(), repo, fakeLoggedInClient())
+
+	require.NotNil(t, fake.storedChat, "chat not persisted")
+	require.NotNil(t, fake.storedMessage, "message not persisted")
+	assert.Equal(t, loggedInJID, fake.storedChat.DeviceID)
+	assert.Equal(t, loggedInJID, fake.storedMessage.DeviceID)
+	assert.Equal(t, loggedInJID, fake.nameDeviceID, "name resolver must be asked about the logged-in partition")
+	assert.Equal(t, loggedInJID, fake.getChatDeviceID, "existing-chat lookup must read the logged-in partition")
+	assert.Equal(t, "resolved-name", fake.storedChat.Name)
+	assert.Equal(t, domainChatStorage.MediaTypeViewOnceUnavailable, fake.storedMessage.MediaType)
+	assert.Equal(t, viewOncePlaceholderNotice, fake.storedMessage.Content)
+}
+
+// Without a logged-in client there is no trustworthy partition key, so the
+// placeholder is dropped rather than written somewhere nothing reads. The
+// webhook forward still happens; only storage is skipped.
+func TestPersistViewOncePlaceholderWithoutClientIsNoOp(t *testing.T) {
 	fake := &viewOnceFakeRepo{chatName: "resolved-name"}
 	repo := newDeviceChatStorage("device-alias", fake)
 
 	persistViewOncePlaceholder(context.Background(), viewOnceEvent(), repo, nil)
 
-	if fake.storedChat == nil || fake.storedMessage == nil {
-		t.Fatalf("chat/message not persisted: %+v %+v", fake.storedChat, fake.storedMessage)
-	}
-	if fake.storedChat.DeviceID != "device-alias" || fake.storedMessage.DeviceID != "device-alias" {
-		t.Fatalf("partition mismatch: chat=%q message=%q (both must be the wrapper's key)",
-			fake.storedChat.DeviceID, fake.storedMessage.DeviceID)
-	}
-	if fake.storedChat.Name != "resolved-name" {
-		t.Fatalf("chat name must come from the shared resolver, got %q", fake.storedChat.Name)
-	}
-	if fake.storedMessage.MediaType != "" {
-		t.Fatalf("placeholder must not carry a media_type, got %q", fake.storedMessage.MediaType)
-	}
-	if fake.storedMessage.Content != viewOncePlaceholderNotice {
-		t.Fatalf("unexpected content %q", fake.storedMessage.Content)
-	}
+	assert.Nil(t, fake.storedChat)
+	assert.Nil(t, fake.storedMessage)
 }
 
 // The event-handler closure can hold a long-canceled login request context;
@@ -154,9 +200,7 @@ func TestHandleUndecryptableMessagePersistsUnderCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already canceled, like a finished login request
 
-	handleUndecryptableMessage(ctx, viewOnceEvent(), repo, nil)
+	handleUndecryptableMessage(ctx, viewOnceEvent(), repo, fakeLoggedInClient())
 
-	if fake.storedMessage == nil {
-		t.Fatalf("placeholder was not persisted under a canceled parent context")
-	}
+	assert.NotNil(t, fake.storedMessage, "placeholder was not persisted under a canceled parent context")
 }

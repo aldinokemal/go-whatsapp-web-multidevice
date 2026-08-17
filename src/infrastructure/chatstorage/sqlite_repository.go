@@ -168,7 +168,9 @@ func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFi
 
 	if filter.HasMedia {
 		// EXISTS avoids duplicating chats when a conversation has multiple media messages (JOIN would).
-		conditions = append(conditions, `EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid AND m.device_id = c.device_id AND m.media_type NOT IN ('', 'call'))`)
+		// The excluded values are discriminators for synthetic rows that carry no
+		// delivered media: "call" records and view-once "unavailable" placeholders.
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid AND m.device_id = c.device_id AND m.media_type NOT IN ('', 'call', '`+domainChatStorage.MediaTypeViewOnceUnavailable+`'))`)
 	}
 
 	if filter.DeviceID != "" {
@@ -497,7 +499,9 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	}
 
 	if filter.MediaOnly {
-		conditions = append(conditions, "media_type NOT IN ('', 'call')")
+		// Same exclusion list as GetChats HasMedia: synthetic rows ("call",
+		// view-once placeholder) never carry delivered media.
+		conditions = append(conditions, "media_type NOT IN ('', 'call', '"+domainChatStorage.MediaTypeViewOnceUnavailable+"')")
 	}
 
 	if filter.IsFromMe != nil {
@@ -788,6 +792,17 @@ func (r *SQLiteRepository) ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID
 	return rows == 1, nil
 }
 
+// DeleteChatwootMessageLink removes a single link. Used to roll back the
+// reservation stub written before a forward when that forward ends up failing,
+// so the retry is not mistaken for a concurrent delivery and skipped.
+func (r *SQLiteRepository) DeleteChatwootMessageLink(deviceID, waMessageID string) error {
+	_, err := r.db.Exec(`
+		DELETE FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_message_id = ?
+	`, deviceID, waMessageID)
+	return err
+}
+
 func (r *SQLiteRepository) ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error {
 	_, err := r.db.Exec(`
 		UPDATE chatwoot_message_links
@@ -888,6 +903,7 @@ func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, wa
 			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
+			AND chatwoot_message_id != 0
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`

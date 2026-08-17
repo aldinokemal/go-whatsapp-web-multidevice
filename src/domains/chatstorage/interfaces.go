@@ -44,6 +44,11 @@ type IChatStorageRepository interface {
 	// restores the claim after a failed forward so a later delivery can retry.
 	ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error)
 	ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error
+	// DeleteChatwootMessageLink removes a single link, identified by its primary
+	// key. The forward path reserves a stub row before its first network call to
+	// close the placeholder/real-content race, and rolls it back with this when
+	// the forward fails.
+	DeleteChatwootMessageLink(deviceID, waMessageID string) error
 	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
 	// GetLatestChatwootMessageLinkByConversation resolves a conversation to its
 	// most recent link. Conversation ids are numbered per Chatwoot account, so the

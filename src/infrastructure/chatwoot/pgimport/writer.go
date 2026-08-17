@@ -557,6 +557,10 @@ func (i *Importer) buildMessageLink(msg *domainChatStorage.Message, convID, chat
 		SourceID:                     sourceID,
 		Direction:                    direction,
 		IsRead:                       false,
+		// Carry the view-once discriminator over from chat storage: a link
+		// imported as a plain message would suppress the later delivery of the
+		// recovered content instead of letting it upgrade the placeholder.
+		IsViewOncePlaceholder: msg.MediaType == domainChatStorage.MediaTypeViewOnceUnavailable,
 		// Account scope must be stamped here: pgimport is legacy-only (config id
 		// stays 0) but a zero account id would only match through the legacy-zero
 		// wildcard, which per-device mode disables — and the boot-time backfill

@@ -2,6 +2,15 @@ package chatstorage
 
 import "time"
 
+// MediaTypeViewOnceUnavailable marks a stored message as the server-side
+// "unavailable" placeholder of a view-once message: WhatsApp withholds the
+// content from linked devices, so the row is a notice, not media. It is a
+// discriminator, NOT a real media type — history importers read it to flag the
+// Chatwoot link as a placeholder (so a later real delivery can upgrade it), and
+// the media filters (GetChats HasMedia / GetMessages MediaOnly) exclude it
+// exactly like the synthetic "call" rows.
+const MediaTypeViewOnceUnavailable = "view_once_unavailable"
+
 // Chat represents a WhatsApp chat/conversation
 type Chat struct {
 	DeviceID            string    `db:"device_id"`

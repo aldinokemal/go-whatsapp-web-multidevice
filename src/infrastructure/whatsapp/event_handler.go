@@ -150,20 +150,38 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 	}()
 }
 
+// placeholderDeviceID resolves the storage partition key for a view-once
+// placeholder: the logged-in JID from the client store. That is exactly what
+// the regular ingestion path (CreateMessage) and the REST chat queries use,
+// so it is the only value that puts the placeholder where the rest of the
+// system will look for it — the device-scoped wrapper may still carry the
+// alias supplied at registration time, which would land the row in a
+// partition nothing reads.
+//
+// Returns "" when the client is not available or not logged in; the caller
+// then skips persistence rather than guessing a partition.
+func placeholderDeviceID(client *whatsmeow.Client) string {
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return ""
+	}
+	return client.Store.ID.ToNonAD().String()
+}
+
 // persistViewOncePlaceholder upserts the chat row and stores the placeholder
 // as a notice-only message, so chat listing, ordering and /chat/:jid/messages
 // stay consistent with what webhook and Chatwoot consumers see. Best-effort:
 // failures are logged, never block the forward.
 //
-// Both writes go through the device-scoped wrapper with an EMPTY DeviceID so
-// the wrapper injects its own partition key — chat and message always land in
-// the same partition (a bare client.Store.ID here could diverge from the
-// wrapper's alias on multi-device setups). MediaType stays empty on purpose:
-// no media was delivered, and a synthetic media_type would surface the
-// placeholder in media-only filters (GetChats HasMedia / GetMessages
-// MediaOnly).
+// Both writes carry an EXPLICIT DeviceID (see placeholderDeviceID) instead of
+// letting the device-scoped wrapper inject its own key, and the chat lookups
+// use the *ByDevice variants with that same id. MediaType is the
+// view_once_unavailable discriminator: it is what lets the history importers
+// recognise the row as a placeholder and flag the Chatwoot link so a later
+// real delivery can upgrade it. It is not a real media type, and the media
+// filters exclude it explicitly.
 func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMessage, repo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	if repo == nil {
+	deviceID := placeholderDeviceID(client)
+	if repo == nil || deviceID == "" {
 		return
 	}
 	normalizedChat := NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
@@ -171,15 +189,16 @@ func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMe
 	normalizedSender := NormalizeJIDFromLID(ctx, evt.Info.Sender, client)
 
 	chat := &domainChatStorage.Chat{
-		JID: chatJID,
+		DeviceID: deviceID,
+		JID:      chatJID,
 		// Same device-scoped resolution the regular ingestion path uses:
 		// correct group names, and never a participant PushName as the name
 		// of a group chat.
-		Name:            repo.GetChatNameWithPushName(normalizedChat, chatJID, normalizedSender.User, evt.Info.PushName),
+		Name:            repo.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedSender.User, evt.Info.PushName),
 		LastMessageTime: evt.Info.Timestamp,
 	}
 	// StoreChat overwrites: preserve what an existing row already knows.
-	if existing, err := repo.GetChat(chatJID); err == nil && existing != nil {
+	if existing, err := repo.GetChatByDevice(deviceID, chatJID); err == nil && existing != nil {
 		chat.EphemeralExpiration = existing.EphemeralExpiration
 		chat.Archived = existing.Archived
 		if existing.LastMessageTime.After(chat.LastMessageTime) {
@@ -194,10 +213,12 @@ func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMe
 	message := &domainChatStorage.Message{
 		ID:        evt.Info.ID,
 		ChatJID:   chatJID,
+		DeviceID:  deviceID,
 		Sender:    normalizedSender.ToNonAD().String(),
 		Content:   viewOncePlaceholderNotice,
 		Timestamp: evt.Info.Timestamp,
 		IsFromMe:  evt.Info.IsFromMe,
+		MediaType: domainChatStorage.MediaTypeViewOnceUnavailable,
 	}
 	if err := repo.StoreMessage(message); err != nil {
 		log.Warnf("Failed to persist view-once placeholder %s: %v", evt.Info.ID, err)
