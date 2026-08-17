@@ -481,6 +481,38 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		}
 	})
 
+	t.Run("view-once unavailable placeholder yields notice", func(t *testing.T) {
+		content, atts := buildChatwootMessageContent(map[string]any{
+			"view_once": true, "unavailable": true,
+		}, false, "")
+		if content != viewOncePlaceholderNotice {
+			t.Fatalf("expected view-once notice, got %q", content)
+		}
+		if len(atts) != 0 {
+			t.Fatalf("expected no attachments, got %v", atts)
+		}
+	})
+
+	t.Run("group view-once placeholder credits the sender", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"view_once": true, "unavailable": true,
+		}, true, "Jane")
+		if content != "Jane: "+viewOncePlaceholderNotice {
+			t.Fatalf("expected sender-prefixed notice, got %q", content)
+		}
+	})
+
+	t.Run("view_once WITHOUT unavailable keeps the generic fallback", func(t *testing.T) {
+		// A delivered view-once whose media extraction failed must not
+		// masquerade as a privacy withholding.
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"view_once": true,
+		}, false, "")
+		if content != "(Unsupported message type)" {
+			t.Fatalf("expected generic placeholder, got %q", content)
+		}
+	})
+
 	t.Run("no body and no attachments yields placeholder", func(t *testing.T) {
 		content, atts := buildChatwootMessageContent(map[string]any{}, false, "")
 		if content != "(Unsupported message type)" {

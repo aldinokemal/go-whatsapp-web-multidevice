@@ -475,6 +475,10 @@ func extractMediaPath(mediaData any) string {
 	return ""
 }
 
+// viewOncePlaceholderNotice is what both Chatwoot and chat storage render for
+// a view-once "unavailable" placeholder — mirrors WhatsApp Web's notice.
+const viewOncePlaceholderNotice = "(View once message — for privacy reasons it can only be opened on the phone)"
+
 // buildChatwootMessageContent extracts message body and attachments from the payload.
 // For group messages, prepends the sender name to the content.
 func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName string) (content string, attachments []string) {
@@ -561,7 +565,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	viewOnce, _ := data["view_once"].(bool)
 	unavailable, _ := data["unavailable"].(bool)
 	if viewOnce && unavailable && content == "" && len(attachments) == 0 {
-		content = "(View once message — for privacy reasons it can only be opened on the phone)"
+		content = viewOncePlaceholderNotice
 		// The group-prefix block above only runs for non-empty content, so a
 		// group placeholder would otherwise reach Chatwoot anonymous.
 		if prefixGroupSender {

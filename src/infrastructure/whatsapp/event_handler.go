@@ -54,7 +54,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Message:
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.UndecryptableMessage:
-		handleUndecryptableMessage(ctx, evt, client)
+		handleUndecryptableMessage(ctx, evt, chatStorageRepo, client)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
@@ -99,7 +99,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 // `message` event with `view_once: true` (and `unavailable: true`, since
 // there is no content) so webhook consumers can render the same notice
 // instead of silently missing the message.
-func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMessage, client *whatsmeow.Client) {
+func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMessage, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
 	log.Warnf("Undecryptable message %s from %s (unavailable: %v, type: %q, fail mode: %q).",
 		evt.Info.ID,
 		evt.Info.SourceString(),
@@ -114,6 +114,19 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 		return
 	}
 
+	// Broadcast/status placeholders are never surfaced — same guard the
+	// regular message path applies in handleWebhookForward.
+	if strings.Contains(evt.Info.SourceString(), "broadcast") {
+		return
+	}
+
+	// Persist a stub in chat storage BEFORE forwarding (mirrors handleMessage's
+	// order and the handleCallOffer precedent for non-Message events): without
+	// it the placeholder would exist for webhook/Chatwoot consumers but be
+	// invisible to GOWA's own /chats API and UI — and a brand-new contact whose
+	// first message is view-once would never get a chat row at all.
+	persistViewOncePlaceholder(ctx, evt, chatStorageRepo, client)
+
 	// Same async pattern as handleWebhookForward: never block the event loop
 	// on webhook delivery, and detach from the incoming context — for devices
 	// created via the HTTP login flow, ctx is the (long-canceled) request
@@ -126,6 +139,54 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 			log.Warnf("Failed to forward view-once placeholder %s to webhooks: %v", evt.Info.ID, err)
 		}
 	}()
+}
+
+// persistViewOncePlaceholder upserts the chat row and stores the placeholder
+// as a content-less message (media_type "view_once_unavailable"), so chat
+// listing, ordering and /chat/:jid/messages stay consistent with what webhook
+// and Chatwoot consumers see. Best-effort: failures are logged, never block
+// the forward.
+func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMessage, repo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
+	if repo == nil || client == nil || client.Store == nil || client.Store.ID == nil {
+		return
+	}
+	deviceID := client.Store.ID.ToNonAD().String()
+	chatJID := NormalizeJIDFromLID(ctx, evt.Info.Chat, client).String()
+
+	chat := &domainChatStorage.Chat{
+		JID:             chatJID,
+		Name:            evt.Info.PushName,
+		LastMessageTime: evt.Info.Timestamp,
+	}
+	// StoreChat overwrites: preserve what an existing row already knows.
+	if existing, err := repo.GetChat(chatJID); err == nil && existing != nil {
+		if existing.Name != "" {
+			chat.Name = existing.Name
+		}
+		chat.EphemeralExpiration = existing.EphemeralExpiration
+		chat.Archived = existing.Archived
+		if existing.LastMessageTime.After(chat.LastMessageTime) {
+			chat.LastMessageTime = existing.LastMessageTime
+		}
+	}
+	if err := repo.StoreChat(chat); err != nil {
+		log.Warnf("Failed to persist chat for view-once placeholder %s: %v", evt.Info.ID, err)
+		return
+	}
+
+	message := &domainChatStorage.Message{
+		ID:        evt.Info.ID,
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    NormalizeJIDFromLID(ctx, evt.Info.Sender, client).ToNonAD().String(),
+		Content:   viewOncePlaceholderNotice,
+		Timestamp: evt.Info.Timestamp,
+		IsFromMe:  evt.Info.IsFromMe,
+		MediaType: "view_once_unavailable",
+	}
+	if err := repo.StoreMessage(message); err != nil {
+		log.Warnf("Failed to persist view-once placeholder %s: %v", evt.Info.ID, err)
+	}
 }
 
 // buildViewOncePlaceholderEvent builds the webhook envelope for a view-once
@@ -145,9 +206,13 @@ func buildViewOncePlaceholderEvent(ctx context.Context, client *whatsmeow.Client
 		payload["from_name"] = pushname
 	}
 
+	// The key is always present — every regular `message` event carries it
+	// (empty when the client has no store), and schema-strict consumers rely
+	// on that.
 	envelope := map[string]any{
-		"event":   EventTypeMessage,
-		"payload": payload,
+		"event":     EventTypeMessage,
+		"device_id": "",
+		"payload":   payload,
 	}
 	if client != nil && client.Store != nil && client.Store.ID != nil {
 		deviceJID := NormalizeJIDFromLID(ctx, client.Store.ID.ToNonAD(), client)
