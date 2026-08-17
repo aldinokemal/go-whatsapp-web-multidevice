@@ -54,7 +54,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Message:
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.UndecryptableMessage:
-		handleUndecryptableMessage(evt)
+		handleUndecryptableMessage(ctx, evt, client)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
@@ -87,17 +87,69 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 }
 
 // handleUndecryptableMessage surfaces messages that arrived but could not be
-// decrypted. They carry no plaintext, so there is nothing to store or forward,
+// decrypted. Most carry no plaintext, so there is nothing to store or forward,
 // but dropping them without a trace makes the common "messages from this
 // contact never arrive" report impossible to diagnose.
-func handleUndecryptableMessage(evt *events.UndecryptableMessage) {
-	log.Warnf("Undecryptable message %s from %s (unavailable: %v, type: %q, fail mode: %q). No webhook or storage entry is produced for it.",
+//
+// The exception is the server-side "unavailable" placeholder for view-once
+// messages: WhatsApp intentionally withholds view-once content from linked
+// devices, so this placeholder is the ONLY signal a companion device ever
+// receives that the contact sent one — it is exactly what WhatsApp Web turns
+// into its "You received a view once message" notice. Forward it as a
+// `message` event with `view_once: true` (and `unavailable: true`, since
+// there is no content) so webhook consumers can render the same notice
+// instead of silently missing the message.
+func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMessage, client *whatsmeow.Client) {
+	log.Warnf("Undecryptable message %s from %s (unavailable: %v, type: %q, fail mode: %q).",
 		evt.Info.ID,
 		evt.Info.SourceString(),
 		evt.IsUnavailable,
 		evt.UnavailableType,
 		evt.DecryptFailMode,
 	)
+
+	if !evt.IsUnavailable || evt.UnavailableType != events.UnavailableTypeViewOnce {
+		// Genuinely undecryptable (or an unknown unavailable kind): nothing to
+		// store or forward, same as before.
+		return
+	}
+
+	// Same async pattern as handleWebhookForward: never block the event loop
+	// on webhook delivery.
+	go func() {
+		envelope := buildViewOncePlaceholderEvent(ctx, client, evt)
+		if err := forwardPayloadToConfiguredWebhooks(ctx, envelope, EventTypeMessage); err != nil {
+			log.Warnf("Failed to forward view-once placeholder %s to webhooks: %v", evt.Info.ID, err)
+		}
+	}()
+}
+
+// buildViewOncePlaceholderEvent builds the webhook envelope for a view-once
+// "unavailable" placeholder. Mirrors the field names of the regular message
+// path (buildFromFields/from_name) so consumers reuse their existing parsing.
+func buildViewOncePlaceholderEvent(ctx context.Context, client *whatsmeow.Client, evt *events.UndecryptableMessage) map[string]any {
+	payload := map[string]any{
+		"id":          evt.Info.ID,
+		"timestamp":   evt.Info.Timestamp.Format(time.RFC3339),
+		"is_from_me":  evt.Info.IsFromMe,
+		"view_once":   true,
+		"unavailable": true,
+	}
+	buildFromFields(ctx, client, &evt.Info, payload)
+	addSenderDisplayName(ctx, client, payload, evt.Info.IsFromMe, evt.Info.PushName)
+	if pushname := evt.Info.PushName; pushname != "" {
+		payload["from_name"] = pushname
+	}
+
+	envelope := map[string]any{
+		"event":   EventTypeMessage,
+		"payload": payload,
+	}
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceJID := NormalizeJIDFromLID(ctx, client.Store.ID.ToNonAD(), client)
+		envelope["device_id"] = deviceJID.ToNonAD().String()
+	}
+	return envelope
 }
 
 func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
