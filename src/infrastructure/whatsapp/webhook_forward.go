@@ -1389,7 +1389,10 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	// Sync to Chatwoot.
 	// upgradeClaimWaID: this call holds an atomic placeholder-upgrade claim.
 	// reservedStubWaID: this call wrote the reservation stub and owns rolling it back.
-	var upgradeClaimWaID, reservedStubWaID string
+	// clearPlaceholderWaID: this call carries the recovered content over a stub
+	// another delivery reserved as a placeholder, so on success it owns clearing
+	// that discriminator.
+	var upgradeClaimWaID, reservedStubWaID, clearPlaceholderWaID string
 	if eventName == "message" && deviceID != "" && linkRepo != nil {
 		if waMessageID, _ := data["id"].(string); waMessageID != "" {
 			existing, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
@@ -1436,6 +1439,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 				// is the notice, a later redelivery of the content upgrades it
 				// again. Duplicated notice, never a lost message.
 				logrus.Debugf("Chatwoot: forwarding recovered content over reserved placeholder %s", waMessageID)
+				clearPlaceholderWaID = waMessageID
 			case chatwootLinkClaimUpgrade:
 				// Placeholder upgrade: claim it atomically FIRST — two
 				// concurrent recovered deliveries would otherwise both decide
@@ -1479,6 +1483,16 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 					releaseChatwootForwardReservation(linkRepo, deviceID, upgradeClaimWaID, reservedStubWaID)
 					return err
 				}
+			}
+		}
+		// The upsert above never touches the discriminator — it is claim state.
+		// This forward, though, just put the recovered content into Chatwoot over
+		// a row another delivery had reserved as a placeholder, so it is the one
+		// caller entitled to clear it. Leaving it set would invite the next
+		// redelivery to "upgrade" an already-upgraded message into a duplicate.
+		if clearPlaceholderWaID != "" {
+			if err := linkRepo.SetChatwootLinkViewOncePlaceholder(deviceID, clearPlaceholderWaID, false); err != nil {
+				logrus.Errorf("Chatwoot: Failed to clear placeholder flag for %s: %v", clearPlaceholderWaID, err)
 			}
 		}
 	}
@@ -1560,6 +1574,33 @@ func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageReposit
 	}
 }
 
+// chatwootForwardReservationTTL is how long a reservation stub may stay
+// unfinished before the sweep reclaims it. A stub lives only for the duration of
+// one forward — every failure path rolls it back — so the window only has to
+// clear the slowest legitimate forward (media download plus the Chatwoot
+// retries), with room to spare.
+const chatwootForwardReservationTTL = 15 * time.Minute
+
+// sweepStaleChatwootForwardReservations reclaims reservation stubs orphaned by a
+// process that died between reserving the row and completing (or rolling back)
+// the forward. In-process rollback cannot cover a crash, and an orphan is
+// permanent damage: decideChatwootLinkAction reads it as "another delivery is in
+// flight" and skips every redelivery, so the message never reaches Chatwoot.
+// Dropping the stub puts the message back in reach of the next delivery.
+func sweepStaleChatwootForwardReservations(repo domainChatStorage.IChatStorageRepository) {
+	if repo == nil {
+		return
+	}
+	removed, err := repo.DeleteStaleChatwootMessageLinkReservations(time.Now().Add(-chatwootForwardReservationTTL))
+	if err != nil {
+		logrus.Errorf("Chatwoot: Failed to reclaim stale forward reservations: %v", err)
+		return
+	}
+	if removed > 0 {
+		logrus.Warnf("Chatwoot: Reclaimed %d stale forward reservation(s) left by an interrupted forward", removed)
+	}
+}
+
 var chatwootForwardRetryWorkerOnce sync.Once
 
 func StartChatwootForwardRetryWorker(repo domainChatStorage.IChatStorageRepository) {
@@ -1571,6 +1612,9 @@ func StartChatwootForwardRetryWorker(repo domainChatStorage.IChatStorageReposito
 			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
 			for {
+				// Runs on the first iteration too: startup is exactly when the
+				// stubs of a killed process are waiting to be reclaimed.
+				sweepStaleChatwootForwardReservations(repo)
 				processDueChatwootForwardRetries(repo)
 				<-ticker.C
 			}

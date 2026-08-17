@@ -724,6 +724,13 @@ func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) e
 
 // UpsertChatwootMessageLink records the stable mapping between a WhatsApp
 // message and the Chatwoot row created for it.
+//
+// The UPDATE deliberately leaves is_view_once_placeholder alone: that column is
+// claim state (see ClaimViewOncePlaceholderUpgrade) and every caller here works
+// from a struct read some time earlier, so writing it back could release a
+// claim taken in between and let a second recovered delivery duplicate the
+// message. Only the INSERT records it, where no claim can exist yet;
+// SetChatwootLinkViewOncePlaceholder changes it afterwards.
 func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
 	if link == nil {
 		return fmt.Errorf("chatwoot message link is required")
@@ -746,12 +753,12 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 		SET wa_chat_jid = ?, chatwoot_message_id = ?, chatwoot_conversation_id = ?,
 		    chatwoot_inbox_id = ?, chatwoot_contact_inbox_source_id = ?, source_id = ?,
 		    direction = ?, is_read = ?, updated_at = ?,
-		    chatwoot_config_id = ?, chatwoot_account_id = ?, is_view_once_placeholder = ?
+		    chatwoot_config_id = ?, chatwoot_account_id = ?
 		WHERE device_id = ? AND wa_message_id = ?
 	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
 		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
 		link.Direction, link.IsRead, link.UpdatedAt,
-		link.ChatwootConfigID, link.ChatwootAccountID, link.IsViewOncePlaceholder,
+		link.ChatwootConfigID, link.ChatwootAccountID,
 		link.DeviceID, link.WhatsAppMessageID)
 	if err != nil {
 		return err
@@ -775,6 +782,38 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 			link.IsViewOncePlaceholder)
 	}
 	return err
+}
+
+// SetChatwootLinkViewOncePlaceholder writes the placeholder discriminator on an
+// existing link. Callers that created or replaced the Chatwoot message use it to
+// state what that message now shows; UpsertChatwootMessageLink never does.
+func (r *SQLiteRepository) SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID string, isPlaceholder bool) error {
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = ?, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, isPlaceholder, time.Now(), deviceID, waMessageID)
+	return err
+}
+
+// DeleteStaleChatwootMessageLinkReservations reclaims reservation stubs left
+// behind by a process that died mid-forward. A live stub is rolled back on every
+// failure path, so one whose updated_at stopped moving is orphaned: it would
+// keep answering "already in flight" to every redelivery and hide the message
+// from Chatwoot for good.
+func (r *SQLiteRepository) DeleteStaleChatwootMessageLinkReservations(olderThan time.Time) (int64, error) {
+	result, err := r.db.Exec(`
+		DELETE FROM chatwoot_message_links
+		WHERE chatwoot_message_id = 0 AND updated_at < ?
+	`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return removed, nil
 }
 
 // ClaimViewOncePlaceholderUpgrade flips the placeholder flag off atomically;

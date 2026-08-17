@@ -144,6 +144,19 @@ func (r *deviceChatStorage) UpsertChatwootMessageLink(link *domainChatStorage.Ch
 	return r.base.UpsertChatwootMessageLink(link)
 }
 
+func (r *deviceChatStorage) SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID string, isPlaceholder bool) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID, isPlaceholder)
+}
+
+// DeleteStaleChatwootMessageLinkReservations is intentionally not device-scoped:
+// orphaned stubs are reclaimed for every device the shared store holds.
+func (r *deviceChatStorage) DeleteStaleChatwootMessageLinkReservations(olderThan time.Time) (int64, error) {
+	return r.base.DeleteStaleChatwootMessageLinkReservations(olderThan)
+}
+
 func (r *deviceChatStorage) ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error) {
 	if deviceID == "" {
 		deviceID = r.deviceID

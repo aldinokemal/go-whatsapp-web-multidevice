@@ -140,11 +140,27 @@ func TestChatwootLinkViewOncePlaceholderLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, a.IsViewOncePlaceholder)
 		}},
-		{"upsert to false clears the flag", func(t *testing.T) {
+		{"an ordinary upsert never writes the flag back", func(t *testing.T) {
+			// The read-receipt and rebind paths load a link, change one field and
+			// upsert the whole struct. Their copy of the flag is stale by then, so
+			// an upsert that carried it would release a claim taken meanwhile.
 			require.NoError(t, repo.UpsertChatwootMessageLink(link(devA, false)))
 			a, err := repo.GetChatwootMessageLinkByWhatsAppID(devA, waID)
 			require.NoError(t, err)
+			assert.True(t, a.IsViewOncePlaceholder, "a stale upsert must not clear the claim state")
+			require.NoError(t, repo.UpsertChatwootMessageLink(link(devB, true)))
+			b, err := repo.GetChatwootMessageLinkByWhatsAppID(devB, waID)
+			require.NoError(t, err)
+			assert.False(t, b.IsViewOncePlaceholder, "nor set it")
+		}},
+		{"the explicit setter is the only way to change it", func(t *testing.T) {
+			require.NoError(t, repo.SetChatwootLinkViewOncePlaceholder(devA, waID, false))
+			a, err := repo.GetChatwootMessageLinkByWhatsAppID(devA, waID)
+			require.NoError(t, err)
 			assert.False(t, a.IsViewOncePlaceholder)
+			b, err := repo.GetChatwootMessageLinkByWhatsAppID(devB, waID)
+			require.NoError(t, err)
+			assert.False(t, b.IsViewOncePlaceholder, "another device's row is untouched")
 		}},
 		{"delete removes only its own device row", func(t *testing.T) {
 			require.NoError(t, repo.DeleteChatwootMessageLink(devA, waID))
