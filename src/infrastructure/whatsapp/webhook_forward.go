@@ -993,6 +993,9 @@ func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID 
 	}
 	chatJID, _ := data["chat_id"].(string)
 
+	viewOnce, _ := data["view_once"].(bool)
+	unavailable, _ := data["unavailable"].(bool)
+
 	return &domainChatStorage.ChatwootMessageLink{
 		DeviceID:                     deviceID,
 		WhatsAppMessageID:            waMessageID,
@@ -1004,9 +1007,26 @@ func buildChatwootForwardMessageLink(deviceID string, configID int64, accountID 
 		SourceID:                     opts.SourceID,
 		Direction:                    chatwootMessageTypeFromPayload(data),
 		IsRead:                       false,
+		IsViewOncePlaceholder:        viewOnce && unavailable,
 		ChatwootConfigID:             configID,
 		ChatwootAccountID:            accountID,
 	}
+}
+
+// chatwootLinkSkipsForward decides whether an existing message link suppresses
+// this forward. Normally yes (dedup), with one exception: a link created from a
+// view-once "unavailable" placeholder may be UPGRADED by a later delivery of
+// the real content (same wa_message_id, no `unavailable` flag) — the recovered
+// media must not be permanently lost behind the notice.
+func chatwootLinkSkipsForward(existing *domainChatStorage.ChatwootMessageLink, data map[string]any) bool {
+	if existing == nil || existing.ChatwootMessageID == 0 {
+		return false
+	}
+	unavailable, _ := data["unavailable"].(bool)
+	if existing.IsViewOncePlaceholder && !unavailable {
+		return false
+	}
+	return true
 }
 
 func extractReceiptMessageIDs(data map[string]any) []string {
@@ -1315,9 +1335,15 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 				logrus.Errorf("Chatwoot: Failed to lookup message link for %s: %v", waMessageID, err)
 				return err
 			}
-			if existing != nil && existing.ChatwootMessageID != 0 {
+			if chatwootLinkSkipsForward(existing, data) {
 				logrus.Debugf("Chatwoot: Skipping already-linked message %s -> %d", waMessageID, existing.ChatwootMessageID)
 				return nil
+			}
+			if existing != nil && existing.ChatwootMessageID != 0 {
+				// Placeholder upgrade: the notice stays in the Chatwoot
+				// conversation; the recovered content lands as a new message
+				// and the link below is re-pointed at it.
+				logrus.Infof("Chatwoot: upgrading view-once placeholder %s with recovered content", waMessageID)
 			}
 		}
 	}

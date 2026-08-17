@@ -125,7 +125,13 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 	// it the placeholder would exist for webhook/Chatwoot consumers but be
 	// invisible to GOWA's own /chats API and UI — and a brand-new contact whose
 	// first message is view-once would never get a chat row at all.
-	persistViewOncePlaceholder(ctx, evt, chatStorageRepo, client)
+	// The incoming ctx may already be canceled (login-flow request context
+	// captured by the event-handler closure), which would make the LID
+	// lookups inside persistence fail and store raw @lid identifiers —
+	// detach a bounded context for it, same as the webhook forward below.
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	persistViewOncePlaceholder(persistCtx, evt, chatStorageRepo, client)
+	cancelPersist()
 
 	// Same async pattern as handleWebhookForward: never block the event loop
 	// on webhook delivery, and detach from the incoming context — for devices
@@ -134,6 +140,9 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 	go func() {
 		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
+		// The operator's auto-mark-read setting applies to the placeholder as
+		// it does to any incoming message (original chat/sender JIDs).
+		handleAutoMarkRead(webhookCtx, &evt.Info, client)
 		envelope := buildViewOncePlaceholderEvent(webhookCtx, client, evt)
 		if err := forwardPayloadToConfiguredWebhooks(webhookCtx, envelope, EventTypeMessage); err != nil {
 			log.Warnf("Failed to forward view-once placeholder %s to webhooks: %v", evt.Info.ID, err)
@@ -142,27 +151,35 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 }
 
 // persistViewOncePlaceholder upserts the chat row and stores the placeholder
-// as a content-less message (media_type "view_once_unavailable"), so chat
-// listing, ordering and /chat/:jid/messages stay consistent with what webhook
-// and Chatwoot consumers see. Best-effort: failures are logged, never block
-// the forward.
+// as a notice-only message, so chat listing, ordering and /chat/:jid/messages
+// stay consistent with what webhook and Chatwoot consumers see. Best-effort:
+// failures are logged, never block the forward.
+//
+// Both writes go through the device-scoped wrapper with an EMPTY DeviceID so
+// the wrapper injects its own partition key — chat and message always land in
+// the same partition (a bare client.Store.ID here could diverge from the
+// wrapper's alias on multi-device setups). MediaType stays empty on purpose:
+// no media was delivered, and a synthetic media_type would surface the
+// placeholder in media-only filters (GetChats HasMedia / GetMessages
+// MediaOnly).
 func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMessage, repo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	if repo == nil || client == nil || client.Store == nil || client.Store.ID == nil {
+	if repo == nil {
 		return
 	}
-	deviceID := client.Store.ID.ToNonAD().String()
-	chatJID := NormalizeJIDFromLID(ctx, evt.Info.Chat, client).String()
+	normalizedChat := NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
+	chatJID := normalizedChat.String()
+	normalizedSender := NormalizeJIDFromLID(ctx, evt.Info.Sender, client)
 
 	chat := &domainChatStorage.Chat{
-		JID:             chatJID,
-		Name:            evt.Info.PushName,
+		JID: chatJID,
+		// Same device-scoped resolution the regular ingestion path uses:
+		// correct group names, and never a participant PushName as the name
+		// of a group chat.
+		Name:            repo.GetChatNameWithPushName(normalizedChat, chatJID, normalizedSender.User, evt.Info.PushName),
 		LastMessageTime: evt.Info.Timestamp,
 	}
 	// StoreChat overwrites: preserve what an existing row already knows.
 	if existing, err := repo.GetChat(chatJID); err == nil && existing != nil {
-		if existing.Name != "" {
-			chat.Name = existing.Name
-		}
 		chat.EphemeralExpiration = existing.EphemeralExpiration
 		chat.Archived = existing.Archived
 		if existing.LastMessageTime.After(chat.LastMessageTime) {
@@ -177,12 +194,10 @@ func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMe
 	message := &domainChatStorage.Message{
 		ID:        evt.Info.ID,
 		ChatJID:   chatJID,
-		DeviceID:  deviceID,
-		Sender:    NormalizeJIDFromLID(ctx, evt.Info.Sender, client).ToNonAD().String(),
+		Sender:    normalizedSender.ToNonAD().String(),
 		Content:   viewOncePlaceholderNotice,
 		Timestamp: evt.Info.Timestamp,
 		IsFromMe:  evt.Info.IsFromMe,
-		MediaType: "view_once_unavailable",
 	}
 	if err := repo.StoreMessage(message); err != nil {
 		log.Warnf("Failed to persist view-once placeholder %s: %v", evt.Info.ID, err)

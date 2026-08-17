@@ -77,6 +77,9 @@ func (r *deviceChatStorage) DeleteChatByDevice(deviceID, jid string) error {
 }
 
 func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) error {
+	if message != nil && message.DeviceID == "" {
+		message.DeviceID = r.deviceID
+	}
 	return r.base.StoreMessage(message)
 }
 

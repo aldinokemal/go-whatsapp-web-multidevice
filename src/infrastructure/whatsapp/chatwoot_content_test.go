@@ -572,7 +572,7 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		// "image"/"video"/"document" keys can't represent without one
 		// overwriting another.
 		content, atts := buildChatwootMessageContent(map[string]any{
-			"interactive":      "Check our products",
+			"interactive":       "Check our products",
 			"interactive_media": []string{"/tmp/wa/card1.jpg", "/tmp/wa/card2.jpg"},
 		}, false, "")
 		if content != "Check our products" {

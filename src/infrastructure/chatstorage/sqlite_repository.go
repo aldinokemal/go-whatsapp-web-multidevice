@@ -742,12 +742,13 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 		SET wa_chat_jid = ?, chatwoot_message_id = ?, chatwoot_conversation_id = ?,
 		    chatwoot_inbox_id = ?, chatwoot_contact_inbox_source_id = ?, source_id = ?,
 		    direction = ?, is_read = ?, updated_at = ?,
-		    chatwoot_config_id = ?, chatwoot_account_id = ?
+		    chatwoot_config_id = ?, chatwoot_account_id = ?, is_view_once_placeholder = ?
 		WHERE device_id = ? AND wa_message_id = ?
 	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
 		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
 		link.Direction, link.IsRead, link.UpdatedAt,
-		link.ChatwootConfigID, link.ChatwootAccountID, link.DeviceID, link.WhatsAppMessageID)
+		link.ChatwootConfigID, link.ChatwootAccountID, link.IsViewOncePlaceholder,
+		link.DeviceID, link.WhatsAppMessageID)
 	if err != nil {
 		return err
 	}
@@ -759,13 +760,15 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 				chatwoot_conversation_id, chatwoot_inbox_id,
 				chatwoot_contact_inbox_source_id, source_id, direction,
-				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+				is_view_once_placeholder
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, link.DeviceID, link.WhatsAppMessageID, link.WhatsAppChatJID,
 			link.ChatwootMessageID, link.ChatwootConversationID, link.ChatwootInboxID,
 			link.ChatwootContactInboxSourceID, link.SourceID, link.Direction,
-			link.IsRead, link.CreatedAt, link.UpdatedAt, link.ChatwootConfigID, link.ChatwootAccountID)
+			link.IsRead, link.CreatedAt, link.UpdatedAt, link.ChatwootConfigID, link.ChatwootAccountID,
+			link.IsViewOncePlaceholder)
 	}
 	return err
 }
@@ -775,7 +778,8 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_message_id = ?
 		LIMIT 1
@@ -793,7 +797,8 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
 		LIMIT 1
@@ -816,7 +821,8 @@ func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversati
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
 			AND (? = 0 OR chatwoot_config_id = ?)
@@ -854,7 +860,8 @@ func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, wa
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
 		ORDER BY updated_at DESC, created_at DESC
@@ -991,6 +998,7 @@ func (r *SQLiteRepository) scanChatwootMessageLink(scanner interface{ Scan(...an
 		&link.ChatwootContactInboxSourceID, &link.SourceID, &link.Direction,
 		&link.IsRead, &link.CreatedAt, &link.UpdatedAt,
 		&link.ChatwootConfigID, &link.ChatwootAccountID,
+		&link.IsViewOncePlaceholder,
 	)
 	return link, err
 }
@@ -2563,5 +2571,9 @@ func (r *SQLiteRepository) getMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation_account ON chatwoot_message_links(chatwoot_conversation_id, chatwoot_account_id, updated_at)`,
 		// Migration 43: Count/delete message links by owning config without a full-table scan
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_config ON chatwoot_message_links(chatwoot_config_id)`,
+		// Migration 44: Mark links created from a view-once "unavailable" placeholder,
+		// so a later real delivery with the same wa_message_id can upgrade the
+		// Chatwoot conversation instead of being suppressed by the link dedupe
+		`ALTER TABLE chatwoot_message_links ADD COLUMN is_view_once_placeholder BOOLEAN DEFAULT FALSE`,
 	}
 }
