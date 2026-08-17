@@ -555,8 +555,18 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	// View-once "unavailable" placeholder: the content is intentionally
 	// withheld from linked devices, so there is nothing to attach — render the
 	// same notice WhatsApp Web shows instead of "(Unsupported message type)".
-	if viewOnce, _ := data["view_once"].(bool); viewOnce && content == "" && len(attachments) == 0 {
+	// Gated on BOTH flags: a delivered view-once whose media extraction failed
+	// has view_once without unavailable, and must keep the generic fallback
+	// rather than masquerade as a privacy withholding.
+	viewOnce, _ := data["view_once"].(bool)
+	unavailable, _ := data["unavailable"].(bool)
+	if viewOnce && unavailable && content == "" && len(attachments) == 0 {
 		content = "(View once message — for privacy reasons it can only be opened on the phone)"
+		// The group-prefix block above only runs for non-empty content, so a
+		// group placeholder would otherwise reach Chatwoot anonymous.
+		if prefixGroupSender {
+			content = senderLabel + ": " + content
+		}
 		logrus.Info("Chatwoot: view-once placeholder, using notice content")
 	}
 
