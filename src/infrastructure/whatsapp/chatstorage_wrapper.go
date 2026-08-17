@@ -144,6 +144,20 @@ func (r *deviceChatStorage) UpsertChatwootMessageLink(link *domainChatStorage.Ch
 	return r.base.UpsertChatwootMessageLink(link)
 }
 
+func (r *deviceChatStorage) ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error) {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID)
+}
+
+func (r *deviceChatStorage) ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID)
+}
+
 func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

@@ -12,11 +12,15 @@ import (
 )
 
 // The package logger is only wired up at runtime (database.go); the handler
-// under test logs unconditionally.
-func ensureTestLogger() {
+// under test logs unconditionally. Restores the previous value on cleanup so
+// no test state leaks (tests that mutate package globals restore them).
+func ensureTestLogger(t *testing.T) {
+	t.Helper()
+	prev := log
 	if log == nil {
 		log = waLog.Stdout("test", "ERROR", false)
 	}
+	t.Cleanup(func() { log = prev })
 }
 
 // viewOnceFakeRepo overrides only the methods persistViewOncePlaceholder
@@ -143,7 +147,7 @@ func TestPersistViewOncePlaceholder(t *testing.T) {
 // The event-handler closure can hold a long-canceled login request context;
 // persistence must still happen (the handler detaches a bounded context).
 func TestHandleUndecryptableMessagePersistsUnderCanceledContext(t *testing.T) {
-	ensureTestLogger()
+	ensureTestLogger(t)
 	fake := &viewOnceFakeRepo{chatName: "n"}
 	repo := newDeviceChatStorage("device-alias", fake)
 

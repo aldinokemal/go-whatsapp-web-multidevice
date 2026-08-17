@@ -1328,6 +1328,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
 
 	// Sync to Chatwoot
+	var upgradeClaimWaID string
 	if eventName == "message" && deviceID != "" && linkRepo != nil {
 		if waMessageID, _ := data["id"].(string); waMessageID != "" {
 			existing, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
@@ -1340,9 +1341,22 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 				return nil
 			}
 			if existing != nil && existing.ChatwootMessageID != 0 {
-				// Placeholder upgrade: the notice stays in the Chatwoot
-				// conversation; the recovered content lands as a new message
-				// and the link below is re-pointed at it.
+				// Placeholder upgrade: claim it atomically FIRST — two
+				// concurrent recovered deliveries would otherwise both pass
+				// the check above and create duplicate Chatwoot messages.
+				// The winner syncs; losers are ordinary duplicates. On a
+				// failed forward the claim is released so the retry (or a
+				// later delivery) can upgrade again.
+				claimed, claimErr := linkRepo.ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID)
+				if claimErr != nil {
+					logrus.Errorf("Chatwoot: Failed to claim placeholder upgrade for %s: %v", waMessageID, claimErr)
+					return claimErr
+				}
+				if !claimed {
+					logrus.Debugf("Chatwoot: placeholder %s already claimed by a concurrent upgrade", waMessageID)
+					return nil
+				}
+				upgradeClaimWaID = waMessageID
 				logrus.Infof("Chatwoot: upgrading view-once placeholder %s with recovered content", waMessageID)
 			}
 		}
@@ -1350,6 +1364,11 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 
 	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
 	if err != nil {
+		if upgradeClaimWaID != "" {
+			if relErr := linkRepo.ReleaseViewOncePlaceholderUpgrade(deviceID, upgradeClaimWaID); relErr != nil {
+				logrus.Errorf("Chatwoot: Failed to release placeholder claim for %s: %v", upgradeClaimWaID, relErr)
+			}
+		}
 		return err
 	}
 	if eventName == "message" && linkRepo != nil {

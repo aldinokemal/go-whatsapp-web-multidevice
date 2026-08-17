@@ -38,6 +38,12 @@ type IChatStorageRepository interface {
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
+	// ClaimViewOncePlaceholderUpgrade atomically flips is_view_once_placeholder
+	// FALSE→ for (deviceID, waMessageID) and reports whether THIS caller won the
+	// claim — the winner may sync the recovered content; losers skip. Release
+	// restores the claim after a failed forward so a later delivery can retry.
+	ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error)
+	ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error
 	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
 	// GetLatestChatwootMessageLinkByConversation resolves a conversation to its
 	// most recent link. Conversation ids are numbered per Chatwoot account, so the

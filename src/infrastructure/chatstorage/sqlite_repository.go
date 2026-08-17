@@ -773,6 +773,30 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 	return err
 }
 
+// ClaimViewOncePlaceholderUpgrade flips the placeholder flag off atomically;
+// rowsAffected decides the single winner among concurrent recovered deliveries.
+func (r *SQLiteRepository) ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error) {
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = FALSE, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ? AND is_view_once_placeholder = TRUE
+	`, time.Now(), deviceID, waMessageID)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows == 1, nil
+}
+
+func (r *SQLiteRepository) ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error {
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = TRUE, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, time.Now(), deviceID, waMessageID)
+	return err
+}
+
 func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
