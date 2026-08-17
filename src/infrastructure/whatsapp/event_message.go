@@ -367,7 +367,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// downstream consumers, instead of dropping the whole event.
 				logrus.Errorf("Failed to download document: %v", err)
 			} else {
-				payload["document"] = buildAutoDownloadPayload(extracted)
+				payload["document"] = buildAutoDownloadDocumentPayload(extracted, documentMedia.GetFileName())
 			}
 		} else {
 			payload["document"] = map[string]any{
@@ -524,6 +524,25 @@ func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.C
 
 // buildAutoDownloadPayload builds the media payload for auto-downloaded media.
 // Returns just the path string if no caption (backward compatible), or a map with path+caption.
+// buildAutoDownloadDocumentPayload mirrors buildAutoDownloadPayload but always
+// returns a map and carries the sender-chosen document filename: the non-auto-
+// download arm always sends "filename", and downstream consumers (the LEO
+// normalizer) read it to preserve the original name on import. Without it a
+// captioned document arrived as {"path","caption"} and the original name never
+// existed downstream (observed live 2026-08-09).
+func buildAutoDownloadDocumentPayload(extracted utils.ExtractedMedia, filename string) map[string]any {
+	documentPayload := map[string]any{
+		"path": extracted.MediaPath,
+	}
+	if extracted.Caption != "" {
+		documentPayload["caption"] = extracted.Caption
+	}
+	if filename != "" {
+		documentPayload["filename"] = filename
+	}
+	return documentPayload
+}
+
 func buildAutoDownloadPayload(extracted utils.ExtractedMedia) any {
 	if extracted.Caption != "" {
 		return map[string]any{
