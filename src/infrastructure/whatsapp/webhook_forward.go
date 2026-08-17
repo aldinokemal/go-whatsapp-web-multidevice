@@ -552,6 +552,14 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		}
 	}
 
+	// View-once "unavailable" placeholder: the content is intentionally
+	// withheld from linked devices, so there is nothing to attach — render the
+	// same notice WhatsApp Web shows instead of "(Unsupported message type)".
+	if viewOnce, _ := data["view_once"].(bool); viewOnce && content == "" && len(attachments) == 0 {
+		content = "(View once message — for privacy reasons it can only be opened on the phone)"
+		logrus.Info("Chatwoot: view-once placeholder, using notice content")
+	}
+
 	// Handle empty content
 	if content == "" && len(attachments) == 0 {
 		content = "(Unsupported message type)"

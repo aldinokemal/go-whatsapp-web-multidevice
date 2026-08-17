@@ -115,10 +115,14 @@ func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMe
 	}
 
 	// Same async pattern as handleWebhookForward: never block the event loop
-	// on webhook delivery.
+	// on webhook delivery, and detach from the incoming context — for devices
+	// created via the HTTP login flow, ctx is the (long-canceled) request
+	// context captured by the event-handler closure.
 	go func() {
-		envelope := buildViewOncePlaceholderEvent(ctx, client, evt)
-		if err := forwardPayloadToConfiguredWebhooks(ctx, envelope, EventTypeMessage); err != nil {
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		envelope := buildViewOncePlaceholderEvent(webhookCtx, client, evt)
+		if err := forwardPayloadToConfiguredWebhooks(webhookCtx, envelope, EventTypeMessage); err != nil {
 			log.Warnf("Failed to forward view-once placeholder %s to webhooks: %v", evt.Info.ID, err)
 		}
 	}()
