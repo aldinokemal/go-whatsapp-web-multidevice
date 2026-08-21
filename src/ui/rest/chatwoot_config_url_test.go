@@ -9,10 +9,10 @@ import (
 func TestPerDeviceWebhookURLPreservesQuery(t *testing.T) {
 	originalWebhookURL := config.ChatwootWebhookURL
 	originalBasePath := config.AppBasePath
-	t.Cleanup(func() {
+	defer func() {
 		config.ChatwootWebhookURL = originalWebhookURL
 		config.AppBasePath = originalBasePath
-	})
+	}()
 
 	config.ChatwootWebhookURL = "https://gowa.testdomain.com/chatwoot/webhook?secret=the-web-secret"
 	config.AppBasePath = ""
