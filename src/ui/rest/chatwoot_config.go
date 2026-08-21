@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -40,8 +41,11 @@ func maskAPIToken(token string) string {
 // Chatwoot inbox so agent replies route back to this device. Derived from the
 // configured public webhook base, or a relative path when none is set.
 func perDeviceWebhookURL(deviceID string) string {
-	if base := strings.TrimRight(strings.TrimSpace(config.ChatwootWebhookURL), "/"); base != "" {
-		return base + "/" + deviceID
+	if base := strings.TrimSpace(config.ChatwootWebhookURL); base != "" {
+		if webhookURL, err := url.JoinPath(base, deviceID); err == nil {
+			return webhookURL
+		}
+		return strings.TrimRight(base, "/") + "/" + deviceID
 	}
 	return strings.TrimRight(config.AppBasePath, "/") + "/chatwoot/webhook/" + deviceID
 }
