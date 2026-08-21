@@ -65,6 +65,7 @@ type tokenRequest struct {
 
 type authorizePageData struct {
 	ClientName          string
+	RedirectHost        string
 	AuthorizePath       string
 	ResponseType        string
 	ClientID            string
@@ -88,6 +89,7 @@ var authorizeTemplate = template.Must(template.New("oauth-authorize").Parse(`<!d
 <body>
   <h1>Authorize {{.ClientName}}</h1>
   <p>Sign in with an existing GOWA Basic Auth account to allow this MCP client to access WhatsApp through GOWA.</p>
+  <p>After authorization, you will be redirected to <strong>{{.RedirectHost}}</strong>.</p>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   <form method="post" action="{{.AuthorizePath}}">
     <input type="hidden" name="response_type" value="{{.ResponseType}}">
@@ -341,7 +343,7 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 	query.Set("iss", s.issuer.String())
 	redirectURL.RawQuery = query.Encode()
 	s.setNoStore(c)
-	return c.Redirect().To(redirectURL.String())
+	return c.Redirect().Status(fiber.StatusFound).To(redirectURL.String())
 }
 
 func (s *Server) token(c fiber.Ctx) error {
@@ -432,6 +434,7 @@ func (s *Server) renderAuthorize(c fiber.Ctx, status int, req authorizationReque
 	c.Status(status)
 	return authorizeTemplate.Execute(c, authorizePageData{
 		ClientName:          client.Name,
+		RedirectHost:        redirectHostname(req.RedirectURI),
 		AuthorizePath:       s.issuerEndpointPath("/oauth/authorize"),
 		ResponseType:        req.ResponseType,
 		ClientID:            req.ClientID,
@@ -446,7 +449,7 @@ func (s *Server) renderAuthorize(c fiber.Ctx, status int, req authorizationReque
 }
 
 func (s *Server) mcpUnauthorized(c fiber.Ctx, advertiseBasic, invalidBearer bool) error {
-	challenge := fmt.Sprintf(`Bearer resource_metadata="%s"`, s.protectedResourceMetadataURL())
+	challenge := fmt.Sprintf(`Bearer resource_metadata="%s", scope="%s"`, s.protectedResourceMetadataURL(), defaultScope)
 	if invalidBearer {
 		challenge += `, error="invalid_token"`
 	}
@@ -524,6 +527,14 @@ func validRedirectURI(raw, applicationType string) bool {
 	}
 	ip := net.ParseIP(hostname)
 	return ip != nil && ip.IsLoopback()
+}
+
+func redirectHostname(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return "the registered client"
+	}
+	return u.Hostname()
 }
 
 func validPKCEChallenge(challenge string) bool {
