@@ -100,6 +100,21 @@ func restServer(_ *cobra.Command, _ []string) {
 		app.Post(webhookPath+"/:device_id", chatwootHandler.HandleDeviceWebhook)
 	}
 
+	// OAuth discovery/login/token routes and the OAuth-protected MCP route must
+	// be registered before the global Basic Auth middleware. When OAuth is off,
+	// this is a no-op and MCP is mounted in its historical location below.
+	oauthServer, mcpOAuthRegistered, err := registerMcpOAuth(app, dm)
+	if err != nil {
+		logrus.Fatalln("Failed to initialize MCP OAuth: ", err.Error())
+	}
+	if oauthServer != nil {
+		defer func() {
+			if err := oauthServer.Close(); err != nil {
+				logrus.Warnf("MCP OAuth storage close: %v", err)
+			}
+		}()
+	}
+
 	if len(config.AppBasicAuthCredential) > 0 {
 		account := make(map[string]string)
 		for _, basicAuth := range config.AppBasicAuthCredential {
@@ -139,8 +154,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	rest.InitRestAppInfo(apiGroup)
 
 	// MCP endpoint — same usecase instances as REST, so both surfaces share
-	// one whatsmeow session. Sits behind the basic-auth middleware above.
-	if config.McpEnabled {
+	// one whatsmeow session. With OAuth disabled it keeps the existing global
+	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
+	if config.McpEnabled && !mcpOAuthRegistered {
 		uimcp.Register(apiGroup, dm, uimcp.Deps{
 			App:     appUsecase,
 			Send:    sendUsecase,
