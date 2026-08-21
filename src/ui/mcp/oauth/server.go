@@ -16,11 +16,15 @@ import (
 )
 
 const (
-	defaultStorageURI = "file:storages/oauth.db"
-	defaultScope      = "mcp"
-	codeTTL           = 5 * time.Minute
-	accessTokenTTL    = time.Hour
-	refreshTokenTTL   = 30 * 24 * time.Hour
+	defaultStorageURI        = "file:storages/oauth.db"
+	defaultScope             = "mcp"
+	codeTTL                  = 5 * time.Minute
+	accessTokenTTL           = time.Hour
+	refreshTokenTTL          = 30 * 24 * time.Hour
+	maxRegistrationBodyBytes = 16 * 1024
+	maxClientNameBytes       = 200
+	maxRedirectURIBytes      = 2048
+	maxRedirectURIsBytes     = 8 * 1024
 )
 
 type Server struct {
@@ -224,6 +228,9 @@ func (s *Server) protectedResourceMetadata(c fiber.Ctx) error {
 
 func (s *Server) registerClient(c fiber.Ctx) error {
 	s.setNoStore(c)
+	if len(c.Body()) > maxRegistrationBodyBytes {
+		return oauthError(c, fiber.StatusRequestEntityTooLarge, "invalid_client_metadata", "registration document is too large")
+	}
 	var req dynamicRegistrationRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_client_metadata", "invalid registration document")
@@ -246,16 +253,24 @@ func (s *Server) registerClient(c fiber.Ctx) error {
 	if !onlySupported(req.ResponseTypes, "code") || !onlySupported(req.GrantTypes, "authorization_code", "refresh_token") {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_client_metadata", "unsupported response_type or grant_type")
 	}
+	redirectBytes := 0
 	for _, redirectURI := range req.RedirectURIs {
+		if len(redirectURI) > maxRedirectURIBytes {
+			return oauthError(c, fiber.StatusBadRequest, "invalid_redirect_uri", "redirect URI is too long")
+		}
+		redirectBytes += len(redirectURI)
 		if !validRedirectURI(redirectURI, req.ApplicationType) {
 			return oauthError(c, fiber.StatusBadRequest, "invalid_redirect_uri", "redirect URI must use HTTPS, except native loopback redirects")
 		}
+	}
+	if redirectBytes > maxRedirectURIsBytes {
+		return oauthError(c, fiber.StatusBadRequest, "invalid_redirect_uri", "redirect URIs are too large")
 	}
 	name := strings.TrimSpace(req.ClientName)
 	if name == "" {
 		name = "MCP client"
 	}
-	if len(name) > 200 {
+	if len(name) > maxClientNameBytes {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_client_metadata", "client_name is too long")
 	}
 	clientID, err := randomSecret("gowa_client_", 24)
@@ -270,7 +285,10 @@ func (s *Server) registerClient(c fiber.Ctx) error {
 		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
 		CreatedAt:               s.now(),
 	}
-	if err := s.store.createClient(c.Context(), client); err != nil {
+	if err := s.store.registerClient(c.Context(), client); err != nil {
+		if errors.Is(err, ErrRegistrationLimit) {
+			return oauthError(c, fiber.StatusTooManyRequests, "temporarily_unavailable", "dynamic client registration limit reached; retry later")
+		}
 		return oauthError(c, fiber.StatusInternalServerError, "server_error", "could not register client")
 	}
 	grantTypes := req.GrantTypes
@@ -304,9 +322,12 @@ func (s *Server) authorizeGET(c fiber.Ctx) error {
 		Scope:               c.Query("scope"),
 		State:               c.Query("state"),
 	}
-	client, err := s.validateAuthorizationRequest(c, &req)
+	client, valid, err := s.validateAuthorizationRequest(c, &req)
 	if err != nil {
 		return err
+	}
+	if !valid {
+		return nil
 	}
 	return s.renderAuthorize(c, fiber.StatusOK, req, client, "")
 }
@@ -316,9 +337,12 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "invalid authorization request")
 	}
-	client, err := s.validateAuthorizationRequest(c, &req)
+	client, valid, err := s.validateAuthorizationRequest(c, &req)
 	if err != nil {
 		return err
+	}
+	if !valid {
+		return nil
 	}
 	if !s.validateCredential(req.Username, req.Password) {
 		return s.renderAuthorize(c, fiber.StatusUnauthorized, req, client, "Invalid username or password.")
@@ -399,30 +423,33 @@ func (s *Server) token(c fiber.Ctx) error {
 	})
 }
 
-func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, error) {
-	if req.ResponseType != "code" {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "unsupported_response_type", "response_type must be code")
-	}
+func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
 	client, err := s.store.getClient(c.Context(), req.ClientID)
 	if err != nil {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
+		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
 	}
-	if !containsExact(client.RedirectURIs, req.RedirectURI) {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri does not match the registered client")
+	if !redirectURIMatches(client, req.RedirectURI) {
+		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri does not match the registered client")
+	}
+	// Once the client and redirect URI are known to be safe, OAuth errors must
+	// be returned to the client at that redirect URI rather than as an endpoint
+	// response in the user's browser.
+	if req.ResponseType != "code" {
+		return Client{}, false, s.authorizationError(c, *req, "unsupported_response_type", "response_type must be code")
 	}
 	if req.CodeChallengeMethod != "S256" || !validPKCEChallenge(req.CodeChallenge) {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "invalid_request", "PKCE S256 is required")
+		return Client{}, false, s.authorizationError(c, *req, "invalid_request", "PKCE S256 is required")
 	}
 	if req.Resource != s.resource.String() {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "invalid_target", "resource does not match this MCP server")
+		return Client{}, false, s.authorizationError(c, *req, "invalid_target", "resource does not match this MCP server")
 	}
 	if req.Scope == "" {
 		req.Scope = defaultScope
 	}
 	if req.Scope != defaultScope {
-		return Client{}, oauthError(c, fiber.StatusBadRequest, "invalid_scope", "only the mcp scope is supported")
+		return Client{}, false, s.authorizationError(c, *req, "invalid_scope", "only the mcp scope is supported")
 	}
-	return client, nil
+	return client, true, nil
 }
 
 func (s *Server) renderAuthorize(c fiber.Ctx, status int, req authorizationRequest, client Client, pageError string) error {
@@ -567,6 +594,46 @@ func containsExact(values []string, want string) bool {
 	return false
 }
 
+// redirectURIMatches uses exact string matching for every registered redirect
+// except the port of native loopback-IP redirects. OAuth 2.1 requires that
+// exception so desktop and CLI clients can bind an ephemeral local port.
+func redirectURIMatches(client Client, requested string) bool {
+	for _, registered := range client.RedirectURIs {
+		if registered == requested {
+			return true
+		}
+		if client.ApplicationType == "native" && loopbackRedirectMatches(registered, requested) {
+			return true
+		}
+	}
+	return false
+}
+
+func loopbackRedirectMatches(registered, requested string) bool {
+	registeredURL, err := url.Parse(registered)
+	if err != nil {
+		return false
+	}
+	requestedURL, err := url.Parse(requested)
+	if err != nil {
+		return false
+	}
+	if registeredURL.Scheme != "http" || requestedURL.Scheme != "http" ||
+		registeredURL.User != nil || requestedURL.User != nil ||
+		registeredURL.Fragment != "" || requestedURL.Fragment != "" {
+		return false
+	}
+	registeredIP := net.ParseIP(registeredURL.Hostname())
+	requestedIP := net.ParseIP(requestedURL.Hostname())
+	if registeredIP == nil || requestedIP == nil || !registeredIP.IsLoopback() || !requestedIP.IsLoopback() ||
+		registeredURL.Hostname() != requestedURL.Hostname() {
+		return false
+	}
+	return registeredURL.EscapedPath() == requestedURL.EscapedPath() &&
+		registeredURL.RawQuery == requestedURL.RawQuery &&
+		registeredURL.ForceQuery == requestedURL.ForceQuery
+}
+
 func onlySupported(values []string, supported ...string) bool {
 	if len(values) == 0 {
 		return true
@@ -606,4 +673,21 @@ func oauthError(c fiber.Ctx, status int, code, description string) error {
 		"error":             code,
 		"error_description": description,
 	})
+}
+
+func (s *Server) authorizationError(c fiber.Ctx, req authorizationRequest, code, description string) error {
+	redirectURL, err := url.Parse(req.RedirectURI)
+	if err != nil {
+		return oauthError(c, fiber.StatusBadRequest, code, description)
+	}
+	query := redirectURL.Query()
+	query.Set("error", code)
+	query.Set("error_description", description)
+	if req.State != "" {
+		query.Set("state", req.State)
+	}
+	query.Set("iss", s.issuer.String())
+	redirectURL.RawQuery = query.Encode()
+	s.setNoStore(c)
+	return c.Redirect().Status(fiber.StatusFound).To(redirectURL.String())
 }

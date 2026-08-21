@@ -17,8 +17,19 @@ import (
 )
 
 type store struct {
-	db *sql.DB
+	db                        *sql.DB
+	maxClients                int
+	maxRegistrationsPerWindow int
+	registrationWindow        time.Duration
+	unusedClientTTL           time.Duration
 }
+
+const (
+	defaultMaxClients                = 1000
+	defaultMaxRegistrationsPerWindow = 40
+	defaultRegistrationWindow        = time.Hour
+	defaultUnusedClientTTL           = 24 * time.Hour
+)
 
 const oauthSchema = `
 CREATE TABLE IF NOT EXISTS oauth_clients (
@@ -29,6 +40,7 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
     token_endpoint_auth_method TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_oauth_clients_created_at ON oauth_clients(created_at);
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
     code_hash TEXT PRIMARY KEY,
     client_id TEXT NOT NULL,
@@ -43,6 +55,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
     FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires_at ON oauth_authorization_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_codes_client_id ON oauth_authorization_codes(client_id);
 CREATE TABLE IF NOT EXISTS oauth_tokens (
     token_hash TEXT PRIMARY KEY,
     token_type TEXT NOT NULL CHECK (token_type IN ('access', 'refresh')),
@@ -58,6 +71,7 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_expires_at ON oauth_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client_id ON oauth_tokens(client_id);
 `
 
 func openStore(uri string) (*store, error) {
@@ -77,7 +91,13 @@ func openStore(uri string) (*store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize oauth storage: %w", err)
 	}
-	return &store{db: db}, nil
+	return &store{
+		db:                        db,
+		maxClients:                defaultMaxClients,
+		maxRegistrationsPerWindow: defaultMaxRegistrationsPerWindow,
+		registrationWindow:        defaultRegistrationWindow,
+		unusedClientTTL:           defaultUnusedClientTTL,
+	}, nil
 }
 
 func (s *store) Close() error {
@@ -108,6 +128,60 @@ INSERT INTO oauth_clients (
 		return fmt.Errorf("store oauth client: %w", err)
 	}
 	return nil
+}
+
+// registerClient applies durable global bounds to the unauthenticated DCR
+// surface. The database-backed window works across process restarts, and the
+// total cap prevents registrations from growing the SQLite file indefinitely.
+func (s *store) registerClient(ctx context.Context, client Client) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := cleanupExpiredTx(ctx, tx, client.CreatedAt); err != nil {
+		return err
+	}
+	if err := cleanupUnusedClientsTx(ctx, tx, client.CreatedAt.Add(-s.unusedClientTTL)); err != nil {
+		return err
+	}
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_clients`).Scan(&total); err != nil {
+		return err
+	}
+	if total >= s.maxClients {
+		return ErrRegistrationLimit
+	}
+	var recent int
+	windowStart := client.CreatedAt.Add(-s.registrationWindow).Unix()
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM oauth_clients WHERE created_at > ?`, windowStart).Scan(&recent); err != nil {
+		return err
+	}
+	if recent >= s.maxRegistrationsPerWindow {
+		return ErrRegistrationLimit
+	}
+
+	redirects, err := json.Marshal(client.RedirectURIs)
+	if err != nil {
+		return fmt.Errorf("encode oauth redirect URIs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO oauth_clients (
+    client_id, client_name, redirect_uris_json, application_type,
+    token_endpoint_auth_method, created_at
+) VALUES (?, ?, ?, ?, ?, ?)`,
+		client.ID,
+		client.Name,
+		string(redirects),
+		client.ApplicationType,
+		client.TokenEndpointAuthMethod,
+		client.CreatedAt.Unix(),
+	); err != nil {
+		return fmt.Errorf("store oauth client: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (s *store) getClient(ctx context.Context, clientID string) (Client, error) {
@@ -142,7 +216,15 @@ func (s *store) issueAuthorizationCode(ctx context.Context, grant AuthorizationG
 	if err != nil {
 		return "", err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
+		return "", err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO oauth_authorization_codes (
     code_hash, client_id, subject, redirect_uri, code_challenge,
     resource, scope, expires_at, created_at
@@ -160,6 +242,9 @@ INSERT INTO oauth_authorization_codes (
 	if err != nil {
 		return "", fmt.Errorf("store authorization code: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
 	return code, nil
 }
 
@@ -175,6 +260,9 @@ func (s *store) exchangeAuthorizationCode(
 		return TokenPair{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
+		return TokenPair{}, err
+	}
 
 	var (
 		clientID      string
@@ -254,6 +342,9 @@ func (s *store) rotateRefreshToken(
 		return TokenPair{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
+		return TokenPair{}, err
+	}
 
 	var (
 		familyID  string
@@ -322,6 +413,33 @@ WHERE token_hash = ? AND token_type = 'refresh' AND revoked_at IS NULL`,
 		return TokenPair{}, err
 	}
 	return pair, nil
+}
+
+func cleanupExpiredTx(ctx context.Context, tx *sql.Tx, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE expires_at <= ?`, now.Unix()); err != nil {
+		return fmt.Errorf("delete expired authorization codes: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_tokens WHERE expires_at <= ?`, now.Unix()); err != nil {
+		return fmt.Errorf("delete expired oauth tokens: %w", err)
+	}
+	return nil
+}
+
+func cleanupUnusedClientsTx(ctx context.Context, tx *sql.Tx, cutoff time.Time) error {
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM oauth_clients
+WHERE created_at <= ?
+  AND NOT EXISTS (
+      SELECT 1 FROM oauth_authorization_codes
+      WHERE oauth_authorization_codes.client_id = oauth_clients.client_id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM oauth_tokens
+      WHERE oauth_tokens.client_id = oauth_clients.client_id
+  )`, cutoff.Unix()); err != nil {
+		return fmt.Errorf("delete unused oauth clients: %w", err)
+	}
+	return nil
 }
 
 func (s *store) validateAccessToken(ctx context.Context, rawToken, resource string, now time.Time) (Principal, error) {

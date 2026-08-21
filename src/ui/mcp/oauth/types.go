@@ -6,10 +6,11 @@ import (
 )
 
 var (
-	ErrInvalidGrant  = errors.New("invalid grant")
-	ErrInvalidTarget = errors.New("invalid target")
-	ErrInvalidToken  = errors.New("invalid token")
-	ErrRefreshReuse  = errors.New("refresh token reuse detected")
+	ErrInvalidGrant      = errors.New("invalid grant")
+	ErrInvalidTarget     = errors.New("invalid target")
+	ErrInvalidToken      = errors.New("invalid token")
+	ErrRefreshReuse      = errors.New("refresh token reuse detected")
+	ErrRegistrationLimit = errors.New("dynamic client registration limit reached")
 )
 
 type CredentialValidator func(username, password string) bool

@@ -45,6 +45,8 @@ Claude can dynamically register itself with GOWA and start the authorization-cod
 
 GOWA implements RFC 7591 Dynamic Client Registration for compatibility with clients such as Claude. DCR is retained by the current MCP specification for backwards compatibility; GOWA does not advertise Client ID Metadata Document support until that mechanism is implemented.
 
+Because registration is unauthenticated, GOWA limits registration documents to 16 KiB, each redirect URI to 2 KiB, new registrations to 40 per hour, and stored dynamic clients to 1,000. Registrations that remain unused for 24 hours are pruned before accepting new clients. These durable global limits protect the OAuth SQLite database across restarts. If a deployment still reaches the client cap, remove obsolete rows from `oauth_clients` during a maintenance window or replace the OAuth database to start with a new authorization-server state; deleting clients also invalidates their grants and tokens.
+
 ## `APP_BASE_PATH`
 
 For a deployment using:
@@ -102,9 +104,11 @@ The implementation intentionally uses opaque tokens rather than JWTs:
 - refresh tokens rotate on each use;
 - reusing a rotated refresh token revokes the whole token family;
 - PKCE with `S256` is mandatory;
-- redirect URIs must exactly match the URI registered by the client;
+- redirect URIs must exactly match the URI registered by the client, except that native loopback-IP clients may change only the port used for their local callback;
 - the OAuth `resource` value is bound to the canonical MCP resource and checked when access tokens are used;
 - successful authorization responses include RFC 9207 `iss` for authorization-server mix-up protection.
+
+Expired authorization codes and tokens are removed opportunistically during OAuth writes so their rows do not accumulate indefinitely. SQLite can reuse the freed pages; shrinking the file itself still requires normal SQLite maintenance such as `VACUUM` while GOWA is stopped.
 
 No OAuth token is accepted as authentication for the normal REST/UI routes. OAuth only extends the MCP authentication surface.
 

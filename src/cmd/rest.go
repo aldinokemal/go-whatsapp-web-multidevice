@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -42,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	loadMcpOAuthEnvConfig()
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
@@ -291,10 +293,19 @@ func newCORSMiddleware() fiber.Handler {
 	if len(config.AppCORSAllowedOrigins) > 0 {
 		origins = config.AppCORSAllowedOrigins
 	}
+	oauthAuthorizePath := ""
+	if config.McpOAuthEnabled {
+		if issuer, err := url.Parse(strings.TrimSpace(config.McpOAuthIssuerURL)); err == nil {
+			oauthAuthorizePath = strings.TrimRight(issuer.Path, "/") + "/oauth/authorize"
+		}
+	}
 	return cors.New(cors.Config{
 		AllowOrigins: origins,
 		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", middleware.DeviceIDHeader},
+		Next: func(c fiber.Ctx) bool {
+			return oauthAuthorizePath != "" && c.Path() == oauthAuthorizePath
+		},
 	})
 }
 
