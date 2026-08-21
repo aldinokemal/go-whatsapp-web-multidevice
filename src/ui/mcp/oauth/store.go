@@ -83,11 +83,12 @@ func openStore(uri string) (*store, error) {
 	// avoids SQLite write races while still keeping WAL enabled for durability.
 	db.SetMaxOpenConns(1)
 
-	if err := db.Ping(); err != nil {
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping oauth storage: %w", err)
 	}
-	if _, err := db.Exec(oauthSchema); err != nil {
+	if _, err := db.ExecContext(ctx, oauthSchema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize oauth storage: %w", err)
 	}
@@ -108,11 +109,19 @@ func (s *store) Close() error {
 }
 
 func (s *store) createClient(ctx context.Context, client Client) error {
+	return insertClient(ctx, s.db, client)
+}
+
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertClient(ctx context.Context, ex execer, client Client) error {
 	redirects, err := json.Marshal(client.RedirectURIs)
 	if err != nil {
 		return fmt.Errorf("encode oauth redirect URIs: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = ex.ExecContext(ctx, `
 INSERT INTO oauth_clients (
     client_id, client_name, redirect_uris_json, application_type,
     token_endpoint_auth_method, created_at
@@ -163,23 +172,8 @@ SELECT COUNT(*) FROM oauth_clients WHERE created_at > ?`, windowStart).Scan(&rec
 		return ErrRegistrationLimit
 	}
 
-	redirects, err := json.Marshal(client.RedirectURIs)
-	if err != nil {
-		return fmt.Errorf("encode oauth redirect URIs: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO oauth_clients (
-    client_id, client_name, redirect_uris_json, application_type,
-    token_endpoint_auth_method, created_at
-) VALUES (?, ?, ?, ?, ?, ?)`,
-		client.ID,
-		client.Name,
-		string(redirects),
-		client.ApplicationType,
-		client.TokenEndpointAuthMethod,
-		client.CreatedAt.Unix(),
-	); err != nil {
-		return fmt.Errorf("store oauth client: %w", err)
+	if err := insertClient(ctx, tx, client); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

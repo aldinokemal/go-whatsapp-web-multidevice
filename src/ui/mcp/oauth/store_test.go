@@ -60,7 +60,7 @@ func TestStorePersistsOnlyHashesForCodesAndTokens(t *testing.T) {
 
 	rows, err := store.db.QueryContext(ctx, `SELECT token_hash FROM oauth_tokens ORDER BY token_type`)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { require.NoError(t, rows.Close()) }()
 	var hashes []string
 	for rows.Next() {
 		var hash string

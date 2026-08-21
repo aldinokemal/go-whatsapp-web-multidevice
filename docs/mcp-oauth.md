@@ -93,6 +93,8 @@ If Cloudflare Access, an authentication proxy, or a bot challenge sits in front 
 
 TLS termination at the reverse proxy is fine; `MCP_OAUTH_ISSUER_URL` and `MCP_OAUTH_RESOURCE_URL` must still describe their externally reachable HTTPS forms.
 
+The authorization form validates the same Basic Auth credentials as the rest of GOWA. Internet-facing deployments should apply per-IP failed-login rate limiting and logging at the reverse proxy for `<issuer>/oauth/authorize`, just as they should for the normal Basic Auth surface.
+
 ## Security model
 
 The implementation intentionally uses opaque tokens rather than JWTs:

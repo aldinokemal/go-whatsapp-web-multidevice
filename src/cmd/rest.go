@@ -43,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	// registerMcpOAuth depends on these values being loaded after flag parsing.
 	loadMcpOAuthEnvConfig()
 	fiberConfig := fiber.Config{
 		TrustProxy: true,

@@ -72,7 +72,6 @@ func loadMcpOAuthEnvConfig() {
 // middleware is installed so standards discovery, authorization, registration,
 // and token endpoints remain reachable by OAuth clients.
 func registerMcpOAuth(app *fiber.App, dm *whatsapp.DeviceManager) (*mcpoauth.Server, bool, error) {
-	loadMcpOAuthEnvConfig()
 	if !config.McpEnabled || !config.McpOAuthEnabled {
 		return nil, false, nil
 	}

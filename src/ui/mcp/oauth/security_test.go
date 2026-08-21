@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/valyala/fasthttp"
 )
 
 func TestAuthorizationRejectsRedirectPrefixMatch(t *testing.T) {
@@ -58,7 +59,7 @@ func TestAuthorizationPOSTStopsAfterRedirectValidationError(t *testing.T) {
 	assertOAuthError(t, resp, "invalid_request")
 
 	var codes int
-	require.NoError(t, srv.store.db.QueryRow(`SELECT COUNT(*) FROM oauth_authorization_codes`).Scan(&codes))
+	require.NoError(t, srv.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM oauth_authorization_codes`).Scan(&codes))
 	assert.Zero(t, codes, "a rejected authorization request must never issue a code")
 }
 
@@ -190,16 +191,15 @@ func TestNativeLoopbackRedirectAllowsEphemeralPort(t *testing.T) {
 
 func TestDCRRejectsOversizedMetadataBeforeStorage(t *testing.T) {
 	srv, app := newOAuthTestServer(t, testIssuer, testResource)
-	body := `{"client_name":"Large","redirect_uris":["https://example.com/callback"],"padding":"` + strings.Repeat("x", maxRegistrationBodyBytes) + `"}`
+	body := `{"client_name":"Large","redirect_uris":["https://example.com/callback"],"padding":"` + strings.Repeat("x", maxOAuthBodyBytes) + `"}`
 	req := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
-	require.NoError(t, err)
-	require.Equal(t, fiber.StatusRequestEntityTooLarge, resp.StatusCode)
-	assertOAuthError(t, resp, "invalid_client_metadata")
+	require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
+	assert.Nil(t, resp)
 
 	var clients int
-	require.NoError(t, srv.store.db.QueryRow(`SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
+	require.NoError(t, srv.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
 	assert.Zero(t, clients)
 }
 
@@ -215,7 +215,7 @@ func TestDCRRejectsOversizedRedirectURI(t *testing.T) {
 	assertOAuthError(t, resp, "invalid_redirect_uri")
 
 	var clients int
-	require.NoError(t, srv.store.db.QueryRow(`SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
+	require.NoError(t, srv.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
 	assert.Zero(t, clients)
 }
 
@@ -234,6 +234,27 @@ func TestDCRAppliesDurableClientQuota(t *testing.T) {
 	assertOAuthError(t, resp, "temporarily_unavailable")
 
 	var clients int
-	require.NoError(t, srv.store.db.QueryRow(`SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
+	require.NoError(t, srv.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
 	assert.Equal(t, 1, clients)
+}
+
+func TestOAuthPOSTEndpointsRejectOversizedBodiesAtServerBoundary(t *testing.T) {
+	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	for _, endpoint := range []struct {
+		name        string
+		path        string
+		contentType string
+	}{
+		{name: "register", path: "/oauth/register", contentType: "application/json"},
+		{name: "authorize", path: "/oauth/authorize", contentType: "application/x-www-form-urlencoded"},
+		{name: "token", path: "/oauth/token", contentType: "application/x-www-form-urlencoded"},
+	} {
+		t.Run(endpoint.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", endpoint.path, strings.NewReader(strings.Repeat("x", maxOAuthBodyBytes+1)))
+			req.Header.Set("Content-Type", endpoint.contentType)
+			resp, err := app.Test(req)
+			require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
+			assert.Nil(t, resp)
+		})
+	}
 }

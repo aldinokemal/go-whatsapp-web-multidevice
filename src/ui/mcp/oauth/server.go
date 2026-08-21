@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -13,18 +14,19 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/valyala/fasthttp"
 )
 
 const (
-	defaultStorageURI        = "file:storages/oauth.db"
-	defaultScope             = "mcp"
-	codeTTL                  = 5 * time.Minute
-	accessTokenTTL           = time.Hour
-	refreshTokenTTL          = 30 * 24 * time.Hour
-	maxRegistrationBodyBytes = 16 * 1024
-	maxClientNameBytes       = 200
-	maxRedirectURIBytes      = 2048
-	maxRedirectURIsBytes     = 8 * 1024
+	defaultStorageURI    = "file:storages/oauth.db"
+	defaultScope         = "mcp"
+	codeTTL              = 5 * time.Minute
+	accessTokenTTL       = time.Hour
+	refreshTokenTTL      = 30 * 24 * time.Hour
+	maxOAuthBodyBytes    = 16 * 1024
+	maxClientNameBytes   = 200
+	maxRedirectURIBytes  = 2048
+	maxRedirectURIsBytes = 8 * 1024
 )
 
 type Server struct {
@@ -160,13 +162,43 @@ func DefaultResourceURL(issuerURL, appBasePath string) (string, error) {
 	return resource.String(), nil
 }
 
-func (s *Server) RegisterPublic(router fiber.Router) {
-	router.Get(wellKnownPath("oauth-authorization-server", s.issuer.Path), s.authorizationServerMetadata)
-	router.Get(wellKnownPath("oauth-protected-resource", s.resource.Path), s.protectedResourceMetadata)
-	router.Post(s.issuerEndpointPath("/oauth/register"), s.registerClient)
-	router.Get(s.issuerEndpointPath("/oauth/authorize"), s.authorizeGET)
-	router.Post(s.issuerEndpointPath("/oauth/authorize"), s.authorizePOST)
-	router.Post(s.issuerEndpointPath("/oauth/token"), s.token)
+func (s *Server) RegisterPublic(app *fiber.App) {
+	s.limitPublicPOSTBodies(app)
+	app.Get(wellKnownPath("oauth-authorization-server", s.issuer.Path), s.authorizationServerMetadata)
+	app.Get(wellKnownPath("oauth-protected-resource", s.resource.Path), s.protectedResourceMetadata)
+	app.Post(s.issuerEndpointPath("/oauth/register"), s.registerClient)
+	app.Get(s.issuerEndpointPath("/oauth/authorize"), s.authorizeGET)
+	app.Post(s.issuerEndpointPath("/oauth/authorize"), s.authorizePOST)
+	app.Post(s.issuerEndpointPath("/oauth/token"), s.token)
+}
+
+// limitPublicPOSTBodies applies the OAuth cap in fasthttp immediately after
+// headers are received, before the unauthenticated request body is buffered.
+func (s *Server) limitPublicPOSTBodies(app *fiber.App) {
+	paths := [][]byte{
+		[]byte(s.issuerEndpointPath("/oauth/register")),
+		[]byte(s.issuerEndpointPath("/oauth/authorize")),
+		[]byte(s.issuerEndpointPath("/oauth/token")),
+	}
+	previous := app.Server().HeaderReceived
+	app.Server().HeaderReceived = func(header *fasthttp.RequestHeader) fasthttp.RequestConfig {
+		var cfg fasthttp.RequestConfig
+		if previous != nil {
+			cfg = previous(header)
+		}
+		if !bytes.Equal(header.Method(), []byte(fiber.MethodPost)) {
+			return cfg
+		}
+		requestPath, _, _ := bytes.Cut(header.RequestURI(), []byte{'?'})
+		for _, oauthPath := range paths {
+			if bytes.Equal(requestPath, oauthPath) &&
+				(cfg.MaxRequestBodySize == 0 || cfg.MaxRequestBodySize > maxOAuthBodyBytes) {
+				cfg.MaxRequestBodySize = maxOAuthBodyBytes
+				break
+			}
+		}
+		return cfg
+	}
 }
 
 func (s *Server) MCPAuthMiddleware(basic CredentialValidator) fiber.Handler {
@@ -228,7 +260,7 @@ func (s *Server) protectedResourceMetadata(c fiber.Ctx) error {
 
 func (s *Server) registerClient(c fiber.Ctx) error {
 	s.setNoStore(c)
-	if len(c.Body()) > maxRegistrationBodyBytes {
+	if len(c.Body()) > maxOAuthBodyBytes {
 		return oauthError(c, fiber.StatusRequestEntityTooLarge, "invalid_client_metadata", "registration document is too large")
 	}
 	var req dynamicRegistrationRequest
@@ -291,14 +323,6 @@ func (s *Server) registerClient(c fiber.Ctx) error {
 		}
 		return oauthError(c, fiber.StatusInternalServerError, "server_error", "could not register client")
 	}
-	grantTypes := req.GrantTypes
-	if len(grantTypes) == 0 {
-		grantTypes = []string{"authorization_code", "refresh_token"}
-	}
-	responseTypes := req.ResponseTypes
-	if len(responseTypes) == 0 {
-		responseTypes = []string{"code"}
-	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"client_id":                  client.ID,
 		"client_id_issued_at":        client.CreatedAt.Unix(),
@@ -306,8 +330,8 @@ func (s *Server) registerClient(c fiber.Ctx) error {
 		"redirect_uris":              client.RedirectURIs,
 		"application_type":           client.ApplicationType,
 		"token_endpoint_auth_method": client.TokenEndpointAuthMethod,
-		"grant_types":                grantTypes,
-		"response_types":             responseTypes,
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
 	})
 }
 
@@ -358,7 +382,10 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 	if err != nil {
 		return oauthError(c, fiber.StatusInternalServerError, "server_error", "could not issue authorization code")
 	}
-	redirectURL, _ := url.Parse(req.RedirectURI)
+	redirectURL, err := url.Parse(req.RedirectURI)
+	if err != nil {
+		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri is not a valid URI")
+	}
 	query := redirectURL.Query()
 	query.Set("code", code)
 	if req.State != "" {

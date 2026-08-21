@@ -76,6 +76,7 @@ func TestCORSPreflightAllowsUIHeaders(t *testing.T) {
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	assert.Equal(t, fiber.StatusNoContent, resp.StatusCode)
 	assert.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
 	allowedHeaders := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers"))
@@ -103,15 +104,17 @@ func TestCORSDoesNotApplyToOAuthAuthorizationEndpoint(t *testing.T) {
 	req.Header.Set("Origin", "https://client.example.com")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
 	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
 
 	preflight := httptest.NewRequest("OPTIONS", "/gowa/oauth/authorize", nil)
 	preflight.Header.Set("Origin", "https://client.example.com")
 	preflight.Header.Set("Access-Control-Request-Method", "GET")
-	resp, err = app.Test(preflight)
+	preflightResp, err := app.Test(preflight)
 	require.NoError(t, err)
-	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
+	defer func() { require.NoError(t, preflightResp.Body.Close()) }()
+	assert.Empty(t, preflightResp.Header.Get("Access-Control-Allow-Origin"))
 }
 
 func TestWebsocketQueryAuth(t *testing.T) {

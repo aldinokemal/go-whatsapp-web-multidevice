@@ -97,6 +97,22 @@ func TestDynamicClientRegistrationRequiresSafeExactRedirects(t *testing.T) {
 	assert.Equal(t, "invalid_redirect_uri", payload["error"])
 }
 
+func TestDynamicClientRegistrationReturnsActualFixedCapabilities(t *testing.T) {
+	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	body := `{"client_name":"Fixed capabilities","redirect_uris":["https://example.com/callback"],"grant_types":["authorization_code"],"response_types":["code"]}`
+	req := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+	require.Equal(t, fiber.StatusCreated, resp.StatusCode)
+
+	var registration map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&registration))
+	assert.Equal(t, []any{"authorization_code", "refresh_token"}, registration["grant_types"])
+	assert.Equal(t, []any{"code"}, registration["response_types"])
+}
+
 func TestAuthorizationCodeFlowBearerAndBasicFallback(t *testing.T) {
 	srv, app := newOAuthTestServer(t, testIssuer, testResource)
 	clientID := registerTestClient(t, app)
