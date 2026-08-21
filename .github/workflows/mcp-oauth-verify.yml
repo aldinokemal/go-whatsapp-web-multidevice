@@ -1,0 +1,34 @@
+name: Verify MCP OAuth branch
+
+on:
+  push:
+    branches:
+      - feat/mcp-oauth
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache-dependency-path: src/go.sum
+      - name: Check formatting
+        shell: bash
+        run: |
+          files=$(git diff --name-only origin/main...HEAD -- '*.go')
+          if [ -n "$files" ]; then
+            unformatted=$(gofmt -l $files)
+            if [ -n "$unformatted" ]; then
+              echo "Unformatted Go files:"
+              echo "$unformatted"
+              exit 1
+            fi
+          fi
+      - name: Test
+        working-directory: src
+        run: go test ./...
+      - name: Vet
+        working-directory: src
+        run: go vet ./...
