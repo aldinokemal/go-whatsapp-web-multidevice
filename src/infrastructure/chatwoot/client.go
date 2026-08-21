@@ -798,8 +798,8 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	endpoint := fmt.Sprintf(
 		"%s/public/api/v1/inboxes/%s/contacts/%s/conversations/%d/update_last_seen",
 		c.BaseURL,
-		url.PathEscape(inboxIdentifier),
-		url.PathEscape(contactInboxSourceID),
+		escapeChatwootPathSegment(inboxIdentifier),
+		escapeChatwootPathSegment(contactInboxSourceID),
 		conversationID,
 	)
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
@@ -819,6 +819,32 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 		return &HTTPStatusError{StatusCode: resp.StatusCode, Op: "update last seen", Body: string(body)}
 	}
 	return nil
+}
+
+// escapeChatwootPathSegment percent-encodes a value for use as a single path
+// segment of Chatwoot's public API.
+//
+// url.PathEscape is not sufficient here. Per RFC 3986 both "@" and "." are legal
+// in a path segment, so PathEscape leaves them untouched -- but Chatwoot's Rails
+// router does not match them raw in this position: a trailing ".net" is read as a
+// format suffix, and the segment fails to resolve. The contact identifier is a
+// WhatsApp JID (e.g. "5511999999999@s.whatsapp.net"), so it hits both cases and
+// every call 404s with an HTML error page rather than a JSON error, which makes
+// the failure easy to misread as a routing or proxy problem.
+//
+// Verified against Chatwoot: only the fully-escaped form resolves.
+//
+//	.../contacts/5511999999999@s.whatsapp.net        -> 404
+//	.../contacts/5511999999999@s.whatsapp%2Enet      -> 404
+//	.../contacts/5511999999999%40s%2Ewhatsapp%2Enet  -> 200
+//
+// PathEscape runs first so that "%" is encoded before the additional characters
+// are substituted, which keeps the result from being double-encoded.
+func escapeChatwootPathSegment(s string) string {
+	s = url.PathEscape(s)
+	s = strings.ReplaceAll(s, "@", "%40")
+	s = strings.ReplaceAll(s, ".", "%2E")
+	return s
 }
 
 func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string, opt MessageOptions) (int, error) {

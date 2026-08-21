@@ -957,6 +957,10 @@ func TestUpdateLastSeen_UsesInboxIdentifierAndContactSource(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Fatalf("update_last_seen method = %s", r.Method)
 			}
+			const wantRequestURI = "/public/api/v1/inboxes/api-inbox-token/contacts/628123456789%40s%2Ewhatsapp%2Enet/conversations/5/update_last_seen"
+			if r.RequestURI != wantRequestURI {
+				t.Fatalf("update_last_seen request URI = %s, want %s", r.RequestURI, wantRequestURI)
+			}
 			sawUpdate = true
 			w.WriteHeader(http.StatusOK)
 		default:
