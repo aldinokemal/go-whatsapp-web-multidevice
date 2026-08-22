@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -33,6 +35,43 @@ func (s *chatDisplayNameContactStore) GetAllContacts(context.Context) (map[types
 	return s.contacts, s.allErr
 }
 
+type chatDisplayNameLIDStore struct {
+	lid types.JID
+	pn  types.JID
+}
+
+func (s *chatDisplayNameLIDStore) PutManyLIDMappings(context.Context, []store.LIDMapping) error {
+	return nil
+}
+
+func (s *chatDisplayNameLIDStore) PutLIDMapping(context.Context, types.JID, types.JID) error {
+	return nil
+}
+
+func (s *chatDisplayNameLIDStore) GetPNForLID(_ context.Context, lid types.JID) (types.JID, error) {
+	if lid.ToNonAD() == s.lid.ToNonAD() {
+		return s.pn, nil
+	}
+	return types.EmptyJID, nil
+}
+
+func (s *chatDisplayNameLIDStore) GetLIDForPN(_ context.Context, pn types.JID) (types.JID, error) {
+	if pn.ToNonAD() == s.pn.ToNonAD() {
+		return s.lid, nil
+	}
+	return types.EmptyJID, nil
+}
+
+func (s *chatDisplayNameLIDStore) GetManyLIDsForPNs(_ context.Context, pns []types.JID) (map[types.JID]types.JID, error) {
+	result := make(map[types.JID]types.JID)
+	for _, pn := range pns {
+		if pn.ToNonAD() == s.pn.ToNonAD() {
+			result[pn.ToNonAD()] = s.lid.ToNonAD()
+		}
+	}
+	return result, nil
+}
+
 func TestChatDisplayNameResolverUsesSyncedContactForFallbackChatName(t *testing.T) {
 	ctx := context.Background()
 	jid := types.NewJID("628123456789", types.DefaultUserServer)
@@ -56,6 +95,29 @@ func TestChatDisplayNameResolverUsesSyncedContactForFallbackChatName(t *testing.
 	}
 	if contacts.bulkReads != 0 {
 		t.Fatalf("GetAllContacts reads = %d, want 0 for one chat", contacts.bulkReads)
+	}
+}
+
+func TestChatDisplayNameResolverResolvesLateLIDPlaceholderThroughPNContact(t *testing.T) {
+	ctx := context.Background()
+	lid := types.NewJID("123456789012345", types.HiddenUserServer)
+	pn := types.NewJID("628123456789", types.DefaultUserServer)
+	contacts := &chatDisplayNameContactStore{contacts: map[types.JID]types.ContactInfo{
+		pn: {Found: true, FullName: "Saved Alice"},
+	}}
+	client := &whatsmeow.Client{Store: &store.Device{
+		LIDs: &chatDisplayNameLIDStore{lid: lid, pn: pn},
+	}}
+	resolver := newChatDisplayNameResolver(contacts, client)
+
+	// The chat was persisted before LID->PN mapping existed, so its stored name
+	// is the old LID user placeholder. Once the mapping appears, that placeholder
+	// must not outrank the synced PN contact name.
+	if got := resolver.Resolve(ctx, lid.String(), lid.User); got != "Saved Alice" {
+		t.Fatalf("Resolve(%q, %q) = %q, want synced PN contact name", lid.String(), lid.User, got)
+	}
+	if contacts.getReads != 1 {
+		t.Fatalf("GetContact reads = %d, want one PN contact lookup", contacts.getReads)
 	}
 }
 
