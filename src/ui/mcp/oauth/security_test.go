@@ -140,7 +140,7 @@ func TestDCRNativeRedirectAllowsOnlyLoopbackHTTP(t *testing.T) {
 func TestDCRAcceptsClaudeCodeNativeLocalhostRegistration(t *testing.T) {
 	_, app := newOAuthTestServer(t, testIssuer, testResource)
 	body := `{"client_name":"Claude Code (gowa)","redirect_uris":["http://localhost:60390/callback"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none","application_type":"native","scope":"mcp"}`
-	req := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/oauth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -169,7 +169,7 @@ func TestDCRAcceptsClaudeCodeNativeLocalhostRegistration(t *testing.T) {
 		"scope":                 {"mcp"},
 		"state":                 {"state-123"},
 	}
-	resp, err = app.Test(httptest.NewRequest("GET", "/oauth/authorize?"+authorizeQuery.Encode(), nil))
+	resp, err = app.Test(httptest.NewRequestWithContext(t.Context(), "GET", "/oauth/authorize?"+authorizeQuery.Encode(), nil))
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	loginBody, err := io.ReadAll(resp.Body)
