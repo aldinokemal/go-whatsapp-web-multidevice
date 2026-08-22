@@ -64,6 +64,7 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 		return "Status"
 	}
 
+	originalJID, originalValid := parseChatJID(rawJID)
 	jid, validJID := r.normalizeJID(ctx, rawJID)
 	if validJID {
 		switch jid.Server {
@@ -80,7 +81,7 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 		}
 	}
 
-	if hasDisplayName(storedName) && !isJIDFallbackName(rawJID, jid, validJID, storedName) {
+	if hasDisplayName(storedName) && !isJIDFallbackName(rawJID, originalJID, originalValid, jid, validJID, storedName) {
 		return storedName
 	}
 
@@ -100,12 +101,19 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 	return rawJID
 }
 
-func (r *ChatDisplayNameResolver) normalizeJID(ctx context.Context, rawJID string) (types.JID, bool) {
+func parseChatJID(rawJID string) (types.JID, bool) {
 	jid, err := types.ParseJID(rawJID)
 	if err != nil || jid.IsEmpty() || !hasDisplayName(jid.User) {
 		return types.EmptyJID, false
 	}
-	jid = jid.ToNonAD()
+	return jid.ToNonAD(), true
+}
+
+func (r *ChatDisplayNameResolver) normalizeJID(ctx context.Context, rawJID string) (types.JID, bool) {
+	jid, valid := parseChatJID(rawJID)
+	if !valid {
+		return types.EmptyJID, false
+	}
 	if jid.Server == types.HiddenUserServer && r != nil && r.client != nil && r.client.Store != nil && r.client.Store.LIDs != nil {
 		jid = NormalizeJIDFromLID(ctx, jid, r.client).ToNonAD()
 	}
@@ -163,16 +171,16 @@ func usableContactInfo(contact types.ContactInfo) bool {
 	return contact.Found || hasDisplayName(contact.FullName) || hasDisplayName(contact.PushName) || hasDisplayName(contact.BusinessName)
 }
 
-func isJIDFallbackName(rawJID string, jid types.JID, validJID bool, storedName string) bool {
+func isJIDFallbackName(rawJID string, originalJID types.JID, originalValid bool, normalizedJID types.JID, normalizedValid bool, storedName string) bool {
 	name := strings.TrimSpace(storedName)
-	if name == "" {
+	if name == "" || name == strings.TrimSpace(rawJID) {
 		return true
 	}
-	if name == strings.TrimSpace(rawJID) {
+	if originalValid && (name == originalJID.User || name == originalJID.String()) {
 		return true
 	}
-	if !validJID {
-		return false
+	if normalizedValid && (name == normalizedJID.User || name == normalizedJID.String()) {
+		return true
 	}
-	return name == jid.User || name == jid.String()
+	return false
 }
