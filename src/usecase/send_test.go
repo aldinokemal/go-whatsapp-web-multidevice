@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"errors"
+	"image"
 	"net/http"
+	"reflect"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -15,6 +17,141 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestResizeImageForHDCapsLongestEdgeWithoutUpscaling(t *testing.T) {
+	tests := []struct {
+		name       string
+		width      int
+		height     int
+		wantWidth  int
+		wantHeight int
+	}{
+		{name: "landscape", width: 4000, height: 2000, wantWidth: 2560, wantHeight: 1280},
+		{name: "portrait", width: 2000, height: 4000, wantWidth: 1280, wantHeight: 2560},
+		{name: "small image is not upscaled", width: 1200, height: 800, wantWidth: 1200, wantHeight: 800},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resizeImageForHD(image.NewRGBA(image.Rect(0, 0, tt.width, tt.height)))
+			if got.Bounds().Dx() != tt.wantWidth || got.Bounds().Dy() != tt.wantHeight {
+				t.Fatalf("resizeImageForHD() = %dx%d, want %dx%d", got.Bounds().Dx(), got.Bounds().Dy(), tt.wantWidth, tt.wantHeight)
+			}
+		})
+	}
+}
+
+func TestPrepareImageForSendSelectsRequestedQuality(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 3000, 1500))
+	tests := []struct {
+		name          string
+		compress      bool
+		hd            bool
+		wantWidth     int
+		wantHeight    int
+		wantProcessed bool
+	}{
+		{name: "HD overrides compression", compress: true, hd: true, wantWidth: 2560, wantHeight: 1280, wantProcessed: true},
+		{name: "HD overrides original mode", compress: false, hd: true, wantWidth: 2560, wantHeight: 1280, wantProcessed: true},
+		{name: "legacy compression stays unchanged", compress: true, wantWidth: 600, wantHeight: 300, wantProcessed: true},
+		{name: "original mode stays unchanged", wantWidth: 3000, wantHeight: 1500, wantProcessed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, processed := prepareImageForSend(source, tt.compress, tt.hd)
+			if got.Bounds().Dx() != tt.wantWidth || got.Bounds().Dy() != tt.wantHeight {
+				t.Fatalf("prepareImageForSend() = %dx%d, want %dx%d", got.Bounds().Dx(), got.Bounds().Dy(), tt.wantWidth, tt.wantHeight)
+			}
+			if processed != tt.wantProcessed {
+				t.Fatalf("prepareImageForSend() processed = %t, want %t", processed, tt.wantProcessed)
+			}
+		})
+	}
+}
+
+func TestBuildHDVideoFFmpegArgsUses720pClassProfileWithoutUpscaling(t *testing.T) {
+	want := []string{
+		"-i", "input.mp4",
+		"-c:v", "libx264",
+		"-crf", "23",
+		"-preset", "fast",
+		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		"output.mp4",
+	}
+
+	if got := buildHDVideoFFmpegArgs("input.mp4", "output.mp4"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildHDVideoFFmpegArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildVideoTranscodeArgsSelectsRequestedQuality(t *testing.T) {
+	hdArgs := buildHDVideoFFmpegArgs("input.mp4", "output.mp4")
+	legacyArgs := []string{
+		"-i", "input.mp4",
+		"-c:v", "libx264",
+		"-crf", "28",
+		"-preset", "fast",
+		"-vf", "scale=720:-2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		"output.mp4",
+	}
+
+	tests := []struct {
+		name       string
+		compress   bool
+		hd         bool
+		wantArgs   []string
+		wantOutput bool
+	}{
+		{name: "HD overrides compression", compress: true, hd: true, wantArgs: hdArgs, wantOutput: true},
+		{name: "HD overrides original mode", hd: true, wantArgs: hdArgs, wantOutput: true},
+		{name: "legacy compression stays unchanged", compress: true, wantArgs: legacyArgs, wantOutput: true},
+		{name: "original mode stays unchanged"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotArgs, gotOutput := buildVideoTranscodeArgs("input.mp4", "output.mp4", tt.compress, tt.hd)
+			if !reflect.DeepEqual(gotArgs, tt.wantArgs) || gotOutput != tt.wantOutput {
+				t.Fatalf("buildVideoTranscodeArgs() = (%#v, %t), want (%#v, %t)", gotArgs, gotOutput, tt.wantArgs, tt.wantOutput)
+			}
+		})
+	}
+}
+
+func TestParseVideoMetadataUsesContainerDuration(t *testing.T) {
+	metadata, err := parseVideoMetadata([]byte(`{
+		"streams": [{"width": 1280, "height": 720}],
+		"format": {"duration": "13.040000"}
+	}`))
+	if err != nil {
+		t.Fatalf("parseVideoMetadata: %v", err)
+	}
+	if metadata.Width != 1280 || metadata.Height != 720 || metadata.Seconds != 13 {
+		t.Fatalf("parseVideoMetadata() = %+v, want width=1280 height=720 seconds=13", metadata)
+	}
+}
+
+func TestParseVideoMetadataFallsBackToStreamDuration(t *testing.T) {
+	metadata, err := parseVideoMetadata([]byte(`{
+		"streams": [{"width": 720, "height": 1280, "duration": "9.750000"}],
+		"format": {"duration": "N/A"}
+	}`))
+	if err != nil {
+		t.Fatalf("parseVideoMetadata: %v", err)
+	}
+	if metadata.Seconds != 9 {
+		t.Fatalf("parseVideoMetadata().Seconds = %d, want 9", metadata.Seconds)
+	}
+}
 
 type replyMessageRepo struct {
 	domainChatStorage.IChatStorageRepository

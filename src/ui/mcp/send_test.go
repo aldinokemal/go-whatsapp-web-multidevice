@@ -111,25 +111,27 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "image", "phone": "628", "image_url": "http://x/a.png",
-			"caption": "c", "view_once": true,
+			"caption": "c", "view_once": true, "hd": true,
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastImage)
 		assert.Equal(t, "http://x/a.png", *svc.lastImage.ImageURL)
 		assert.True(t, svc.lastImage.ViewOnce)
 		assert.True(t, svc.lastImage.Compress) // image compress defaults true
+		assert.True(t, svc.lastImage.HD)
 	})
 
 	t.Run("video", func(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
-			"type": "video", "phone": "628", "video_url": "http://x/a.mp4", "gif_playback": true,
+			"type": "video", "phone": "628", "video_url": "http://x/a.mp4", "gif_playback": true, "hd": true,
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastVideo)
 		assert.True(t, svc.lastVideo.GifPlayback)
 		assert.False(t, svc.lastVideo.Compress) // video compress defaults false
+		assert.True(t, svc.lastVideo.HD)
 	})
 
 	t.Run("audio", func(t *testing.T) {
