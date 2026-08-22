@@ -6,7 +6,7 @@ Branch: fix/chatwoot-postgres
 
 ## OVERVIEW
 
-Go WhatsApp Web Multi-Device is a Go 1.25.5 WhatsApp Web API server. MCP is not a separate mode: the `rest`
+Go WhatsApp Web Multi-Device is a Go 1.26.0 WhatsApp Web API server. MCP is not a separate mode: the `rest`
 command serves it at `/mcp` (streamable HTTP) whenever `config.McpEnabled` is true.
 It uses whatsmeow sessions, Fiber, plain Vue 3 modules, and SQLite-backed chat/session storage by default.
 
@@ -127,7 +127,7 @@ docker compose up --build
 
 ## NOTES
 
-- Docker builds use `docker/golang.Dockerfile`, Go `1.25-alpine3.23`, CGO, and a final non-root `gowauser` process after the entrypoint fixes volume ownership.
+- Docker builds use `docker/golang.Dockerfile`, Go `1.26-alpine3.23`, CGO, and a final non-root `gowauser` process after the entrypoint fixes volume ownership.
 - Docker Compose mounts root-level `./storages` and `./statics` into `/app`; direct local runs from `src/` use `src/storages` and `src/statics`.
 - Docker publish is tag/manual driven. Arch-specific `-amd`, `-arm`, and `-armv7` images are merged into a versioned manifest; `latest` is also promoted by workflows.
 - `release.yml` declares `workflow_dispatch`, but release jobs are still guarded to tag refs.

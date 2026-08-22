@@ -9,8 +9,7 @@ services:
       context: .
       dockerfile: ./docker/golang.Dockerfile
     restart: "on-failure"
-    ports:
-      - "3000:3000"
+    network_mode: "host"
     env_file:
       - src/.env
     volumes:
