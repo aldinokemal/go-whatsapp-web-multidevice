@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,10 +176,10 @@ func (s *Server) RegisterPublic(app *fiber.App) {
 // limitPublicPOSTBodies applies the OAuth cap in fasthttp immediately after
 // headers are received, before the unauthenticated request body is buffered.
 func (s *Server) limitPublicPOSTBodies(app *fiber.App) {
-	paths := [][]byte{
-		[]byte(s.issuerEndpointPath("/oauth/register")),
-		[]byte(s.issuerEndpointPath("/oauth/authorize")),
-		[]byte(s.issuerEndpointPath("/oauth/token")),
+	paths := []string{
+		routingPathKey(s.issuerEndpointPath("/oauth/register")),
+		routingPathKey(s.issuerEndpointPath("/oauth/authorize")),
+		routingPathKey(s.issuerEndpointPath("/oauth/token")),
 	}
 	previous := app.Server().HeaderReceived
 	app.Server().HeaderReceived = func(header *fasthttp.RequestHeader) fasthttp.RequestConfig {
@@ -189,16 +190,40 @@ func (s *Server) limitPublicPOSTBodies(app *fiber.App) {
 		if !bytes.Equal(header.Method(), []byte(fiber.MethodPost)) {
 			return cfg
 		}
-		requestPath, _, _ := bytes.Cut(header.RequestURI(), []byte{'?'})
-		for _, oauthPath := range paths {
-			if bytes.Equal(requestPath, oauthPath) &&
-				(cfg.MaxRequestBodySize == 0 || cfg.MaxRequestBodySize > maxOAuthBodyBytes) {
-				cfg.MaxRequestBodySize = maxOAuthBodyBytes
-				break
-			}
+		if cfg.MaxRequestBodySize != 0 && cfg.MaxRequestBodySize <= maxOAuthBodyBytes {
+			return cfg
+		}
+		requestPath := routingPathKey(requestRoutingPath(header))
+		if requestPath != "" && slices.Contains(paths, requestPath) {
+			cfg.MaxRequestBodySize = maxOAuthBodyBytes
 		}
 		return cfg
 	}
+}
+
+// requestRoutingPath extracts the path Fiber will route on using the same
+// fasthttp URI parser Fiber itself uses, so query strings, fragments, and
+// absolute-form request targets are stripped identically. An unparsable target
+// yields an empty path in Fiber too, which cannot match an OAuth route.
+func requestRoutingPath(header *fasthttp.RequestHeader) string {
+	var uri fasthttp.URI
+	if err := uri.Parse(header.Host(), header.RequestURI()); err != nil {
+		return ""
+	}
+	return string(uri.PathOriginal())
+}
+
+// routingPathKey normalizes a path the way Fiber's router does under this
+// application's defaults (CaseSensitive and StrictRouting both disabled), so the
+// header-time cap covers every URL form that reaches the OAuth handlers rather
+// than only the byte-exact registered path. Fiber lowercases ASCII only; for an
+// ASCII-only registered path this can only widen the match, never narrow it.
+func routingPathKey(p string) string {
+	key := strings.ToLower(p)
+	if len(key) > 1 && key[len(key)-1] == '/' {
+		key = strings.TrimRight(key, "/")
+	}
+	return key
 }
 
 func (s *Server) MCPAuthMiddleware(basic CredentialValidator) fiber.Handler {
@@ -575,11 +600,11 @@ func validRedirectURI(raw, applicationType string) bool {
 	if applicationType != "native" || u.Scheme != "http" {
 		return false
 	}
-	hostname := u.Hostname()
-	if strings.EqualFold(hostname, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(hostname)
+	// RFC 8252 section 8.3: require a loopback IP literal rather than the
+	// "localhost" name, which host-file or resolver changes can point at a
+	// non-loopback interface. Loopback IP literals are also the only form
+	// loopbackRedirectMatches grants the ephemeral-port exception to.
+	ip := net.ParseIP(u.Hostname())
 	return ip != nil && ip.IsLoopback()
 }
 

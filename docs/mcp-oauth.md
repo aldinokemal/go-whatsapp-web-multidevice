@@ -107,6 +107,7 @@ The implementation intentionally uses opaque tokens rather than JWTs:
 - reusing a rotated refresh token revokes the whole token family;
 - PKCE with `S256` is mandatory;
 - redirect URIs must exactly match the URI registered by the client, except that native loopback-IP clients may change only the port used for their local callback;
+- redirect URIs must use HTTPS, except `native` clients, which may use `http` only with a loopback IP literal such as `http://127.0.0.1:PORT/callback` or `http://[::1]:PORT/callback`. `http://localhost:PORT/...` is rejected per RFC 8252 section 8.3, because name resolution can point `localhost` at a non-loopback interface;
 - the OAuth `resource` value is bound to the canonical MCP resource and checked when access tokens are used;
 - successful authorization responses include RFC 9207 `iss` for authorization-server mix-up protection.
 

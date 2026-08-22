@@ -127,7 +127,12 @@ func TestDCRNativeRedirectAllowsOnlyLoopbackHTTP(t *testing.T) {
 	}
 
 	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Local","redirect_uris":["http://127.0.0.1:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Local v6","redirect_uris":["http://[::1]:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
 	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Remote","redirect_uris":["http://example.com/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	// RFC 8252 section 8.3: the "localhost" name can resolve to a non-loopback
+	// interface, so only loopback IP literals are accepted.
+	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Named","redirect_uris":["http://localhost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Named upper","redirect_uris":["http://LocalHost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
 }
 
 func TestNativeLoopbackRedirectAllowsEphemeralPort(t *testing.T) {
@@ -257,4 +262,45 @@ func TestOAuthPOSTEndpointsRejectOversizedBodiesAtServerBoundary(t *testing.T) {
 			assert.Nil(t, resp)
 		})
 	}
+}
+
+// Fiber runs with CaseSensitive and StrictRouting disabled, so trailing-slash,
+// case, and absolute-form targets all reach the same OAuth handlers. The
+// header-time cap must cover each of them instead of the byte-exact path only.
+func TestOAuthBodyCapCoversRoutingPathAliases(t *testing.T) {
+	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	for _, target := range []string{
+		"/oauth/token/",
+		"/oauth/token//",
+		"/OAUTH/TOKEN",
+		"/oauth/Token/",
+		"/oauth/token?resource=https://gowa.example.com/mcp",
+		"http://gowa.example.com/oauth/token/",
+		"/oauth/authorize/",
+		"/OAUTH/AUTHORIZE",
+		"/oauth/register/",
+		"/OAUTH/REGISTER",
+	} {
+		t.Run(target, func(t *testing.T) {
+			req := httptest.NewRequest("POST", target, strings.NewReader(strings.Repeat("x", maxOAuthBodyBytes+1)))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := app.Test(req)
+			require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
+			assert.Nil(t, resp)
+		})
+	}
+}
+
+// The cap must stay scoped to the OAuth POST routes so the application's own
+// large-upload endpoints keep the app-wide BodyLimit.
+func TestOAuthBodyCapLeavesOtherRoutesAlone(t *testing.T) {
+	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	app.Post("/send/video", func(c fiber.Ctx) error { return c.SendString("ok") })
+
+	req := httptest.NewRequest("POST", "/send/video", strings.NewReader(strings.Repeat("x", maxOAuthBodyBytes+1)))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
 }
