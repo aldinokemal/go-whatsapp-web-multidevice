@@ -1562,7 +1562,7 @@ paths:
                 hd:
                   type: boolean
                   example: true
-                  description: Send a high-definition 720p-class video rendition. Overrides compress when true.
+                  description: Send an H.264 high-definition video rendition at CRF 23, capped at 1280x1280 while preserving aspect ratio and avoiding upscaling. Overrides compress when true.
                 gif_playback:
                   type: boolean
                   example: false

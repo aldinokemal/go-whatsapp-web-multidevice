@@ -5,7 +5,8 @@ import (
 	"errors"
 	"image"
 	"net/http"
-	"reflect"
+	"os"
+	"path/filepath"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -13,10 +14,22 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestSaveProcessedImageUsesJPEGForHDPNG(t *testing.T) {
+	directory := t.TempDir()
+	gotPath, err := saveProcessedImage(image.NewRGBA(image.Rect(0, 0, 32, 16)), directory, "report.png", true)
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(directory, "hd-report.jpg"), gotPath)
+
+	data, err := os.ReadFile(gotPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "image/jpeg", http.DetectContentType(data))
+}
 
 func TestResizeImageForHDCapsLongestEdgeWithoutUpscaling(t *testing.T) {
 	tests := []struct {
@@ -34,9 +47,8 @@ func TestResizeImageForHDCapsLongestEdgeWithoutUpscaling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := resizeImageForHD(image.NewRGBA(image.Rect(0, 0, tt.width, tt.height)))
-			if got.Bounds().Dx() != tt.wantWidth || got.Bounds().Dy() != tt.wantHeight {
-				t.Fatalf("resizeImageForHD() = %dx%d, want %dx%d", got.Bounds().Dx(), got.Bounds().Dy(), tt.wantWidth, tt.wantHeight)
-			}
+			assert.Equal(t, tt.wantWidth, got.Bounds().Dx())
+			assert.Equal(t, tt.wantHeight, got.Bounds().Dy())
 		})
 	}
 }
@@ -60,17 +72,14 @@ func TestPrepareImageForSendSelectsRequestedQuality(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, processed := prepareImageForSend(source, tt.compress, tt.hd)
-			if got.Bounds().Dx() != tt.wantWidth || got.Bounds().Dy() != tt.wantHeight {
-				t.Fatalf("prepareImageForSend() = %dx%d, want %dx%d", got.Bounds().Dx(), got.Bounds().Dy(), tt.wantWidth, tt.wantHeight)
-			}
-			if processed != tt.wantProcessed {
-				t.Fatalf("prepareImageForSend() processed = %t, want %t", processed, tt.wantProcessed)
-			}
+			assert.Equal(t, tt.wantWidth, got.Bounds().Dx())
+			assert.Equal(t, tt.wantHeight, got.Bounds().Dy())
+			assert.Equal(t, tt.wantProcessed, processed)
 		})
 	}
 }
 
-func TestBuildHDVideoFFmpegArgsUses720pClassProfileWithoutUpscaling(t *testing.T) {
+func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T) {
 	want := []string{
 		"-i", "input.mp4",
 		"-c:v", "libx264",
@@ -84,9 +93,7 @@ func TestBuildHDVideoFFmpegArgsUses720pClassProfileWithoutUpscaling(t *testing.T
 		"output.mp4",
 	}
 
-	if got := buildHDVideoFFmpegArgs("input.mp4", "output.mp4"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("buildHDVideoFFmpegArgs() = %#v, want %#v", got, want)
-	}
+	assert.Equal(t, want, buildHDVideoFFmpegArgs("input.mp4", "output.mp4"))
 }
 
 func TestBuildVideoTranscodeArgsSelectsRequestedQuality(t *testing.T) {
@@ -120,9 +127,8 @@ func TestBuildVideoTranscodeArgsSelectsRequestedQuality(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotArgs, gotOutput := buildVideoTranscodeArgs("input.mp4", "output.mp4", tt.compress, tt.hd)
-			if !reflect.DeepEqual(gotArgs, tt.wantArgs) || gotOutput != tt.wantOutput {
-				t.Fatalf("buildVideoTranscodeArgs() = (%#v, %t), want (%#v, %t)", gotArgs, gotOutput, tt.wantArgs, tt.wantOutput)
-			}
+			assert.Equal(t, tt.wantArgs, gotArgs)
+			assert.Equal(t, tt.wantOutput, gotOutput)
 		})
 	}
 }
@@ -132,12 +138,8 @@ func TestParseVideoMetadataUsesContainerDuration(t *testing.T) {
 		"streams": [{"width": 1280, "height": 720}],
 		"format": {"duration": "13.040000"}
 	}`))
-	if err != nil {
-		t.Fatalf("parseVideoMetadata: %v", err)
-	}
-	if metadata.Width != 1280 || metadata.Height != 720 || metadata.Seconds != 13 {
-		t.Fatalf("parseVideoMetadata() = %+v, want width=1280 height=720 seconds=13", metadata)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, videoMetadata{Width: 1280, Height: 720, Seconds: 13}, metadata)
 }
 
 func TestParseVideoMetadataFallsBackToStreamDuration(t *testing.T) {
@@ -145,12 +147,8 @@ func TestParseVideoMetadataFallsBackToStreamDuration(t *testing.T) {
 		"streams": [{"width": 720, "height": 1280, "duration": "9.750000"}],
 		"format": {"duration": "N/A"}
 	}`))
-	if err != nil {
-		t.Fatalf("parseVideoMetadata: %v", err)
-	}
-	if metadata.Seconds != 9 {
-		t.Fatalf("parseVideoMetadata().Seconds = %d, want 9", metadata.Seconds)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, uint32(9), metadata.Seconds)
 }
 
 type replyMessageRepo struct {

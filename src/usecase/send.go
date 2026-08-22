@@ -62,6 +62,18 @@ func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool)
 	return src, false
 }
 
+func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
+	prefix := "new-"
+	var saveOptions []imaging.EncodeOption
+	if hd {
+		prefix = "hd-"
+		imageName = strings.TrimSuffix(imageName, filepath.Ext(imageName)) + ".jpg"
+		saveOptions = append(saveOptions, imaging.JPEGQuality(92))
+	}
+	processedImagePath := filepath.Join(directory, prefix+imageName)
+	return processedImagePath, imaging.Save(src, processedImagePath, saveOptions...)
+}
+
 func buildHDVideoFFmpegArgs(inputPath, outputPath string) []string {
 	return []string{
 		"-i", inputPath,
@@ -395,15 +407,9 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	preparedImage, processed := prepareImageForSend(srcImage, request.Compress, request.HD)
 	if processed {
-		prefix := "new-"
-		var saveOptions []imaging.EncodeOption
-		if request.HD {
-			prefix = "hd-"
-			saveOptions = append(saveOptions, imaging.JPEGQuality(92))
-		}
-		processedImagePath := fmt.Sprintf("%s/%s%s", config.PathSendItems, prefix, imageName)
-		if err = imaging.Save(preparedImage, processedImagePath, saveOptions...); err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save processed image %v", err))
+		processedImagePath, saveErr := saveProcessedImage(preparedImage, config.PathSendItems, imageName, request.HD)
+		if saveErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save processed image %v", saveErr))
 		}
 		deletedItems = append(deletedItems, processedImagePath)
 		imagePath = processedImagePath
