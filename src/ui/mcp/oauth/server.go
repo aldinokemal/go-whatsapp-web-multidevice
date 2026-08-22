@@ -72,7 +72,8 @@ type tokenRequest struct {
 
 type authorizePageData struct {
 	ClientName          string
-	RedirectHost        string
+	RedirectTarget      string
+	LocalRedirect       bool
 	AuthorizePath       string
 	ResponseType        string
 	ClientID            string
@@ -96,7 +97,8 @@ var authorizeTemplate = template.Must(template.New("oauth-authorize").Parse(`<!d
 <body>
   <h1>Authorize {{.ClientName}}</h1>
   <p>Sign in with an existing GOWA Basic Auth account to allow this MCP client to access WhatsApp through GOWA.</p>
-  <p>After authorization, you will be redirected to <strong>{{.RedirectHost}}</strong>.</p>
+  {{if .LocalRedirect}}<p>After authorization, you'll return to <strong>{{.ClientName}}</strong> on this device (<strong>{{.RedirectTarget}}</strong>).</p>
+  {{else}}<p>After authorization, you'll continue to <strong>{{.RedirectTarget}}</strong>.</p>{{end}}
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   <form method="post" action="{{.AuthorizePath}}">
     <input type="hidden" name="response_type" value="{{.ResponseType}}">
@@ -506,14 +508,16 @@ func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationReq
 
 func (s *Server) renderAuthorize(c fiber.Ctx, status int, req authorizationRequest, client Client, pageError string) error {
 	s.setNoStore(c)
-	c.Set(fiber.HeaderContentSecurityPolicy, "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	c.Set(fiber.HeaderContentSecurityPolicy, authorizationPageCSP(req.RedirectURI))
 	c.Set(fiber.HeaderXFrameOptions, "DENY")
 	c.Set(fiber.HeaderReferrerPolicy, "no-referrer")
 	c.Type("html", "utf-8")
 	c.Status(status)
+	redirectTarget, localRedirect := redirectDisplay(req.RedirectURI)
 	return authorizeTemplate.Execute(c, authorizePageData{
 		ClientName:          client.Name,
-		RedirectHost:        redirectHostname(req.RedirectURI),
+		RedirectTarget:      redirectTarget,
+		LocalRedirect:       localRedirect,
 		AuthorizePath:       s.issuerEndpointPath("/oauth/authorize"),
 		ResponseType:        req.ResponseType,
 		ClientID:            req.ClientID,
@@ -525,6 +529,25 @@ func (s *Server) renderAuthorize(c fiber.Ctx, status int, req authorizationReque
 		State:               req.State,
 		Error:               pageError,
 	})
+}
+
+func authorizationPageCSP(redirectURI string) string {
+	formAction := "'self'"
+	if redirectOrigin := redirectOrigin(redirectURI); redirectOrigin != "" {
+		// Chrome applies form-action across redirects. Allow only the origin of
+		// the already-validated OAuth callback so the authorization POST can
+		// complete its redirect without weakening the rest of the page policy.
+		formAction += " " + redirectOrigin
+	}
+	return "default-src 'none'; style-src 'unsafe-inline'; form-action " + formAction + "; frame-ancestors 'none'; base-uri 'none'"
+}
+
+func redirectOrigin(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 }
 
 func (s *Server) mcpUnauthorized(c fiber.Ctx, advertiseBasic, invalidBearer bool) error {
@@ -600,20 +623,29 @@ func validRedirectURI(raw, applicationType string) bool {
 	if applicationType != "native" || u.Scheme != "http" {
 		return false
 	}
-	// RFC 8252 section 8.3: require a loopback IP literal rather than the
-	// "localhost" name, which host-file or resolver changes can point at a
-	// non-loopback interface. Loopback IP literals are also the only form
-	// loopbackRedirectMatches grants the ephemeral-port exception to.
-	ip := net.ParseIP(u.Hostname())
+	hostname := u.Hostname()
+	// Claude Code registers its native callback as localhost with an explicit
+	// ephemeral port. Accept that narrow compatibility form, but keep the
+	// authorization-time port exception limited to IP literals in
+	// loopbackRedirectMatches so localhost redirects remain exact matches.
+	if strings.EqualFold(hostname, "localhost") {
+		return u.Port() != ""
+	}
+	ip := net.ParseIP(hostname)
 	return ip != nil && ip.IsLoopback()
 }
 
-func redirectHostname(raw string) string {
+func redirectDisplay(raw string) (string, bool) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" {
-		return "the registered client"
+		return "the registered client", false
 	}
-	return u.Hostname()
+	hostname := u.Hostname()
+	if strings.EqualFold(hostname, "localhost") {
+		return u.Host, true
+	}
+	ip := net.ParseIP(hostname)
+	return u.Host, ip != nil && ip.IsLoopback()
 }
 
 func validPKCEChallenge(challenge string) bool {

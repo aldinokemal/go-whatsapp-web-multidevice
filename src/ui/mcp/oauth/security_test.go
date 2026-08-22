@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -128,11 +129,65 @@ func TestDCRNativeRedirectAllowsOnlyLoopbackHTTP(t *testing.T) {
 
 	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Local","redirect_uris":["http://127.0.0.1:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
 	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Local v6","redirect_uris":["http://[::1]:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Named","redirect_uris":["http://localhost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusCreated, register(`{"client_name":"Named upper","redirect_uris":["http://LocalHost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
 	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Remote","redirect_uris":["http://example.com/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
-	// RFC 8252 section 8.3: the "localhost" name can resolve to a non-loopback
-	// interface, so only loopback IP literals are accepted.
-	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Named","redirect_uris":["http://localhost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
-	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Named upper","redirect_uris":["http://LocalHost:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Lookalike","redirect_uris":["http://localhost.example.com:49152/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"No port","redirect_uris":["http://localhost/callback"],"application_type":"native","token_endpoint_auth_method":"none"}`))
+	assert.Equal(t, fiber.StatusBadRequest, register(`{"client_name":"Web","redirect_uris":["http://localhost:49152/callback"],"application_type":"web","token_endpoint_auth_method":"none"}`))
+}
+
+func TestDCRAcceptsClaudeCodeNativeLocalhostRegistration(t *testing.T) {
+	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	body := `{"client_name":"Claude Code (gowa)","redirect_uris":["http://localhost:60390/callback"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none","application_type":"native","scope":"mcp"}`
+	req := httptest.NewRequest("POST", "/oauth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusCreated, resp.StatusCode)
+
+	var registered struct {
+		ClientID        string   `json:"client_id"`
+		RedirectURIs    []string `json:"redirect_uris"`
+		ApplicationType string   `json:"application_type"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&registered))
+	assert.NotEmpty(t, registered.ClientID)
+	assert.Equal(t, []string{"http://localhost:60390/callback"}, registered.RedirectURIs)
+	assert.Equal(t, "native", registered.ApplicationType)
+
+	verifier := strings.Repeat("c", 43)
+	sum := sha256.Sum256([]byte(verifier))
+	authorizeQuery := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {registered.ClientID},
+		"redirect_uri":          {"http://localhost:60390/callback"},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"},
+		"resource":              {testResource},
+		"scope":                 {"mcp"},
+		"state":                 {"state-123"},
+	}
+	resp, err = app.Test(httptest.NewRequest("GET", "/oauth/authorize?"+authorizeQuery.Encode(), nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	loginBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(loginBody), "After authorization, you'll return to <strong>Claude Code (gowa)</strong> on this device (<strong>localhost:60390</strong>).")
+	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "form-action 'self' http://localhost:60390;")
+}
+
+func TestNativeLocalhostRedirectStillRequiresExactMatch(t *testing.T) {
+	client := Client{
+		ApplicationType: "native",
+		RedirectURIs:    []string{"http://localhost:60390/callback"},
+	}
+
+	assert.True(t, redirectURIMatches(client, "http://localhost:60390/callback"))
+	assert.False(t, redirectURIMatches(client, "http://localhost:60391/callback"))
+	assert.False(t, redirectURIMatches(client, "http://localhost:60390/other"))
+	assert.False(t, redirectURIMatches(client, "http://127.0.0.1:60390/callback"))
 }
 
 func TestNativeLoopbackRedirectAllowsEphemeralPort(t *testing.T) {

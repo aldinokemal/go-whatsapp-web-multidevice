@@ -138,8 +138,10 @@ func TestAuthorizationCodeFlowBearerAndBasicFallback(t *testing.T) {
 	loginBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Contains(t, string(loginBody), "Authorize Claude")
+	assert.Contains(t, string(loginBody), "After authorization, you'll continue to <strong>claude.ai</strong>.")
 	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
 	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'")
+	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "form-action 'self' https://claude.ai;")
 
 	loginForm := authorizeQuery
 	loginForm.Set("username", "user")
