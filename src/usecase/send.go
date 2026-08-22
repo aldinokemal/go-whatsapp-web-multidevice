@@ -62,6 +62,10 @@ func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool)
 	return src, false
 }
 
+func openImageForSend(imagePath string, hd bool) (image.Image, error) {
+	return imaging.Open(imagePath, imaging.AutoOrientation(hd))
+}
+
 func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
 	prefix := "new-"
 	var saveOptions []imaging.EncodeOption
@@ -81,6 +85,7 @@ func buildHDVideoFFmpegArgs(inputPath, outputPath string) []string {
 		"-crf", "23",
 		"-preset", "fast",
 		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",
 		"-b:a", "128k",
 		"-movflags", "+faststart",
@@ -392,7 +397,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	deletedItems = append(deletedItems, oriImagePath)
 
 	/* Generate thumbnail with smalled image size */
-	srcImage, err := imaging.Open(oriImagePath)
+	srcImage, err := openImageForSend(oriImagePath, request.HD)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}

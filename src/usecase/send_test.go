@@ -1,9 +1,11 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"image"
+	"image/jpeg"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,10 +17,44 @@ import (
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
+
+func writeOrientedJPEG(t *testing.T, path string, orientation byte) {
+	t.Helper()
+	var encoded bytes.Buffer
+	require.NoError(t, jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 3)), &jpeg.Options{Quality: 100}))
+
+	// Minimal little-endian EXIF APP1 segment containing only Orientation.
+	exif := []byte{
+		0xff, 0xe1, 0x00, 0x22,
+		'E', 'x', 'i', 'f', 0x00, 0x00,
+		'I', 'I', 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+		0x01, 0x00,
+		0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+		orientation, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+	}
+	jpegData := encoded.Bytes()
+	fixture := make([]byte, 0, len(jpegData)+len(exif))
+	fixture = append(fixture, jpegData[:2]...)
+	fixture = append(fixture, exif...)
+	fixture = append(fixture, jpegData[2:]...)
+	require.NoError(t, os.WriteFile(path, fixture, 0600))
+}
+
+func TestOpenImageForSendAppliesEXIFOrientationForHD(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orientation-6.jpg")
+	writeOrientedJPEG(t, path, 6)
+
+	got, err := openImageForSend(path, true)
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.Bounds().Dx())
+	assert.Equal(t, 2, got.Bounds().Dy())
+}
 
 func TestSaveProcessedImageUsesJPEGForHDPNG(t *testing.T) {
 	directory := t.TempDir()
@@ -86,6 +122,7 @@ func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T)
 		"-crf", "23",
 		"-preset", "fast",
 		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",
 		"-b:a", "128k",
 		"-movflags", "+faststart",
