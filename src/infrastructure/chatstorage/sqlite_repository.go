@@ -697,27 +697,43 @@ func (r *SQLiteRepository) loadMessageReactions(deviceID, chatJID string, messag
 // DeleteMessage deletes a specific message. Chatwoot links are intentionally
 // preserved so asynchronous revoke/delete forwarding can still resolve them.
 func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
-	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+	tx, err := r.db.Begin()
+	if err != nil {
 		return err
 	}
-	if _, err := r.db.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
-	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
-	return err
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteMessageByDevice deletes a specific message for a specific device.
 // Chatwoot links are intentionally preserved for asynchronous delete sync.
 func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) error {
-	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+	tx, err := r.db.Begin()
+	if err != nil {
 		return err
 	}
-	if _, err := r.db.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
 		return err
 	}
-	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
-	return err
+	if _, err := tx.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpsertChatwootMessageLink records the stable mapping between a WhatsApp

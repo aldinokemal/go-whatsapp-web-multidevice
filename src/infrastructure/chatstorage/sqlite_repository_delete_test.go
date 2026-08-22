@@ -101,3 +101,66 @@ func TestDeleteMessageByDevicePurgesContentButPreservesChatwootLink(t *testing.T
 	require.NotNil(t, link)
 	require.Equal(t, 101, link.ChatwootMessageID)
 }
+
+func TestDeleteMessageRollsBackDependentDeletesWhenMessageDeleteFails(t *testing.T) {
+	tests := []struct {
+		name   string
+		delete func(repo *SQLiteRepository, deviceID, messageID, chatJID string) error
+	}{
+		{
+			name: "unscoped",
+			delete: func(repo *SQLiteRepository, _, messageID, chatJID string) error {
+				return repo.DeleteMessage(messageID, chatJID)
+			},
+		},
+		{
+			name: "device scoped",
+			delete: func(repo *SQLiteRepository, deviceID, messageID, chatJID string) error {
+				return repo.DeleteMessageByDevice(deviceID, messageID, chatJID)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			deviceID := "device-a@s.whatsapp.net"
+			chatJID := "628123456789@s.whatsapp.net"
+			timestamp := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+
+			seedChatMessage(t, repo, deviceID, chatJID, "message-1", "latest content", timestamp)
+			seedReaction(t, repo, deviceID, chatJID, "message-1", "628111111111@s.whatsapp.net")
+			require.NoError(t, repo.StoreMessageEdit(&domainChatStorage.MessageEdit{
+				OriginalMessageID: "message-1",
+				EditEventID:       "edit-1",
+				ChatJID:           chatJID,
+				DeviceID:          deviceID,
+				Editor:            deviceID,
+				PreviousContent:   "original content",
+				NewContent:        "latest content",
+				EditedAt:          timestamp,
+			}))
+			_, err := repo.db.Exec(`
+				CREATE TRIGGER fail_target_message_delete
+				BEFORE DELETE ON messages
+				WHEN OLD.id = 'message-1'
+				BEGIN
+					SELECT RAISE(ABORT, 'forced message delete failure');
+				END
+			`)
+			require.NoError(t, err)
+
+			err = tc.delete(repo, deviceID, "message-1", chatJID)
+			require.ErrorContains(t, err, "forced message delete failure")
+
+			message, lookupErr := repo.GetMessageByIDAndDevice(deviceID, "message-1")
+			require.NoError(t, lookupErr)
+			require.NotNil(t, message)
+			require.Equal(t, 1, countMessageReactions(t, repo))
+
+			edits, editsErr := repo.GetMessageEdits("message-1", deviceID)
+			require.NoError(t, editsErr)
+			require.Len(t, edits, 1)
+		})
+	}
+}
