@@ -72,6 +72,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			Caption:     request.GetString("caption", ""),
 			ViewOnce:    request.GetBool("view_once", false),
 			Compress:    request.GetBool("compress", true),
+			HD:          request.GetBool("hd", false),
 		})
 	case "video":
 		videoURL := request.GetString("video_url", "")
@@ -82,6 +83,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			ViewOnce:    request.GetBool("view_once", false),
 			GifPlayback: request.GetBool("gif_playback", false),
 			Compress:    request.GetBool("compress", false),
+			HD:          request.GetBool("hd", false),
 		})
 	case "audio":
 		audioURL := request.GetString("audio_url", "")

@@ -19,6 +19,7 @@ const sendSchema = `{
     "caption": {"type": "string", "description": "image/video/document/link: caption text"},
     "view_once": {"type": "boolean", "description": "image/video: view-once message (default false)"},
     "compress": {"type": "boolean", "description": "image (default true) / video (default false): re-encode before sending"},
+    "hd": {"type": "boolean", "description": "image/video: send HD without upscaling (image: 2560px max edge; video: H.264 8-bit YUV 4:2:0 at CRF 23, capped at 1280x1280); overrides compress when true (default false)"},
     "video_url": {"type": "string", "description": "type=video: URL of the video (mp4/mkv/avi, fetched server-side)"},
     "gif_playback": {"type": "boolean", "description": "type=video: play as looping GIF (default false)"},
     "audio_url": {"type": "string", "description": "type=audio: URL of the audio file (fetched server-side)"},
