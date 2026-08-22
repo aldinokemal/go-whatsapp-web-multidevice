@@ -10,4 +10,5 @@ type ImageRequest struct {
 	ImageURL       *string               `json:"image_url" form:"image_url"`
 	ViewOnce       bool                  `json:"view_once" form:"view_once"`
 	Compress       bool                  `json:"compress"`
+	HD             bool                  `json:"hd" form:"hd"`
 }

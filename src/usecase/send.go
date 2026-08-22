@@ -3,8 +3,10 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"math"
 	"mime"
 	"net/http"
@@ -37,6 +39,133 @@ import (
 
 // webpCanvasSizeRegex is compiled once at package level for efficiency
 var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
+
+const hdImageMaxEdge = 2560
+
+type videoMetadata struct {
+	Width   uint32
+	Height  uint32
+	Seconds uint32
+}
+
+func resizeImageForHD(src image.Image) image.Image {
+	return imaging.Fit(src, hdImageMaxEdge, hdImageMaxEdge, imaging.Lanczos)
+}
+
+func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool) {
+	if hd {
+		return resizeImageForHD(src), true
+	}
+	if compress {
+		return imaging.Resize(src, 600, 0, imaging.Lanczos), true
+	}
+	return src, false
+}
+
+func openImageForSend(imagePath string, hd bool) (image.Image, error) {
+	return imaging.Open(imagePath, imaging.AutoOrientation(hd))
+}
+
+func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
+	prefix := "new-"
+	var saveOptions []imaging.EncodeOption
+	if hd {
+		prefix = "hd-"
+		imageName = strings.TrimSuffix(imageName, filepath.Ext(imageName)) + ".jpg"
+		saveOptions = append(saveOptions, imaging.JPEGQuality(92))
+	}
+	processedImagePath := filepath.Join(directory, prefix+imageName)
+	return processedImagePath, imaging.Save(src, processedImagePath, saveOptions...)
+}
+
+func buildHDVideoFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-i", inputPath,
+		"-c:v", "libx264",
+		"-crf", "23",
+		"-preset", "fast",
+		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-pix_fmt", "yuv420p",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		outputPath,
+	}
+}
+
+func buildVideoTranscodeArgs(inputPath, outputPath string, compress, hd bool) ([]string, bool) {
+	if hd {
+		return buildHDVideoFFmpegArgs(inputPath, outputPath), true
+	}
+	if !compress {
+		return nil, false
+	}
+	return []string{
+		"-i", inputPath,
+		"-c:v", "libx264",
+		"-crf", "28",
+		"-preset", "fast",
+		"-vf", "scale=720:-2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		outputPath,
+	}, true
+}
+
+func parseVideoMetadata(data []byte) (videoMetadata, error) {
+	var probe struct {
+		Streams []struct {
+			Width    uint32 `json:"width"`
+			Height   uint32 `json:"height"`
+			Duration string `json:"duration"`
+		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return videoMetadata{}, err
+	}
+
+	var metadata videoMetadata
+	if len(probe.Streams) > 0 {
+		metadata.Width = probe.Streams[0].Width
+		metadata.Height = probe.Streams[0].Height
+	}
+	durationText := probe.Format.Duration
+	if durationText == "" || durationText == "N/A" {
+		if len(probe.Streams) > 0 {
+			durationText = probe.Streams[0].Duration
+		}
+	}
+	if duration, err := strconv.ParseFloat(durationText, 64); err == nil && duration > 0 {
+		metadata.Seconds = uint32(duration)
+	}
+	return metadata, nil
+}
+
+func getVideoMetadata(videoPath string) videoMetadata {
+	output, err := runFFProbe(
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=width,height,duration:format=duration",
+		"-of", "json",
+		videoPath,
+	)
+	if err != nil {
+		logrus.Warnf("Failed to get video metadata: %v", err)
+		return videoMetadata{}
+	}
+	metadata, err := parseVideoMetadata(output)
+	if err != nil {
+		logrus.Warnf("Failed to parse video metadata: %v", err)
+		return videoMetadata{}
+	}
+	return metadata
+}
 
 type serviceSend struct {
 	appService      app.IAppUsecase
@@ -268,7 +397,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	deletedItems = append(deletedItems, oriImagePath)
 
 	/* Generate thumbnail with smalled image size */
-	srcImage, err := imaging.Open(oriImagePath)
+	srcImage, err := openImageForSend(oriImagePath, request.HD)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
@@ -281,19 +410,14 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	}
 	deletedItems = append(deletedItems, imageThumbnail)
 
-	if request.Compress {
-		// Resize image
-		openImageBuffer, err := imaging.Open(oriImagePath)
-		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for compression: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
+	preparedImage, processed := prepareImageForSend(srcImage, request.Compress, request.HD)
+	if processed {
+		processedImagePath, saveErr := saveProcessedImage(preparedImage, config.PathSendItems, imageName, request.HD)
+		if saveErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save processed image %v", saveErr))
 		}
-		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
-		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, imageName)
-		if err = imaging.Save(newImage, newImagePath); err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
-		}
-		deletedItems = append(deletedItems, newImagePath)
-		imagePath = newImagePath
+		deletedItems = append(deletedItems, processedImagePath)
+		imagePath = processedImagePath
 	} else {
 		imagePath = oriImagePath
 	}
@@ -303,6 +427,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	dataWaImage, err := os.ReadFile(imagePath)
 	if err != nil {
 		return response, err
+	}
+	imageConfig, _, err := image.DecodeConfig(bytes.NewReader(dataWaImage))
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read sent image dimensions %v", err))
 	}
 	uploadedImage, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
@@ -324,6 +452,8 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		FileEncSHA256: uploadedImage.FileEncSHA256,
 		FileSHA256:    uploadedImage.FileSHA256,
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
+		Width:         proto.Uint32(uint32(imageConfig.Width)),
+		Height:        proto.Uint32(uint32(imageConfig.Height)),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 
@@ -813,37 +943,21 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
 	videoThumbnail = thumbnailResizeVideoPath
 
-	// Compress if requested
-	if request.Compress {
-		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
-
-		// Use proper compression settings to reduce file size
-		// -crf 28: Constant Rate Factor (18-28 is good range, higher = smaller file)
-		// -preset medium: Balance between encoding speed and compression efficiency
-		// -c:v libx264: Use H.264 codec for video
-		// -c:a aac: Use AAC codec for audio
-		// -movflags +faststart: Optimize for web streaming
-		// -vf scale=720:-2: Scale video to max width 720px, maintain aspect ratio
-		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath,
-			"-c:v", "libx264",
-			"-crf", "28",
-			"-preset", "fast",
-			"-vf", "scale=720:-2",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-movflags", "+faststart",
-			"-y", // Overwrite output file if it exists
-			compresVideoPath)
-
-		// Capture both stdout and stderr for better error reporting
-		output, err := cmdCompress.CombinedOutput()
+	transcodedVideoPath := fmt.Sprintf("%s/%s.mp4", config.PathSendItems, generateUUID)
+	transcodeArgs, shouldTranscode := buildVideoTranscodeArgs(oriVideoPath, transcodedVideoPath, request.Compress, request.HD)
+	if shouldTranscode {
+		cmdTranscode := exec.Command("ffmpeg", transcodeArgs...)
+		output, err := cmdTranscode.CombinedOutput()
 		if err != nil {
+			if request.HD {
+				logrus.Errorf("ffmpeg HD conversion failed: %v, output: %s", err, string(output))
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert video to HD: %v", err))
+			}
 			logrus.Errorf("ffmpeg compression failed: %v, output: %s", err, string(output))
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to compress video: %v", err))
 		}
-
-		videoPath = compresVideoPath
-		deletedItems = append(deletedItems, compresVideoPath)
+		videoPath = transcodedVideoPath
+		deletedItems = append(deletedItems, transcodedVideoPath)
 	} else {
 		videoPath = oriVideoPath
 	}
@@ -854,6 +968,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
+	metadata := getVideoMetadata(videoPath)
 	uploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
@@ -879,6 +994,15 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		ThumbnailSHA256:     dataWaThumbnail,
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
+	if metadata.Width > 0 {
+		msg.VideoMessage.Width = proto.Uint32(metadata.Width)
+	}
+	if metadata.Height > 0 {
+		msg.VideoMessage.Height = proto.Uint32(metadata.Height)
+	}
+	if metadata.Seconds > 0 {
+		msg.VideoMessage.Seconds = proto.Uint32(metadata.Seconds)
+	}
 
 	if request.BaseRequest.IsForwarded {
 		msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{

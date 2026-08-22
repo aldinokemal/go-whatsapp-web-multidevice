@@ -1310,6 +1310,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress image
+                hd:
+                  type: boolean
+                  example: true
+                  description: Send a high-definition image rendition (maximum edge 2560px). Overrides compress when true.
                 duration:
                   type: integer
                   example: 86400
@@ -1555,6 +1559,10 @@ paths:
                   type: boolean
                   example: false
                   description: Compress video
+                hd:
+                  type: boolean
+                  example: true
+                  description: Send an H.264 8-bit YUV 4:2:0 high-definition video rendition at CRF 23, capped at 1280x1280 while preserving aspect ratio and avoiding upscaling. Overrides compress when true.
                 gif_playback:
                   type: boolean
                   example: false

@@ -15,6 +15,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -24,12 +25,53 @@ import (
 
 type serviceMessage struct {
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+	validateJIDFn   func(client *whatsmeow.Client, jid string) (types.JID, error)
+	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
+	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
 }
 
 func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
 	return &serviceMessage{
 		chatStorageRepo: chatStorageRepo,
 	}
+}
+
+func (service serviceMessage) validateJID(client *whatsmeow.Client, jid string) (types.JID, error) {
+	if service.validateJIDFn != nil {
+		return service.validateJIDFn(client, jid)
+	}
+	return utils.ValidateJidWithLogin(client, jid)
+}
+
+func (service serviceMessage) sendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error) {
+	if service.sendMessageFn != nil {
+		return service.sendMessageFn(ctx, client, recipient, message)
+	}
+	return client.SendMessage(ctx, recipient, message)
+}
+
+func (service serviceMessage) sendAppState(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error {
+	if service.sendAppStateFn != nil {
+		return service.sendAppStateFn(ctx, client, patch)
+	}
+	return client.SendAppState(ctx, patch)
+}
+
+func (service serviceMessage) deleteStoredMessage(ctx context.Context, client *whatsmeow.Client, messageID, chatJID string) error {
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+	if deviceID == "" {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be deleted without a device ID", messageID)
+	}
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be deleted without chat storage", messageID)
+	}
+	if err := service.chatStorageRepo.DeleteMessageByDevice(deviceID, messageID, chatJID); err != nil {
+		return fmt.Errorf("WhatsApp action succeeded, but failed to delete local message %s: %w", messageID, err)
+	}
+	return nil
 }
 
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
@@ -128,7 +170,7 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -154,8 +196,11 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		}
 	}
 
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
 	if err != nil {
+		return response, err
+	}
+	if err := service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String()); err != nil {
 		return response, err
 	}
 
@@ -174,7 +219,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 		return pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return err
 	}
@@ -198,10 +243,10 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 		}},
 	}
 
-	if err = client.SendAppState(ctx, patchInfo); err != nil {
+	if err = service.sendAppState(ctx, client, patchInfo); err != nil {
 		return err
 	}
-	return nil
+	return service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String())
 }
 
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
