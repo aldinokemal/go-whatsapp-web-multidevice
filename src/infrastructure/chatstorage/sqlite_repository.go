@@ -694,24 +694,26 @@ func (r *SQLiteRepository) loadMessageReactions(deviceID, chatJID string, messag
 	return nil
 }
 
-// DeleteMessage deletes a specific message
+// DeleteMessage deletes a specific message. Chatwoot links are intentionally
+// preserved so asynchronous revoke/delete forwarding can still resolve them.
 func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
 	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
-	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ?", id, chatJID); err != nil {
+	if _, err := r.db.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID)
 	return err
 }
 
-// DeleteMessageByDevice deletes a specific message for a specific device
+// DeleteMessageByDevice deletes a specific message for a specific device.
+// Chatwoot links are intentionally preserved for asynchronous delete sync.
 func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) error {
 	if _, err := r.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
 		return err
 	}
-	if _, err := r.db.Exec("DELETE FROM chatwoot_message_links WHERE wa_message_id = ? AND wa_chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+	if _, err := r.db.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
 		return err
 	}
 	_, err := r.db.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID)
@@ -1686,6 +1688,10 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	// Store the full sender JID (user@server) to ensure consistency between received and sent messages
 	sender := normalizedSender.ToNonAD().String()
 
+	if revokedMessageID := extractRevokedMessageID(evt.Message); revokedMessageID != "" {
+		return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+	}
+
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
 
@@ -1781,6 +1787,17 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Store the message
 	return r.StoreMessage(message)
+}
+
+func extractRevokedMessageID(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
+	protocolMessage := utils.UnwrapMessage(msg).GetProtocolMessage()
+	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_REVOKE {
+		return ""
+	}
+	return protocolMessage.GetKey().GetID()
 }
 
 func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
