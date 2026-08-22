@@ -293,7 +293,7 @@ Note: Command-line flags will override any values set in environment variables o
 
 ### System Requirements
 
-- **Go 1.25.5 or higher** (for building from source)
+- **Go 1.26.0 or higher** (for building from source)
 - **FFmpeg** (for media processing)
 
 ### Platform Support
