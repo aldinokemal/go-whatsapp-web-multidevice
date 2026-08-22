@@ -36,8 +36,39 @@ type IChatStorageRepository interface {
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error
 
 	// Chatwoot correlation operations
+	//
+	// UpsertChatwootMessageLink writes every column of the mapping EXCEPT
+	// is_view_once_placeholder, which is claim state owned by the dedicated
+	// operations below. Ordinary link updates (read receipts, rebinds, import
+	// replays) read a row, mutate one field and write the whole struct back;
+	// carrying the placeholder flag along would resurrect a stale value and
+	// silently release an upgrade claim taken meanwhile. A row created by this
+	// call still records the flag it was born with — there is no claim to
+	// clobber yet.
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
+	// SetChatwootLinkViewOncePlaceholder writes the placeholder discriminator on
+	// an existing link. Reserved for callers that actually created or replaced
+	// the Chatwoot message behind the link, the only ones authoritative about
+	// what that message now shows.
+	SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID string, isPlaceholder bool) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
+	// ClaimViewOncePlaceholderUpgrade atomically flips is_view_once_placeholder
+	// FALSE→ for (deviceID, waMessageID) and reports whether THIS caller won the
+	// claim — the winner may sync the recovered content; losers skip. Release
+	// restores the claim after a failed forward so a later delivery can retry.
+	ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error)
+	ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error
+	// DeleteChatwootMessageLink removes a single link, identified by its primary
+	// key. The forward path reserves a stub row before its first network call to
+	// close the placeholder/real-content race, and rolls it back with this when
+	// the forward fails.
+	DeleteChatwootMessageLink(deviceID, waMessageID string) error
+	// DeleteStaleChatwootMessageLinkReservations drops reservation stubs
+	// (chatwoot_message_id == 0) untouched since olderThan. A stub only lives
+	// for the duration of one forward; one that outlives that window belongs to
+	// a process that died mid-forward, and would otherwise mask its message
+	// from Chatwoot forever. Returns how many rows were reclaimed.
+	DeleteStaleChatwootMessageLinkReservations(olderThan time.Time) (int64, error)
 	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
 	// GetLatestChatwootMessageLinkByConversation resolves a conversation to its
 	// most recent link. Conversation ids are numbered per Chatwoot account, so the

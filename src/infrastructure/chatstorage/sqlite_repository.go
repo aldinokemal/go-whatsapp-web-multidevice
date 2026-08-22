@@ -168,7 +168,9 @@ func (r *SQLiteRepository) buildChatFilterQuery(filter *domainChatStorage.ChatFi
 
 	if filter.HasMedia {
 		// EXISTS avoids duplicating chats when a conversation has multiple media messages (JOIN would).
-		conditions = append(conditions, `EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid AND m.device_id = c.device_id AND m.media_type NOT IN ('', 'call'))`)
+		// The excluded values are discriminators for synthetic rows that carry no
+		// delivered media: "call" records and view-once "unavailable" placeholders.
+		conditions = append(conditions, `EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid AND m.device_id = c.device_id AND m.media_type NOT IN ('', 'call', '`+domainChatStorage.MediaTypeViewOnceUnavailable+`'))`)
 	}
 
 	if filter.DeviceID != "" {
@@ -497,7 +499,9 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	}
 
 	if filter.MediaOnly {
-		conditions = append(conditions, "media_type NOT IN ('', 'call')")
+		// Same exclusion list as GetChats HasMedia: synthetic rows ("call",
+		// view-once placeholder) never carry delivered media.
+		conditions = append(conditions, "media_type NOT IN ('', 'call', '"+domainChatStorage.MediaTypeViewOnceUnavailable+"')")
 	}
 
 	if filter.IsFromMe != nil {
@@ -738,6 +742,13 @@ func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) e
 
 // UpsertChatwootMessageLink records the stable mapping between a WhatsApp
 // message and the Chatwoot row created for it.
+//
+// The UPDATE deliberately leaves is_view_once_placeholder alone: that column is
+// claim state (see ClaimViewOncePlaceholderUpgrade) and every caller here works
+// from a struct read some time earlier, so writing it back could release a
+// claim taken in between and let a second recovered delivery duplicate the
+// message. Only the INSERT records it, where no claim can exist yet;
+// SetChatwootLinkViewOncePlaceholder changes it afterwards.
 func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
 	if link == nil {
 		return fmt.Errorf("chatwoot message link is required")
@@ -765,7 +776,8 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 	`, link.WhatsAppChatJID, link.ChatwootMessageID, link.ChatwootConversationID,
 		link.ChatwootInboxID, link.ChatwootContactInboxSourceID, link.SourceID,
 		link.Direction, link.IsRead, link.UpdatedAt,
-		link.ChatwootConfigID, link.ChatwootAccountID, link.DeviceID, link.WhatsAppMessageID)
+		link.ChatwootConfigID, link.ChatwootAccountID,
+		link.DeviceID, link.WhatsAppMessageID)
 	if err != nil {
 		return err
 	}
@@ -777,14 +789,83 @@ func (r *SQLiteRepository) UpsertChatwootMessageLink(link *domainChatStorage.Cha
 				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 				chatwoot_conversation_id, chatwoot_inbox_id,
 				chatwoot_contact_inbox_source_id, source_id, direction,
-				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+				is_view_once_placeholder
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, link.DeviceID, link.WhatsAppMessageID, link.WhatsAppChatJID,
 			link.ChatwootMessageID, link.ChatwootConversationID, link.ChatwootInboxID,
 			link.ChatwootContactInboxSourceID, link.SourceID, link.Direction,
-			link.IsRead, link.CreatedAt, link.UpdatedAt, link.ChatwootConfigID, link.ChatwootAccountID)
+			link.IsRead, link.CreatedAt, link.UpdatedAt, link.ChatwootConfigID, link.ChatwootAccountID,
+			link.IsViewOncePlaceholder)
 	}
+	return err
+}
+
+// SetChatwootLinkViewOncePlaceholder writes the placeholder discriminator on an
+// existing link. Callers that created or replaced the Chatwoot message use it to
+// state what that message now shows; UpsertChatwootMessageLink never does.
+func (r *SQLiteRepository) SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID string, isPlaceholder bool) error {
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = ?, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, isPlaceholder, time.Now(), deviceID, waMessageID)
+	return err
+}
+
+// DeleteStaleChatwootMessageLinkReservations reclaims reservation stubs left
+// behind by a process that died mid-forward. A live stub is rolled back on every
+// failure path, so one whose updated_at stopped moving is orphaned: it would
+// keep answering "already in flight" to every redelivery and hide the message
+// from Chatwoot for good.
+func (r *SQLiteRepository) DeleteStaleChatwootMessageLinkReservations(olderThan time.Time) (int64, error) {
+	result, err := r.db.Exec(`
+		DELETE FROM chatwoot_message_links
+		WHERE chatwoot_message_id = 0 AND updated_at < ?
+	`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return removed, nil
+}
+
+// ClaimViewOncePlaceholderUpgrade flips the placeholder flag off atomically;
+// rowsAffected decides the single winner among concurrent recovered deliveries.
+func (r *SQLiteRepository) ClaimViewOncePlaceholderUpgrade(deviceID, waMessageID string) (bool, error) {
+	result, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = FALSE, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ? AND is_view_once_placeholder = TRUE
+	`, time.Now(), deviceID, waMessageID)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows == 1, nil
+}
+
+// DeleteChatwootMessageLink removes a single link. Used to roll back the
+// reservation stub written before a forward when that forward ends up failing,
+// so the retry is not mistaken for a concurrent delivery and skipped.
+func (r *SQLiteRepository) DeleteChatwootMessageLink(deviceID, waMessageID string) error {
+	_, err := r.db.Exec(`
+		DELETE FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_message_id = ?
+	`, deviceID, waMessageID)
+	return err
+}
+
+func (r *SQLiteRepository) ReleaseViewOncePlaceholderUpgrade(deviceID, waMessageID string) error {
+	_, err := r.db.Exec(`
+		UPDATE chatwoot_message_links
+		SET is_view_once_placeholder = TRUE, updated_at = ?
+		WHERE device_id = ? AND wa_message_id = ?
+	`, time.Now(), deviceID, waMessageID)
 	return err
 }
 
@@ -793,7 +874,8 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_message_id = ?
 		LIMIT 1
@@ -811,7 +893,8 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
 		LIMIT 1
@@ -834,7 +917,8 @@ func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversati
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
 			AND (? = 0 OR chatwoot_config_id = ?)
@@ -872,9 +956,11 @@ func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, wa
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
-			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id,
+			is_view_once_placeholder
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'incoming' AND is_read = 0
+			AND chatwoot_message_id != 0
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`
@@ -1009,6 +1095,7 @@ func (r *SQLiteRepository) scanChatwootMessageLink(scanner interface{ Scan(...an
 		&link.ChatwootContactInboxSourceID, &link.SourceID, &link.Direction,
 		&link.IsRead, &link.CreatedAt, &link.UpdatedAt,
 		&link.ChatwootConfigID, &link.ChatwootAccountID,
+		&link.IsViewOncePlaceholder,
 	)
 	return link, err
 }
@@ -2596,5 +2683,9 @@ func (r *SQLiteRepository) getMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation_account ON chatwoot_message_links(chatwoot_conversation_id, chatwoot_account_id, updated_at)`,
 		// Migration 43: Count/delete message links by owning config without a full-table scan
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_config ON chatwoot_message_links(chatwoot_config_id)`,
+		// Migration 44: Mark links created from a view-once "unavailable" placeholder,
+		// so a later real delivery with the same wa_message_id can upgrade the
+		// Chatwoot conversation instead of being suppressed by the link dedupe
+		`ALTER TABLE chatwoot_message_links ADD COLUMN is_view_once_placeholder BOOLEAN DEFAULT FALSE`,
 	}
 }

@@ -1284,6 +1284,46 @@ When a message is edited, the webhook includes the original message ID to track 
 }
 ```
 
+**Unavailable placeholder variant:** WhatsApp intentionally withholds view-once
+content from linked devices. Depending on the sender's client, instead of the
+message above the server may deliver only an `unavailable` placeholder — the
+same signal WhatsApp Web turns into its *"You received a view once message"*
+notice. It is forwarded as a `message` event with no media/body:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6B9",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "sender_display_name": "John Doe",
+    "is_from_me": false,
+    "timestamp": "2023-10-15T11:41:00Z",
+    "view_once": true,
+    "unavailable": true
+  }
+}
+```
+
+**Fields:**
+
+- `view_once`: The contact sent a view-once message
+- `unavailable`: The content itself was not delivered to this device (render a
+  notice instead of media)
+- `chat_lid` / `from_lid`: present when the account uses LID addressing, same
+  as regular messages
+
+**ID reuse caveat:** the placeholder carries the *original* message ID. The
+library asks the phone to resend the content; today WhatsApp withholds
+view-once from linked devices so the answer normally never comes, but if it
+ever does, a second `message` event arrives with the **same `id`** and no
+`unavailable` flag. Consumers deduplicating by `id` should treat a
+placeholder row as upgradeable: an event with the same `id` without
+`unavailable` carries the real content and should win.
+
 ### Forwarded Message
 
 ```json

@@ -520,10 +520,24 @@ func (s *SyncService) storeChatwootImportLinks(result *pgimport.ImportResult) er
 	if s.chatStorageRepo == nil || result == nil {
 		return nil
 	}
+	written := make(map[string]struct{}, len(result.WrittenMessageIDs))
+	for _, waMessageID := range result.WrittenMessageIDs {
+		written[waMessageID] = struct{}{}
+	}
 	for i := range result.Links {
 		link := result.Links[i]
 		if err := s.chatStorageRepo.UpsertChatwootMessageLink(&link); err != nil {
 			return fmt.Errorf("failed to store chatwoot import link for %s: %w", link.WhatsAppMessageID, err)
+		}
+		// The upsert leaves the view-once discriminator alone, so a skipped row
+		// keeps whatever the live path recorded: the import did not touch that
+		// Chatwoot message and must not restate what it shows. Where the import
+		// really did write the message, it is the authority.
+		if _, ok := written[link.WhatsAppMessageID]; !ok {
+			continue
+		}
+		if err := s.chatStorageRepo.SetChatwootLinkViewOncePlaceholder(link.DeviceID, link.WhatsAppMessageID, link.IsViewOncePlaceholder); err != nil {
+			return fmt.Errorf("failed to store chatwoot import placeholder state for %s: %w", link.WhatsAppMessageID, err)
 		}
 	}
 	return nil
@@ -639,6 +653,11 @@ func (s *SyncService) syncMessageWithOptions(
 			SourceID:                     msgOpts.SourceID,
 			Direction:                    messageType,
 			IsRead:                       false,
+			// Carry the view-once discriminator over from chat storage: a link
+			// imported as a plain message would suppress the later delivery of
+			// the recovered content instead of letting it upgrade the
+			// placeholder.
+			IsViewOncePlaceholder: msg.MediaType == domainChatStorage.MediaTypeViewOnceUnavailable,
 			// Scope the link to this service's Chatwoot account/config so reverse
 			// routing stays account-scoped. Without this, a REST history-sync link
 			// would default to account 0 and match the legacy wildcard in
@@ -648,6 +667,13 @@ func (s *SyncService) syncMessageWithOptions(
 			ChatwootAccountID: s.client.AccountID,
 		}); err != nil {
 			return fmt.Errorf("failed to store chatwoot message link: %w", err)
+		}
+		// The upsert keeps its hands off the discriminator (it is claim state for
+		// the live path). This call created the Chatwoot message, so it is the
+		// one entitled to say what that message shows.
+		if err := s.chatStorageRepo.SetChatwootLinkViewOncePlaceholder(msg.DeviceID, msg.ID,
+			msg.MediaType == domainChatStorage.MediaTypeViewOnceUnavailable); err != nil {
+			return fmt.Errorf("failed to store chatwoot message placeholder state: %w", err)
 		}
 	}
 

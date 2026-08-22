@@ -54,7 +54,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Message:
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.UndecryptableMessage:
-		handleUndecryptableMessage(evt)
+		handleUndecryptableMessage(ctx, evt, chatStorageRepo, client)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
@@ -87,17 +87,174 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 }
 
 // handleUndecryptableMessage surfaces messages that arrived but could not be
-// decrypted. They carry no plaintext, so there is nothing to store or forward,
+// decrypted. Most carry no plaintext, so there is nothing to store or forward,
 // but dropping them without a trace makes the common "messages from this
 // contact never arrive" report impossible to diagnose.
-func handleUndecryptableMessage(evt *events.UndecryptableMessage) {
-	log.Warnf("Undecryptable message %s from %s (unavailable: %v, type: %q, fail mode: %q). No webhook or storage entry is produced for it.",
+//
+// The exception is the server-side "unavailable" placeholder for view-once
+// messages: WhatsApp intentionally withholds view-once content from linked
+// devices, so this placeholder is the ONLY signal a companion device ever
+// receives that the contact sent one — it is exactly what WhatsApp Web turns
+// into its "You received a view once message" notice. Forward it as a
+// `message` event with `view_once: true` (and `unavailable: true`, since
+// there is no content) so webhook consumers can render the same notice
+// instead of silently missing the message.
+func handleUndecryptableMessage(ctx context.Context, evt *events.UndecryptableMessage, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
+	log.Warnf("Undecryptable message %s from %s (unavailable: %v, type: %q, fail mode: %q).",
 		evt.Info.ID,
 		evt.Info.SourceString(),
 		evt.IsUnavailable,
 		evt.UnavailableType,
 		evt.DecryptFailMode,
 	)
+
+	if !evt.IsUnavailable || evt.UnavailableType != events.UnavailableTypeViewOnce {
+		// Genuinely undecryptable (or an unknown unavailable kind): nothing to
+		// store or forward, same as before.
+		return
+	}
+
+	// Broadcast/status placeholders are never surfaced — same guard the
+	// regular message path applies in handleWebhookForward.
+	if strings.Contains(evt.Info.SourceString(), "broadcast") {
+		return
+	}
+
+	// Persist a stub in chat storage BEFORE forwarding (mirrors handleMessage's
+	// order and the handleCallOffer precedent for non-Message events): without
+	// it the placeholder would exist for webhook/Chatwoot consumers but be
+	// invisible to GOWA's own /chats API and UI — and a brand-new contact whose
+	// first message is view-once would never get a chat row at all.
+	// The incoming ctx may already be canceled (login-flow request context
+	// captured by the event-handler closure), which would make the LID
+	// lookups inside persistence fail and store raw @lid identifiers —
+	// detach a bounded context for it, same as the webhook forward below.
+	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	persistViewOncePlaceholder(persistCtx, evt, chatStorageRepo, client)
+	cancelPersist()
+
+	// Same async pattern as handleWebhookForward: never block the event loop
+	// on webhook delivery, and detach from the incoming context — for devices
+	// created via the HTTP login flow, ctx is the (long-canceled) request
+	// context captured by the event-handler closure.
+	go func() {
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		// The operator's auto-mark-read setting applies to the placeholder as
+		// it does to any incoming message (original chat/sender JIDs).
+		handleAutoMarkRead(webhookCtx, &evt.Info, client)
+		envelope := buildViewOncePlaceholderEvent(webhookCtx, client, evt)
+		if err := forwardPayloadToConfiguredWebhooks(webhookCtx, envelope, EventTypeMessage); err != nil {
+			log.Warnf("Failed to forward view-once placeholder %s to webhooks: %v", evt.Info.ID, err)
+		}
+	}()
+}
+
+// placeholderDeviceID resolves the storage partition key for a view-once
+// placeholder: the logged-in JID from the client store. That is exactly what
+// the regular ingestion path (CreateMessage) and the REST chat queries use,
+// so it is the only value that puts the placeholder where the rest of the
+// system will look for it — the device-scoped wrapper may still carry the
+// alias supplied at registration time, which would land the row in a
+// partition nothing reads.
+//
+// Returns "" when the client is not available or not logged in; the caller
+// then skips persistence rather than guessing a partition.
+func placeholderDeviceID(client *whatsmeow.Client) string {
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return ""
+	}
+	return client.Store.ID.ToNonAD().String()
+}
+
+// persistViewOncePlaceholder upserts the chat row and stores the placeholder
+// as a notice-only message, so chat listing, ordering and /chat/:jid/messages
+// stay consistent with what webhook and Chatwoot consumers see. Best-effort:
+// failures are logged, never block the forward.
+//
+// Both writes carry an EXPLICIT DeviceID (see placeholderDeviceID) instead of
+// letting the device-scoped wrapper inject its own key, and the chat lookups
+// use the *ByDevice variants with that same id. MediaType is the
+// view_once_unavailable discriminator: it is what lets the history importers
+// recognise the row as a placeholder and flag the Chatwoot link so a later
+// real delivery can upgrade it. It is not a real media type, and the media
+// filters exclude it explicitly.
+func persistViewOncePlaceholder(ctx context.Context, evt *events.UndecryptableMessage, repo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
+	deviceID := placeholderDeviceID(client)
+	if repo == nil || deviceID == "" {
+		return
+	}
+	normalizedChat := NormalizeJIDFromLID(ctx, evt.Info.Chat, client)
+	chatJID := normalizedChat.String()
+	normalizedSender := NormalizeJIDFromLID(ctx, evt.Info.Sender, client)
+
+	chat := &domainChatStorage.Chat{
+		DeviceID: deviceID,
+		JID:      chatJID,
+		// Same device-scoped resolution the regular ingestion path uses:
+		// correct group names, and never a participant PushName as the name
+		// of a group chat.
+		Name:            repo.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedSender.User, evt.Info.PushName),
+		LastMessageTime: evt.Info.Timestamp,
+	}
+	// StoreChat overwrites: preserve what an existing row already knows.
+	if existing, err := repo.GetChatByDevice(deviceID, chatJID); err == nil && existing != nil {
+		chat.EphemeralExpiration = existing.EphemeralExpiration
+		chat.Archived = existing.Archived
+		if existing.LastMessageTime.After(chat.LastMessageTime) {
+			chat.LastMessageTime = existing.LastMessageTime
+		}
+	}
+	if err := repo.StoreChat(chat); err != nil {
+		log.Warnf("Failed to persist chat for view-once placeholder %s: %v", evt.Info.ID, err)
+		return
+	}
+
+	message := &domainChatStorage.Message{
+		ID:        evt.Info.ID,
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    normalizedSender.ToNonAD().String(),
+		Content:   viewOncePlaceholderNotice,
+		Timestamp: evt.Info.Timestamp,
+		IsFromMe:  evt.Info.IsFromMe,
+		MediaType: domainChatStorage.MediaTypeViewOnceUnavailable,
+	}
+	if err := repo.StoreMessage(message); err != nil {
+		log.Warnf("Failed to persist view-once placeholder %s: %v", evt.Info.ID, err)
+	}
+}
+
+// buildViewOncePlaceholderEvent builds the webhook envelope for a view-once
+// "unavailable" placeholder. Mirrors the field names of the regular message
+// path (buildFromFields/from_name) so consumers reuse their existing parsing.
+func buildViewOncePlaceholderEvent(ctx context.Context, client *whatsmeow.Client, evt *events.UndecryptableMessage) map[string]any {
+	payload := map[string]any{
+		"id":          evt.Info.ID,
+		"timestamp":   evt.Info.Timestamp.Format(time.RFC3339),
+		"is_from_me":  evt.Info.IsFromMe,
+		"view_once":   true,
+		"unavailable": true,
+	}
+	buildFromFields(ctx, client, &evt.Info, payload)
+	addSenderDisplayName(ctx, client, payload, evt.Info.IsFromMe, evt.Info.PushName)
+	if pushname := evt.Info.PushName; pushname != "" {
+		payload["from_name"] = pushname
+	}
+
+	// The key is always present — every regular `message` event carries it
+	// (empty when the client has no store), and schema-strict consumers rely
+	// on that.
+	envelope := map[string]any{
+		"event":     EventTypeMessage,
+		"device_id": "",
+		"payload":   payload,
+	}
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceJID := NormalizeJIDFromLID(ctx, client.Store.ID.ToNonAD(), client)
+		envelope["device_id"] = deviceJID.ToNonAD().String()
+	}
+	return envelope
 }
 
 func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
