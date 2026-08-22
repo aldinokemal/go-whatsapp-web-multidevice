@@ -199,7 +199,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}
 
 	// Get total message count for pagination
-	totalCount, err := service.chatStorageRepo.GetChatMessageCount(request.ChatJID)
+	totalCount, err := service.chatStorageRepo.GetChatMessageCountByDevice(deviceID, request.ChatJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to get message count")
 		// Continue with partial data

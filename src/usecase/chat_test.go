@@ -182,6 +182,50 @@ func TestGetChatMessagesMapsReactions(t *testing.T) {
 	}
 }
 
+func TestGetChatMessagesCountsOnlySelectedDevice(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.August, 21, 8, 0, 0, 0, time.UTC)
+	repo := &chatUsecaseRepoStub{
+		chat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			Name:            "Alice",
+			LastMessageTime: now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		messages: []*domainChatStorage.Message{{
+			ID:        "msg-1",
+			ChatJID:   chatJID,
+			DeviceID:  deviceID,
+			Sender:    chatJID,
+			Content:   "hello",
+			Timestamp: now,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+		globalMessageCount: 15,
+		deviceMessageCounts: map[string]int64{
+			deviceID + "\x00" + chatJID: 1,
+		},
+	}
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	response, err := NewChatService(repo).GetChatMessages(ctx, domainChat.GetChatMessagesRequest{
+		ChatJID: chatJID,
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("get chat messages: %v", err)
+	}
+	if response.Pagination.Total != 1 {
+		t.Fatalf("pagination total = %d, want selected device's count 1", response.Pagination.Total)
+	}
+}
+
 func TestGetChatMessagesScopesSenderDisplayNameCacheToOneResponse(t *testing.T) {
 	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
 	senderJID := types.NewJID("628123456789", types.DefaultUserServer)
@@ -327,8 +371,10 @@ func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 
 type chatUsecaseRepoStub struct {
 	domainChatStorage.IChatStorageRepository
-	chat     *domainChatStorage.Chat
-	messages []*domainChatStorage.Message
+	chat                *domainChatStorage.Chat
+	messages            []*domainChatStorage.Message
+	globalMessageCount  int64
+	deviceMessageCounts map[string]int64
 }
 
 func (r *chatUsecaseRepoStub) GetChatByDevice(_, _ string) (*domainChatStorage.Chat, error) {
@@ -340,7 +386,17 @@ func (r *chatUsecaseRepoStub) GetMessages(*domainChatStorage.MessageFilter) ([]*
 }
 
 func (r *chatUsecaseRepoStub) GetChatMessageCount(string) (int64, error) {
+	if r.globalMessageCount != 0 {
+		return r.globalMessageCount, nil
+	}
 	return int64(len(r.messages)), nil
+}
+
+func (r *chatUsecaseRepoStub) GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error) {
+	if r.deviceMessageCounts == nil {
+		return int64(len(r.messages)), nil
+	}
+	return r.deviceMessageCounts[deviceID+"\x00"+chatJID], nil
 }
 
 func (r *chatUsecaseRepoStub) CreateReaction(context.Context, *events.Message) error {
