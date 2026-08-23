@@ -372,6 +372,7 @@ func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 type chatUsecaseRepoStub struct {
 	domainChatStorage.IChatStorageRepository
 	chat                *domainChatStorage.Chat
+	chats               []*domainChatStorage.Chat
 	messages            []*domainChatStorage.Message
 	globalMessageCount  int64
 	deviceMessageCounts map[string]int64
@@ -379,6 +380,14 @@ type chatUsecaseRepoStub struct {
 
 func (r *chatUsecaseRepoStub) GetChatByDevice(_, _ string) (*domainChatStorage.Chat, error) {
 	return r.chat, nil
+}
+
+func (r *chatUsecaseRepoStub) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	return r.chats, nil
+}
+
+func (r *chatUsecaseRepoStub) GetFilteredChatCount(*domainChatStorage.ChatFilter) (int64, error) {
+	return int64(len(r.chats)), nil
 }
 
 func (r *chatUsecaseRepoStub) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
