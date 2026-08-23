@@ -148,7 +148,7 @@ func (service serviceMessage) MarkAsPlayed(ctx context.Context, request domainMe
 	if storedChatJID.ToNonAD().String() != chatJID.ToNonAD().String() {
 		return response, pkgError.ValidationError(fmt.Sprintf("message %s does not belong to chat %s", request.MessageID, chatJID.ToNonAD().String()))
 	}
-	if message.MediaType != "audio" {
+	if message.MediaType != "audio" && message.MediaType != "ptt" {
 		return response, pkgError.ValidationError(fmt.Sprintf("message %s is not an audio message", request.MessageID))
 	}
 	if message.IsFromMe {

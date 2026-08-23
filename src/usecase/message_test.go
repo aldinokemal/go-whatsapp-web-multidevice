@@ -12,6 +12,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
@@ -81,106 +82,139 @@ func TestMarkAsPlayedSendsPlayedReceiptWithStoredGroupSender(t *testing.T) {
 	require.Equal(t, "voice-message-1", response.MessageID)
 }
 
-func TestMarkAsPlayedRejectsNonAudioMessage(t *testing.T) {
+func TestMarkAsPlayedDoesNotReadMessageFromAnotherDevice(t *testing.T) {
 	service, repo, ctx := newMessageActionTestService(t, nil)
 
 	chatJID := types.NewJID("628123456789", types.DefaultUserServer)
 	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
-		ID:        "image-message-1",
+		ID:        "device-b-voice-message",
+		ChatJID:   chatJID.String(),
+		DeviceID:  "device-b@s.whatsapp.net",
+		Sender:    chatJID.String(),
+		Timestamp: time.Now(),
+		MediaType: "audio",
+	}))
+	service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
+		return chatJID, nil
+	}
+	service.markReadFn = failOnMarkRead(t)
+
+	response, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
+		MessageID: "device-b-voice-message",
+		Phone:     chatJID.String(),
+	})
+
+	assert.ErrorContains(t, err, "not found for current device")
+	assert.Empty(t, response.MessageID)
+}
+
+func TestMarkAsPlayedAcceptsLegacyPTTMediaType(t *testing.T) {
+	service, repo, ctx := newMessageActionTestService(t, nil)
+
+	chatJID := types.NewJID("628123456789", types.DefaultUserServer)
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "legacy-ptt-message",
 		ChatJID:   chatJID.String(),
 		DeviceID:  "device-a@s.whatsapp.net",
 		Sender:    chatJID.String(),
 		Timestamp: time.Now(),
-		MediaType: "image",
+		MediaType: "ptt",
 	}))
 	service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
 		return chatJID, nil
 	}
-	service.markReadFn = failOnMarkRead(t)
+	service.markReadFn = func(
+		_ context.Context,
+		_ *whatsmeow.Client,
+		ids []types.MessageID,
+		_ time.Time,
+		chat types.JID,
+		_ types.JID,
+		receiptTypes ...types.ReceiptType,
+	) error {
+		assert.Equal(t, []types.MessageID{"legacy-ptt-message"}, ids)
+		assert.Equal(t, chatJID, chat)
+		assert.Equal(t, []types.ReceiptType{types.ReceiptTypePlayed}, receiptTypes)
+		return nil
+	}
 
-	_, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
-		MessageID: "image-message-1",
+	response, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
+		MessageID: "legacy-ptt-message",
 		Phone:     chatJID.String(),
 	})
 
-	require.ErrorContains(t, err, "not an audio message")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy-ptt-message", response.MessageID)
 }
 
-func TestMarkAsPlayedRejectsMessageFromDifferentChat(t *testing.T) {
-	service, repo, ctx := newMessageActionTestService(t, nil)
-
+func TestMarkAsPlayedRejectsInvalidStoredMessage(t *testing.T) {
+	userChatJID := types.NewJID("628123456789", types.DefaultUserServer)
 	storedGroupJID := types.NewJID("120363000000000001", types.GroupServer)
 	requestedGroupJID := types.NewJID("120363000000000002", types.GroupServer)
+	groupWithoutSenderJID := types.NewJID("120363000000000003", types.GroupServer)
 	senderJID := types.NewJID("628987654321", types.DefaultUserServer)
-	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
-		ID:        "voice-message-2",
-		ChatJID:   storedGroupJID.String(),
-		DeviceID:  "device-a@s.whatsapp.net",
-		Sender:    senderJID.String(),
-		Timestamp: time.Now(),
-		MediaType: "audio",
-	}))
-	service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
-		return requestedGroupJID, nil
+
+	tests := []struct {
+		name          string
+		message       domainChatStorage.Message
+		requestedChat types.JID
+		errContains   string
+	}{
+		{
+			name: "non-audio message",
+			message: domainChatStorage.Message{
+				ID: "image-message-1", ChatJID: userChatJID.String(), Sender: userChatJID.String(), MediaType: "image",
+			},
+			requestedChat: userChatJID,
+			errContains:   "not an audio message",
+		},
+		{
+			name: "message from different chat",
+			message: domainChatStorage.Message{
+				ID: "voice-message-2", ChatJID: storedGroupJID.String(), Sender: senderJID.String(), MediaType: "audio",
+			},
+			requestedChat: requestedGroupJID,
+			errContains:   "does not belong to chat",
+		},
+		{
+			name: "group message without sender",
+			message: domainChatStorage.Message{
+				ID: "voice-message-3", ChatJID: groupWithoutSenderJID.String(), MediaType: "audio",
+			},
+			requestedChat: groupWithoutSenderJID,
+			errContains:   "sender is missing",
+		},
+		{
+			name: "outgoing audio message",
+			message: domainChatStorage.Message{
+				ID: "outgoing-voice-message", ChatJID: userChatJID.String(), Sender: "device-a@s.whatsapp.net", IsFromMe: true, MediaType: "audio",
+			},
+			requestedChat: userChatJID,
+			errContains:   "is not an incoming message",
+		},
 	}
-	service.markReadFn = failOnMarkRead(t)
 
-	_, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
-		MessageID: "voice-message-2",
-		Phone:     requestedGroupJID.String(),
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, repo, ctx := newMessageActionTestService(t, nil)
+			message := tt.message
+			message.DeviceID = "device-a@s.whatsapp.net"
+			message.Timestamp = time.Now()
+			require.NoError(t, repo.StoreMessage(&message))
+			service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
+				return tt.requestedChat, nil
+			}
+			service.markReadFn = failOnMarkRead(t)
 
-	require.ErrorContains(t, err, "does not belong to chat")
-}
+			response, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
+				MessageID: message.ID,
+				Phone:     tt.requestedChat.String(),
+			})
 
-func TestMarkAsPlayedRejectsGroupMessageWithoutStoredSender(t *testing.T) {
-	service, repo, ctx := newMessageActionTestService(t, nil)
-
-	groupJID := types.NewJID("120363000000000003", types.GroupServer)
-	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
-		ID:        "voice-message-3",
-		ChatJID:   groupJID.String(),
-		DeviceID:  "device-a@s.whatsapp.net",
-		Timestamp: time.Now(),
-		MediaType: "audio",
-	}))
-	service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
-		return groupJID, nil
+			assert.ErrorContains(t, err, tt.errContains)
+			assert.Empty(t, response.MessageID)
+		})
 	}
-	service.markReadFn = failOnMarkRead(t)
-
-	_, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
-		MessageID: "voice-message-3",
-		Phone:     groupJID.String(),
-	})
-
-	require.ErrorContains(t, err, "sender is missing")
-}
-
-func TestMarkAsPlayedRejectsOutgoingAudioMessage(t *testing.T) {
-	service, repo, ctx := newMessageActionTestService(t, nil)
-
-	chatJID := types.NewJID("628123456789", types.DefaultUserServer)
-	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
-		ID:        "outgoing-voice-message",
-		ChatJID:   chatJID.String(),
-		DeviceID:  "device-a@s.whatsapp.net",
-		Sender:    "device-a@s.whatsapp.net",
-		Timestamp: time.Now(),
-		IsFromMe:  true,
-		MediaType: "audio",
-	}))
-	service.validateJIDFn = func(_ *whatsmeow.Client, _ string) (types.JID, error) {
-		return chatJID, nil
-	}
-	service.markReadFn = failOnMarkRead(t)
-
-	_, err := service.MarkAsPlayed(ctx, domainMessage.MarkAsPlayedRequest{
-		MessageID: "outgoing-voice-message",
-		Phone:     chatJID.String(),
-	})
-
-	require.ErrorContains(t, err, "is not an incoming message")
 }
 
 func TestMessageActionsDeleteStoredMessageAfterWhatsAppSuccess(t *testing.T) {
