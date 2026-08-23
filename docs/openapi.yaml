@@ -2140,6 +2140,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/played:
+    post:
+      operationId: markMessagePlayed
+      tags:
+        - message
+      summary: Mark an audio message as played
+      description: >-
+        Sends WhatsApp's played receipt for an incoming audio message or voice
+        note. The message must exist in the active device's chat storage and
+        belong to the supplied chat.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number or group JID containing the audio message
+              required:
+                - phone
+      responses:
+        '200':
+          description: Played receipt sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /message/{message_id}/star:
     post:
       operationId: starMessage

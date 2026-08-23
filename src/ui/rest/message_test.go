@@ -1,15 +1,48 @@
 package rest
 
 import (
+	"context"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type playedMessageServiceStub struct {
+	domainMessage.IMessageUsecase
+	request *domainMessage.MarkAsPlayedRequest
+}
+
+func (stub *playedMessageServiceStub) MarkAsPlayed(_ context.Context, request domainMessage.MarkAsPlayedRequest) (domainMessage.GenericResponse, error) {
+	stub.request = &request
+	return domainMessage.GenericResponse{MessageID: request.MessageID, Status: "played"}, nil
+}
+
+func TestMarkAsPlayedRouteDelegatesToMessageService(t *testing.T) {
+	app := fiber.New()
+	service := &playedMessageServiceStub{}
+	InitRestMessage(app, service, nil)
+
+	request := httptest.NewRequest(
+		"POST",
+		"/message/voice-message-1/played",
+		strings.NewReader(`{"phone":"628123456789"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := app.Test(request)
+
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, response.StatusCode)
+	require.NotNil(t, service.request)
+	require.Equal(t, "voice-message-1", service.request.MessageID)
+	require.Equal(t, "628123456789@s.whatsapp.net", service.request.Phone)
+}
 
 func TestPublicStaticPath(t *testing.T) {
 	tests := []struct {

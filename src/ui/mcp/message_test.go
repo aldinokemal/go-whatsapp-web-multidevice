@@ -16,6 +16,7 @@ type stubMessageService struct {
 	revoked    *domainMessage.RevokeRequest
 	deleted    *domainMessage.DeleteRequest
 	marked     *domainMessage.MarkAsReadRequest
+	played     *domainMessage.MarkAsPlayedRequest
 	starred    *domainMessage.StarRequest
 	downloaded *domainMessage.DownloadMediaRequest
 }
@@ -38,6 +39,10 @@ func (s *stubMessageService) DeleteMessage(_ context.Context, r domainMessage.De
 }
 func (s *stubMessageService) MarkAsRead(_ context.Context, r domainMessage.MarkAsReadRequest) (domainMessage.GenericResponse, error) {
 	s.marked = &r
+	return domainMessage.GenericResponse{MessageID: r.MessageID}, nil
+}
+func (s *stubMessageService) MarkAsPlayed(_ context.Context, r domainMessage.MarkAsPlayedRequest) (domainMessage.GenericResponse, error) {
+	s.played = &r
 	return domainMessage.GenericResponse{MessageID: r.MessageID}, nil
 }
 func (s *stubMessageService) StarMessage(_ context.Context, r domainMessage.StarRequest) error {
@@ -102,6 +107,14 @@ func TestHandleMessageDispatch(t *testing.T) {
 		_, err := h.handleMessage(deviceCtx(), callReq(withAction("mark_read", nil)))
 		require.NoError(t, err)
 		require.NotNil(t, svc.marked)
+	})
+
+	t.Run("mark_played", func(t *testing.T) {
+		svc := &stubMessageService{}
+		h := InitMcpMessage(svc, &stubResolver{})
+		_, err := h.handleMessage(deviceCtx(), callReq(withAction("mark_played", nil)))
+		require.NoError(t, err)
+		require.NotNil(t, svc.played)
 	})
 
 	t.Run("star and unstar", func(t *testing.T) {

@@ -23,9 +23,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type markReadFunc func(context.Context, *whatsmeow.Client, []types.MessageID, time.Time, types.JID, types.JID, ...types.ReceiptType) error
+
 type serviceMessage struct {
 	chatStorageRepo domainChatStorage.IChatStorageRepository
 	validateJIDFn   func(client *whatsmeow.Client, jid string) (types.JID, error)
+	markReadFn      markReadFunc
 	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
 	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
 }
@@ -48,6 +51,13 @@ func (service serviceMessage) sendMessage(ctx context.Context, client *whatsmeow
 		return service.sendMessageFn(ctx, client, recipient, message)
 	}
 	return client.SendMessage(ctx, recipient, message)
+}
+
+func (service serviceMessage) markRead(ctx context.Context, client *whatsmeow.Client, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error {
+	if service.markReadFn != nil {
+		return service.markReadFn(ctx, client, ids, timestamp, chat, sender, receiptTypeExtra...)
+	}
+	return client.MarkRead(ctx, ids, timestamp, chat, sender, receiptTypeExtra...)
 }
 
 func (service serviceMessage) sendAppState(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error {
@@ -103,6 +113,77 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 
 	response.MessageID = request.MessageID
 	response.Status = fmt.Sprintf("Mark as read success %s", request.MessageID)
+	return response, nil
+}
+
+func (service serviceMessage) MarkAsPlayed(ctx context.Context, request domainMessage.MarkAsPlayedRequest) (response domainMessage.GenericResponse, err error) {
+	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	chatJID, err := service.validateJID(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	if service.chatStorageRepo == nil {
+		return response, fmt.Errorf("cannot mark message %s as played without chat storage", request.MessageID)
+	}
+	message, err := service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), request.MessageID)
+	if err != nil {
+		return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+	}
+	if message == nil {
+		return response, fmt.Errorf("message with ID %s not found for current device", request.MessageID)
+	}
+	storedChatJID, err := utils.ParseJID(message.ChatJID)
+	if err != nil {
+		return response, fmt.Errorf("failed to parse chat for message %s: %w", request.MessageID, err)
+	}
+	if storedChatJID.ToNonAD().String() != chatJID.ToNonAD().String() {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s does not belong to chat %s", request.MessageID, chatJID.ToNonAD().String()))
+	}
+	if message.MediaType != "audio" {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s is not an audio message", request.MessageID))
+	}
+	if message.IsFromMe {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s is not an incoming message", request.MessageID))
+	}
+
+	senderJID, err := utils.ParseJID(message.Sender)
+	if err != nil {
+		return response, fmt.Errorf("failed to parse sender for message %s: %w", request.MessageID, err)
+	}
+	if chatJID.Server == types.GroupServer && senderJID.User == "" {
+		return response, fmt.Errorf("sender is missing for group message %s", request.MessageID)
+	}
+	if err = service.markRead(
+		ctx,
+		client,
+		[]types.MessageID{request.MessageID},
+		time.Now(),
+		chatJID,
+		senderJID,
+		types.ReceiptTypePlayed,
+	); err != nil {
+		return response, err
+	}
+
+	logrus.Info(map[string]any{
+		"phone":        request.Phone,
+		"message_id":   request.MessageID,
+		"chat":         chatJID.String(),
+		"sender":       senderJID.String(),
+		"receipt_type": types.ReceiptTypePlayed,
+	})
+
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("Mark as played success %s", request.MessageID)
 	return response, nil
 }
 

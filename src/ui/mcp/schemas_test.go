@@ -68,6 +68,7 @@ func TestSchemas(t *testing.T) {
 		{"msg revoke ok", messageSchema, `{"action":"revoke","phone":"628","message_id":"M1"}`, false},
 		{"msg delete ok", messageSchema, `{"action":"delete","phone":"628","message_id":"M1"}`, false},
 		{"msg mark_read ok", messageSchema, `{"action":"mark_read","phone":"628","message_id":"M1"}`, false},
+		{"msg mark_played ok", messageSchema, `{"action":"mark_played","phone":"628","message_id":"M1"}`, false},
 		{"msg star ok", messageSchema, `{"action":"star","phone":"628","message_id":"M1"}`, false},
 		{"msg unstar ok", messageSchema, `{"action":"unstar","phone":"628","message_id":"M1"}`, false},
 		{"msg download_media ok", messageSchema, `{"action":"download_media","phone":"628","message_id":"M1"}`, false},

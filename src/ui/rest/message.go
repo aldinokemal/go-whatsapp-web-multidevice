@@ -28,6 +28,7 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase, se
 	app.Post("/message/:message_id/delete", rest.DeleteMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	app.Post("/message/:message_id/read", rest.MarkAsRead)
+	app.Post("/message/:message_id/played", rest.MarkAsPlayed)
 	app.Post("/message/:message_id/star", rest.StarMessage)
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
 	app.Post("/message/:message_id/forward", rest.ForwardMessage)
@@ -120,6 +121,25 @@ func (controller *Message) MarkAsRead(c fiber.Ctx) error {
 	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.MarkAsRead(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+func (controller *Message) MarkAsPlayed(c fiber.Ctx) error {
+	var request domainMessage.MarkAsPlayedRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.MarkAsPlayed(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

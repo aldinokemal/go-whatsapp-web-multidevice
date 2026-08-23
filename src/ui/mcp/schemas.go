@@ -57,7 +57,7 @@ const messageSchema = `{
   "type": "object",
   "required": ["action", "phone", "message_id"],
   "properties": {
-    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","star","unstar","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; download_media returns the local file path"},
+    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","mark_played","star","unstar","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; mark_played sends the played receipt for an incoming audio message; download_media returns the local file path"},
     "phone": {"type": "string", "description": "Phone number or group JID of the chat containing the message"},
     "message_id": {"type": "string", "description": "The WhatsApp message ID"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
