@@ -90,6 +90,7 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 			if name := PreferredContactDisplayName(contact, ""); name != "" {
 				return name
 			}
+		}
 		if hasDisplayName(jid.User) {
 			return jid.User
 		}
