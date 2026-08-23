@@ -8,6 +8,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 type chatDisplayNameContactStore struct {
@@ -99,6 +100,10 @@ func TestChatDisplayNameResolverUsesSyncedContactForFallbackChatName(t *testing.
 }
 
 func TestChatDisplayNameResolverResolvesLateLIDPlaceholderThroughPNContact(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
 	ctx := context.Background()
 	lid := types.NewJID("123456789012345", types.HiddenUserServer)
 	pn := types.NewJID("628123456789", types.DefaultUserServer)
