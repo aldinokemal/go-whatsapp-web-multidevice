@@ -84,6 +84,35 @@ func (service serviceMessage) deleteStoredMessage(ctx context.Context, client *w
 	return nil
 }
 
+func isGroupReadSenderServer(server string) bool {
+	switch server {
+	case types.DefaultUserServer, types.HiddenUserServer, types.LegacyUserServer, types.MessengerServer:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeGroupReadSender(ctx context.Context, client *whatsmeow.Client, rawSender string, messageID string) (types.JID, error) {
+	if rawSender == "" {
+		return types.JID{}, fmt.Errorf("sender is missing for group message %s", messageID)
+	}
+
+	senderJID, err := utils.ParseJID(rawSender)
+	if err != nil {
+		return types.JID{}, fmt.Errorf("failed to parse sender for message %s: %w", messageID, err)
+	}
+	senderJID = senderJID.ToNonAD()
+
+	if senderJID.Server == types.HiddenUserServer {
+		senderJID = utils.ResolveLIDToPhone(ctx, senderJID, client).ToNonAD()
+	}
+	if senderJID.User == "" || !isGroupReadSenderServer(senderJID.Server) {
+		return types.JID{}, fmt.Errorf("invalid sender JID %s for group message %s", senderJID.String(), messageID)
+	}
+	return senderJID, nil
+}
+
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
 		return response, err
@@ -94,21 +123,51 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	chatJID, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
+	senderJID := client.Store.ID.ToNonAD()
+	if chatJID.Server == types.GroupServer {
+		if service.chatStorageRepo == nil {
+			return response, fmt.Errorf("cannot mark message %s as read without chat storage", request.MessageID)
+		}
+
+		message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+			deviceIDFromContext(ctx),
+			chatJID.ToNonAD().String(),
+			request.MessageID,
+		)
+		if lookupErr != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, lookupErr)
+		}
+		if message == nil {
+			return response, fmt.Errorf(
+				"message with ID %s not found for current device and chat %s",
+				request.MessageID,
+				chatJID.ToNonAD().String(),
+			)
+		}
+
+		if !message.IsFromMe {
+			senderJID, err = normalizeGroupReadSender(ctx, client, message.Sender, request.MessageID)
+			if err != nil {
+				return response, err
+			}
+		}
+	}
+
 	ids := []types.MessageID{request.MessageID}
-	if err = client.MarkRead(ctx, ids, time.Now(), dataWaRecipient, *client.Store.ID); err != nil {
+	if err = service.markRead(ctx, client, ids, time.Now(), chatJID, senderJID); err != nil {
 		return response, err
 	}
 
 	logrus.Info(map[string]any{
 		"phone":      request.Phone,
 		"message_id": request.MessageID,
-		"chat":       dataWaRecipient.String(),
-		"sender":     client.Store.ID.String(),
+		"chat":       chatJID.String(),
+		"sender":     senderJID.String(),
 	})
 
 	response.MessageID = request.MessageID

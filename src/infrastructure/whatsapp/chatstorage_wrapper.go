@@ -103,6 +103,14 @@ func (r *deviceChatStorage) GetMessageByIDAndDevice(deviceID, id string) (*domai
 	return r.base.GetMessageByIDAndDevice(targetDeviceID, id)
 }
 
+func (r *deviceChatStorage) GetMessageByIDChatAndDevice(deviceID, chatJID, id string) (*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetMessageByIDChatAndDevice(targetDeviceID, chatJID, id)
+}
+
 func (r *deviceChatStorage) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {
