@@ -30,6 +30,8 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		return response, err
 	}
 
+	chatDisplayNameResolver := whatsapp.NewChatDisplayNameResolver(ctx, whatsapp.ClientFromContext(ctx))
+
 	// Create filter from request
 	filter := &domainChatStorage.ChatFilter{
 		DeviceID:   deviceIDFromContext(ctx),
@@ -54,8 +56,6 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		// Continue with partial data
 		totalCount = 0
 	}
-
-	chatDisplayNameResolver := whatsapp.NewChatDisplayNameResolver(ctx, whatsapp.ClientFromContext(ctx))
 
 	// Convert entities to domain objects
 	chatInfos := make([]domainChat.ChatInfo, 0, len(chats))
