@@ -100,7 +100,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	payload["is_from_me"] = evt.Info.IsFromMe
 
 	// Build from/from_lid fields
-	buildFromFields(ctx, client, evt, payload)
+	buildFromFields(ctx, client, &evt.Info, payload)
 	addSenderDisplayName(ctx, client, payload, evt.Info.IsFromMe, evt.Info.PushName)
 
 	// Set from_name (pushname)
@@ -252,15 +252,15 @@ func populatedMessageFields(msg *waE2E.Message) []string {
 	return names
 }
 
-func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
-	chatJID := evt.Info.Chat.ToNonAD()
+func buildFromFields(ctx context.Context, client *whatsmeow.Client, info *types.MessageInfo, payload map[string]any) {
+	chatJID := info.Chat.ToNonAD()
 	if chatJID.Server == "lid" {
 		payload["chat_lid"] = chatJID.String()
 		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
 	}
 	payload["chat_id"] = chatJID.String()
 
-	senderJID := evt.Info.Sender
+	senderJID := info.Sender
 	if senderJID.Server == "lid" {
 		payload["from_lid"] = senderJID.ToNonAD().String()
 	}

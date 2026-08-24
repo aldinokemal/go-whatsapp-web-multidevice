@@ -51,7 +51,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	handleImageMessage(ctx, evt, client)
 
 	// Auto-mark message as read if configured
-	handleAutoMarkRead(ctx, evt, client)
+	handleAutoMarkRead(ctx, &evt.Info, client)
 
 	// Handle auto-reply if configured
 	handleAutoReply(ctx, evt, chatStorageRepo, client)
@@ -93,9 +93,12 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 	}
 }
 
-func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+// handleAutoMarkRead takes the MessageInfo (not the full event) so non-Message
+// events that still represent an incoming message — e.g. the view-once
+// unavailable placeholder — can honor the operator's auto-mark-read setting.
+func handleAutoMarkRead(ctx context.Context, info *types.MessageInfo, client *whatsmeow.Client) {
 	// Only mark read if auto-mark read is enabled and message is incoming
-	if !config.WhatsappAutoMarkRead || evt.Info.IsFromMe {
+	if !config.WhatsappAutoMarkRead || info.IsFromMe {
 		return
 	}
 
@@ -104,15 +107,15 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 	}
 
 	// Mark the message as read
-	messageIDs := []types.MessageID{evt.Info.ID}
+	messageIDs := []types.MessageID{info.ID}
 	timestamp := time.Now()
-	chat := evt.Info.Chat
-	sender := evt.Info.Sender
+	chat := info.Chat
+	sender := info.Sender
 
 	if err := client.MarkRead(ctx, messageIDs, timestamp, chat, sender); err != nil {
-		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
+		log.Warnf("Failed to mark message %s as read: %v", info.ID, err)
 	} else {
-		log.Debugf("Marked message %s as read", evt.Info.ID)
+		log.Debugf("Marked message %s as read", info.ID)
 	}
 }
 

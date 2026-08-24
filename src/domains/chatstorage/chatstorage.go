@@ -2,6 +2,15 @@ package chatstorage
 
 import "time"
 
+// MediaTypeViewOnceUnavailable marks a stored message as the server-side
+// "unavailable" placeholder of a view-once message: WhatsApp withholds the
+// content from linked devices, so the row is a notice, not media. It is a
+// discriminator, NOT a real media type — history importers read it to flag the
+// Chatwoot link as a placeholder (so a later real delivery can upgrade it), and
+// the media filters (GetChats HasMedia / GetMessages MediaOnly) exclude it
+// exactly like the synthetic "call" rows.
+const MediaTypeViewOnceUnavailable = "view_once_unavailable"
+
 // Chat represents a WhatsApp chat/conversation
 type Chat struct {
 	DeviceID            string    `db:"device_id"`
@@ -55,18 +64,22 @@ type MessageEdit struct {
 // for it. It is device-scoped because the same WhatsApp message ID can appear
 // in independent device stores.
 type ChatwootMessageLink struct {
-	DeviceID                     string    `db:"device_id"`
-	WhatsAppMessageID            string    `db:"wa_message_id"`
-	WhatsAppChatJID              string    `db:"wa_chat_jid"`
-	ChatwootMessageID            int       `db:"chatwoot_message_id"`
-	ChatwootConversationID       int       `db:"chatwoot_conversation_id"`
-	ChatwootInboxID              int       `db:"chatwoot_inbox_id"`
-	ChatwootContactInboxSourceID string    `db:"chatwoot_contact_inbox_source_id"`
-	SourceID                     string    `db:"source_id"`
-	Direction                    string    `db:"direction"`
-	IsRead                       bool      `db:"is_read"`
-	CreatedAt                    time.Time `db:"created_at"`
-	UpdatedAt                    time.Time `db:"updated_at"`
+	DeviceID                     string `db:"device_id"`
+	WhatsAppMessageID            string `db:"wa_message_id"`
+	WhatsAppChatJID              string `db:"wa_chat_jid"`
+	ChatwootMessageID            int    `db:"chatwoot_message_id"`
+	ChatwootConversationID       int    `db:"chatwoot_conversation_id"`
+	ChatwootInboxID              int    `db:"chatwoot_inbox_id"`
+	ChatwootContactInboxSourceID string `db:"chatwoot_contact_inbox_source_id"`
+	SourceID                     string `db:"source_id"`
+	Direction                    string `db:"direction"`
+	IsRead                       bool   `db:"is_read"`
+	// IsViewOncePlaceholder marks a link created from a view-once "unavailable"
+	// placeholder (notice only, no content). A later real delivery with the
+	// same wa_message_id is allowed to re-sync and replace this link.
+	IsViewOncePlaceholder bool      `db:"is_view_once_placeholder"`
+	CreatedAt             time.Time `db:"created_at"`
+	UpdatedAt             time.Time `db:"updated_at"`
 	// ChatwootConfigID is the id of the chatwoot_device_configs row this link
 	// belongs to. 0 means the legacy/env config (single-account). It scopes
 	// reverse routing so conversation/message ids cannot collide across accounts.

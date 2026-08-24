@@ -31,6 +31,15 @@ func (r *chatwootSyncLinkRepo) UpsertChatwootMessageLink(link *domainChatStorage
 	return nil
 }
 
+// The upsert never writes the view-once discriminator, so the fake mirrors the
+// repository: only the explicit setter moves it.
+func (r *chatwootSyncLinkRepo) SetChatwootLinkViewOncePlaceholder(deviceID, waMessageID string, isPlaceholder bool) error {
+	if link := r.links[chatwootSyncLinkKey(deviceID, waMessageID)]; link != nil {
+		link.IsViewOncePlaceholder = isPlaceholder
+	}
+	return nil
+}
+
 func (r *chatwootSyncLinkRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	link := r.links[chatwootSyncLinkKey(deviceID, waMessageID)]
 	if link == nil {

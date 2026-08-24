@@ -50,6 +50,12 @@ type ImportResult struct {
 	MessagesSkipped int // already present (idempotent replay)
 	MessagesFailed  int
 	Links           []domainChatStorage.ChatwootMessageLink
+	// WrittenMessageIDs lists the wa_message_ids this run actually wrote into
+	// Chatwoot, as opposed to the idempotent skips of rows already present. Only
+	// for those is the view-once discriminator carried on the link authoritative:
+	// a skip leaves the existing Chatwoot message untouched, so whatever the live
+	// path has since recorded about it must survive the import.
+	WrittenMessageIDs []string
 }
 
 // ImportChat is the single public entry point for writing historical
@@ -127,6 +133,9 @@ func (i *Importer) ImportChat(ctx context.Context, req ImportChatRequest) (*Impo
 			res.MessagesSkipped++
 		default:
 			res.MessagesWrote++
+			if link != nil {
+				res.WrittenMessageIDs = append(res.WrittenMessageIDs, link.WhatsAppMessageID)
+			}
 			if msg.Timestamp.After(lastActivity) {
 				lastActivity = msg.Timestamp
 			}
@@ -557,6 +566,13 @@ func (i *Importer) buildMessageLink(msg *domainChatStorage.Message, convID, chat
 		SourceID:                     sourceID,
 		Direction:                    direction,
 		IsRead:                       false,
+		// Carry the view-once discriminator over from chat storage: a link
+		// imported as a plain message would suppress the later delivery of the
+		// recovered content instead of letting it upgrade the placeholder.
+		// It describes the message this import writes, so it only counts for
+		// links reported in WrittenMessageIDs — on a skip the Chatwoot row is
+		// left as it was and the stored state stays in charge.
+		IsViewOncePlaceholder: msg.MediaType == domainChatStorage.MediaTypeViewOnceUnavailable,
 		// Account scope must be stamped here: pgimport is legacy-only (config id
 		// stays 0) but a zero account id would only match through the legacy-zero
 		// wildcard, which per-device mode disables — and the boot-time backfill
