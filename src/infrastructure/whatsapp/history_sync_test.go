@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -116,9 +117,9 @@ func TestProcessConversationMessagesPersistsPollDefinitionWithoutText(t *testing
 		t.Fatalf("unexpected poll definition: %+v", repo.definition)
 	}
 	wantTimestamp := time.Unix(int64(timestamp), 0)
-	if !repo.definition.UpdatedAt.Equal(wantTimestamp) {
-		t.Fatalf("poll definition updated_at = %s, want history timestamp %s", repo.definition.UpdatedAt, wantTimestamp)
-	}
+	assert.True(t, repo.definition.UpdatedAt.Equal(wantTimestamp),
+		"poll definition updated_at = %s, want history timestamp %s",
+		repo.definition.UpdatedAt, wantTimestamp)
 }
 
 type historyReactionRepoSpy struct {

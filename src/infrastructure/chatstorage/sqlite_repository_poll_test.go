@@ -110,6 +110,31 @@ func TestUpsertPollDefinitionDoesNotReplaceNewerDefinition(t *testing.T) {
 	assert.Equal(t, "Added live", got.Options[1].Name)
 }
 
+func TestGetPollDefinitionByIDAndDeviceResolvesChatAliasOnlyWhenUnambiguous(t *testing.T) {
+	t.Run("single matching poll", func(t *testing.T) {
+		repo := newTestSQLiteRepository(t)
+		require.NoError(t, repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+			DeviceID: "device-a", ChatJID: "628111@s.whatsapp.net", PollMessageID: "poll-alias", Question: "Q",
+		}))
+		got, err := repo.GetPollDefinitionByIDAndDevice("device-a", "poll-alias")
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "628111@s.whatsapp.net", got.ChatJID)
+	})
+
+	t.Run("ambiguous message id", func(t *testing.T) {
+		repo := newTestSQLiteRepository(t)
+		for _, chatJID := range []string{"chat-a", "chat-b"} {
+			require.NoError(t, repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+				DeviceID: "device-a", ChatJID: chatJID, PollMessageID: "poll-duplicate", Question: "Q",
+			}))
+		}
+		got, err := repo.GetPollDefinitionByIDAndDevice("device-a", "poll-duplicate")
+		assert.Error(t, err)
+		assert.Nil(t, got)
+	})
+}
+
 func TestPollDefinitionsFollowCleanupPaths(t *testing.T) {
 	tests := []struct {
 		name    string

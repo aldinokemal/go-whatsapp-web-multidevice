@@ -262,6 +262,14 @@ func (r *deviceChatStorage) GetPollDefinition(deviceID, chatJID, pollMessageID s
 	return r.base.GetPollDefinition(targetDeviceID, chatJID, pollMessageID)
 }
 
+func (r *deviceChatStorage) GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetPollDefinitionByIDAndDevice(targetDeviceID, pollMessageID)
+}
+
 func (r *deviceChatStorage) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

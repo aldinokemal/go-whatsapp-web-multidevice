@@ -26,6 +26,7 @@ const (
 type pollDefinitionStore interface {
 	UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error
 	GetPollDefinition(deviceID, chatJID, pollMessageID string) (*domainChatStorage.PollDefinition, error)
+	GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*domainChatStorage.PollDefinition, error)
 	AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error
 }
 
@@ -171,7 +172,12 @@ func loadPollDefinition(store pollDefinitionStore, deviceID, pollID string, chat
 			return definition
 		}
 	}
-	return nil
+	definition, err := store.GetPollDefinitionByIDAndDevice(deviceID, pollID)
+	if err != nil {
+		logrus.Warnf("Failed to resolve poll definition %s by device-scoped message ID: %v", pollID, err)
+		return nil
+	}
+	return definition
 }
 
 func resolvePollSelections(definition *domainChatStorage.PollDefinition, selected [][]byte) (names, hashes []string, status string) {

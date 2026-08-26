@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -451,6 +452,9 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 	// Validate options first to ensure it is not blank before validating MaxAnswer
 	if len(request.Options) == 0 {
 		return pkgError.ValidationError("options: cannot be blank.")
+	}
+	if request.MaxAnswer > 0 && uint64(request.MaxAnswer) > uint64(math.MaxUint32) {
+		return pkgError.ValidationError(fmt.Sprintf("max_answer: must be no greater than %d.", uint64(math.MaxUint32)))
 	}
 
 	err := validation.ValidateStructWithContext(ctx, &request,

@@ -2,7 +2,9 @@ package validations
 
 import (
 	"context"
+	"math"
 	"mime/multipart"
+	"strconv"
 	"testing"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
@@ -793,6 +795,20 @@ func TestValidateSendPoll(t *testing.T) {
 			assert.Equal(t, tt.err, err)
 		})
 	}
+}
+
+func TestValidateSendPollRejectsMaxAnswerOutsideUint32(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("int cannot represent a value above uint32 on this architecture")
+	}
+	tooLarge := uint64(math.MaxUint32) + 1
+	err := ValidateSendPoll(context.Background(), domainSend.PollRequest{
+		BaseRequest: domainSend.BaseRequest{Phone: "1728937129312@s.whatsapp.net"},
+		Question:    "Question?",
+		Options:     []string{"One"},
+		MaxAnswer:   int(tooLarge),
+	})
+	assert.Equal(t, pkgError.ValidationError("max_answer: must be no greater than 4294967295."), err)
 }
 
 func TestValidateSendPresence(t *testing.T) {

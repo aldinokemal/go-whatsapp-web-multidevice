@@ -53,6 +53,22 @@ func (s *memoryPollStore) GetPollDefinition(deviceID, chatJID, pollMessageID str
 	return &copyDefinition, nil
 }
 
+func (s *memoryPollStore) GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	var match *domainChatStorage.PollDefinition
+	for _, definition := range s.definitions {
+		if definition.DeviceID != deviceID || definition.PollMessageID != pollMessageID {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("poll definition %s is ambiguous", pollMessageID)
+		}
+		copyDefinition := *definition
+		copyDefinition.Options = append([]domainChatStorage.PollOption(nil), definition.Options...)
+		match = &copyDefinition
+	}
+	return match, nil
+}
+
 func (s *memoryPollStore) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
 	definition := s.definitions[pollStoreKey(deviceID, chatJID, pollMessageID)]
 	if definition == nil {
@@ -436,6 +452,60 @@ func TestPreparePollWebhookPayloadFindsDefinitionStoredBeforeLIDMapping(t *testi
 				AddressingMode: types.AddressingModeLID,
 			},
 			ID: "VOTE-LATE-LID-1",
+		},
+		Message: voteMessage,
+	})
+	require.NotNil(t, payload)
+	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
+	require.NotNil(t, payload.SelectedOptions)
+	assert.Equal(t, []string{"Yes"}, *payload.SelectedOptions)
+}
+
+func TestPreparePollWebhookPayloadFindsPNDefinitionForUnmappedLIDVote(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	ctx := context.Background()
+	voterPN := types.NewJID("628222", types.DefaultUserServer)
+	voterLID := types.NewJID("222000000000", types.HiddenUserServer)
+	chatPN := types.NewJID("628111", types.DefaultUserServer)
+	chatLID := types.NewJID("111000000000", types.HiddenUserServer)
+	client := newPollCryptoClient(t, "poll-event-unmapped-lid-test", voterPN)
+	client.Store.LID = voterLID
+	pollID := types.MessageID("POLL-UNMAPPED-LID-1")
+	require.NoError(t, client.Store.MsgSecrets.PutMessageSecret(ctx, chatLID, chatLID, pollID, bytes.Repeat([]byte{0x73}, 32)))
+
+	voteMessage, err := client.BuildPollVote(ctx, &types.MessageInfo{
+		MessageSource: types.MessageSource{
+			Chat:           chatLID,
+			Sender:         chatLID,
+			AddressingMode: types.AddressingModeLID,
+		},
+		ID: pollID,
+	}, []string{"Yes"})
+	require.NoError(t, err)
+
+	store := newMemoryPollStore()
+	require.NoError(t, store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID:      voterPN.String(),
+		ChatJID:       chatPN.String(),
+		PollMessageID: string(pollID),
+		Question:      "PN creation",
+		Options:       []domainChatStorage.PollOption{{Name: "Yes", Hash: pollOptionHash("Yes")}},
+	}))
+
+	// No LID mapping is available. The poll message ID is the only stable chat-
+	// independent identity shared by the PN creation and the LID-only vote.
+	payload := preparePollWebhookPayload(ctx, client, store, &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:           chatLID,
+				Sender:         voterLID,
+				IsFromMe:       true,
+				AddressingMode: types.AddressingModeLID,
+			},
+			ID: "VOTE-UNMAPPED-LID-1",
 		},
 		Message: voteMessage,
 	})

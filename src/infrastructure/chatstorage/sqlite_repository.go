@@ -838,6 +838,47 @@ func (r *SQLiteRepository) GetPollDefinition(deviceID, chatJID, pollMessageID st
 	return &definition, nil
 }
 
+// GetPollDefinitionByIDAndDevice resolves a poll when a direct chat transitions
+// between PN and LID identities and no mapping is available. It refuses an
+// ambiguous message ID rather than selecting a definition from the wrong chat.
+func (r *SQLiteRepository) GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	rows, err := r.db.Query(`
+		SELECT device_id, chat_jid, poll_message_id, question, options_json,
+			selectable_option_count, version, created_at, updated_at
+		FROM poll_definitions
+		WHERE device_id = ? AND poll_message_id = ?
+		ORDER BY chat_jid
+		LIMIT 2
+	`, deviceID, pollMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var match *domainChatStorage.PollDefinition
+	for rows.Next() {
+		if match != nil {
+			return nil, fmt.Errorf("poll definition %s is ambiguous for device %s", pollMessageID, deviceID)
+		}
+		definition := &domainChatStorage.PollDefinition{}
+		var optionsJSON string
+		if err := rows.Scan(
+			&definition.DeviceID, &definition.ChatJID, &definition.PollMessageID, &definition.Question, &optionsJSON,
+			&definition.SelectableOptionCount, &definition.Version, &definition.CreatedAt, &definition.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(optionsJSON), &definition.Options); err != nil {
+			return nil, fmt.Errorf("failed to decode poll options for %s: %w", pollMessageID, err)
+		}
+		match = definition
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return match, nil
+}
+
 // AppendPollOption atomically appends a new option while treating a repeated
 // hash as an idempotent delivery of the same add-option event.
 func (r *SQLiteRepository) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {

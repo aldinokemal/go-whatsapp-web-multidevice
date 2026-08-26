@@ -39,6 +39,7 @@ type IChatStorageRepository interface {
 	// Poll definition operations
 	UpsertPollDefinition(definition *PollDefinition) error
 	GetPollDefinition(deviceID, chatJID, pollMessageID string) (*PollDefinition, error)
+	GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*PollDefinition, error)
 	AppendPollOption(deviceID, chatJID, pollMessageID string, option PollOption) error
 
 	// Chatwoot correlation operations
