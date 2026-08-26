@@ -243,18 +243,17 @@ func TestPersistSentPollDefinitionStoresReadableOptions(t *testing.T) {
 		MaxAnswer: 1,
 	}
 
-	if err := service.persistSentPollDefinition(ctx, recipient, "POLL-SENT-1", request); err != nil {
-		t.Fatalf("persistSentPollDefinition: %v", err)
-	}
-	if repo.definition == nil || repo.definition.DeviceID != deviceID || repo.definition.ChatJID != recipient.String() || repo.definition.PollMessageID != "POLL-SENT-1" {
-		t.Fatalf("unexpected definition: %+v", repo.definition)
-	}
-	if repo.definition.Question != "Lunch?" || repo.definition.SelectableOptionCount != 1 || repo.definition.Version != "v1" {
-		t.Fatalf("unexpected poll metadata: %+v", repo.definition)
-	}
-	if len(repo.definition.Options) != 2 || repo.definition.Options[1].Name != "Sushi" || repo.definition.Options[1].Hash == "" {
-		t.Fatalf("unexpected options: %+v", repo.definition.Options)
-	}
+	require.NoError(t, service.persistSentPollDefinition(ctx, recipient, "POLL-SENT-1", request))
+	require.NotNil(t, repo.definition)
+	assert.Equal(t, deviceID, repo.definition.DeviceID)
+	assert.Equal(t, recipient.String(), repo.definition.ChatJID)
+	assert.Equal(t, "POLL-SENT-1", repo.definition.PollMessageID)
+	assert.Equal(t, "Lunch?", repo.definition.Question)
+	assert.Equal(t, uint32(1), repo.definition.SelectableOptionCount)
+	assert.Equal(t, "v1", repo.definition.Version)
+	require.Len(t, repo.definition.Options, 2)
+	assert.Equal(t, "Sushi", repo.definition.Options[1].Name)
+	assert.NotEmpty(t, repo.definition.Options[1].Hash)
 }
 
 func TestResolveDocumentMIME(t *testing.T) {

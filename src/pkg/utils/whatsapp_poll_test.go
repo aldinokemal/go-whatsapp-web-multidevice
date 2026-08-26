@@ -3,6 +3,8 @@ package utils
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -34,29 +36,23 @@ func TestExtractPollCreationMessageSupportsAllVersions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, version := ExtractPollCreationMessage(tt.message)
-			if got == nil {
-				t.Fatal("ExtractPollCreationMessage returned nil")
-			}
-			if version != tt.wantVersion {
-				t.Fatalf("version = %q, want %q", version, tt.wantVersion)
-			}
-			if got.GetName() != tt.wantVersion {
-				t.Fatalf("question = %q, want %q", got.GetName(), tt.wantVersion)
-			}
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantVersion, version)
+			assert.Equal(t, tt.wantVersion, got.GetName())
 		})
 	}
 }
 
 func TestExtractPollCreationMessageHandlesNilAndWrappedMessages(t *testing.T) {
-	if poll, version := ExtractPollCreationMessage(nil); poll != nil || version != "" {
-		t.Fatalf("nil message returned poll=%v version=%q", poll, version)
-	}
+	poll, version := ExtractPollCreationMessage(nil)
+	assert.Nil(t, poll)
+	assert.Empty(t, version)
 
 	wrapper := &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{
 		Message: &waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{Name: proto.String("wrapped")}},
 	}}
-	poll, version := ExtractPollCreationMessage(wrapper)
-	if poll == nil || poll.GetName() != "wrapped" || version != "v3" {
-		t.Fatalf("wrapped result poll=%v version=%q", poll, version)
-	}
+	poll, version = ExtractPollCreationMessage(wrapper)
+	require.NotNil(t, poll)
+	assert.Equal(t, "wrapped", poll.GetName())
+	assert.Equal(t, "v3", version)
 }

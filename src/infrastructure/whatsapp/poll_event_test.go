@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	projectSQLite "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -15,6 +18,8 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/util/gcmutil"
+	"go.mau.fi/whatsmeow/util/hkdfutil"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -49,6 +54,9 @@ func (s *memoryPollStore) GetPollDefinition(deviceID, chatJID, pollMessageID str
 
 func (s *memoryPollStore) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
 	definition := s.definitions[pollStoreKey(deviceID, chatJID, pollMessageID)]
+	if definition == nil {
+		return fmt.Errorf("poll definition %s not found", pollMessageID)
+	}
 	for _, existing := range definition.Options {
 		if existing.Hash == option.Hash {
 			return nil
@@ -217,6 +225,113 @@ func TestPreparePollWebhookPayloadDecryptsRealVote(t *testing.T) {
 	if failed == nil || failed.ResolutionStatus != pollResolutionDecryptFailed || failed.Question != "Lunch?" || failed.SelectedOptions != nil || failed.SelectedOptionHashes != nil {
 		t.Fatalf("unexpected authentication-failure payload: %+v", failed)
 	}
+}
+
+// newPollCryptoClient builds a whatsmeow client over an isolated in-memory
+// device store so tests can exercise real message-secret encryption.
+func newPollCryptoClient(t *testing.T, dbName string, deviceJID types.JID) *whatsmeow.Client {
+	t.Helper()
+	ctx := context.Background()
+	container, err := sqlstore.New(ctx, projectSQLite.DriverName, projectSQLite.FormatChatStorageURI("file:"+dbName+"?mode=memory&cache=shared", false, true), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = container.Close() })
+	device := container.NewDevice()
+	device.ID = &deviceJID
+	device.Account = &waAdv.ADVSignedDeviceIdentity{
+		Details:             []byte{0},
+		AccountSignatureKey: make([]byte, 32),
+		AccountSignature:    make([]byte, 64),
+		DeviceSignature:     make([]byte, 64),
+	}
+	require.NoError(t, device.Save(ctx))
+	return whatsmeow.NewClient(device, nil)
+}
+
+func TestPreparePollWebhookPayloadDecryptsVoteAfterHandlerContextCanceled(t *testing.T) {
+	setupCtx := context.Background()
+	voter := types.NewJID("628222", types.DefaultUserServer)
+	client := newPollCryptoClient(t, "poll-event-canceled-ctx-test", voter)
+	chat := types.NewJID("120363000000", types.GroupServer)
+	creator := types.NewJID("628111", types.DefaultUserServer)
+	pollID := types.MessageID("POLL-CANCELED-CTX-1")
+	require.NoError(t, client.Store.MsgSecrets.PutMessageSecret(setupCtx, chat, creator, pollID, bytes.Repeat([]byte{0x42}, 32)))
+
+	voteMessage, err := client.BuildPollVote(setupCtx, &types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: chat, Sender: creator, IsGroup: true},
+		ID:            pollID,
+	}, []string{"Sushi"})
+	require.NoError(t, err)
+	store := newMemoryPollStore()
+	require.NoError(t, store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: voter.String(), ChatJID: chat.String(), PollMessageID: string(pollID), Question: "Lunch?",
+		Options: []domainChatStorage.PollOption{
+			{Name: "Pizza", Hash: pollOptionHash("Pizza")},
+			{Name: "Sushi", Hash: pollOptionHash("Sushi")},
+		},
+	}))
+
+	// The whatsmeow event handler runs with the context captured at
+	// registration; for REST-initiated logins that is the HTTP request
+	// context, already canceled by the time later poll events arrive.
+	handlerCtx, cancelHandlerCtx := context.WithCancel(context.Background())
+	cancelHandlerCtx()
+
+	payload := preparePollWebhookPayload(handlerCtx, client, store, &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: voter, IsGroup: true, IsFromMe: true},
+			ID:            "VOTE-CANCELED-CTX-1",
+		},
+		Message: voteMessage,
+	})
+	require.NotNil(t, payload)
+	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
+	require.NotNil(t, payload.SelectedOptions)
+	assert.Equal(t, []string{"Sushi"}, *payload.SelectedOptions)
+}
+
+func TestPreparePollWebhookPayloadDegradesAddOptionWithoutInnerMessage(t *testing.T) {
+	ctx := context.Background()
+	voter := types.NewJID("628222", types.DefaultUserServer)
+	client := newPollCryptoClient(t, "poll-event-add-option-empty-test", voter)
+	chat := types.NewJID("120363000000", types.GroupServer)
+	pollID := "POLL-ADD-EMPTY-1"
+	secret := bytes.Repeat([]byte{0x37}, 32)
+	require.NoError(t, client.Store.MsgSecrets.PutMessageSecret(ctx, chat, voter, pollID, secret))
+
+	store := newMemoryPollStore()
+	require.NoError(t, store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: voter.String(), ChatJID: chat.String(), PollMessageID: pollID, Question: "Lunch?",
+		Options: []domainChatStorage.PollOption{{Name: "Pizza", Hash: pollOptionHash("Pizza")}},
+	}))
+
+	// Encrypt an inner message that carries no PollAddOptionMessage, using the
+	// same "Poll Edit" secret derivation whatsmeow applies to POLL_ADD_OPTION.
+	plaintext, err := proto.Marshal(&waE2E.Message{})
+	require.NoError(t, err)
+	useCaseSecret := pollID + voter.ToNonAD().String() + voter.ToNonAD().String() + "Poll Edit"
+	secretKey := hkdfutil.SHA256(secret, nil, []byte(useCaseSecret), 32)
+	iv := bytes.Repeat([]byte{0x11}, 12)
+	ciphertext, err := gcmutil.Encrypt(secretKey, iv, plaintext, nil)
+	require.NoError(t, err)
+
+	payload := preparePollWebhookPayload(ctx, client, store, &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: voter, IsGroup: true, IsFromMe: true},
+			ID:            "ADD-EMPTY-1",
+		},
+		Message: &waE2E.Message{SecretEncryptedMessage: &waE2E.SecretEncryptedMessage{
+			SecretEncType:    waE2E.SecretEncryptedMessage_POLL_ADD_OPTION.Enum(),
+			TargetMessageKey: &waCommon.MessageKey{RemoteJID: proto.String(chat.String()), FromMe: proto.Bool(true), ID: proto.String(pollID)},
+			EncIV:            iv,
+			EncPayload:       ciphertext,
+		}},
+	})
+	require.NotNil(t, payload)
+	assert.Equal(t, "add_option", payload.Type)
+	assert.Equal(t, pollID, payload.PollID)
+	assert.Equal(t, "Lunch?", payload.Question)
+	assert.Equal(t, pollResolutionDecryptFailed, payload.ResolutionStatus)
+	assert.Nil(t, payload.AddedOption)
 }
 
 func TestPreparePollWebhookPayloadDecryptsLIDGroupVote(t *testing.T) {

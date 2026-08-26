@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -160,6 +161,12 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 	if evt == nil || evt.Message == nil {
 		return nil
 	}
+	// The event handler runs with the context captured at registration; for
+	// REST-initiated logins that is the HTTP request context, canceled once
+	// the request returns. Detach so LID normalization and message-secret
+	// reads during vote/edit decryption survive, keeping device-scoped values.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
 	deviceID := pollDeviceID(ctx, client)
 	chatJID := pollChatID(ctx, client, evt)
 	msg := utils.UnwrapMessage(evt.Message)
@@ -225,7 +232,10 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 	}
 	decrypted = utils.UnwrapMessage(decrypted)
 	if kind == "add_option" {
-		return preparePollAddOptionPayload(store, deviceID, chatJID, decrypted.GetPollAddOptionMessage(), pollID)
+		if add := decrypted.GetPollAddOptionMessage(); add != nil {
+			return preparePollAddOptionPayload(store, deviceID, chatJID, add, pollID)
+		}
+		return degraded()
 	}
 	poll, version := utils.ExtractPollCreationMessage(decrypted)
 	if poll == nil {

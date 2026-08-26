@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPollDefinitionRoundTripAndIsolation(t *testing.T) {
@@ -21,27 +23,20 @@ func TestPollDefinitionRoundTripAndIsolation(t *testing.T) {
 		},
 	}
 
-	if err := repo.UpsertPollDefinition(definition); err != nil {
-		t.Fatalf("UpsertPollDefinition: %v", err)
-	}
+	require.NoError(t, repo.UpsertPollDefinition(definition))
 	got, err := repo.GetPollDefinition(definition.DeviceID, definition.ChatJID, definition.PollMessageID)
-	if err != nil {
-		t.Fatalf("GetPollDefinition: %v", err)
-	}
-	if got == nil || got.Question != "Lunch?" || got.Version != "v3" || got.SelectableOptionCount != 1 {
-		t.Fatalf("unexpected definition: %+v", got)
-	}
-	if len(got.Options) != 2 || got.Options[0].Name != "Pizza" || got.Options[1].Hash != "hash-sushi" {
-		t.Fatalf("options not preserved in order: %+v", got.Options)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Lunch?", got.Question)
+	assert.Equal(t, "v3", got.Version)
+	assert.Equal(t, uint32(1), got.SelectableOptionCount)
+	require.Len(t, got.Options, 2)
+	assert.Equal(t, "Pizza", got.Options[0].Name)
+	assert.Equal(t, "hash-sushi", got.Options[1].Hash)
 
 	other, err := repo.GetPollDefinition("device-b@s.whatsapp.net", definition.ChatJID, definition.PollMessageID)
-	if err != nil {
-		t.Fatalf("GetPollDefinition other device: %v", err)
-	}
-	if other != nil {
-		t.Fatalf("definition leaked across devices: %+v", other)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, other, "definition leaked across devices")
 }
 
 func TestAppendPollOptionIsOrderedAndIdempotent(t *testing.T) {
@@ -53,24 +48,17 @@ func TestAppendPollOptionIsOrderedAndIdempotent(t *testing.T) {
 		Question:      "Lunch?",
 		Options:       []domainChatStorage.PollOption{{Name: "Pizza", Hash: "hash-pizza"}},
 	}
-	if err := repo.UpsertPollDefinition(definition); err != nil {
-		t.Fatalf("UpsertPollDefinition: %v", err)
-	}
+	require.NoError(t, repo.UpsertPollDefinition(definition))
 	option := domainChatStorage.PollOption{Name: "Sushi", Hash: "hash-sushi"}
-	if err := repo.AppendPollOption(definition.DeviceID, definition.ChatJID, definition.PollMessageID, option); err != nil {
-		t.Fatalf("AppendPollOption first: %v", err)
-	}
-	if err := repo.AppendPollOption(definition.DeviceID, definition.ChatJID, definition.PollMessageID, option); err != nil {
-		t.Fatalf("AppendPollOption duplicate: %v", err)
-	}
+	require.NoError(t, repo.AppendPollOption(definition.DeviceID, definition.ChatJID, definition.PollMessageID, option))
+	require.NoError(t, repo.AppendPollOption(definition.DeviceID, definition.ChatJID, definition.PollMessageID, option))
 
 	got, err := repo.GetPollDefinition(definition.DeviceID, definition.ChatJID, definition.PollMessageID)
-	if err != nil {
-		t.Fatalf("GetPollDefinition: %v", err)
-	}
-	if len(got.Options) != 2 || got.Options[0].Name != "Pizza" || got.Options[1].Name != "Sushi" {
-		t.Fatalf("unexpected options: %+v", got.Options)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.Options, 2)
+	assert.Equal(t, "Pizza", got.Options[0].Name)
+	assert.Equal(t, "Sushi", got.Options[1].Name)
 }
 
 func TestGetPollDefinitionRejectsMalformedOptionsJSON(t *testing.T) {
@@ -78,72 +66,47 @@ func TestGetPollDefinitionRejectsMalformedOptionsJSON(t *testing.T) {
 	definition := &domainChatStorage.PollDefinition{
 		DeviceID: "device-a", ChatJID: "chat-a", PollMessageID: "poll-bad-json", Question: "Q",
 	}
-	if err := repo.UpsertPollDefinition(definition); err != nil {
-		t.Fatalf("UpsertPollDefinition: %v", err)
-	}
-	if _, err := repo.db.Exec(`UPDATE poll_definitions SET options_json = ? WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?`,
-		"{", definition.DeviceID, definition.ChatJID, definition.PollMessageID); err != nil {
-		t.Fatalf("corrupt options_json: %v", err)
-	}
-	if _, err := repo.GetPollDefinition(definition.DeviceID, definition.ChatJID, definition.PollMessageID); err == nil {
-		t.Fatal("expected malformed options JSON to return an error")
-	}
+	require.NoError(t, repo.UpsertPollDefinition(definition))
+	_, err := repo.db.Exec(`UPDATE poll_definitions SET options_json = ? WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?`,
+		"{", definition.DeviceID, definition.ChatJID, definition.PollMessageID)
+	require.NoError(t, err)
+	_, err = repo.GetPollDefinition(definition.DeviceID, definition.ChatJID, definition.PollMessageID)
+	assert.Error(t, err, "expected malformed options JSON to return an error")
 }
 
 func TestPollDefinitionsFollowCleanupPaths(t *testing.T) {
-	t.Run("delete message", func(t *testing.T) {
-		repo := newTestSQLiteRepository(t)
-		storePollDefinitionForCleanup(t, repo, "device-a", "chat-a", "poll-a")
-		if err := repo.DeleteMessageByDevice("device-a", "poll-a", "chat-a"); err != nil {
-			t.Fatalf("DeleteMessageByDevice: %v", err)
-		}
-		assertPollDefinitionMissing(t, repo, "device-a", "chat-a", "poll-a")
-	})
-
-	t.Run("delete chat", func(t *testing.T) {
-		repo := newTestSQLiteRepository(t)
-		storePollDefinitionForCleanup(t, repo, "device-a", "chat-a", "poll-a")
-		if err := repo.DeleteChatByDevice("device-a", "chat-a"); err != nil {
-			t.Fatalf("DeleteChatByDevice: %v", err)
-		}
-		assertPollDefinitionMissing(t, repo, "device-a", "chat-a", "poll-a")
-	})
-
-	t.Run("delete device", func(t *testing.T) {
-		repo := newTestSQLiteRepository(t)
-		storePollDefinitionForCleanup(t, repo, "device-a", "chat-a", "poll-a")
-		if err := repo.DeleteDeviceData("device-a"); err != nil {
-			t.Fatalf("DeleteDeviceData: %v", err)
-		}
-		assertPollDefinitionMissing(t, repo, "device-a", "chat-a", "poll-a")
-	})
-
-	t.Run("truncate", func(t *testing.T) {
-		repo := newTestSQLiteRepository(t)
-		storePollDefinitionForCleanup(t, repo, "device-a", "chat-a", "poll-a")
-		if err := repo.TruncateAllChats(); err != nil {
-			t.Fatalf("TruncateAllChats: %v", err)
-		}
-		assertPollDefinitionMissing(t, repo, "device-a", "chat-a", "poll-a")
-	})
-}
-
-func storePollDefinitionForCleanup(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, pollID string) {
-	t.Helper()
-	if err := repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
-		DeviceID: deviceID, ChatJID: chatJID, PollMessageID: pollID, Question: "Q",
-	}); err != nil {
-		t.Fatalf("UpsertPollDefinition: %v", err)
+	tests := []struct {
+		name    string
+		cleanup func(repo *SQLiteRepository) error
+	}{
+		{
+			name:    "delete message",
+			cleanup: func(repo *SQLiteRepository) error { return repo.DeleteMessageByDevice("device-a", "poll-a", "chat-a") },
+		},
+		{
+			name:    "delete chat",
+			cleanup: func(repo *SQLiteRepository) error { return repo.DeleteChatByDevice("device-a", "chat-a") },
+		},
+		{
+			name:    "delete device",
+			cleanup: func(repo *SQLiteRepository) error { return repo.DeleteDeviceData("device-a") },
+		},
+		{
+			name:    "truncate",
+			cleanup: func(repo *SQLiteRepository) error { return repo.TruncateAllChats() },
+		},
 	}
-}
 
-func assertPollDefinitionMissing(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, pollID string) {
-	t.Helper()
-	got, err := repo.GetPollDefinition(deviceID, chatJID, pollID)
-	if err != nil {
-		t.Fatalf("GetPollDefinition: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("poll definition still exists: %+v", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			require.NoError(t, repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+				DeviceID: "device-a", ChatJID: "chat-a", PollMessageID: "poll-a", Question: "Q",
+			}))
+			require.NoError(t, tt.cleanup(repo))
+			got, err := repo.GetPollDefinition("device-a", "chat-a", "poll-a")
+			require.NoError(t, err)
+			assert.Nil(t, got, "poll definition should be cleaned up")
+		})
 	}
 }
