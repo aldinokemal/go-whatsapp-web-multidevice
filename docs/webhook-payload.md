@@ -281,6 +281,112 @@ resolution order.
 }
 ```
 
+### Poll Messages
+
+Poll creations, votes, edits, and added options keep the normal `message` event name. The structured `poll` object lets
+existing `WHATSAPP_WEBHOOK_EVENTS=message` subscriptions receive poll interactions without another event allow-list.
+Option hashes are lowercase hexadecimal SHA-256 hashes of the exact option names.
+
+Poll creation:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "POLL-1",
+    "chat_id": "120363402106XXXXX@g.us",
+    "body": "Poll: Lunch?",
+    "poll": {
+      "type": "creation",
+      "poll_id": "POLL-1",
+      "question": "Lunch?",
+      "options": [
+        {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+        {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"}
+      ],
+      "selectable_options_count": 1,
+      "version": "v3"
+    }
+  }
+}
+```
+
+Resolved vote:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "VOTE-1",
+    "chat_id": "120363402106XXXXX@g.us",
+    "body": "Poll vote: Sushi",
+    "poll": {
+      "type": "vote",
+      "poll_id": "POLL-1",
+      "question": "Lunch?",
+      "options": [
+        {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+        {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"}
+      ],
+      "selected_options": ["Sushi"],
+      "selected_option_hashes": ["670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"],
+      "resolution_status": "resolved"
+    }
+  }
+}
+```
+
+Clearing all choices is distinct from a resolution failure. Both arrays are present and empty:
+
+```json
+{
+  "body": "Poll vote cleared",
+  "poll": {
+    "type": "vote",
+    "poll_id": "POLL-1",
+    "selected_options": [],
+    "selected_option_hashes": [],
+    "resolution_status": "resolved"
+  }
+}
+```
+
+Resolution statuses:
+
+| Status | Meaning |
+|---|---|
+| `resolved` | The vote decrypted and every selected hash matched a stored option. |
+| `partially_resolved` | The vote decrypted, but one or more hashes did not match the stored definition. All hashes and the matched names are returned. |
+| `definition_missing` | The vote decrypted, but the original poll definition was unavailable. Hashes are returned and names are empty. |
+| `decrypt_failed` | The original WhatsApp message secret was missing or authentication failed. Known poll details are returned, but selection fields are omitted. |
+
+Poll edits replace the stored definition and use `"type": "edit"`. Add-option messages use `"type": "add_option"`,
+return the current full `options` list when known, and add an `added_option` object:
+
+```json
+{
+  "body": "Poll option added: Ramen",
+  "poll": {
+    "type": "add_option",
+    "poll_id": "POLL-1",
+    "question": "Lunch?",
+    "options": [
+      {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+      {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"},
+      {"name": "Ramen", "hash": "8930b1916b28f31f1e9c067cecce8301a2653982e8696f5b78d30229c3e0e988"}
+    ],
+    "added_option": {"name": "Ramen", "hash": "8930b1916b28f31f1e9c067cecce8301a2653982e8696f5b78d30229c3e0e988"}
+  }
+}
+```
+
+Poll definitions are persisted per device and chat from live messages, sent polls, and recent/bootstrap history sync, so
+votes can normally be resolved after a restart. Decryption still depends on WhatsApp having delivered the original
+message secret. Older/incomplete history and some upstream LID migration cases may therefore produce `decrypt_failed`;
+the webhook is still delivered with a safe degraded payload.
+
 ## Receipt Events
 
 Receipt events are triggered when messages receive acknowledgments such as delivery confirmations and read receipts.
