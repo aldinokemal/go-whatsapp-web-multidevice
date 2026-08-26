@@ -115,6 +115,10 @@ func TestProcessConversationMessagesPersistsPollDefinitionWithoutText(t *testing
 	if repo.definition.Question != "History poll" || len(repo.definition.Options) != 2 || repo.definition.Version != "v3" {
 		t.Fatalf("unexpected poll definition: %+v", repo.definition)
 	}
+	wantTimestamp := time.Unix(int64(timestamp), 0)
+	if !repo.definition.UpdatedAt.Equal(wantTimestamp) {
+		t.Fatalf("poll definition updated_at = %s, want history timestamp %s", repo.definition.UpdatedAt, wantTimestamp)
+	}
 }
 
 type historyReactionRepoSpy struct {

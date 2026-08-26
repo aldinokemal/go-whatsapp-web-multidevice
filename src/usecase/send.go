@@ -1474,7 +1474,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	}
 
 	response.MessageID = ts.ID
-	if err := service.persistSentPollDefinition(ctx, dataWaRecipient, ts.ID, request); err != nil {
+	if err := service.persistSentPollDefinition(ctx, dataWaRecipient, ts.ID, request, ts.Timestamp); err != nil {
 		// The WhatsApp send already succeeded. Keep the API response successful
 		// while making the loss of future vote resolution visible in logs.
 		logrus.Warnf("Failed to persist sent poll definition %s: %v", ts.ID, err)
@@ -1483,7 +1483,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	return response, nil
 }
 
-func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipient types.JID, pollID string, request domainSend.PollRequest) error {
+func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipient types.JID, pollID string, request domainSend.PollRequest, sentAt ...time.Time) error {
 	if service.chatStorageRepo == nil {
 		return fmt.Errorf("chat storage repository is not configured")
 	}
@@ -1500,7 +1500,7 @@ func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipi
 		}
 		options = append(options, domainChatStorage.PollOption{Name: name, Hash: hashHex})
 	}
-	return service.chatStorageRepo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+	definition := &domainChatStorage.PollDefinition{
 		DeviceID:              deviceID,
 		ChatJID:               recipient.ToNonAD().String(),
 		PollMessageID:         pollID,
@@ -1508,7 +1508,11 @@ func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipi
 		Options:               options,
 		SelectableOptionCount: uint32(request.MaxAnswer),
 		Version:               "v1",
-	})
+	}
+	if len(sentAt) > 0 {
+		definition.UpdatedAt = sentAt[0]
+	}
+	return service.chatStorageRepo.UpsertPollDefinition(definition)
 }
 
 func (service serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {

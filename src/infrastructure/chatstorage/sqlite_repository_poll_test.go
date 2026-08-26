@@ -2,6 +2,7 @@ package chatstorage
 
 import (
 	"testing"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/stretchr/testify/assert"
@@ -72,6 +73,41 @@ func TestGetPollDefinitionRejectsMalformedOptionsJSON(t *testing.T) {
 	require.NoError(t, err)
 	_, err = repo.GetPollDefinition(definition.DeviceID, definition.ChatJID, definition.PollMessageID)
 	assert.Error(t, err, "expected malformed options JSON to return an error")
+}
+
+func TestUpsertPollDefinitionDoesNotReplaceNewerDefinition(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	newerTime := time.Date(2026, time.August, 27, 10, 0, 0, 0, time.UTC)
+	olderTime := newerTime.Add(-time.Hour)
+	newer := &domainChatStorage.PollDefinition{
+		DeviceID:      "device-a",
+		ChatJID:       "chat-a",
+		PollMessageID: "poll-monotonic",
+		Question:      "Edited question",
+		Options: []domainChatStorage.PollOption{
+			{Name: "Original", Hash: "hash-original"},
+			{Name: "Added live", Hash: "hash-added"},
+		},
+		UpdatedAt: newerTime,
+	}
+	replayedCreation := &domainChatStorage.PollDefinition{
+		DeviceID:      newer.DeviceID,
+		ChatJID:       newer.ChatJID,
+		PollMessageID: newer.PollMessageID,
+		Question:      "Original question",
+		Options:       []domainChatStorage.PollOption{{Name: "Original", Hash: "hash-original"}},
+		UpdatedAt:     olderTime,
+	}
+
+	require.NoError(t, repo.UpsertPollDefinition(newer))
+	require.NoError(t, repo.UpsertPollDefinition(replayedCreation))
+	got, err := repo.GetPollDefinition(newer.DeviceID, newer.ChatJID, newer.PollMessageID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "Edited question", got.Question)
+	assert.True(t, got.UpdatedAt.Equal(newerTime), "updated_at = %s, want %s", got.UpdatedAt, newerTime)
+	require.Len(t, got.Options, 2)
+	assert.Equal(t, "Added live", got.Options[1].Name)
 }
 
 func TestPollDefinitionsFollowCleanupPaths(t *testing.T) {

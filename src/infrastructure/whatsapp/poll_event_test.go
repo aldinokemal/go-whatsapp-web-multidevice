@@ -20,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"go.mau.fi/whatsmeow/util/gcmutil"
 	"go.mau.fi/whatsmeow/util/hkdfutil"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -387,6 +388,61 @@ func TestPreparePollWebhookPayloadDecryptsLIDGroupVote(t *testing.T) {
 	if payload == nil || payload.ResolutionStatus != pollResolutionResolved || payload.SelectedOptions == nil || len(*payload.SelectedOptions) != 1 || (*payload.SelectedOptions)[0] != "Yes" {
 		t.Fatalf("unexpected LID payload: %+v", payload)
 	}
+}
+
+func TestPreparePollWebhookPayloadFindsDefinitionStoredBeforeLIDMapping(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	ctx := context.Background()
+	voterPN := types.NewJID("628222", types.DefaultUserServer)
+	voterLID := types.NewJID("222000000000", types.HiddenUserServer)
+	chatPN := types.NewJID("628111", types.DefaultUserServer)
+	chatLID := types.NewJID("111000000000", types.HiddenUserServer)
+	client := newPollCryptoClient(t, "poll-event-late-lid-map-test", voterPN)
+	client.Store.LID = voterLID
+	pollID := types.MessageID("POLL-LATE-LID-1")
+	require.NoError(t, client.Store.MsgSecrets.PutMessageSecret(ctx, chatLID, chatLID, pollID, bytes.Repeat([]byte{0x63}, 32)))
+
+	voteMessage, err := client.BuildPollVote(ctx, &types.MessageInfo{
+		MessageSource: types.MessageSource{
+			Chat:           chatLID,
+			Sender:         chatLID,
+			AddressingMode: types.AddressingModeLID,
+		},
+		ID: pollID,
+	}, []string{"Yes"})
+	require.NoError(t, err)
+
+	store := newMemoryPollStore()
+	require.NoError(t, store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID:      voterPN.String(),
+		ChatJID:       chatLID.String(),
+		PollMessageID: string(pollID),
+		Question:      "Mapped later?",
+		Options:       []domainChatStorage.PollOption{{Name: "Yes", Hash: pollOptionHash("Yes")}},
+	}))
+
+	// The poll was stored while the chat only had a LID. The mapping becomes
+	// available before the vote, so normalization now produces the PN alias.
+	require.NoError(t, client.Store.LIDs.PutLIDMapping(ctx, chatLID, chatPN))
+	payload := preparePollWebhookPayload(ctx, client, store, &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:           chatLID,
+				Sender:         voterLID,
+				IsFromMe:       true,
+				AddressingMode: types.AddressingModeLID,
+			},
+			ID: "VOTE-LATE-LID-1",
+		},
+		Message: voteMessage,
+	})
+	require.NotNil(t, payload)
+	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
+	require.NotNil(t, payload.SelectedOptions)
+	assert.Equal(t, []string{"Yes"}, *payload.SelectedOptions)
 }
 
 func TestPreparePollWebhookPayloadAppliesAddOptionIdempotently(t *testing.T) {

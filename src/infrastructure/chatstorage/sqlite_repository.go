@@ -763,32 +763,54 @@ func (r *SQLiteRepository) UpsertPollDefinition(definition *domainChatStorage.Po
 		return fmt.Errorf("failed to marshal poll options: %w", err)
 	}
 	now := time.Now()
-	if definition.CreatedAt.IsZero() {
-		definition.CreatedAt = now
+	if definition.UpdatedAt.IsZero() {
+		definition.UpdatedAt = now
 	}
-	definition.UpdatedAt = now
+	if definition.CreatedAt.IsZero() {
+		definition.CreatedAt = definition.UpdatedAt
+	}
 
-	result, err := r.db.Exec(`
-		UPDATE poll_definitions
-		SET question = ?, options_json = ?, selectable_option_count = ?, version = ?, updated_at = ?
-		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
-	`, definition.Question, string(optionsJSON), definition.SelectableOptionCount, definition.Version, definition.UpdatedAt,
-		definition.DeviceID, definition.ChatJID, definition.PollMessageID)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected != 0 {
-		return nil
+	defer tx.Rollback()
+
+	var existingUpdatedAt time.Time
+	err = tx.QueryRow(`
+		SELECT updated_at FROM poll_definitions
+		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+	`, definition.DeviceID, definition.ChatJID, definition.PollMessageID).Scan(&existingUpdatedAt)
+	switch {
+	case err == nil:
+		if !definition.UpdatedAt.After(existingUpdatedAt) {
+			return tx.Commit()
+		}
+		_, err = tx.Exec(`
+			UPDATE poll_definitions
+			SET question = ?, options_json = ?, selectable_option_count = ?, version = ?, updated_at = ?
+			WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+		`, definition.Question, string(optionsJSON), definition.SelectableOptionCount, definition.Version, definition.UpdatedAt,
+			definition.DeviceID, definition.ChatJID, definition.PollMessageID)
+		if err != nil {
+			return err
+		}
+		return tx.Commit()
+	case err != sql.ErrNoRows:
+		return err
 	}
-	_, err = r.db.Exec(`
+
+	_, err = tx.Exec(`
 		INSERT INTO poll_definitions (
 			device_id, chat_jid, poll_message_id, question, options_json,
 			selectable_option_count, version, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, definition.DeviceID, definition.ChatJID, definition.PollMessageID, definition.Question, string(optionsJSON),
 		definition.SelectableOptionCount, definition.Version, definition.CreatedAt, definition.UpdatedAt)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetPollDefinition retrieves one poll definition using its full device/chat identity.
