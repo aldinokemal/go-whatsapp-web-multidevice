@@ -36,6 +36,11 @@ type IChatStorageRepository interface {
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error
 
+	// Poll definition operations
+	UpsertPollDefinition(definition *PollDefinition) error
+	GetPollDefinition(deviceID, chatJID, pollMessageID string) (*PollDefinition, error)
+	AppendPollOption(deviceID, chatJID, pollMessageID string, option PollOption) error
+
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)

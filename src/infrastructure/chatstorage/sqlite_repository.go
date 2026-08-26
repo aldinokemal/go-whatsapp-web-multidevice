@@ -253,6 +253,9 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ?", jid); err != nil {
 		return err
 	}
+	if _, err := tx.Exec("DELETE FROM poll_definitions WHERE chat_jid = ?", jid); err != nil {
+		return err
+	}
 
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ?", jid)
@@ -284,6 +287,9 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
 		return err
 	}
 
@@ -709,6 +715,9 @@ func (r *SQLiteRepository) DeleteMessage(id, chatJID string) error {
 	if _, err := tx.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec("DELETE FROM poll_definitions WHERE poll_message_id = ? AND chat_jid = ?", id, chatJID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ?", id, chatJID); err != nil {
 		return err
 	}
@@ -730,7 +739,121 @@ func (r *SQLiteRepository) DeleteMessageByDevice(deviceID, id, chatJID string) e
 	if _, err := tx.Exec("DELETE FROM message_edits WHERE original_message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec("DELETE FROM poll_definitions WHERE poll_message_id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec("DELETE FROM messages WHERE id = ? AND chat_jid = ? AND device_id = ?", id, chatJID, deviceID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpsertPollDefinition stores the ordered poll option catalogue used to map
+// decrypted vote hashes back to human-readable names.
+func (r *SQLiteRepository) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
+	if definition == nil {
+		return fmt.Errorf("poll definition is required")
+	}
+	if strings.TrimSpace(definition.DeviceID) == "" || strings.TrimSpace(definition.ChatJID) == "" || strings.TrimSpace(definition.PollMessageID) == "" {
+		return fmt.Errorf("poll definition requires device_id, chat_jid, and poll_message_id")
+	}
+
+	optionsJSON, err := json.Marshal(definition.Options)
+	if err != nil {
+		return fmt.Errorf("failed to marshal poll options: %w", err)
+	}
+	now := time.Now()
+	if definition.CreatedAt.IsZero() {
+		definition.CreatedAt = now
+	}
+	definition.UpdatedAt = now
+
+	result, err := r.db.Exec(`
+		UPDATE poll_definitions
+		SET question = ?, options_json = ?, selectable_option_count = ?, version = ?, updated_at = ?
+		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+	`, definition.Question, string(optionsJSON), definition.SelectableOptionCount, definition.Version, definition.UpdatedAt,
+		definition.DeviceID, definition.ChatJID, definition.PollMessageID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected != 0 {
+		return nil
+	}
+	_, err = r.db.Exec(`
+		INSERT INTO poll_definitions (
+			device_id, chat_jid, poll_message_id, question, options_json,
+			selectable_option_count, version, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, definition.DeviceID, definition.ChatJID, definition.PollMessageID, definition.Question, string(optionsJSON),
+		definition.SelectableOptionCount, definition.Version, definition.CreatedAt, definition.UpdatedAt)
+	return err
+}
+
+// GetPollDefinition retrieves one poll definition using its full device/chat identity.
+func (r *SQLiteRepository) GetPollDefinition(deviceID, chatJID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	var definition domainChatStorage.PollDefinition
+	var optionsJSON string
+	err := r.db.QueryRow(`
+		SELECT device_id, chat_jid, poll_message_id, question, options_json,
+			selectable_option_count, version, created_at, updated_at
+		FROM poll_definitions
+		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+	`, deviceID, chatJID, pollMessageID).Scan(
+		&definition.DeviceID, &definition.ChatJID, &definition.PollMessageID, &definition.Question, &optionsJSON,
+		&definition.SelectableOptionCount, &definition.Version, &definition.CreatedAt, &definition.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(optionsJSON), &definition.Options); err != nil {
+		return nil, fmt.Errorf("failed to decode poll options for %s: %w", pollMessageID, err)
+	}
+	return &definition, nil
+}
+
+// AppendPollOption atomically appends a new option while treating a repeated
+// hash as an idempotent delivery of the same add-option event.
+func (r *SQLiteRepository) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var optionsJSON string
+	err = tx.QueryRow(`
+		SELECT options_json FROM poll_definitions
+		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+	`, deviceID, chatJID, pollMessageID).Scan(&optionsJSON)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("poll definition %s not found", pollMessageID)
+	}
+	if err != nil {
+		return err
+	}
+	var options []domainChatStorage.PollOption
+	if err := json.Unmarshal([]byte(optionsJSON), &options); err != nil {
+		return fmt.Errorf("failed to decode poll options for %s: %w", pollMessageID, err)
+	}
+	for _, existing := range options {
+		if existing.Hash == option.Hash {
+			return tx.Commit()
+		}
+	}
+	options = append(options, option)
+	encoded, err := json.Marshal(options)
+	if err != nil {
+		return fmt.Errorf("failed to marshal poll options: %w", err)
+	}
+	if _, err := tx.Exec(`
+		UPDATE poll_definitions SET options_json = ?, updated_at = ?
+		WHERE device_id = ? AND chat_jid = ? AND poll_message_id = ?
+	`, string(encoded), time.Now(), deviceID, chatJID, pollMessageID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -1299,6 +1422,11 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 		return fmt.Errorf("failed to delete chatwoot forward queue: %w", err)
 	}
 
+	_, err = tx.Exec("DELETE FROM poll_definitions")
+	if err != nil {
+		return fmt.Errorf("failed to delete poll definitions: %w", err)
+	}
+
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
@@ -1340,6 +1468,10 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 
 	if _, err := tx.Exec(`DELETE FROM chatwoot_forward_queue WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device chatwoot forward queue: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM poll_definitions WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device poll definitions: %w", err)
 	}
 
 	// Delete messages after dependent rows via direct device_id filter.
@@ -2596,5 +2728,18 @@ func (r *SQLiteRepository) getMigrations() []string {
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_conversation_account ON chatwoot_message_links(chatwoot_conversation_id, chatwoot_account_id, updated_at)`,
 		// Migration 43: Count/delete message links by owning config without a full-table scan
 		`CREATE INDEX IF NOT EXISTS idx_chatwoot_links_config ON chatwoot_message_links(chatwoot_config_id)`,
+		// Migration 44: Persist poll option catalogues for encrypted vote resolution
+		`CREATE TABLE IF NOT EXISTS poll_definitions (
+			device_id VARCHAR(255) NOT NULL DEFAULT '',
+			chat_jid VARCHAR(255) NOT NULL,
+			poll_message_id VARCHAR(255) NOT NULL,
+			question TEXT NOT NULL DEFAULT '',
+			options_json TEXT NOT NULL DEFAULT '[]',
+			selectable_option_count INTEGER NOT NULL DEFAULT 0,
+			version VARCHAR(16) NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (device_id, chat_jid, poll_message_id)
+		)`,
 	}
 }

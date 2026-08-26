@@ -51,6 +51,26 @@ type MessageEdit struct {
 	CreatedAt         time.Time `db:"created_at"`
 }
 
+// PollOption is one stable poll choice and its lowercase SHA-256 name hash.
+type PollOption struct {
+	Name string `json:"name"`
+	Hash string `json:"hash"`
+}
+
+// PollDefinition stores the option catalogue required to resolve encrypted
+// poll vote hashes after restarts and history synchronization.
+type PollDefinition struct {
+	DeviceID              string       `db:"device_id"`
+	ChatJID               string       `db:"chat_jid"`
+	PollMessageID         string       `db:"poll_message_id"`
+	Question              string       `db:"question"`
+	Options               []PollOption `db:"-"`
+	SelectableOptionCount uint32       `db:"selectable_option_count"`
+	Version               string       `db:"version"`
+	CreatedAt             time.Time    `db:"created_at"`
+	UpdatedAt             time.Time    `db:"updated_at"`
+}
+
 // ChatwootMessageLink maps a WhatsApp message to the Chatwoot message created
 // for it. It is device-scoped because the same WhatsApp message ID can appear
 // in independent device stores.
