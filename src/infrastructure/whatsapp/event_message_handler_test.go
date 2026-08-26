@@ -74,6 +74,62 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 	}
 }
 
+func TestHandleMessagePersistsPollBeforeForwardingWebhook(t *testing.T) {
+	originalWebhookURLs := config.WhatsappWebhook
+	originalWebhookEvents := config.WhatsappWebhookEvents
+	originalSubmit := submitWebhookFn
+	originalLog := log
+	defer func() {
+		config.WhatsappWebhook = originalWebhookURLs
+		config.WhatsappWebhookEvents = originalWebhookEvents
+		submitWebhookFn = originalSubmit
+		log = originalLog
+	}()
+	log = waLog.Noop
+	config.WhatsappWebhook = []string{"https://example.test/webhook"}
+	config.WhatsappWebhookEvents = nil
+
+	repo := &messageHandlerRepoSpy{}
+	done := make(chan map[string]any, 1)
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		done <- payload
+		return nil
+	}
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("device-a", nil, nil))
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: types.NewJID("120363000000", types.GroupServer)},
+			ID:            "POLL-HANDLER-1",
+			Timestamp:     time.Date(2026, time.August, 26, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{
+			Name: protoString("Lunch?"),
+			Options: []*waE2E.PollCreationMessage_Option{
+				{OptionName: protoString("Pizza")},
+				{OptionName: protoString("Sushi")},
+			},
+		}},
+	}
+
+	handleMessage(ctx, evt, repo, nil)
+	select {
+	case delivered := <-done:
+		payload := delivered["payload"].(map[string]any)
+		poll, ok := payload["poll"].(*webhookPollPayload)
+		if !ok || poll.Type != "creation" || len(poll.Options) != 2 || payload["body"] != "Poll: Lunch?" {
+			t.Fatalf("unexpected webhook payload: %+v", payload)
+		}
+		repo.mu.Lock()
+		definition := repo.pollDefinition
+		repo.mu.Unlock()
+		if definition == nil || definition.PollMessageID != "POLL-HANDLER-1" {
+			t.Fatalf("poll was not persisted before webhook delivery: %+v", definition)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for poll webhook")
+	}
+}
+
 func TestHandleWebhookForwardSkipsBroadcastRegardlessOfChatwoot(t *testing.T) {
 	originalWebhookURLs := config.WhatsappWebhook
 	originalWebhookEvents := config.WhatsappWebhookEvents
@@ -159,6 +215,29 @@ type messageHandlerRepoSpy struct {
 	mu                  sync.Mutex
 	createMessageCalls  int
 	createReactionCalls int
+	pollDefinition      *domainChatStorage.PollDefinition
+}
+
+func (r *messageHandlerRepoSpy) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pollDefinition = definition
+	return nil
+}
+
+func (r *messageHandlerRepoSpy) GetPollDefinition(_, _, _ string) (*domainChatStorage.PollDefinition, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pollDefinition, nil
+}
+
+func (r *messageHandlerRepoSpy) AppendPollOption(_, _, _ string, option domainChatStorage.PollOption) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pollDefinition != nil {
+		r.pollDefinition.Options = append(r.pollDefinition.Options, option)
+	}
+	return nil
 }
 
 func (r *messageHandlerRepoSpy) CreateMessage(context.Context, *events.Message) error {

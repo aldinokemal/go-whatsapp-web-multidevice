@@ -252,6 +252,34 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	return ""
 }
 
+// ExtractPollCreationMessage returns the poll creation payload regardless of
+// which versioned Message field WhatsApp used. V4 is a FutureProofMessage
+// wrapper whose inner message carries the actual poll creation.
+func ExtractPollCreationMessage(msg *waE2E.Message) (*waE2E.PollCreationMessage, string) {
+	msg = UnwrapMessage(msg)
+	if msg == nil {
+		return nil, ""
+	}
+
+	switch {
+	case msg.GetPollCreationMessage() != nil:
+		return msg.GetPollCreationMessage(), "v1"
+	case msg.GetPollCreationMessageV2() != nil:
+		return msg.GetPollCreationMessageV2(), "v2"
+	case msg.GetPollCreationMessageV3() != nil:
+		return msg.GetPollCreationMessageV3(), "v3"
+	case msg.GetPollCreationMessageV4().GetMessage() != nil:
+		inner, _ := ExtractPollCreationMessage(msg.GetPollCreationMessageV4().GetMessage())
+		return inner, "v4"
+	case msg.GetPollCreationMessageV5() != nil:
+		return msg.GetPollCreationMessageV5(), "v5"
+	case msg.GetPollCreationMessageV6() != nil:
+		return msg.GetPollCreationMessageV6(), "v6"
+	default:
+		return nil, ""
+	}
+}
+
 // ExtractMediaCaption extracts caption text from media messages (image, video, document, PTV).
 func ExtractMediaCaption(msg *waE2E.Message) string {
 	if msg == nil {
@@ -482,12 +510,12 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 	}
 
 	var (
-		mediaURL       string
-		directPath     string
-		mediaKey       []byte
-		fileSHA256     []byte
-		fileEncSHA256  []byte
-		fileLength     uint64
+		mediaURL      string
+		directPath    string
+		mediaKey      []byte
+		fileSHA256    []byte
+		fileEncSHA256 []byte
+		fileLength    uint64
 	)
 
 	if opts.Upload != nil {

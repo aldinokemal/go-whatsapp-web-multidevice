@@ -238,6 +238,13 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				continue
 			}
 
+			if poll, version := utils.ExtractPollCreationMessage(msg.GetMessage()); poll != nil {
+				definition := pollDefinitionFromCreation(deviceID, chatJID, messageID, version, poll)
+				if err := chatStorageRepo.UpsertPollDefinition(definition); err != nil {
+					log.Warnf("Failed to store history poll definition %s for chat %s: %v", messageID, chatJID, err)
+				}
+			}
+
 			// Extract message content and media info
 			content := utils.ExtractMessageTextFromProto(msg.GetMessage())
 			mediaType, filename, mediaURL, directPath, mediaKey, fileSHA256, fileEncSHA256, fileLength := utils.ExtractMediaInfo(msg.GetMessage())

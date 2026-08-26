@@ -1474,8 +1474,41 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	}
 
 	response.MessageID = ts.ID
+	if err := service.persistSentPollDefinition(ctx, dataWaRecipient, ts.ID, request); err != nil {
+		// The WhatsApp send already succeeded. Keep the API response successful
+		// while making the loss of future vote resolution visible in logs.
+		logrus.Warnf("Failed to persist sent poll definition %s: %v", ts.ID, err)
+	}
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipient types.JID, pollID string, request domainSend.PollRequest) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("chat storage repository is not configured")
+	}
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return domainChatStorage.ErrMissingDeviceContext
+	}
+	options := make([]domainChatStorage.PollOption, 0, len(request.Options))
+	for _, name := range request.Options {
+		hash := whatsmeow.HashPollOptions([]string{name})
+		hashHex := ""
+		if len(hash) > 0 {
+			hashHex = fmt.Sprintf("%x", hash[0])
+		}
+		options = append(options, domainChatStorage.PollOption{Name: name, Hash: hashHex})
+	}
+	return service.chatStorageRepo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID:              deviceID,
+		ChatJID:               recipient.ToNonAD().String(),
+		PollMessageID:         pollID,
+		Question:              request.Question,
+		Options:               options,
+		SelectableOptionCount: uint32(request.MaxAnswer),
+		Version:               "v1",
+	})
 }
 
 func (service serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {
