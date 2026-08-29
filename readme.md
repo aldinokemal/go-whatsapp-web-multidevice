@@ -699,6 +699,7 @@ You may also fork or modify the source code.
 | ✅       | Get Group Invite Link                  | GET    | /group/invite-link                  |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 | ✅       | Get Newsletter Messages                | GET    | /newsletter/messages                |
+| ✅       | Download Newsletter Message Media      | GET    | /newsletter/messages/{server_id}/download |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |

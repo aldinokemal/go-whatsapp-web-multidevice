@@ -3662,6 +3662,54 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /newsletter/messages/{server_id}/download:
+    get:
+      operationId: downloadNewsletterMessageMedia
+      tags:
+        - newsletter
+      summary: Download media from a newsletter message
+      description: |
+        Fetches one newsletter message directly from WhatsApp by server ID,
+        downloads its media to the server's statics directory, and returns the
+        saved file metadata and public URL. Supported media types are images,
+        videos, video notes, audio, documents, and stickers.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: server_id
+          in: path
+          required: true
+          description: Newsletter message server ID returned by GET /newsletter/messages
+          schema:
+            type: integer
+            minimum: 1
+          example: 8872
+        - name: newsletter_id
+          in: query
+          required: true
+          description: Newsletter JID containing the message
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+      responses:
+        '200':
+          description: Media downloaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterMediaDownloadResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Message lookup or media download failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /chatwoot/sync:
     post:
       operationId: chatwootSyncHistory
@@ -4990,6 +5038,52 @@ components:
         text:
           type: string
           example: "Hello from the channel!"
+    NewsletterMediaDownloadResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Media downloaded successfully
+        results:
+          type: object
+          properties:
+            server_id:
+              type: integer
+              example: 8872
+            message_id:
+              type: string
+              example: ACBD7F85529AAD63FAF376F622351D14
+            status:
+              type: string
+              example: Media downloaded successfully to statics/media/120363024512399999/2026-08-28/image.jpg
+            media_type:
+              type: string
+              enum: [image, video, video_note, audio, document, sticker]
+              example: image
+            mime_type:
+              type: string
+              example: image/jpeg
+            filename:
+              type: string
+              example: image.jpg
+            file_path:
+              type: string
+              description: Local server path where the downloaded media was saved
+              example: statics/media/120363024512399999/2026-08-28/image.jpg
+            file_url:
+              type: string
+              description: Public URL for the saved media file
+              example: http://localhost:3000/statics/media/120363024512399999/2026-08-28/image.jpg
+            file_size:
+              type: integer
+              format: int64
+              example: 524288
     MyListContactsResponse:
       type: object
       properties:

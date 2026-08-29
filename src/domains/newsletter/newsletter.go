@@ -5,6 +5,7 @@ import "context"
 type INewsletterUsecase interface {
 	Unfollow(ctx context.Context, request UnfollowRequest) (err error)
 	GetMessages(ctx context.Context, request GetMessagesRequest) (response GetMessagesResponse, err error)
+	DownloadMedia(ctx context.Context, request DownloadMediaRequest) (response DownloadMediaResponse, err error)
 }
 
 type UnfollowRequest struct {
@@ -36,4 +37,21 @@ type Message struct {
 
 type GetMessagesResponse struct {
 	Data []Message `json:"data"`
+}
+
+type DownloadMediaRequest struct {
+	NewsletterID string `json:"newsletter_id" query:"newsletter_id"`
+	ServerID     int    `json:"server_id" uri:"server_id"`
+}
+
+type DownloadMediaResponse struct {
+	ServerID  int    `json:"server_id"`
+	MessageID string `json:"message_id"`
+	Status    string `json:"status"`
+	MediaType string `json:"media_type"`
+	MimeType  string `json:"mime_type"`
+	Filename  string `json:"filename"`
+	FilePath  string `json:"file_path"`
+	FileURL   string `json:"file_url,omitempty"`
+	FileSize  int64  `json:"file_size"`
 }

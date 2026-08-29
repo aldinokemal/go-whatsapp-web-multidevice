@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -36,6 +37,28 @@ func ValidateGetNewsletterMessages(ctx context.Context, request *domainNewslette
 
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func ValidateDownloadNewsletterMedia(ctx context.Context, request domainNewsletter.DownloadMediaRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.NewsletterID, validation.Required, validation.By(validateNewsletterJIDShape)),
+		validation.Field(&request.ServerID, validation.By(validatePositiveServerID)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
+func validatePositiveServerID(value any) error {
+	serverID, ok := value.(int)
+	if !ok || serverID < 1 {
+		return errors.New("must be no less than 1")
 	}
 
 	return nil
