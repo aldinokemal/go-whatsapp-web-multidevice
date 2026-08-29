@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
@@ -156,6 +157,14 @@ func TestValidateDownloadNewsletterMedia(t *testing.T) {
 				ServerID:     -1,
 			},
 			err: pkgError.ValidationError("server_id: must be no less than 1."),
+		},
+		{
+			name: "should reject server id that would overflow lookup boundary",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@newsletter",
+				ServerID:     math.MaxInt,
+			},
+			err: pkgError.ValidationError("server_id: must be less than the maximum integer value."),
 		},
 	}
 

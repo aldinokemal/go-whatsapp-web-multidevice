@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -59,6 +60,9 @@ func validatePositiveServerID(value any) error {
 	serverID, ok := value.(int)
 	if !ok || serverID < 1 {
 		return errors.New("must be no less than 1")
+	}
+	if serverID == math.MaxInt {
+		return errors.New("must be less than the maximum integer value")
 	}
 
 	return nil
