@@ -17,9 +17,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -389,6 +391,70 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 	return service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String())
 }
 
+// updateStoredMessage mirrors an edit sent through the API into local chat
+// storage, the same way deleteStoredMessage does for a revoke or delete.
+//
+// An edit that ARRIVES from another device is already applied: CreateMessage
+// spots the MESSAGE_EDIT protocol message and calls storeEditedMessage. An edit
+// we send ourselves is never echoed back to us, so nothing applied it, and the
+// stored copy keeps the text as first sent — indefinitely.
+//
+// That matters beyond the chat viewer, because mergeReplyContext builds a
+// reply's quoted context from the stored copy. Quoting a message that was edited
+// therefore sends the recipient the PRE-EDIT text, so the quote can show wording
+// the message no longer contains.
+//
+// The edit is replayed as the same events.Message an inbound edit produces, so it
+// runs through the existing, tested edit path (content update plus a
+// message_edits history row) rather than a second implementation that could
+// drift from it.
+func (service serviceMessage) updateStoredMessage(
+	ctx context.Context,
+	client *whatsmeow.Client,
+	messageID string,
+	recipient types.JID,
+	newContent string,
+	editEventID string,
+	editedAt time.Time,
+) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be updated without chat storage", messageID)
+	}
+
+	senderJID := types.EmptyJID
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = *client.Store.ID
+	}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     recipient,
+				Sender:   senderJID,
+				IsFromMe: true,
+			},
+			ID:        editEventID,
+			Timestamp: editedAt,
+		},
+		Message: &waE2E.Message{
+			ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+				Key: &waCommon.MessageKey{
+					ID:        proto.String(messageID),
+					RemoteJID: proto.String(recipient.String()),
+					FromMe:    proto.Bool(true),
+				},
+				EditedMessage: &waE2E.Message{Conversation: proto.String(newContent)},
+			},
+		},
+	}
+
+	if err := service.chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+		return fmt.Errorf("WhatsApp action succeeded, but failed to update local message %s: %w", messageID, err)
+	}
+	return nil
+}
+
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
@@ -399,14 +465,18 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
 	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
+		return response, err
+	}
+
+	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), request.Message, ts.ID, ts.Timestamp); err != nil {
 		return response, err
 	}
 
