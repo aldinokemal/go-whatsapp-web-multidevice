@@ -2,6 +2,7 @@ package chatstorage
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -110,4 +111,51 @@ func TestSentStoreWritesContentWhenNoEditExists(t *testing.T) {
 	stored, err := repo.GetMessageByIDAndDevice(orderDevice, orderMsgID)
 	require.NoError(t, err)
 	assert.Equal(t, "second", stored.Content)
+}
+
+// Interleaves the two writers repeatedly. The real guarantee is structural — the
+// edit check is an EXISTS inside the UPDATE, so there is no window between check
+// and write — and this exercises it under actual contention rather than relying
+// on a hand-picked order. Content must never come back as the original.
+func TestConcurrentSentStoreAndEditNeverYieldsOriginalContent(t *testing.T) {
+	const rounds = 40
+
+	for i := 0; i < rounds; i++ {
+		repo, ctx := orderTestRepo(t)
+		now := time.Now().UTC()
+		id := orderMsgID
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		start := make(chan struct{})
+
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = repo.StoreSentMessageWithContext(
+				ctx, id, "628123456789@s.whatsapp.net", orderChatJID, "ORIGINAL content", now, nil)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = repo.CreateMessage(ctx, editEvent(id, "EDITED content", now))
+		}()
+
+		close(start)
+		wg.Wait()
+
+		stored, err := repo.GetMessageByIDAndDevice(orderDevice, id)
+		require.NoError(t, err)
+		if stored == nil {
+			continue // both writers failed to land a row; nothing to assert
+		}
+		// The edit may or may not have won the ordering, but once it has been
+		// RECORDED the stored content must reflect it — never the original.
+		edits, err := repo.GetMessageEdits(id, orderDevice)
+		require.NoError(t, err)
+		if len(edits) > 0 {
+			require.Equal(t, "EDITED content", stored.Content,
+				"round %d: the original store clobbered a recorded edit", i)
+		}
+	}
 }
