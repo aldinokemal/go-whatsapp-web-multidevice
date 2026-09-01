@@ -404,10 +404,16 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 // therefore sends the recipient the PRE-EDIT text, so the quote can show wording
 // the message no longer contains.
 //
-// The edit is replayed as the same events.Message an inbound edit produces, so it
-// runs through the existing, tested edit path (content update plus a
-// message_edits history row) rather than a second implementation that could
-// drift from it.
+// The edit is replayed in the ProtocolMessage shape CreateMessage already
+// recognises, so it runs through the existing, tested edit path (content update
+// plus a message_edits history row) rather than a second implementation that
+// could drift from it.
+//
+// This is an adapter for local storage, not a claim of equivalence with a
+// dispatched event. whatsmeow's ParseWebMessage unwraps MESSAGE_EDIT before a
+// history-synced edit is handled (Info.ID becomes the target id and Message
+// becomes the edited content); only the live receive path leaves the
+// ProtocolMessage intact.
 func (service serviceMessage) updateStoredMessage(
 	ctx context.Context,
 	client *whatsmeow.Client,

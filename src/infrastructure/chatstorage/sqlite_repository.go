@@ -2461,6 +2461,27 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		FileEncSHA256: fileEncSHA256,
 		FileLength:    fileLength,
 	}
+	// wrapSendMessage persists asynchronously, so an edit sent moments later can
+	// reach storage BEFORE this does. StoreMessage's existing-row path updates
+	// content unconditionally, so writing the original text now would roll that
+	// edit back — and mergeReplyContext would then quote the rolled-back text,
+	// which is the stale quote the edit sync exists to prevent. Content only ever
+	// moves forward: once an edit is recorded, keep what is stored and let the
+	// rest of the sent-message metadata through.
+	edits, editErr := r.GetMessageEdits(messageID, deviceID)
+	if editErr != nil {
+		return fmt.Errorf("failed to read edit history for %s: %w", messageID, editErr)
+	}
+	if len(edits) > 0 {
+		stored, storedErr := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID)
+		if storedErr != nil {
+			return fmt.Errorf("failed to load edited message %s: %w", messageID, storedErr)
+		}
+		if stored != nil {
+			message.Content = stored.Content
+		}
+	}
+
 	if err := r.StoreMessage(message); err != nil {
 		return fmt.Errorf("failed to store message: %w", err)
 	}
