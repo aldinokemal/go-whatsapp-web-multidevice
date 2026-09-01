@@ -190,10 +190,7 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	}
 
 	// Store the sent message using chatstorage
-	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.String()
-	}
+	senderJID := whatsapp.OwnSenderJID(client)
 
 	// Store message asynchronously with timeout.
 	// Preserve device context (for device_id scoping) but detach from request cancellation.
