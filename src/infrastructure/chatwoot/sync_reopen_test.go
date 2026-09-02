@@ -54,6 +54,9 @@ func seedChatwootLink(t *testing.T, repo *chatwootSyncChatRepo, msg *domainChatS
 	}
 }
 
+// chatwootSyncChatService wires a SyncService whose every REST call fails, and
+// counts them. The failures are deliberate: each test here asserts on whether a
+// request was made at all, so the stub never has to model a real response.
 func chatwootSyncChatService(t *testing.T, repo *chatwootSyncChatRepo) (*SyncService, *atomic.Int32) {
 	t.Helper()
 	var requests atomic.Int32

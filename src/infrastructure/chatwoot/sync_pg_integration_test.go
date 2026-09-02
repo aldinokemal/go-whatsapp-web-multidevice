@@ -61,7 +61,20 @@ const (
 	pgIntegrationInboxID   = 2
 )
 
-func pgIntegrationDB(t *testing.T) (*sql.DB, string) {
+// pgIntegrationContext bounds everything a test does against Postgres. Without
+// a deadline an unreachable or wedged server would leave the run blocked until
+// the whole `go test` binary times out, reporting nothing useful about which
+// statement stalled.
+func pgIntegrationContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// pgIntegrationDB opens the database named by CHATWOOT_TEST_DB_URI, skipping the
+// test when it is unset.
+func pgIntegrationDB(t *testing.T, ctx context.Context) (*sql.DB, string) {
 	t.Helper()
 	dsn := os.Getenv(pgIntegrationEnv)
 	if dsn == "" {
@@ -74,9 +87,9 @@ func pgIntegrationDB(t *testing.T) (*sql.DB, string) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(pingCtx); err != nil {
 		t.Fatalf("ping %s: %v", pgIntegrationEnv, err)
 	}
 	return db, dsn
@@ -85,16 +98,18 @@ func pgIntegrationDB(t *testing.T) (*sql.DB, string) {
 // truncateChatwootData clears the rows an import writes while leaving the
 // account, inbox and agent fixture in place, so each test starts from a known
 // empty inbox without re-running the migrations.
-func truncateChatwootData(t *testing.T, db *sql.DB) {
+func truncateChatwootData(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(`TRUNCATE messages, conversations, contact_inboxes, contacts RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := db.ExecContext(ctx, `TRUNCATE messages, conversations, contact_inboxes, contacts RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
 
-func newPGIntegrationImporter(t *testing.T, dsn string) *pgimport.Importer {
+// newPGIntegrationImporter opens the direct-Postgres importer the same way the
+// REST service does at startup.
+func newPGIntegrationImporter(t *testing.T, ctx context.Context, dsn string) *pgimport.Importer {
 	t.Helper()
-	imp, err := pgimport.New(context.Background(), pgimport.Config{
+	imp, err := pgimport.New(ctx, pgimport.Config{
 		DSN:       dsn,
 		AccountID: pgIntegrationAccountID,
 		InboxID:   pgIntegrationInboxID,
@@ -126,12 +141,14 @@ func pgIntegrationService(t *testing.T, repo *chatwootSyncChatRepo) (*SyncServic
 	}, repo), &requests
 }
 
-func conversationStatusByContactCount(t *testing.T, db *sql.DB) (convCount, msgCount int) {
+// countConversationsAndMessages reports what actually landed in Chatwoot's own
+// tables, which is the only way to tell an idempotent skip from a silent write.
+func countConversationsAndMessages(t *testing.T, ctx context.Context, db *sql.DB) (convCount, msgCount int) {
 	t.Helper()
-	if err := db.QueryRow(`SELECT count(*) FROM conversations`).Scan(&convCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM conversations`).Scan(&convCount); err != nil {
 		t.Fatalf("count conversations: %v", err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM messages`).Scan(&msgCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM messages`).Scan(&msgCount); err != nil {
 		t.Fatalf("count messages: %v", err)
 	}
 	return convCount, msgCount
@@ -141,29 +158,30 @@ func conversationStatusByContactCount(t *testing.T, db *sql.DB) (convCount, msgC
 // Chatwoot's own tables, and a second identical run must add nothing. This is
 // the baseline the reopen tests below build on.
 func TestSyncChatPGIntegration_ImportIsIdempotent(t *testing.T) {
-	db, dsn := pgIntegrationDB(t)
-	truncateChatwootData(t, db)
+	ctx := pgIntegrationContext(t)
+	db, dsn := pgIntegrationDB(t, ctx)
+	truncateChatwootData(t, ctx, db)
 
 	msg := chatwootSyncChatMessage("wa-pg-first")
 	repo := newChatwootSyncChatRepo(msg)
 	svc, _ := pgIntegrationService(t, repo)
-	importer := newPGIntegrationImporter(t, dsn)
+	importer := newPGIntegrationImporter(t, ctx, dsn)
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
 	progress := NewSyncProgress(msg.DeviceID)
-	if err := svc.syncChatPG(context.Background(), importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err != nil {
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err != nil {
 		t.Fatalf("first syncChatPG: %v", err)
 	}
-	convs, msgs := conversationStatusByContactCount(t, db)
+	convs, msgs := countConversationsAndMessages(t, ctx, db)
 	if convs != 1 || msgs != 1 {
 		t.Fatalf("after first import: conversations=%d messages=%d, want 1 and 1", convs, msgs)
 	}
 
 	progress = NewSyncProgress(msg.DeviceID)
-	if err := svc.syncChatPG(context.Background(), importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err != nil {
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err != nil {
 		t.Fatalf("second syncChatPG: %v", err)
 	}
-	convs, msgs = conversationStatusByContactCount(t, db)
+	convs, msgs = countConversationsAndMessages(t, ctx, db)
 	if convs != 1 || msgs != 1 {
 		t.Fatalf("after second import: conversations=%d messages=%d, want the row counts unchanged", convs, msgs)
 	}
@@ -178,32 +196,33 @@ func TestSyncChatPGIntegration_ResolvedConversationStaysResolved(t *testing.T) {
 	defer func() { config.ChatwootReopenConversation = prevReopen }()
 	config.ChatwootReopenConversation = true
 
-	db, dsn := pgIntegrationDB(t)
-	truncateChatwootData(t, db)
+	ctx := pgIntegrationContext(t)
+	db, dsn := pgIntegrationDB(t, ctx)
+	truncateChatwootData(t, ctx, db)
 
 	msg := chatwootSyncChatMessage("wa-pg-resolved")
 	repo := newChatwootSyncChatRepo(msg)
 	svc, _ := pgIntegrationService(t, repo)
-	importer := newPGIntegrationImporter(t, dsn)
+	importer := newPGIntegrationImporter(t, ctx, dsn)
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
-	if err := svc.syncChatPG(context.Background(), importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
 		t.Fatalf("seed syncChatPG: %v", err)
 	}
 
 	// The agent resolves the thread. Chatwoot's `status` enum: 0=open,
 	// 1=resolved, 2=pending, 3=snoozed.
-	if _, err := db.Exec(`UPDATE conversations SET status = 1`); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE conversations SET status = 1`); err != nil {
 		t.Fatalf("resolve conversation: %v", err)
 	}
 
 	// The next auto-sync sees the same window and the same message.
-	if err := svc.syncChatPG(context.Background(), importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
 		t.Fatalf("re-sync syncChatPG: %v", err)
 	}
 
 	var status int
-	if err := db.QueryRow(`SELECT status FROM conversations`).Scan(&status); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM conversations`).Scan(&status); err != nil {
 		t.Fatalf("read conversation status: %v", err)
 	}
 	if status != 1 {
@@ -219,19 +238,20 @@ func TestSyncChatPGIntegration_NewMessageStillImportsAndReopens(t *testing.T) {
 	defer func() { config.ChatwootReopenConversation = prevReopen }()
 	config.ChatwootReopenConversation = true
 
-	db, dsn := pgIntegrationDB(t)
-	truncateChatwootData(t, db)
+	ctx := pgIntegrationContext(t)
+	db, dsn := pgIntegrationDB(t, ctx)
+	truncateChatwootData(t, ctx, db)
 
 	first := chatwootSyncChatMessage("wa-pg-old")
 	repo := newChatwootSyncChatRepo(first)
 	svc, _ := pgIntegrationService(t, repo)
-	importer := newPGIntegrationImporter(t, dsn)
+	importer := newPGIntegrationImporter(t, ctx, dsn)
 	chat := &domainChatStorage.Chat{JID: first.ChatJID, Name: "Contact"}
 
-	if err := svc.syncChatPG(context.Background(), importer, first.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(first.DeviceID)); err != nil {
+	if err := svc.syncChatPG(ctx, importer, first.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(first.DeviceID)); err != nil {
 		t.Fatalf("seed syncChatPG: %v", err)
 	}
-	if _, err := db.Exec(`UPDATE conversations SET status = 1`); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE conversations SET status = 1`); err != nil {
 		t.Fatalf("resolve conversation: %v", err)
 	}
 
@@ -240,16 +260,16 @@ func TestSyncChatPGIntegration_NewMessageStillImportsAndReopens(t *testing.T) {
 	second.Timestamp = first.Timestamp.Add(time.Hour)
 	repo.messages = []*domainChatStorage.Message{first, second}
 
-	if err := svc.syncChatPG(context.Background(), importer, second.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(second.DeviceID)); err != nil {
+	if err := svc.syncChatPG(ctx, importer, second.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(second.DeviceID)); err != nil {
 		t.Fatalf("re-sync syncChatPG: %v", err)
 	}
 
-	_, msgs := conversationStatusByContactCount(t, db)
+	_, msgs := countConversationsAndMessages(t, ctx, db)
 	if msgs != 2 {
 		t.Fatalf("messages = %d, want 2; the new message must still be imported", msgs)
 	}
 	var status int
-	if err := db.QueryRow(`SELECT status FROM conversations`).Scan(&status); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status FROM conversations`).Scan(&status); err != nil {
 		t.Fatalf("read conversation status: %v", err)
 	}
 	if status == 1 {
