@@ -284,36 +284,7 @@ func (s *SyncService) syncChat(
 
 	logrus.Infof("Chatwoot Sync: Processing chat %s (%s)", chat.Name, chat.JID)
 
-	// 1. Find or create contact in Chatwoot
-	contactName := chat.Name
-	if contactName == "" {
-		contactName = utils.ExtractPhoneFromJID(chat.JID)
-	}
-
-	var contact *Contact
-	err := retrySyncOp(ctx, 3, func() error {
-		var createErr error
-		contact, createErr = s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
-		return createErr
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create contact: %w", err)
-	}
-	logrus.Debugf("Chatwoot Sync: Contact ID: %d", contact.ID)
-
-	// 2. Find or create conversation
-	var conversation *Conversation
-	err = retrySyncOp(ctx, 3, func() error {
-		var createErr error
-		conversation, createErr = s.client.FindOrCreateConversation(contact.ID, chat.JID)
-		return createErr
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create conversation: %w", err)
-	}
-	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
-
-	// 3. Get messages since time boundary
+	// 1. Get messages since time boundary
 	messages, err := s.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{
 		DeviceID:  deviceID,
 		ChatJID:   chat.JID,
@@ -332,13 +303,37 @@ func (s *SyncService) syncChat(
 	progress.AddMessages(len(messages))
 	logrus.Infof("Chatwoot Sync: Found %d messages for %s", len(messages), chat.JID)
 
-	// 4. Sort messages by timestamp (oldest first for proper ordering)
-	sort.Slice(messages, func(i, j int) bool {
-		return messages[i].Timestamp.Before(messages[j].Timestamp)
+	// 2. Drop the messages already linked to a Chatwoot message BEFORE resolving
+	// the contact and conversation. FindOrCreateConversation reopens a resolved
+	// conversation when ChatwootReopenConversation is set, so resolving one for a
+	// chat with nothing new to post reopens it for no reason. History auto-sync
+	// latches once per device per process, so every restart reopened every
+	// resolved conversation in the inbox. Already-linked messages still count
+	// as synced: the row is
+	// present in Chatwoot, which is what the operator cares about.
+	pending, alreadyLinked := s.splitAlreadyLinkedMessages(messages)
+	if alreadyLinked > 0 {
+		progress.AddSyncedMessages(alreadyLinked)
+	}
+	if len(pending) == 0 {
+		logrus.Debugf("Chatwoot Sync: All %d messages for %s are already in Chatwoot; leaving the conversation untouched", alreadyLinked, chat.JID)
+		return nil
+	}
+
+	// 3. Sort messages by timestamp (oldest first for proper ordering)
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].Timestamp.Before(pending[j].Timestamp)
 	})
 
+	// 4. Find or create contact and conversation
+	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
+	if err != nil {
+		return err
+	}
+	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
+
 	// 5. Sync each message
-	for i, msg := range messages {
+	for i, msg := range pending {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -403,12 +398,36 @@ func (s *SyncService) syncChatPG(
 		return nil
 	}
 
-	sort.Slice(messages, func(i, j int) bool {
-		return messages[i].Timestamp.Before(messages[j].Timestamp)
-	})
-
 	progress.AddMessages(len(messages))
 	logrus.Infof("Chatwoot pgimport: Found %d messages for %s", len(messages), chat.JID)
+
+	// Drop the messages already in Chatwoot before importing anything. The
+	// import is not read-only with respect to conversation state: ImportChat
+	// resolves the conversation, and pgimport's findOrCreateConversation
+	// reopens a resolved one when ChatwootReopenConversation is set. So a chat
+	// with nothing new to add still reopened the thread an agent had closed,
+	// and history auto-sync latches once per device per process, so every
+	// restart reopened every resolved conversation in the inbox. Per-message
+	// idempotency inside the
+	// importer cannot prevent this: by the time it skips the rows, the
+	// conversation has already been resolved and reopened.
+	//
+	// Already-linked messages still count as synced: the row is present in
+	// Chatwoot, which is what the operator cares about. ImportChat only sees
+	// the pending ones, so its own wrote/skipped totals do not double-count
+	// what was added here.
+	pending, alreadyLinked := s.splitAlreadyLinkedMessages(messages)
+	if alreadyLinked > 0 {
+		progress.AddSyncedMessages(alreadyLinked)
+	}
+	if len(pending) == 0 {
+		logrus.Debugf("Chatwoot pgimport: All %d messages for %s are already in Chatwoot; leaving the conversation untouched", alreadyLinked, chat.JID)
+		return nil
+	}
+
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].Timestamp.Before(pending[j].Timestamp)
+	})
 
 	// Use a display name that is never the "Group <jid>" fallback from
 	// sqlite_repository.go. If the stored name still starts with "Group "
@@ -419,24 +438,18 @@ func (s *SyncService) syncChatPG(
 		chatName = ""
 	}
 
-	if mediaMessages := chatwootRESTMediaCandidates(messages, opts); len(mediaMessages) > 0 {
-		conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
-		if err != nil {
-			logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
-		} else {
-			s.syncHybridMediaMessagesREST(ctx, conversation.ID, mediaMessages, waClient, opts, isGroup)
-		}
-	}
+	s.restMediaPrePass(ctx, chat, pending, waClient, opts, isGroup)
 
 	result, err := importer.ImportChat(ctx, pgimport.ImportChatRequest{
 		ChatJID:  chat.JID,
 		ChatName: chatName,
-		Messages: messages,
+		Messages: pending,
 	})
 	if err != nil {
-		// On a fatal tx-level error, count every message as failed so the
-		// progress totals stay honest.
-		progress.AddFailedMessages(len(messages))
+		// On a fatal tx-level error, count every message the import was given
+		// as failed so the progress totals stay honest. The already-linked ones
+		// were counted as synced above and did not reach the importer.
+		progress.AddFailedMessages(len(pending))
 		return err
 	}
 	if err := s.storeChatwootImportLinks(result); err != nil {
@@ -470,6 +483,35 @@ func chatwootRESTMediaCandidates(messages []*domainChatStorage.Message, opts Syn
 	return candidates
 }
 
+// splitAlreadyLinkedMessages partitions a chat's messages into those still to
+// post to Chatwoot and a count of those already linked to a Chatwoot message.
+// It lets a caller decide whether a chat needs a conversation at all before
+// resolving one, since resolving is not side-effect free: it reopens resolved
+// conversations.
+//
+// A lookup failure keeps the message in the pending set. syncMessageWithOptions
+// repeats the same check per message, so a transient storage error costs one
+// redundant lookup rather than a dropped message.
+func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.Message) (pending []*domainChatStorage.Message, alreadyLinked int) {
+	pending = make([]*domainChatStorage.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		if msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
+			existing, err := s.chatStorageRepo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+			if err != nil {
+				logrus.Warnf("Chatwoot Sync: Failed to look up message link for %s: %v", msg.ID, err)
+			} else if existing != nil && existing.ChatwootMessageID != 0 {
+				alreadyLinked++
+				continue
+			}
+		}
+		pending = append(pending, msg)
+	}
+	return pending, alreadyLinked
+}
+
 func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat *domainChatStorage.Chat, isGroup bool) (*Conversation, error) {
 	contactName := chat.Name
 	if contactName == "" {
@@ -483,7 +525,7 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 		return createErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create contact for REST media import: %w", err)
+		return nil, fmt.Errorf("failed to create contact: %w", err)
 	}
 
 	var conversation *Conversation
@@ -493,9 +535,45 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 		return createErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create conversation for REST media import: %w", err)
+		return nil, fmt.Errorf("failed to create conversation: %w", err)
 	}
 	return conversation, nil
+}
+
+// restMediaPrePass posts a chat's media through the REST API before the
+// Postgres importer runs, so the attachment lands on the message pgimport is
+// about to write.
+//
+// Only the media still missing from Chatwoot is worth the pass. Resolving a
+// conversation is not side-effect free -- FindOrCreateConversation reopens a
+// resolved one when ChatwootReopenConversation is set -- so a chat whose media
+// is already imported must not reach findOrCreateHistoryConversation at all.
+// Without this filter the Postgres path reopened resolved conversations on
+// each auto-sync, the same way the REST path did.
+//
+// syncMessageWithOptions repeats the per-message link check, so this filter
+// only moves the decision earlier; it is not the sole guard against a duplicate
+// post. It is kept here rather than left to the caller because the pass is the
+// only reason this path resolves a conversation at all.
+func (s *SyncService) restMediaPrePass(
+	ctx context.Context,
+	chat *domainChatStorage.Chat,
+	messages []*domainChatStorage.Message,
+	waClient *whatsmeow.Client,
+	opts SyncOptions,
+	isGroup bool,
+) {
+	mediaMessages, _ := s.splitAlreadyLinkedMessages(chatwootRESTMediaCandidates(messages, opts))
+	if len(mediaMessages) == 0 {
+		return
+	}
+
+	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
+	if err != nil {
+		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
+		return
+	}
+	s.syncHybridMediaMessagesREST(ctx, conversation.ID, mediaMessages, waClient, opts, isGroup)
 }
 
 func (s *SyncService) syncHybridMediaMessagesREST(
