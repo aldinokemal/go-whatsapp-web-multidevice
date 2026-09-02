@@ -259,3 +259,46 @@ func TestSyncChatAbortsWhenLinkLookupFails(t *testing.T) {
 		t.Fatalf("link lookups = %d, want 1; the partition must stop at the first failure", got)
 	}
 }
+
+// chatwootFailingIDLinkRepo fails the lookup for one specific message and
+// serves the real link for every other, so a test can place a confirmed link
+// before the failure.
+type chatwootFailingIDLinkRepo struct {
+	*chatwootSyncChatRepo
+	failFor string
+}
+
+func (r *chatwootFailingIDLinkRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	if waMessageID == r.failFor {
+		return nil, errors.New("chatstorage temporarily unavailable")
+	}
+	return r.chatwootSyncChatRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
+}
+
+// Aborting the chat must not throw away the progress already established. A
+// message confirmed linked before the failing lookup is still in Chatwoot --
+// the failure says nothing about it -- so it stays counted as synced even
+// though the chat as a whole is abandoned.
+func TestSyncChatKeepsLinkedProgressWhenALaterLookupFails(t *testing.T) {
+	linked := chatwootSyncChatMessage("wa-linked-first")
+	broken := chatwootSyncChatMessage("wa-lookup-breaks")
+	inner := newChatwootSyncChatRepo(linked, broken)
+	seedChatwootLink(t, inner, linked, 555)
+	repo := &chatwootFailingIDLinkRepo{chatwootSyncChatRepo: inner, failFor: broken.ID}
+
+	svc, requests := chatwootSyncChatService(t, repo.chatwootSyncChatRepo)
+	svc.chatStorageRepo = repo
+
+	progress := NewSyncProgress(linked.DeviceID)
+	chat := &domainChatStorage.Chat{JID: linked.ChatJID, Name: "Contact"}
+
+	if err := svc.syncChat(context.Background(), linked.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err == nil {
+		t.Fatal("syncChat: expected the link-lookup failure to abort the chat")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("Chatwoot received %d requests, want 0; a failed lookup must not reach FindOrCreateConversation", got)
+	}
+	if progress.SyncedMessages != 1 {
+		t.Fatalf("SyncedMessages = %d, want 1; the message confirmed linked before the failure is still in Chatwoot", progress.SyncedMessages)
+	}
+}

@@ -312,11 +312,11 @@ func (s *SyncService) syncChat(
 	// as synced: the row is
 	// present in Chatwoot, which is what the operator cares about.
 	pending, alreadyLinked, err := s.splitAlreadyLinkedMessages(messages)
-	if err != nil {
-		return err
-	}
 	if alreadyLinked > 0 {
 		progress.AddSyncedMessages(alreadyLinked)
+	}
+	if err != nil {
+		return err
 	}
 	if len(pending) == 0 {
 		logrus.Debugf("Chatwoot Sync: All %d messages for %s are already in Chatwoot; leaving the conversation untouched", alreadyLinked, chat.JID)
@@ -420,11 +420,11 @@ func (s *SyncService) syncChatPG(
 	// the pending ones, so its own wrote/skipped totals do not double-count
 	// what was added here.
 	pending, alreadyLinked, err := s.splitAlreadyLinkedMessages(messages)
-	if err != nil {
-		return err
-	}
 	if alreadyLinked > 0 {
 		progress.AddSyncedMessages(alreadyLinked)
+	}
+	if err != nil {
+		return err
 	}
 	if len(pending) == 0 {
 		logrus.Debugf("Chatwoot pgimport: All %d messages for %s are already in Chatwoot; leaving the conversation untouched", alreadyLinked, chat.JID)
@@ -500,7 +500,9 @@ func chatwootRESTMediaCandidates(messages []*domainChatStorage.Message, opts Syn
 // regression this split exists to prevent: the caller resolves a conversation
 // (reopening it), and syncMessageWithOptions then repeats the lookup, finds the
 // link and posts nothing. The thread ends up reopened with nothing added. The
-// caller must abort the chat; the next sync retries it.
+// caller must abort the chat; the next sync retries it. The linked count is
+// still returned alongside the error, since those rows are in Chatwoot whatever
+// happened to the lookup that failed; pending is nil and must not be used.
 func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.Message) (pending []*domainChatStorage.Message, alreadyLinked int, err error) {
 	pending = make([]*domainChatStorage.Message, 0, len(messages))
 	for _, msg := range messages {
@@ -510,7 +512,10 @@ func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.M
 		if msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
 			existing, lookupErr := s.chatStorageRepo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
 			if lookupErr != nil {
-				return nil, 0, fmt.Errorf("failed to look up message link for %s: %w", msg.ID, lookupErr)
+				// The messages confirmed linked before this point are still in
+				// Chatwoot; the failure says nothing about them. Report them so
+				// the caller can record the progress it already earned.
+				return nil, alreadyLinked, fmt.Errorf("failed to look up message link for %s: %w", msg.ID, lookupErr)
 			}
 			if existing != nil && existing.ChatwootMessageID != 0 {
 				alreadyLinked++
