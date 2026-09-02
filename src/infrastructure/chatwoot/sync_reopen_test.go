@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -210,5 +211,51 @@ func TestRESTMediaPrePassSkipsChatWithoutMedia(t *testing.T) {
 
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("Chatwoot received %d requests, want 0 for a chat with no media", got)
+	}
+}
+
+// chatwootFlakyLinkRepo fails the first link lookup and serves the real link on
+// every call after it, reproducing a transient chatstorage read.
+type chatwootFlakyLinkRepo struct {
+	*chatwootSyncChatRepo
+	lookups atomic.Int32
+}
+
+func (r *chatwootFlakyLinkRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	if r.lookups.Add(1) == 1 {
+		return nil, errors.New("chatstorage temporarily unavailable")
+	}
+	return r.chatwootSyncChatRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID)
+}
+
+// A failed link lookup must not be read as "this message is pending". If it
+// were, syncChat would resolve a conversation -- reopening a resolved thread --
+// and syncMessageWithOptions would then repeat the lookup, find the link and
+// post nothing: the thread reopened with nothing added, which is the exact
+// regression this prefilter exists to prevent. The lookup failure has to abort
+// the chat before any Chatwoot call.
+func TestSyncChatAbortsWhenLinkLookupFails(t *testing.T) {
+	msg := chatwootSyncChatMessage("wa-lookup-flaky")
+	inner := newChatwootSyncChatRepo(msg)
+	seedChatwootLink(t, inner, msg, 999)
+	repo := &chatwootFlakyLinkRepo{chatwootSyncChatRepo: inner}
+
+	svc, requests := chatwootSyncChatService(t, repo.chatwootSyncChatRepo)
+	svc.chatStorageRepo = repo
+
+	progress := NewSyncProgress(msg.DeviceID)
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	err := svc.syncChat(context.Background(), msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress)
+	if err == nil {
+		t.Fatal("syncChat: expected the link-lookup failure to abort the chat")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("Chatwoot received %d requests, want 0; a failed lookup must not reach FindOrCreateConversation", got)
+	}
+	// The second lookup would have reported the message as already linked, so
+	// nothing was ever pending: proceeding could only have reopened the thread.
+	if got := repo.lookups.Load(); got != 1 {
+		t.Fatalf("link lookups = %d, want 1; the partition must stop at the first failure", got)
 	}
 }

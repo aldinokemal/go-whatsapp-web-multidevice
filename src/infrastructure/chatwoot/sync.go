@@ -311,7 +311,10 @@ func (s *SyncService) syncChat(
 	// resolved conversation in the inbox. Already-linked messages still count
 	// as synced: the row is
 	// present in Chatwoot, which is what the operator cares about.
-	pending, alreadyLinked := s.splitAlreadyLinkedMessages(messages)
+	pending, alreadyLinked, err := s.splitAlreadyLinkedMessages(messages)
+	if err != nil {
+		return err
+	}
 	if alreadyLinked > 0 {
 		progress.AddSyncedMessages(alreadyLinked)
 	}
@@ -416,7 +419,10 @@ func (s *SyncService) syncChatPG(
 	// Chatwoot, which is what the operator cares about. ImportChat only sees
 	// the pending ones, so its own wrote/skipped totals do not double-count
 	// what was added here.
-	pending, alreadyLinked := s.splitAlreadyLinkedMessages(messages)
+	pending, alreadyLinked, err := s.splitAlreadyLinkedMessages(messages)
+	if err != nil {
+		return err
+	}
 	if alreadyLinked > 0 {
 		progress.AddSyncedMessages(alreadyLinked)
 	}
@@ -489,27 +495,31 @@ func chatwootRESTMediaCandidates(messages []*domainChatStorage.Message, opts Syn
 // resolving one, since resolving is not side-effect free: it reopens resolved
 // conversations.
 //
-// A lookup failure keeps the message in the pending set. syncMessageWithOptions
-// repeats the same check per message, so a transient storage error costs one
-// redundant lookup rather than a dropped message.
-func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.Message) (pending []*domainChatStorage.Message, alreadyLinked int) {
+// A lookup failure aborts the partition instead of assuming the message is
+// pending. Treating an unreadable link as pending would reintroduce the very
+// regression this split exists to prevent: the caller resolves a conversation
+// (reopening it), and syncMessageWithOptions then repeats the lookup, finds the
+// link and posts nothing. The thread ends up reopened with nothing added. The
+// caller must abort the chat; the next sync retries it.
+func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.Message) (pending []*domainChatStorage.Message, alreadyLinked int, err error) {
 	pending = make([]*domainChatStorage.Message, 0, len(messages))
 	for _, msg := range messages {
 		if msg == nil {
 			continue
 		}
 		if msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
-			existing, err := s.chatStorageRepo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
-			if err != nil {
-				logrus.Warnf("Chatwoot Sync: Failed to look up message link for %s: %v", msg.ID, err)
-			} else if existing != nil && existing.ChatwootMessageID != 0 {
+			existing, lookupErr := s.chatStorageRepo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+			if lookupErr != nil {
+				return nil, 0, fmt.Errorf("failed to look up message link for %s: %w", msg.ID, lookupErr)
+			}
+			if existing != nil && existing.ChatwootMessageID != 0 {
 				alreadyLinked++
 				continue
 			}
 		}
 		pending = append(pending, msg)
 	}
-	return pending, alreadyLinked
+	return pending, alreadyLinked, nil
 }
 
 func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat *domainChatStorage.Chat, isGroup bool) (*Conversation, error) {
@@ -563,7 +573,14 @@ func (s *SyncService) restMediaPrePass(
 	opts SyncOptions,
 	isGroup bool,
 ) {
-	mediaMessages, _ := s.splitAlreadyLinkedMessages(chatwootRESTMediaCandidates(messages, opts))
+	mediaMessages, _, err := s.splitAlreadyLinkedMessages(chatwootRESTMediaCandidates(messages, opts))
+	if err != nil {
+		// Fail closed: without a readable link state we cannot tell whether the
+		// media is already in Chatwoot, and resolving a conversation to find out
+		// is the side effect worth avoiding. Skipping costs one sync cycle.
+		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
+		return
+	}
 	if len(mediaMessages) == 0 {
 		return
 	}
