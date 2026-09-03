@@ -276,3 +276,63 @@ func TestSyncChatPGIntegration_NewMessageStillImportsAndReopens(t *testing.T) {
 		t.Fatal("conversation is still resolved; a genuinely new message must reopen it when ChatwootReopenConversation is set")
 	}
 }
+
+// The durability gap: the Chatwoot transaction commits before the local
+// message links are persisted, so a crash or chatstorage failure in between
+// leaves the message in Chatwoot with no local link. The prefilter then reports
+// the row as pending on the next sync and ImportChat runs. Its idempotency
+// probe skips the row -- but reopening used to happen before that probe, so
+// the thread came back with nothing added. The reopen now waits for an actual
+// write, and the skipped row's link repairs the local table on the way.
+func TestSyncChatPGIntegration_OrphanedChatwootMessageDoesNotReopen(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	ctx := pgIntegrationContext(t)
+	db, dsn := pgIntegrationDB(t, ctx)
+	truncateChatwootData(t, ctx, db)
+
+	msg := chatwootSyncChatMessage("wa-pg-orphan")
+	repo := newChatwootSyncChatRepo(msg)
+	svc, _ := pgIntegrationService(t, repo)
+	importer := newPGIntegrationImporter(t, ctx, dsn)
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	// First sync lands the message in Chatwoot and the link locally.
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
+		t.Fatalf("seed syncChatPG: %v", err)
+	}
+	if link, _ := repo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID); link == nil {
+		t.Fatal("seed: expected the local link to be stored after the first import")
+	}
+
+	// Simulate the crash window: Chatwoot kept the row, the local link is gone.
+	delete(repo.links, chatwootSyncLinkKey(msg.DeviceID, msg.ID))
+
+	// The agent resolves the thread (1 = resolved).
+	if _, err := db.ExecContext(ctx, `UPDATE conversations SET status = 1`); err != nil {
+		t.Fatalf("resolve conversation: %v", err)
+	}
+
+	// Next auto-sync: same window, same message, no local link to filter it.
+	if err := svc.syncChatPG(ctx, importer, msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err != nil {
+		t.Fatalf("re-sync syncChatPG: %v", err)
+	}
+
+	var status int
+	if err := db.QueryRowContext(ctx, `SELECT status FROM conversations`).Scan(&status); err != nil {
+		t.Fatalf("read conversation status: %v", err)
+	}
+	if status != 1 {
+		t.Fatalf("conversation status = %d, want 1 (resolved); the importer only skipped the existing source_id yet reopened the thread", status)
+	}
+	_, msgs := countConversationsAndMessages(t, ctx, db)
+	if msgs != 1 {
+		t.Fatalf("messages = %d, want 1; the orphaned row must be deduped, not duplicated", msgs)
+	}
+	// The skip still returned a link, so the local table is repaired.
+	if link, _ := repo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID); link == nil {
+		t.Fatal("expected the re-sync to repair the missing local link from the skipped row")
+	}
+}

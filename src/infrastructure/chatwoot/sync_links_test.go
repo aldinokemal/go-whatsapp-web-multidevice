@@ -75,7 +75,7 @@ func TestSyncMessageSkipsExistingChatwootLink(t *testing.T) {
 		HTTPClient: server.Client(),
 	}, repo)
 
-	if err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
+	if _, err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
 		t.Fatalf("syncMessage: %v", err)
 	}
 	if got := requests.Load(); got != 0 {
@@ -110,7 +110,7 @@ func TestSyncMessageStoresChatwootLinkAfterCreate(t *testing.T) {
 		HTTPClient: server.Client(),
 	}, repo)
 
-	if err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
+	if _, err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
 		t.Fatalf("syncMessage: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestSyncMessageWithRequiredMediaDoesNotCreatePlaceholderWhenDownloadFails(t
 		HTTPClient: server.Client(),
 	}, repo)
 
-	err := svc.syncMessageWithOptions(context.Background(), 42, msg, nil, SyncOptions{IncludeMedia: true}, false, true)
+	_, err := svc.syncMessageWithOptions(context.Background(), 42, msg, nil, SyncOptions{IncludeMedia: true}, false, true)
 	if err == nil {
 		t.Fatal("syncMessageWithOptions error = nil, want media download failure")
 	}
