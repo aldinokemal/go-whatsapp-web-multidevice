@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"go.mau.fi/whatsmeow"
 )
 
 // chatwootSyncChatRepo adds message reads to the link repo so syncChat can run
@@ -272,7 +274,16 @@ func TestSyncChatKeepsLinkedProgressWhenALaterLookupFails(t *testing.T) {
 // test assert not just whether toggle_status was called but when.
 func chatwootReopenStub(t *testing.T, repo *chatwootSyncChatRepo, chatJID string, postStatus int) (*SyncService, func() []string) {
 	t.Helper()
+	return chatwootReopenStubWithToggleFailures(t, repo, chatJID, postStatus, 0)
+}
+
+// chatwootReopenStubWithToggleFailures is chatwootReopenStub whose
+// toggle_status endpoint answers 500 to its first failFirst calls, so a test
+// can drive the retry paths without touching the retry policy.
+func chatwootReopenStubWithToggleFailures(t *testing.T, repo *chatwootSyncChatRepo, chatJID string, postStatus, failFirst int) (*SyncService, func() []string) {
+	t.Helper()
 	const contactID, conversationID = 7, 42
+	var toggles int
 	var mu sync.Mutex
 	var events []string
 	record := func(r *http.Request) {
@@ -296,6 +307,14 @@ func chatwootReopenStub(t *testing.T, repo *chatwootSyncChatRepo, chatJID string
 				_ = json.NewEncoder(w).Encode(map[string]any{"id": 900})
 			}
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, fmt.Sprintf("/conversations/%d/toggle_status", conversationID)):
+			mu.Lock()
+			toggles++
+			failing := toggles <= failFirst
+			mu.Unlock()
+			if failing {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -429,5 +448,93 @@ func TestRESTMediaPrePassDoesNotReopenWhenNoAttachmentPosts(t *testing.T) {
 	}
 	if got := countEvents(ev, "/toggle_status"); got != 0 {
 		t.Fatalf("toggle_status called %d times, want 0 when no attachment posted\n%v", got, ev)
+	}
+}
+
+// A failed reopen must stay retryable for as long as the pass keeps posting.
+// Once a posted message's link is stored, no later pass will look at it
+// again, so this pass is the only chance to bring the thread back. Here the
+// toggle fails three times -- the whole retry budget of the first post -- and
+// the second post repairs it on its first attempt.
+func TestSyncChatRetriesReopenOnLaterPostsAfterToggleFailure(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	first := chatwootSyncChatMessage("wa-first")
+	second := chatwootSyncChatMessage("wa-second")
+	second.Timestamp = first.Timestamp.Add(time.Minute)
+	repo := newChatwootSyncChatRepo(first, second)
+	svc, events := chatwootReopenStubWithToggleFailures(t, repo, first.ChatJID, http.StatusOK, 3)
+	chat := &domainChatStorage.Chat{JID: first.ChatJID, Name: "Contact"}
+
+	if err := svc.syncChat(context.Background(), first.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(first.DeviceID)); err != nil {
+		t.Fatalf("syncChat: %v", err)
+	}
+	ev := events()
+	if got := countEvents(ev, "/messages"); got != 2 {
+		t.Fatalf("messages posted = %d, want 2; a failed toggle must not stop the pass\n%v", got, ev)
+	}
+	if got := countEvents(ev, "/toggle_status"); got != 4 {
+		t.Fatalf("toggle_status called %d times, want 4: three failures on the first post, then success on the second\n%v", got, ev)
+	}
+	// The successful toggle is the last event, after the second POST.
+	if last := ev[len(ev)-1]; !strings.HasSuffix(last, "/toggle_status") {
+		t.Fatalf("last event = %q, want the repairing toggle_status after the second post\n%v", last, ev)
+	}
+}
+
+// fakeMediaDownloader stands in for the WhatsApp download: it writes a small
+// temp file and returns its path, which syncMessageWithOptions removes after
+// posting, so every call has to produce a fresh one.
+func fakeMediaDownloader(t *testing.T) func(context.Context, *domainChatStorage.Message, *whatsmeow.Client) (string, error) {
+	t.Helper()
+	return func(_ context.Context, msg *domainChatStorage.Message, _ *whatsmeow.Client) (string, error) {
+		f, err := os.CreateTemp(t.TempDir(), "media-*.jpg")
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		if _, err := f.WriteString("jpeg bytes for " + msg.ID); err != nil {
+			return "", err
+		}
+		return f.Name(), nil
+	}
+}
+
+// The media pre-pass holds the same retry contract as syncChat: a toggle that
+// fails on the first attachment is retried on the next one, because once these
+// rows are linked (and pgimport then skips them) nothing downstream will
+// reopen the thread. Three failures exhaust the first post's budget; the
+// second post repairs it.
+func TestRESTMediaPrePassRetriesReopenOnLaterPostsAfterToggleFailure(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	prevREST := config.ChatwootImportMediaWithREST
+	defer func() {
+		config.ChatwootReopenConversation = prevReopen
+		config.ChatwootImportMediaWithREST = prevREST
+	}()
+	config.ChatwootReopenConversation = true
+	config.ChatwootImportMediaWithREST = true
+
+	first := chatwootSyncChatMediaMessage("wa-media-first")
+	second := chatwootSyncChatMediaMessage("wa-media-second")
+	second.Timestamp = first.Timestamp.Add(time.Minute)
+	repo := newChatwootSyncChatRepo(first, second)
+	svc, events := chatwootReopenStubWithToggleFailures(t, repo, first.ChatJID, http.StatusOK, 3)
+	svc.mediaDownloader = fakeMediaDownloader(t)
+	chat := &domainChatStorage.Chat{JID: first.ChatJID, Name: "Contact"}
+
+	svc.restMediaPrePass(context.Background(), chat, []*domainChatStorage.Message{first, second}, nil, DefaultSyncOptions(), false)
+
+	ev := events()
+	if got := countEvents(ev, "/messages"); got != 2 {
+		t.Fatalf("attachments posted = %d, want 2\n%v", got, ev)
+	}
+	if got := countEvents(ev, "/toggle_status"); got != 4 {
+		t.Fatalf("toggle_status called %d times, want 4: three failures on the first post, then success on the second\n%v", got, ev)
+	}
+	if last := ev[len(ev)-1]; !strings.HasSuffix(last, "/toggle_status") {
+		t.Fatalf("last event = %q, want the repairing toggle_status after the second post\n%v", last, ev)
 	}
 }

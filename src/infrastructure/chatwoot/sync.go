@@ -46,6 +46,11 @@ type SyncService struct {
 	// configID is the chatwoot_device_configs row id this service syncs for (0 =
 	// legacy/env). Stamped onto message links so reverse routing is config-scoped.
 	configID int64
+
+	// mediaDownloader replaces downloadMedia when set. Only tests set it: the
+	// real download needs a live whatsmeow client, and the REST media pre-pass
+	// cannot be exercised past the download step without one.
+	mediaDownloader func(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client) (string, error)
 }
 
 // NewSyncService creates a new sync service instance
@@ -333,6 +338,7 @@ func (s *SyncService) syncChat(
 	// then leaves a resolved thread resolved, instead of reopening it with
 	// nothing added on every restart.
 	reopened := false
+	anyPosted := false
 	for i, msg := range pending {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -346,9 +352,14 @@ func (s *SyncService) syncChat(
 		} else {
 			progress.IncrementSyncedMessages()
 		}
+		if posted {
+			anyPosted = true
+		}
+		// Keep trying on later posts if the toggle failed: a message has landed
+		// in a thread the agent resolved, and once its link is stored nothing
+		// on a later pass will look at it again.
 		if posted && !reopened {
-			s.reopenHistoryConversation(conversation)
-			reopened = true
+			reopened = s.reopenHistoryConversation(ctx, conversation)
 		}
 
 		// Rate limiting: pause between batches
@@ -357,6 +368,12 @@ func (s *SyncService) syncChat(
 		}
 	}
 
+	if anyPosted && !reopened {
+		// Every reopen attempt this pass failed. The posted messages are linked
+		// now, so no later pass will retry on their behalf; an operator has to
+		// know the thread holds new messages while still marked resolved.
+		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it; it stays resolved with new messages inside", conversation.ID, chat.JID)
+	}
 	return nil
 }
 
@@ -597,20 +614,28 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 
 // reopenHistoryConversation flips a resolved conversation back to the
 // new-message status, the REST counterpart of pgimport's reopenConversation.
-// Callers invoke it once, after the first message of a history sync has
-// posted, so a thread the agent resolved is reopened only when something was
-// actually added to it. A toggle failure is logged, not returned: the message
-// is already in Chatwoot, and the next sync with something new retries.
-func (s *SyncService) reopenHistoryConversation(conversation *Conversation) {
+// Callers invoke it after a message of a history sync has posted, so a thread
+// the agent resolved is reopened only when something was actually added.
+//
+// It reports whether the thread is now in the wanted state -- true when there
+// was nothing to reopen or the toggle succeeded, false when the toggle failed
+// after retries. Unlike the Postgres path, where a failed reopen rolls the
+// whole import back, a REST post is already durable by the time this runs, so
+// the caller must keep retrying on its later posts rather than give up.
+func (s *SyncService) reopenHistoryConversation(ctx context.Context, conversation *Conversation) bool {
 	if conversation == nil || !config.ChatwootReopenConversation || conversation.Status != "resolved" {
-		return
+		return true
 	}
 	target := conversationStatusForNew()
-	if err := s.client.ToggleConversationStatus(conversation.ID, target); err != nil {
+	err := retrySyncOp(ctx, 3, func() error {
+		return s.client.ToggleConversationStatus(conversation.ID, target)
+	})
+	if err != nil {
 		logrus.Warnf("Chatwoot Sync: failed to reopen conversation %d after posting: %v", conversation.ID, err)
-		return
+		return false
 	}
 	conversation.Status = target
+	return true
 }
 
 // restMediaPrePass posts a chat's media through the REST API before the
@@ -640,33 +665,41 @@ func (s *SyncService) restMediaPrePass(
 		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
 		return
 	}
-	if s.syncHybridMediaMessagesREST(ctx, conversation.ID, mediaMessages, waClient, opts, isGroup) {
-		s.reopenHistoryConversation(conversation)
+	if anyPosted, reopened := s.syncHybridMediaMessagesREST(ctx, conversation, mediaMessages, waClient, opts, isGroup); anyPosted && !reopened {
+		// The importer that follows only reopens on its own writes, and these
+		// rows will be skipped there, so nothing downstream retries.
+		logrus.Errorf("Chatwoot pgimport: REST media pre-pass posted into conversation %d for %s but could not reopen it; it stays resolved with new media inside", conversation.ID, chat.JID)
 	}
 }
 
-// syncHybridMediaMessagesREST posts each media message and reports whether at
-// least one attachment actually landed in Chatwoot.
+// syncHybridMediaMessagesREST posts each media message and, once one has
+// landed, reopens the conversation -- retrying on every later post until it
+// succeeds, exactly as syncChat does. It reports whether anything posted and
+// whether the thread ended up reopened (or needed no reopening).
 func (s *SyncService) syncHybridMediaMessagesREST(
 	ctx context.Context,
-	conversationID int,
+	conversation *Conversation,
 	messages []*domainChatStorage.Message,
 	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	isGroup bool,
-) bool {
-	anyPosted := false
+) (anyPosted, reopened bool) {
 	for _, msg := range messages {
 		if err := ctx.Err(); err != nil {
-			return anyPosted
+			return anyPosted, reopened
 		}
-		posted, err := s.syncMessageWithOptions(ctx, conversationID, msg, waClient, opts, isGroup, true)
+		posted, err := s.syncMessageWithOptions(ctx, conversation.ID, msg, waClient, opts, isGroup, true)
 		if err != nil {
 			logrus.Warnf("Chatwoot pgimport: REST media pre-pass failed for message %s: %v", msg.ID, err)
 		}
-		anyPosted = anyPosted || posted
+		if posted {
+			anyPosted = true
+			if !reopened {
+				reopened = s.reopenHistoryConversation(ctx, conversation)
+			}
+		}
 	}
-	return anyPosted
+	return anyPosted, reopened
 }
 
 func (s *SyncService) storeChatwootImportLinks(result *pgimport.ImportResult) error {
@@ -732,7 +765,7 @@ func (s *SyncService) syncMessageWithOptions(
 
 	// Handle media if enabled and present
 	if opts.IncludeMedia && msg.MediaType != "" && msg.URL != "" && len(msg.MediaKey) > 0 {
-		filePath, err := s.downloadMedia(ctx, msg, waClient)
+		filePath, err := s.fetchMedia(ctx, msg, waClient)
 		if err != nil {
 			if requireMediaAttachment {
 				return false, fmt.Errorf("failed to download required media: %w", err)
@@ -804,6 +837,14 @@ func (s *SyncService) syncMessageWithOptions(
 	}
 
 	return true, nil
+}
+
+// fetchMedia routes through the test seam when one is set, else downloads.
+func (s *SyncService) fetchMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client) (string, error) {
+	if s.mediaDownloader != nil {
+		return s.mediaDownloader(ctx, msg, waClient)
+	}
+	return s.downloadMedia(ctx, msg, waClient)
 }
 
 // downloadMedia downloads media for a message and returns the temp file path
