@@ -183,7 +183,7 @@ func TestWebhookIgnoreJID_NilDeviceOverrideRespectsExactGroupJIDMatch(t *testing
 	}
 }
 
-func TestGetWebhookConfigForDevice_PropagatesWebhookIgnoreGroups(t *testing.T) {
+func TestResolveWebhookDeviceRecord_PropagatesWebhookIgnoreGroups(t *testing.T) {
 	trueVal := true
 	url := "https://device.example.com/webhook"
 
@@ -197,15 +197,19 @@ func TestGetWebhookConfigForDevice_PropagatesWebhookIgnoreGroups(t *testing.T) {
 	}
 	defer func() { webhookStorageForTest = originalStorage }()
 
-	cfg, err := getWebhookConfigForDevice("org_1")
+	record, err := resolveWebhookDeviceRecord(context.Background(), ignoreJidPayload("628111@s.whatsapp.net", "628111@s.whatsapp.net"))
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
+	cfg := webhookConfigFromRecord(record)
 	if cfg == nil {
 		t.Fatal("expected non-nil config when device has a WebhookURL")
 	}
-	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups != true {
+	if cfg.WebhookIgnoreGroups == nil || !*cfg.WebhookIgnoreGroups {
 		t.Fatal("expected WebhookIgnoreGroups to be propagated from the device record onto the returned config")
+	}
+	if deviceIgnoreGroupsOverride(record) == nil {
+		t.Fatal("expected the same record to carry the group override for the ignore check")
 	}
 }
 
@@ -280,5 +284,31 @@ func TestWebhookIgnoreJID_DeviceOverrideResolvedByADJID(t *testing.T) {
 	}
 	if called {
 		t.Fatal("group message should be dropped: the emitting slot's AD JID resolves an override of true, even though the bare number is ambiguous")
+	}
+}
+
+// TestWebhookIgnoreJID_DeviceOverrideFalseScopeIsTheWildcard pins the documented scope of
+// an explicit opt-out: it neutralizes the global "@g.us" wildcard for this device, and
+// nothing else. A group the operator listed by its exact JID stays ignored.
+func TestWebhookIgnoreJID_DeviceOverrideFalseScopeIsTheWildcard(t *testing.T) {
+	const groupJID = "120363999000111@g.us"
+	falseVal := false
+
+	cases := []struct {
+		name          string
+		ignoreJids    []string
+		wantForwarded bool
+	}{
+		{name: "exact group jid is still honoured", ignoreJids: []string{groupJID}},
+		{name: "wildcard is neutralized", ignoreJids: []string{"@g.us"}, wantForwarded: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := ignoreJidPayload(groupJID, "628111@s.whatsapp.net")
+			if got := runIgnoreJidForwardWithDeviceOverride(t, tc.ignoreJids, &falseVal, "message", payload); got != tc.wantForwarded {
+				t.Fatalf("expected forwarded=%v with ignore list %v and override=false, got %v", tc.wantForwarded, tc.ignoreJids, got)
+			}
+		})
 	}
 }

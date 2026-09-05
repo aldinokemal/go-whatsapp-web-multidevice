@@ -10,6 +10,17 @@ import (
 // "@lid") that matches an entire address space, or an exact JID. This powers
 // config.ChatwootIgnoreJids on both the live-forward and history-import paths.
 func MatchesIgnoredJID(jid string, ignore []string) bool {
+	return matchesIgnoredJID(jid, ignore, true)
+}
+
+// MatchesExactIgnoredJID is MatchesIgnoredJID restricted to the verbatim entries of the
+// list, skipping the suffix wildcards. It backs the per-device group override: opting a
+// device out of "@g.us" must not also silence an exact group JID the operator listed.
+func MatchesExactIgnoredJID(jid string, ignore []string) bool {
+	return matchesIgnoredJID(jid, ignore, false)
+}
+
+func matchesIgnoredJID(jid string, ignore []string, allowWildcard bool) bool {
 	if jid == "" {
 		return false
 	}
@@ -19,7 +30,7 @@ func MatchesIgnoredJID(jid string, ignore []string) bool {
 			continue
 		}
 		if strings.HasPrefix(pattern, "@") {
-			if strings.HasSuffix(jid, pattern) {
+			if allowWildcard && strings.HasSuffix(jid, pattern) {
 				return true
 			}
 		} else if jid == pattern {

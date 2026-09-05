@@ -160,21 +160,6 @@ func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, 
 	return nil, nil
 }
 
-// getWebhookConfigForDevice returns the webhook configuration to use for a given device.
-// If the device has a custom webhook config, it returns that config.
-// Otherwise, it returns nil (caller should use global config).
-func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebhookConfig, error) {
-	if deviceJID == "" {
-		return nil, nil
-	}
-
-	record, err := getDeviceRecordForTest(deviceJID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device record: %w", err)
-	}
-	return webhookConfigFromRecord(record), nil
-}
-
 // webhookConfigFromRecord maps a device registration onto its webhook configuration,
 // returning nil when the device has no device-specific webhook URL so the caller keeps
 // using the global config.
@@ -202,7 +187,10 @@ func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*d
 
 	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
 		if adJID := inst.ADJID(); adJID != "" && adJID != deviceJID {
-			if record, err := getDeviceRecordForTest(adJID); err == nil && record != nil {
+			record, err := getDeviceRecordForTest(adJID)
+			if err != nil {
+				logrus.Warnf("Failed to get device record for AD JID %s, falling back to %s: %v", adJID, deviceJID, err)
+			} else if record != nil {
 				return record, nil
 			}
 		}
@@ -245,9 +233,10 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 // "@g.us" wildcard to drop all group traffic), OR because the originating device has an
 // explicit per-device override for group messages (webhook_ignore_groups, set via
 // PATCH /devices/:device_id/webhook, passed in as groupOverride). The device override
-// takes precedence over the
-// global "@g.us" wildcard specifically for group JIDs; it has no effect on non-group JIDs,
-// where the global list remains the only mechanism (unchanged from before this feature).
+// takes precedence over the global "@g.us" wildcard specifically for group JIDs -- but
+// only over that wildcard: a group listed by its exact JID stays ignored either way. The
+// override has no effect on non-group JIDs, where the global list remains the only
+// mechanism (unchanged from before this feature).
 // The JID fields live in the nested inner payload, so it descends one level. Both the
 // resolved phone JIDs (chat_id/from) and the LID forms (chat_lid/from_lid) are matched.
 // It is a no-op when the inner payload is absent or no JID matches.
@@ -267,6 +256,11 @@ func shouldIgnoreWebhookJID(payload map[string]any, groupOverride *bool) bool {
 		if strings.HasSuffix(jid, "@g.us") {
 			if groupOverride != nil {
 				if *groupOverride {
+					return true
+				}
+				// Opting out only neutralizes the "@g.us" wildcard: a group the
+				// operator listed by its exact JID stays ignored.
+				if utils.MatchesExactIgnoredJID(jid, ignore) {
 					return true
 				}
 				continue
