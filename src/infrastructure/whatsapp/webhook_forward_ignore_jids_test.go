@@ -229,3 +229,56 @@ func TestWebhookIgnoreJID_DeviceOverrideFalseWinsEvenWithOtherExactJIDInGlobalLi
 		t.Fatal("group message should be forwarded when the device explicitly overrides to false, even though the global list also ignores an unrelated exact JID")
 	}
 }
+
+// TestWebhookIgnoreJID_DeviceOverrideResolvedByADJID covers the sibling-slot case: the
+// payload only carries the bare number, which GetDeviceRecordByJID refuses to resolve
+// when two slots share it, so the override must be looked up by the AD JID of the slot
+// that emitted the event.
+func TestWebhookIgnoreJID_DeviceOverrideResolvedByADJID(t *testing.T) {
+	const (
+		bareJID = "628111@s.whatsapp.net"
+		adJID   = "628111:12@s.whatsapp.net"
+	)
+	trueVal := true
+
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		if deviceJID != adJID {
+			// Ambiguous bare number: the repository returns no record at all.
+			return nil, nil
+		}
+		return &domainChatStorage.DeviceRecord{DeviceID: "org_2", WebhookIgnoreGroups: &trueVal}, nil
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	payload := ignoreJidPayload("120363999000111@g.us", bareJID)
+	payload["device_id"] = bareJID
+
+	originalWebhooks := config.WhatsappWebhook
+	originalEvents := config.WhatsappWebhookEvents
+	originalIgnore := config.WhatsappWebhookIgnoreJids
+	config.WhatsappWebhook = []string{"https://test.com"}
+	config.WhatsappWebhookEvents = nil
+	config.WhatsappWebhookIgnoreJids = nil
+	defer func() {
+		config.WhatsappWebhook = originalWebhooks
+		config.WhatsappWebhookEvents = originalEvents
+		config.WhatsappWebhookIgnoreJids = originalIgnore
+	}()
+
+	called := false
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(context.Context, map[string]any, string, *domainChatStorage.DeviceWebhookConfig) error {
+		called = true
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	ctx := ContextWithDevice(context.Background(), &DeviceInstance{id: "org_2", jid: bareJID, adJID: adJID})
+	if err := forwardPayloadToConfiguredWebhooks(ctx, payload, "message"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if called {
+		t.Fatal("group message should be dropped: the emitting slot's AD JID resolves an override of true, even though the bare number is ambiguous")
+	}
+}

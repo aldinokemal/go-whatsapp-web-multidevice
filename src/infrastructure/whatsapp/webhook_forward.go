@@ -99,16 +99,17 @@ func getContactMutex(phone string) *sync.Mutex {
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
-	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
+	record, err := resolveWebhookDeviceRecord(ctx, payload)
 	if err != nil {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
-		webhookConfig = nil
+		record = nil
 	}
+	webhookConfig := webhookConfigFromRecord(record)
 
 	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig) &&
-		!shouldIgnoreWebhookJID(payload)
+		!shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record))
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
@@ -171,18 +172,50 @@ func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebho
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device record: %w", err)
 	}
-	if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
-		logrus.Debugf("Using device-specific webhook config for %s", deviceJID)
-		return &domainChatStorage.DeviceWebhookConfig{
-			WebhookURL:                record.WebhookURL,
-			WebhookSecret:             record.WebhookSecret,
-			WebhookEvents:             record.WebhookEvents,
-			WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
-			WebhookIgnoreGroups:       record.WebhookIgnoreGroups,
-		}, nil
+	return webhookConfigFromRecord(record), nil
+}
+
+// webhookConfigFromRecord maps a device registration onto its webhook configuration,
+// returning nil when the device has no device-specific webhook URL so the caller keeps
+// using the global config.
+func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChatStorage.DeviceWebhookConfig {
+	if record == nil || record.WebhookURL == nil || *record.WebhookURL == "" {
+		return nil
+	}
+	logrus.Debugf("Using device-specific webhook config for %s", record.DeviceID)
+	return &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL:                record.WebhookURL,
+		WebhookSecret:             record.WebhookSecret,
+		WebhookEvents:             record.WebhookEvents,
+		WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+		WebhookIgnoreGroups:       record.WebhookIgnoreGroups,
+	}
+}
+
+// resolveWebhookDeviceRecord resolves the registration of the slot that emitted the event.
+// The payload's device_id is the bare NonAD JID, which GetDeviceRecordByJID deliberately
+// refuses to resolve once several slots share one number (issue #760); the AD JID of the
+// slot carried in the event context addresses exactly one row, so try that first and only
+// fall back to the bare JID when the slot has no AD JID recorded yet.
+func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceRecord, error) {
+	deviceJID, _ := payload["device_id"].(string)
+
+	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+		if adJID := inst.ADJID(); adJID != "" && adJID != deviceJID {
+			if record, err := getDeviceRecordForTest(adJID); err == nil && record != nil {
+				return record, nil
+			}
+		}
 	}
 
-	return nil, nil
+	if deviceJID == "" {
+		return nil, nil
+	}
+	record, err := getDeviceRecordForTest(deviceJID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device record: %w", err)
+	}
+	return record, nil
 }
 
 // getWebhookURLsFromConfig extracts webhook URLs from the config.
@@ -211,20 +244,19 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 // forwarding because its chat or sender JID matches WHATSAPP_WEBHOOK_IGNORE_JIDS (e.g. the
 // "@g.us" wildcard to drop all group traffic), OR because the originating device has an
 // explicit per-device override for group messages (webhook_ignore_groups, set via
-// PATCH /devices/:device_id/webhook). The device override takes precedence over the
+// PATCH /devices/:device_id/webhook, passed in as groupOverride). The device override
+// takes precedence over the
 // global "@g.us" wildcard specifically for group JIDs; it has no effect on non-group JIDs,
 // where the global list remains the only mechanism (unchanged from before this feature).
 // The JID fields live in the nested inner payload, so it descends one level. Both the
 // resolved phone JIDs (chat_id/from) and the LID forms (chat_lid/from_lid) are matched.
 // It is a no-op when the inner payload is absent or no JID matches.
-func shouldIgnoreWebhookJID(payload map[string]any) bool {
+func shouldIgnoreWebhookJID(payload map[string]any, groupOverride *bool) bool {
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		return false
 	}
 
-	deviceJID, _ := payload["device_id"].(string)
-	groupOverride := deviceIgnoreGroupsOverride(deviceJID)
 	ignore := config.WhatsappWebhookIgnoreJids
 
 	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
@@ -253,15 +285,9 @@ func shouldIgnoreWebhookJID(payload map[string]any) bool {
 
 // deviceIgnoreGroupsOverride returns the per-device override for ignoring group messages
 // in webhook forwarding (webhook_ignore_groups), or nil when the device has never set it
-// -- the caller falls back to the global "@g.us" wildcard. Uses the same test seam
-// (getDeviceRecordForTest) as getWebhookConfigForDevice, so existing tests that don't stub
-// it keep seeing nil (unchanged behavior).
-func deviceIgnoreGroupsOverride(deviceJID string) *bool {
-	if deviceJID == "" {
-		return nil
-	}
-	record, err := getDeviceRecordForTest(deviceJID)
-	if err != nil || record == nil {
+// -- the caller falls back to the global "@g.us" wildcard.
+func deviceIgnoreGroupsOverride(record *domainChatStorage.DeviceRecord) *bool {
+	if record == nil {
 		return nil
 	}
 	return record.WebhookIgnoreGroups
