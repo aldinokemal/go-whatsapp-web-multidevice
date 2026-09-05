@@ -46,11 +46,9 @@ func isChatStorageEnabledForClient(client *whatsmeow.Client) bool {
 // isChatStorageEnabledForDeviceJID reports whether chat storage is enabled for the
 // device identified by deviceJID. A per-device chat_storage=false override skips
 // storage entirely for that device; no override (nil) keeps the instance-wide
-// default of always storing, so existing single-tenant deployments are unaffected.
-// Multi-tenant deployments running one instance for many customer devices use the
-// override to keep alarm/service devices out of chat storage without touching
-// every other device. Split out from the *whatsmeow.Client variant so it can be
-// unit tested without a live client/store.
+// default of always storing, so existing deployments are unaffected. Split out
+// from the *whatsmeow.Client variant so it can be unit tested without a live
+// client/store.
 func isChatStorageEnabledForDeviceJID(deviceJID string) bool {
 	if deviceJID == "" {
 		return true

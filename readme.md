@@ -152,8 +152,8 @@ Download:
   - A field is `null` when the device has no override: chat storage falls back to always-on,
     auto_download_media falls back to `--auto-download-media` / `WHATSAPP_AUTO_DOWNLOAD_MEDIA`.
   - Send a field as `null` with `PATCH` to clear that override.
-  - Useful for a single instance hosting many customer devices — e.g. keeping an
-    alarm/service device out of chat storage without touching every other device.
+  - Useful when one instance hosts many devices — e.g. keeping a notification-only
+    device out of chat storage without changing the flags for every other device.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
   header, generated with the default key `secret`.
 

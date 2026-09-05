@@ -962,10 +962,9 @@ paths:
         current value. A field sent as `null` clears the override, falling back to the
         instance-wide default. At least one of chat_storage or auto_download_media is required.
 
-        Multi-tenant deployments running one instance for many customer devices use this to
-        keep specific devices (e.g. alarm/service accounts) out of chat storage or off
-        automatic media downloads without changing the instance-wide flags for every other
-        device.
+        Useful when one instance hosts many devices: specific devices (e.g. notification-only
+        accounts) can be kept out of chat storage or off automatic media downloads without
+        changing the instance-wide flags for every other device.
       parameters:
         - name: device_id
           in: path
