@@ -313,3 +313,84 @@ func TestGetDeviceWebhook_NilIgnoreGroupsReturnsNull(t *testing.T) {
 		t.Fatalf("expected webhook_ignore_groups=null when never configured, got %v", results["webhook_ignore_groups"])
 	}
 }
+
+// TestUpdateDeviceWebhook_IgnoreGroupsTriState pins the whole absent/null/value contract
+// of webhook_ignore_groups in one place: a PATCH body must be able to walk a device
+// through true -> null -> false without the omitted case ever clobbering the stored value.
+func TestUpdateDeviceWebhook_IgnoreGroupsTriState(t *testing.T) {
+	stored := true
+
+	cases := []struct {
+		name string
+		body string
+		want *bool
+	}{
+		{
+			name: "omitted key keeps the stored override",
+			body: `{"webhook_url": "https://hook.example.com"}`,
+			want: &stored,
+		},
+		{
+			name: "explicit null clears the override back to NULL",
+			body: `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": null}`,
+			want: nil,
+		},
+		{
+			name: "explicit false sets the override",
+			body: `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": false}`,
+			want: new(bool),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &deviceWebhookStubUsecase{
+				getConfig: &chatstorage.DeviceWebhookConfig{WebhookIgnoreGroups: &stored},
+			}
+			app := newDeviceWebhookTestApp(stub)
+
+			req := httptest.NewRequest(http.MethodPatch, "/devices/dev1/webhook", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := app.Test(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.StatusCode)
+			}
+
+			if stub.receivedConfig == nil {
+				t.Fatal("expected webhook config to be forwarded to the usecase, got nil")
+			}
+			got := stub.receivedConfig.WebhookIgnoreGroups
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("expected the usecase to receive nil, got %v", *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("expected the usecase to receive %v, got nil", *tc.want)
+			case tc.want != nil && *got != *tc.want:
+				t.Fatalf("expected the usecase to receive %v, got %v", *tc.want, *got)
+			}
+
+			var respBody map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			results, ok := respBody["results"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected results object in response, got %v", respBody)
+			}
+			if tc.want == nil {
+				if results["webhook_ignore_groups"] != nil {
+					t.Fatalf("expected webhook_ignore_groups=null in response, got %v", results["webhook_ignore_groups"])
+				}
+				return
+			}
+			if echoed, ok := results["webhook_ignore_groups"].(bool); !ok || echoed != *tc.want {
+				t.Fatalf("expected webhook_ignore_groups=%v in response, got %v", *tc.want, results["webhook_ignore_groups"])
+			}
+		})
+	}
+}

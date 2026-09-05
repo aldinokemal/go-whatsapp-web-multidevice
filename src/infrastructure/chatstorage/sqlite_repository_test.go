@@ -461,3 +461,50 @@ func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 	}
 	return count
 }
+
+// TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull covers the leg the
+// REST tri-state relies on: once an override has been stored, writing nil must put the
+// column back to NULL so the device falls back to the global "@g.us" wildcard again.
+func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-clear-ignore-groups"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+		JID:      "5511999990001@s.whatsapp.net",
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups: &trueVal,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups: nil,
+	}); err != nil {
+		t.Fatalf("unexpected error clearing config: %v", err)
+	}
+
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected WebhookIgnoreGroups back to nil after clearing, got %v", *cfg.WebhookIgnoreGroups)
+	}
+
+	rec, err := repo.GetDeviceRecordByJID("5511999990001@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("expected device record, got nil")
+	}
+	if rec.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected WebhookIgnoreGroups nil via GetDeviceRecordByJID, got %v", *rec.WebhookIgnoreGroups)
+	}
+}

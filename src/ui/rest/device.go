@@ -209,7 +209,9 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		WebhookSecret             string  `json:"webhook_secret"`
 		WebhookEvents             string  `json:"webhook_events"`
 		WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify"`
-		WebhookIgnoreGroups       *bool   `json:"webhook_ignore_groups"`
+		// Tri-state: absent keeps the stored override, null clears it back to the
+		// global "@g.us" wildcard, true/false sets it for this device.
+		WebhookIgnoreGroups utils.Nullable[bool] `json:"webhook_ignore_groups"`
 	}
 
 	if err := c.Bind().Body(&req); err != nil {
@@ -233,8 +235,8 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 	existing, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 
-	ignoreGroups := req.WebhookIgnoreGroups
-	if ignoreGroups == nil && existing != nil {
+	ignoreGroups := req.WebhookIgnoreGroups.Ptr()
+	if !req.WebhookIgnoreGroups.Set && existing != nil {
 		ignoreGroups = existing.WebhookIgnoreGroups
 	}
 
