@@ -60,13 +60,13 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Retrieved %d chats (offset %d, limit %d)", len(resp.Data), req.Offset, req.Limit)), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Retrieved %d chats (offset %d, limit %d)", len(resp.Data), req.Offset, req.Limit)), nil
 	case "list_contacts":
 		resp, err := h.userService.MyListContacts(ctx)
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Found %d contacts", len(resp.Data))), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Found %d contacts", len(resp.Data))), nil
 	case "get_messages":
 		chatJID := request.GetString("chat_jid", "")
 		var startTimePtr, endTimePtr *string
@@ -97,7 +97,7 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Retrieved %d messages from %s", len(resp.Data), chatJID)), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Retrieved %d messages from %s", len(resp.Data), chatJID)), nil
 	case "archive":
 		req := domainChat.ArchiveChatRequest{
 			ChatJID:  request.GetString("chat_jid", ""),
