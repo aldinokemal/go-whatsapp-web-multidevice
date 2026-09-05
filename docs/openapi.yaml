@@ -773,6 +773,14 @@ paths:
                         type: boolean
                         description: Whether TLS verification is skipped for this device webhook
                         example: false
+                      webhook_ignore_groups:
+                        type: boolean
+                        nullable: true
+                        description: >-
+                          Per-device override for dropping group (`@g.us`) messages from webhook
+                          forwarding. `null` means the device never set one and the global
+                          `WHATSAPP_WEBHOOK_IGNORE_JIDS` list applies.
+                        example: true
         '404':
           description: Device not found
           content:
@@ -796,6 +804,10 @@ paths:
         `webhook_events`, and `webhook_insecure_skip_verify` override the global webhook settings for this device.
 
         Set to empty string to clear and use the global webhook.
+
+        `webhook_ignore_groups` is tri-state: omitting the key keeps the stored override, `null`
+        clears it back to the global `WHATSAPP_WEBHOOK_IGNORE_JIDS` behaviour, and `true`/`false`
+        sets it for this device.
       parameters:
         - name: device_id
           in: path
@@ -826,6 +838,17 @@ paths:
                   type: boolean
                   description: Optional. Skip TLS certificate verification for this device webhook.
                   example: false
+                webhook_ignore_groups:
+                  type: boolean
+                  nullable: true
+                  description: >-
+                    Optional per-device override for dropping group (`@g.us`) messages from
+                    webhook forwarding. Omit the key to keep the stored value, send `null` to
+                    clear the override and fall back to the global
+                    `WHATSAPP_WEBHOOK_IGNORE_JIDS` list, or send `true`/`false` to set it.
+                    The override only replaces the global `@g.us` wildcard; exact group JIDs
+                    listed globally are still honoured.
+                  example: true
               required:
                 - webhook_url
       responses:
@@ -868,6 +891,11 @@ paths:
                         type: boolean
                         description: Whether TLS verification is skipped for this device webhook
                         example: false
+                      webhook_ignore_groups:
+                        type: boolean
+                        nullable: true
+                        description: The per-device group-ignore override in effect after the update
+                        example: true
         '400':
           description: Bad Request
           content:
