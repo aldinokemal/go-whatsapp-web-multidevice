@@ -381,3 +381,14 @@ func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *doma
 func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
 	return r.base.GetDeviceWebhookConfig(deviceID)
 }
+
+// SetDeviceStorageSettings applies a partial update to a device's chat_storage /
+// auto_download_media overrides.
+func (r *deviceChatStorage) SetDeviceStorageSettings(deviceID string, patch domainChatStorage.DeviceStoragePatch) error {
+	return r.base.SetDeviceStorageSettings(deviceID, patch)
+}
+
+// GetDeviceStorageSettings retrieves a device's chat_storage / auto_download_media overrides.
+func (r *deviceChatStorage) GetDeviceStorageSettings(deviceID string) (*domainChatStorage.DeviceStorageSettings, error) {
+	return r.base.GetDeviceStorageSettings(deviceID)
+}

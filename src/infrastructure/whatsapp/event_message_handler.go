@@ -34,18 +34,24 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	evt = materializeSecretEditMessage(ctx, evt, client)
 	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
 
+	chatStorageEnabled := isChatStorageEnabledForClient(client)
+
 	if isReactionMessage(evt) {
-		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
-			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+		if chatStorageEnabled {
+			if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
+				log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+			}
 		}
 
 		handleWebhookForward(ctx, evt, client, pollPayload)
 		return
 	}
 
-	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
-		// Log storage errors to avoid silent failures that could lead to data loss
-		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+	if chatStorageEnabled {
+		if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+			// Log storage errors to avoid silent failures that could lead to data loss
+			log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+		}
 	}
 
 	// Handle image message if present
@@ -79,7 +85,7 @@ func buildMessageMetaParts(evt *events.Message) []string {
 }
 
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !config.WhatsappAutoDownloadMedia {
+	if !isAutoDownloadMediaEnabledForClient(client) {
 		return
 	}
 	if client == nil {
