@@ -32,6 +32,8 @@ type IChatStorageRepository interface {
 	GetMessageEdits(originalMessageID, deviceID string) ([]*MessageEdit, error)
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*Message, error) // Database-level search with device isolation
+	// GetCallRecords lists call records (media_type "call") newest first, plus the unpaginated total.
+	GetCallRecords(filter *CallRecordFilter) ([]*Message, int64, error)
 	DeleteMessage(id, chatJID string) error
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
 	StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error

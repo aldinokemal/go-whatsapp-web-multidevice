@@ -2481,6 +2481,65 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /call/logs:
+    get:
+      operationId: listCallLogs
+      tags:
+        - call
+      summary: Get list of call logs
+      description: |
+        List the incoming calls recorded for the current device, newest first.
+
+        Calls are captured by the `call.offer` handler, so the log covers incoming calls that arrived
+        while the device was connected. Outgoing calls, call duration and answered/ended outcomes are
+        not tracked yet.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+          description: Maximum number of call logs to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of call logs to skip (for pagination)
+        - name: chat_jid
+          in: query
+          schema:
+            type: string
+          description: Only return calls belonging to this chat JID
+          example: '6289685028129@s.whatsapp.net'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallLogListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /chats:
     get:
       operationId: listChats
@@ -5226,6 +5285,83 @@ components:
                   close_time:
                     type: string
                     example: '18:00'
+
+    CallLogListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get call logs
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/CallLog'
+            pagination:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  example: 25
+                offset:
+                  type: integer
+                  example: 0
+                total:
+                  type: integer
+                  example: 12
+
+    CallLog:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 'call:ABC123DEF456'
+          description: Stored record identifier (`call:` prefix plus the call id)
+        chat_jid:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: Chat the call belongs to (group JID for group calls)
+        sender_jid:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+          description: JID of the caller
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-15T10:30:00Z'
+          description: When the call offer was received
+        is_from_me:
+          type: boolean
+          example: false
+          description: Always false today; only incoming calls are recorded
+        call_metadata:
+          type: object
+          properties:
+            call_id:
+              type: string
+              example: 'ABC123DEF456'
+              description: Call identifier, also usable with POST /call/reject
+            auto_rejected:
+              type: boolean
+              example: false
+              description: Whether the call was rejected by WHATSAPP_AUTO_REJECT_CALL
+            remote_platform:
+              type: string
+              example: 'android'
+              description: Caller platform, when reported
+            remote_version:
+              type: string
+              example: '2.24.1.75'
+              description: Caller app version, when reported
+            group_jid:
+              type: string
+              example: '120363123456789@g.us'
+              description: Group JID for group calls
 
     ChatListResponse:
       type: object
