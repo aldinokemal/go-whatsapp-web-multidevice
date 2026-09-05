@@ -1637,7 +1637,7 @@ func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.
 	}
 
 	rows, err := r.db.Query(`
-		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), created_at, updated_at
+		SELECT device_id, display_name, jid, COALESCE(ad_jid, ''), webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE), chat_storage, auto_download_media, created_at, updated_at
 		FROM devices
 		WHERE jid = ? OR ad_jid = ?
 		LIMIT 2
@@ -1650,6 +1650,7 @@ func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.
 	var records []*domainChatStorage.DeviceRecord
 	for rows.Next() {
 		rec := &domainChatStorage.DeviceRecord{}
+		var chatStorage, autoDownloadMedia sql.NullBool
 		if err := rows.Scan(
 			&rec.DeviceID,
 			&rec.DisplayName,
@@ -1659,10 +1660,20 @@ func (r *SQLiteRepository) GetDeviceRecordByJID(jid string) (*domainChatStorage.
 			&rec.WebhookSecret,
 			&rec.WebhookEvents,
 			&rec.WebhookInsecureSkipVerify,
+			&chatStorage,
+			&autoDownloadMedia,
 			&rec.CreatedAt,
 			&rec.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if chatStorage.Valid {
+			v := chatStorage.Bool
+			rec.ChatStorage = &v
+		}
+		if autoDownloadMedia.Valid {
+			v := autoDownloadMedia.Bool
+			rec.AutoDownloadMedia = &v
 		}
 		records = append(records, rec)
 	}
@@ -1790,6 +1801,81 @@ func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatS
 	}
 	config.WebhookURL = webhookURL
 	return &config, nil
+}
+
+// SetDeviceStorageSettings applies a partial update to the per-device chat_storage /
+// auto_download_media overrides. Only columns whose Has* flag is set in patch are
+// included in the UPDATE, so an omitted field keeps its stored value untouched while
+// a present field with a nil pointer clears the override back to NULL (follow the
+// instance default). Returns sql.ErrNoRows if the device does not exist.
+func (r *SQLiteRepository) SetDeviceStorageSettings(deviceID string, patch domainChatStorage.DeviceStoragePatch) error {
+	if strings.TrimSpace(deviceID) == "" {
+		return fmt.Errorf("device id is required")
+	}
+	if !patch.HasChatStorage && !patch.HasAutoDownloadMedia {
+		return nil
+	}
+
+	setClauses := make([]string, 0, 3)
+	args := make([]any, 0, 4)
+
+	if patch.HasChatStorage {
+		setClauses = append(setClauses, "chat_storage = ?")
+		args = append(args, patch.ChatStorage)
+	}
+	if patch.HasAutoDownloadMedia {
+		setClauses = append(setClauses, "auto_download_media = ?")
+		args = append(args, patch.AutoDownloadMedia)
+	}
+	setClauses = append(setClauses, "updated_at = ?")
+	args = append(args, time.Now())
+	args = append(args, deviceID)
+
+	query := fmt.Sprintf("UPDATE devices SET %s WHERE device_id = ?", strings.Join(setClauses, ", "))
+	result, err := r.db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetDeviceStorageSettings retrieves the per-device chat_storage / auto_download_media
+// overrides. Returns (nil, nil) if the device does not exist so callers can distinguish
+// "device not found" (nil, nil here — mirroring GetDeviceWebhookConfig) from storage
+// errors, and the usecase layer checks device existence separately before calling.
+func (r *SQLiteRepository) GetDeviceStorageSettings(deviceID string) (*domainChatStorage.DeviceStorageSettings, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	var chatStorage, autoDownloadMedia sql.NullBool
+	err := r.db.QueryRow(`
+		SELECT chat_storage, auto_download_media
+		FROM devices WHERE device_id = ? LIMIT 1
+	`, deviceID).Scan(&chatStorage, &autoDownloadMedia)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	settings := &domainChatStorage.DeviceStorageSettings{}
+	if chatStorage.Valid {
+		v := chatStorage.Bool
+		settings.ChatStorage = &v
+	}
+	if autoDownloadMedia.Valid {
+		v := autoDownloadMedia.Bool
+		settings.AutoDownloadMedia = &v
+	}
+	return settings, nil
 }
 
 // GetChatNameWithPushName determines the appropriate name for a chat with pushname support
@@ -2804,5 +2890,13 @@ func (r *SQLiteRepository) getMigrations() []string {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (device_id, chat_jid, poll_message_id)
 		)`,
+
+		// Migration 45: Per-device chat storage override (NULL = follow the
+		// instance-wide default, which is always-on)
+		`ALTER TABLE devices ADD COLUMN chat_storage BOOLEAN DEFAULT NULL`,
+
+		// Migration 46: Per-device auto-download-media override (NULL = follow
+		// --auto-download-media / WHATSAPP_AUTO_DOWNLOAD_MEDIA)
+		`ALTER TABLE devices ADD COLUMN auto_download_media BOOLEAN DEFAULT NULL`,
 	}
 }
