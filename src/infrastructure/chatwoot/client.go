@@ -506,6 +506,79 @@ func (c *Client) ToggleConversationStatus(conversationID int, status string) err
 	return nil
 }
 
+// ConversationState is the part of a Chatwoot conversation the reopen retry
+// reads back: the current status, and when the thread last saw activity. The
+// retry needs both -- the status alone cannot tell a resolve that predates the
+// queued intent from one an agent made after newer activity.
+type ConversationState struct {
+	Status         string
+	LastActivityAt time.Time
+}
+
+// conversationStatePayload decodes the conversation fields ConversationState is
+// built from. Chatwoot sends these timestamps as epoch seconds and renders
+// updated_at as a float in some versions, so both are read as numbers and the
+// newer of the two wins.
+type conversationStatePayload struct {
+	Status         string   `json:"status"`
+	LastActivityAt *float64 `json:"last_activity_at"`
+	UpdatedAt      *float64 `json:"updated_at"`
+}
+
+func (p conversationStatePayload) state() *ConversationState {
+	state := &ConversationState{Status: p.Status}
+	for _, epoch := range []*float64{p.LastActivityAt, p.UpdatedAt} {
+		if epoch == nil || *epoch <= 0 {
+			continue
+		}
+		if at := time.Unix(int64(*epoch), 0); at.After(state.LastActivityAt) {
+			state.LastActivityAt = at
+		}
+	}
+	return state
+}
+
+// GetConversationState fetches a conversation via GET /conversations/{id}. The
+// reopen retry worker calls it before toggling, so replaying a queued intent
+// against a thread that is already open costs nothing and changes nothing.
+//
+// A response with no status is an error rather than an empty state: the caller
+// drops an intent whose conversation is not resolved, and a body it could not
+// read must be retried instead of mistaken for one.
+func (c *Client) GetConversationState(conversationID int) (*ConversationState, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d", c.BaseURL, c.AccountID, conversationID)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "get conversation", Body: string(bodyBytes)}
+	}
+
+	var wrapped struct {
+		Payload conversationStatePayload `json:"payload"`
+	}
+	if err := json.Unmarshal(bodyBytes, &wrapped); err == nil && wrapped.Payload.Status != "" {
+		return wrapped.Payload.state(), nil
+	}
+
+	var flat conversationStatePayload
+	if err := json.Unmarshal(bodyBytes, &flat); err == nil && flat.Status != "" {
+		return flat.state(), nil
+	}
+
+	return nil, fmt.Errorf("failed to decode conversation %d response (no status found): %s", conversationID, string(bodyBytes))
+}
+
 // conversationStatusForNew returns the status a newly created or reopened
 // conversation should land in: "pending" routes it to the unassigned queue
 // when ChatwootConversationPending is set, otherwise "open" puts it in the

@@ -168,7 +168,7 @@ func TestRESTMediaPrePassSkipsChatWithoutMedia(t *testing.T) {
 	svc, requests := chatwootSyncChatService(t, repo)
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
-	svc.restMediaPrePass(context.Background(), chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
+	svc.restMediaPrePass(context.Background(), msg.DeviceID, chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
 
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("Chatwoot received %d requests, want 0 for a chat with no media", got)
@@ -437,7 +437,7 @@ func TestRESTMediaPrePassDoesNotReopenWhenNoAttachmentPosts(t *testing.T) {
 
 	// No WhatsApp client: the download fails, the attachment is required, so
 	// nothing is posted.
-	svc.restMediaPrePass(context.Background(), chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
+	svc.restMediaPrePass(context.Background(), msg.DeviceID, chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
 
 	ev := events()
 	if countEvents(ev, "/conversations") == 0 {
@@ -525,7 +525,7 @@ func TestRESTMediaPrePassRetriesReopenOnLaterPostsAfterToggleFailure(t *testing.
 	svc.mediaDownloader = fakeMediaDownloader(t)
 	chat := &domainChatStorage.Chat{JID: first.ChatJID, Name: "Contact"}
 
-	svc.restMediaPrePass(context.Background(), chat, []*domainChatStorage.Message{first, second}, nil, DefaultSyncOptions(), false)
+	svc.restMediaPrePass(context.Background(), first.DeviceID, chat, []*domainChatStorage.Message{first, second}, nil, DefaultSyncOptions(), false)
 
 	ev := events()
 	if got := countEvents(ev, "/messages"); got != 2 {
