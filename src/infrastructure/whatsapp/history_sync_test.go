@@ -122,6 +122,73 @@ func TestProcessConversationMessagesPersistsPollDefinitionWithoutText(t *testing
 		repo.definition.UpdatedAt, wantTimestamp)
 }
 
+// TestProcessHistorySyncRoutesOnDemandToConversationMessages pins the
+// on-demand history sync routing fix: HISTORY_SYNC_ON_DEMAND (the phone's
+// reply to Client.BuildHistorySyncRequest, used for "load older messages")
+// must be persisted the same way as INITIAL_BOOTSTRAP/RECENT, not silently
+// dropped by the sync-type switch in processHistorySync.
+func TestProcessHistorySyncRoutesOnDemandToConversationMessages(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	repo := &historyMessageBatchRepoSpy{}
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
+	syncType := waHistorySync.HistorySync_ON_DEMAND
+	timestamp := uint64(time.Date(2026, time.September, 6, 8, 0, 0, 0, time.UTC).Unix())
+	data := &waHistorySync.HistorySync{
+		SyncType: &syncType,
+		Conversations: []*waHistorySync.Conversation{{
+			ID: proto.String(chatJID),
+			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
+				Key: &waCommon.MessageKey{
+					RemoteJID: proto.String(chatJID),
+					FromMe:    proto.Bool(false),
+					ID:        proto.String("older-msg-1"),
+				},
+				Message:          &waE2E.Message{Conversation: proto.String("an older message")},
+				MessageTimestamp: &timestamp,
+			}}},
+		}},
+	}
+
+	if err := processHistorySync(ctx, data, repo, nil); err != nil {
+		t.Fatalf("processHistorySync: %v", err)
+	}
+
+	if repo.storeMessagesBatchCalls != 1 {
+		t.Fatalf("expected on-demand conversations to be persisted once, got %d calls", repo.storeMessagesBatchCalls)
+	}
+	if len(repo.lastBatch) != 1 || repo.lastBatch[0].ID != "older-msg-1" {
+		t.Fatalf("unexpected persisted batch: %+v", repo.lastBatch)
+	}
+}
+
+type historyMessageBatchRepoSpy struct {
+	domainChatStorage.IChatStorageRepository
+	storeMessagesBatchCalls int
+	lastBatch               []*domainChatStorage.Message
+}
+
+func (r *historyMessageBatchRepoSpy) StoreChat(*domainChatStorage.Chat) error {
+	return nil
+}
+
+func (r *historyMessageBatchRepoSpy) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
+	r.storeMessagesBatchCalls++
+	r.lastBatch = messages
+	return nil
+}
+
+func (r *historyMessageBatchRepoSpy) GetChatNameWithPushName(jid types.JID, _ string, _ string, pushName string) string {
+	if pushName != "" {
+		return pushName
+	}
+	return jid.String()
+}
+
 type historyReactionRepoSpy struct {
 	domainChatStorage.IChatStorageRepository
 	createReactionCalls int

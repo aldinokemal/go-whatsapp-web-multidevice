@@ -250,3 +250,77 @@ func TestValidateSetDisappearingTimer(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRequestChatHistory(t *testing.T) {
+	type args struct {
+		request domainChat.RequestChatHistoryRequest
+	}
+	tests := []struct {
+		name          string
+		args          args
+		err           any
+		expectedCount int
+	}{
+		{
+			name: "should success with valid request",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "6289685028129@s.whatsapp.net",
+				Count:   100,
+			}},
+			err:           nil,
+			expectedCount: 100,
+		},
+		{
+			name: "should default count to 50 when zero",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "6289685028129@s.whatsapp.net",
+				Count:   0,
+			}},
+			err:           nil,
+			expectedCount: 50,
+		},
+		{
+			name: "should success with max count",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "6289685028129@s.whatsapp.net",
+				Count:   500,
+			}},
+			err:           nil,
+			expectedCount: 500,
+		},
+		{
+			name: "should error with empty chat_jid",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "",
+				Count:   50,
+			}},
+			err: pkgError.ValidationError("chat_jid: cannot be blank."),
+		},
+		{
+			name: "should error with count above cap",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "6289685028129@s.whatsapp.net",
+				Count:   501,
+			}},
+			err: pkgError.ValidationError("count: must be no greater than 500."),
+		},
+		{
+			name: "should error with negative count",
+			args: args{request: domainChat.RequestChatHistoryRequest{
+				ChatJID: "6289685028129@s.whatsapp.net",
+				Count:   -1,
+			}},
+			err: pkgError.ValidationError("count: must be no less than 1."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRequestChatHistory(context.Background(), &tt.args.request)
+			assert.Equal(t, tt.err, err)
+			if tt.err == nil {
+				assert.Equal(t, tt.expectedCount, tt.args.request.Count)
+			}
+		})
+	}
+}

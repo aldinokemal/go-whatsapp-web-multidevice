@@ -705,6 +705,7 @@ You may also fork or modify the source code.
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
+| ✅       | Request Chat History (Load Older Msgs) | POST   | /chat/:chat_jid/history             |
 | ✅       | Chatwoot Sync History                  | POST   | /chatwoot/sync                      |
 | ✅       | Chatwoot Sync Status                   | GET    | /chatwoot/sync/status               |
 | ✅       | List Chatwoot Configurations           | GET    | /chatwoot/configs                   |

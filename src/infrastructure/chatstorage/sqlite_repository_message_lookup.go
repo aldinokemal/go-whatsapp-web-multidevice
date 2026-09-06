@@ -26,3 +26,26 @@ func (r *SQLiteRepository) GetMessageByIDChatAndDevice(deviceID, chatJID, id str
 	}
 	return message, err
 }
+
+// GetOldestMessageByDevice returns the earliest stored message for a chat,
+// scoped to the device for data isolation. Used to anchor on-demand history
+// sync requests, which need the oldest known message ID/timestamp to ask the
+// phone for anything older. Returns (nil, nil) when the chat has no stored
+// messages yet.
+func (r *SQLiteRepository) GetOldestMessageByDevice(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+		FROM messages
+		WHERE chat_jid = ? AND device_id = ?
+		ORDER BY timestamp ASC
+		LIMIT 1
+	`
+
+	message, err := r.scanMessage(r.db.QueryRow(query, chatJID, deviceID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return message, err
+}
