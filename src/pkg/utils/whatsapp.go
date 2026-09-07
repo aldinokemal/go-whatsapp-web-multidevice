@@ -178,6 +178,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return ""
 	}
 
+	// Unwrap FutureProof wrappers (ephemeral, view-once) so callers that pass
+	// raw WebMessageInfo.Message (e.g. history sync) see the inner content.
+	msg = UnwrapMessage(msg)
+
 	// Check for regular text message
 	if text := msg.GetConversation(); text != "" {
 		return text
