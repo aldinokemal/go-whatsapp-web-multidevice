@@ -3,6 +3,7 @@ package rest
 import (
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v3"
 )
@@ -41,9 +42,11 @@ func (controller *Call) RejectCall(c fiber.Ctx) error {
 func (controller *Call) ListCallLogs(c fiber.Ctx) error {
 	var request domainCall.ListCallLogsRequest
 
-	request.Limit = fiber.Query[int](c, "limit", 25)
-	request.Offset = fiber.Query[int](c, "offset", 0)
-	request.ChatJID = c.Query("chat_jid", "")
+	err := c.Bind().Query(&request)
+	if err != nil {
+		err = pkgError.ValidationError(err.Error())
+	}
+	utils.PanicIfNeeded(err)
 
 	response, err := controller.Service.ListCallLogs(
 		whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)),
@@ -51,6 +54,7 @@ func (controller *Call) ListCallLogs(c fiber.Ctx) error {
 	)
 	utils.PanicIfNeeded(err)
 
+	c.Set("Cache-Control", "no-store")
 	return c.JSON(utils.ResponseData{
 		Status:  200,
 		Code:    "SUCCESS",
