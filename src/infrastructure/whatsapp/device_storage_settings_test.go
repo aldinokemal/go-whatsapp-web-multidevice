@@ -1,6 +1,7 @@
 package whatsapp
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -8,131 +9,152 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
-func withDeviceStorageRecordForTest(t *testing.T, fn func(deviceJID string) (*chatstorage.DeviceRecord, error)) {
+func withDeviceStorageSettingsForTest(t *testing.T, fn func(deviceID string) (*chatstorage.DeviceStorageSettings, error)) {
 	t.Helper()
-	original := deviceStorageRecordForTest
-	deviceStorageRecordForTest = fn
-	t.Cleanup(func() { deviceStorageRecordForTest = original })
+	original := deviceStorageSettingsForTest
+	deviceStorageSettingsForTest = fn
+	t.Cleanup(func() { deviceStorageSettingsForTest = original })
 }
 
-func TestIsChatStorageEnabledForDeviceJID_NoDeviceID(t *testing.T) {
-	if !isChatStorageEnabledForDeviceJID("") {
-		t.Fatal("expected chat storage enabled by default when no device JID is known")
+func TestIsChatStorageEnabledForDeviceID_NoDeviceID(t *testing.T) {
+	if !isChatStorageEnabledForDeviceID("") {
+		t.Fatal("expected chat storage enabled by default when no device ID is known")
 	}
 }
 
-func TestIsChatStorageEnabledForDeviceJID_DeviceNotFound(t *testing.T) {
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
+func TestIsChatStorageEnabledForDeviceID_DeviceNotFound(t *testing.T) {
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
 		return nil, nil
 	})
 
-	if !isChatStorageEnabledForDeviceJID("unknown@s.whatsapp.net") {
+	if !isChatStorageEnabledForDeviceID("device-a") {
 		t.Fatal("expected chat storage enabled when the device has no record")
 	}
 }
 
-func TestIsChatStorageEnabledForDeviceJID_NoOverrideDefaultsEnabled(t *testing.T) {
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
-		return &chatstorage.DeviceRecord{DeviceID: deviceJID}, nil
+func TestIsChatStorageEnabledForDeviceID_NoOverrideDefaultsEnabled(t *testing.T) {
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return &chatstorage.DeviceStorageSettings{}, nil
 	})
 
-	if !isChatStorageEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
+	if !isChatStorageEnabledForDeviceID("device-a") {
 		t.Fatal("expected chat storage enabled when no override is set")
 	}
 }
 
-func TestIsChatStorageEnabledForDeviceJID_ExplicitFalseOverride(t *testing.T) {
+func TestIsChatStorageEnabledForDeviceID_ExplicitFalseOverride(t *testing.T) {
 	disabled := false
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
-		return &chatstorage.DeviceRecord{DeviceID: deviceJID, ChatStorage: &disabled}, nil
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return &chatstorage.DeviceStorageSettings{ChatStorage: &disabled}, nil
 	})
 
-	if isChatStorageEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
+	if isChatStorageEnabledForDeviceID("device-a") {
 		t.Fatal("expected chat storage disabled by explicit override")
 	}
 }
 
-func TestIsChatStorageEnabledForDeviceJID_ExplicitTrueOverride(t *testing.T) {
+func TestIsChatStorageEnabledForDeviceID_ExplicitTrueOverride(t *testing.T) {
 	enabled := true
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
-		return &chatstorage.DeviceRecord{DeviceID: deviceJID, ChatStorage: &enabled}, nil
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return &chatstorage.DeviceStorageSettings{ChatStorage: &enabled}, nil
 	})
 
-	if !isChatStorageEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
+	if !isChatStorageEnabledForDeviceID("device-a") {
 		t.Fatal("expected chat storage enabled by explicit override")
 	}
 }
 
-func TestIsChatStorageEnabledForDeviceJID_LookupErrorDefaultsEnabled(t *testing.T) {
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
+func TestIsChatStorageEnabledForDeviceID_LookupErrorFailsClosed(t *testing.T) {
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
 		return nil, errors.New("boom")
 	})
 
-	if !isChatStorageEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
-		t.Fatal("expected chat storage enabled (fail open) when the lookup errors")
+	if isChatStorageEnabledForDeviceID("device-a") {
+		t.Fatal("expected chat storage disabled (fail closed) when the lookup errors")
 	}
 }
 
-func TestIsAutoDownloadMediaEnabledForDeviceJID_NoDeviceIDFollowsGlobal(t *testing.T) {
+func TestIsAutoDownloadMediaEnabledForDeviceID_NoDeviceIDFollowsGlobal(t *testing.T) {
 	original := config.WhatsappAutoDownloadMedia
 	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = original })
 
 	config.WhatsappAutoDownloadMedia = false
-	if isAutoDownloadMediaEnabledForDeviceJID("") {
-		t.Fatal("expected global false to apply when no device JID is known")
+	if isAutoDownloadMediaEnabledForDeviceID("") {
+		t.Fatal("expected global false to apply when no device ID is known")
 	}
 
 	config.WhatsappAutoDownloadMedia = true
-	if !isAutoDownloadMediaEnabledForDeviceJID("") {
-		t.Fatal("expected global true to apply when no device JID is known")
+	if !isAutoDownloadMediaEnabledForDeviceID("") {
+		t.Fatal("expected global true to apply when no device ID is known")
 	}
 }
 
-func TestIsAutoDownloadMediaEnabledForDeviceJID_NoOverrideFollowsGlobal(t *testing.T) {
+func TestIsAutoDownloadMediaEnabledForDeviceID_NoOverrideFollowsGlobal(t *testing.T) {
 	original := config.WhatsappAutoDownloadMedia
 	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = original })
 	config.WhatsappAutoDownloadMedia = false
 
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
-		return &chatstorage.DeviceRecord{DeviceID: deviceJID}, nil
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return &chatstorage.DeviceStorageSettings{}, nil
 	})
 
-	if isAutoDownloadMediaEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
+	if isAutoDownloadMediaEnabledForDeviceID("device-a") {
 		t.Fatal("expected global default (false) to apply when no override is set")
 	}
 }
 
-func TestIsAutoDownloadMediaEnabledForDeviceJID_OverrideWinsOverGlobal(t *testing.T) {
+func TestIsAutoDownloadMediaEnabledForDeviceID_OverrideWinsOverGlobal(t *testing.T) {
 	original := config.WhatsappAutoDownloadMedia
 	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = original })
 	config.WhatsappAutoDownloadMedia = false
 
 	enabled := true
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
-		return &chatstorage.DeviceRecord{DeviceID: deviceJID, AutoDownloadMedia: &enabled}, nil
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return &chatstorage.DeviceStorageSettings{AutoDownloadMedia: &enabled}, nil
 	})
 
-	if !isAutoDownloadMediaEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
+	if !isAutoDownloadMediaEnabledForDeviceID("device-a") {
 		t.Fatal("expected the per-device override (true) to win over the global default (false)")
 	}
 }
 
-func TestIsAutoDownloadMediaEnabledForDeviceJID_LookupErrorFollowsGlobal(t *testing.T) {
+func TestIsAutoDownloadMediaEnabledForDeviceID_LookupErrorFailsClosed(t *testing.T) {
 	original := config.WhatsappAutoDownloadMedia
 	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = original })
 	config.WhatsappAutoDownloadMedia = true
 
-	withDeviceStorageRecordForTest(t, func(deviceJID string) (*chatstorage.DeviceRecord, error) {
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
 		return nil, errors.New("boom")
 	})
 
-	if !isAutoDownloadMediaEnabledForDeviceJID("6289600000000@s.whatsapp.net") {
-		t.Fatal("expected global default to apply when the lookup errors")
+	if isAutoDownloadMediaEnabledForDeviceID("device-a") {
+		t.Fatal("expected auto-download disabled (fail closed) when the lookup errors, even though the global default is true")
 	}
 }
 
-func TestClientDeviceJID_NilClient(t *testing.T) {
-	if got := clientDeviceJID(nil); got != "" {
-		t.Fatalf("expected empty device JID for nil client, got %q", got)
+// TestIsChatStorageEnabledForClient_SiblingSlotsShareNumberButHonorOwnOverride
+// covers the maintainer's P1: two device slots that are sibling companion sessions
+// for the same WhatsApp account (issue #760) share one bare-number JID but must
+// each be resolved by their own registry ID, not collapsed onto one ambiguous
+// record. Regression for #833.
+func TestIsChatStorageEnabledForClient_SiblingSlotsShareNumberButHonorOwnOverride(t *testing.T) {
+	enabledSlot := true
+	disabledSlot := false
+	settingsByDeviceID := map[string]*chatstorage.DeviceStorageSettings{
+		"slot-a": {ChatStorage: &disabledSlot},
+		"slot-b": {ChatStorage: &enabledSlot},
+	}
+	withDeviceStorageSettingsForTest(t, func(deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+		return settingsByDeviceID[deviceID], nil
+	})
+
+	ctxA := ContextWithDevice(context.Background(), NewDeviceInstance("slot-a", nil, nil))
+	ctxB := ContextWithDevice(context.Background(), NewDeviceInstance("slot-b", nil, nil))
+
+	if isChatStorageEnabledForClient(ctxA, nil) {
+		t.Fatal("expected slot-a to honor its own chat_storage=false override")
+	}
+	if !isChatStorageEnabledForClient(ctxB, nil) {
+		t.Fatal("expected slot-b to honor its own chat_storage=true override, unaffected by slot-a")
 	}
 }
