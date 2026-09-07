@@ -297,8 +297,14 @@ To use environment variables:
 `whatsmeow_*` tables out of `public` on a shared database such as Supabase:
 
 ```env
-DB_URI=postgres://user:pass@host:5432/db?sslmode=disable&search_path=whatsapp
+DB_URI=postgres://user:pass@host:5432/db?sslmode=require&search_path=whatsapp
 ```
+
+Use at least `sslmode=require` on a remote/shared database — `DB_URI` carries
+both the database credentials and the WhatsApp session/key material. For
+production, prefer `sslmode=verify-full` with `sslrootcert` pointing at the
+provider's CA certificate, so the connection also validates the server
+identity.
 
 Create the schema before the first start — the app does not create it:
 
