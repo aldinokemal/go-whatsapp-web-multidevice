@@ -294,6 +294,20 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				EphemeralExpiration: ephemeralExpiration,
 			}
 
+			if data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND {
+				// ON_DEMAND delivers messages older than the local anchor, so its
+				// batch timestamp must never move the chat's activity time backward
+				// or clobber flags (e.g. archived) that live history didn't touch.
+				if existing, err := chatStorageRepo.GetChatByDevice(deviceID, chatJID); err != nil {
+					log.Warnf("Failed to load existing chat %s for on-demand merge: %v", chatJID, err)
+				} else if existing != nil {
+					if existing.LastMessageTime.After(chat.LastMessageTime) {
+						chat.LastMessageTime = existing.LastMessageTime
+					}
+					chat.Archived = existing.Archived
+				}
+			}
+
 			// Store or update the chat
 			if err := chatStorageRepo.StoreChat(chat); err != nil {
 				log.Warnf("Failed to store chat %s: %v", chatJID, err)

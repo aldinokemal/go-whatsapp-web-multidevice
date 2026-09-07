@@ -166,14 +166,75 @@ func TestProcessHistorySyncRoutesOnDemandToConversationMessages(t *testing.T) {
 	}
 }
 
+// TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata pins the
+// on-demand chat-metadata regression: HISTORY_SYNC_ON_DEMAND carries messages
+// older than the local anchor, so its batch timestamp must never move an
+// already-newer LastMessageTime backward, nor unarchive an archived chat.
+func TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	existingLastMessageTime := time.Date(2026, time.September, 6, 12, 0, 0, 0, time.UTC)
+	repo := &historyMessageBatchRepoSpy{
+		existingChat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			LastMessageTime: existingLastMessageTime,
+			Archived:        true,
+		},
+	}
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
+	syncType := waHistorySync.HistorySync_ON_DEMAND
+	olderTimestamp := uint64(time.Date(2026, time.September, 1, 8, 0, 0, 0, time.UTC).Unix())
+	data := &waHistorySync.HistorySync{
+		SyncType: &syncType,
+		Conversations: []*waHistorySync.Conversation{{
+			ID: proto.String(chatJID),
+			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
+				Key: &waCommon.MessageKey{
+					RemoteJID: proto.String(chatJID),
+					FromMe:    proto.Bool(false),
+					ID:        proto.String("older-msg-2"),
+				},
+				Message:          &waE2E.Message{Conversation: proto.String("an even older message")},
+				MessageTimestamp: &olderTimestamp,
+			}}},
+		}},
+	}
+
+	if err := processConversationMessages(ctx, data, repo, nil); err != nil {
+		t.Fatalf("processConversationMessages: %v", err)
+	}
+
+	if repo.lastStoredChat == nil {
+		t.Fatal("expected chat to be stored")
+	}
+	if !repo.lastStoredChat.LastMessageTime.Equal(existingLastMessageTime) {
+		t.Fatalf("expected LastMessageTime to stay at %s, got %s", existingLastMessageTime, repo.lastStoredChat.LastMessageTime)
+	}
+	if !repo.lastStoredChat.Archived {
+		t.Fatal("expected Archived to remain true after on-demand sync")
+	}
+}
+
 type historyMessageBatchRepoSpy struct {
 	domainChatStorage.IChatStorageRepository
 	storeMessagesBatchCalls int
 	lastBatch               []*domainChatStorage.Message
+	existingChat            *domainChatStorage.Chat
+	lastStoredChat          *domainChatStorage.Chat
 }
 
-func (r *historyMessageBatchRepoSpy) StoreChat(*domainChatStorage.Chat) error {
+func (r *historyMessageBatchRepoSpy) StoreChat(chat *domainChatStorage.Chat) error {
+	r.lastStoredChat = chat
 	return nil
+}
+
+func (r *historyMessageBatchRepoSpy) GetChatByDevice(_, _ string) (*domainChatStorage.Chat, error) {
+	return r.existingChat, nil
 }
 
 func (r *historyMessageBatchRepoSpy) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
