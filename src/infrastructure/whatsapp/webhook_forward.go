@@ -100,7 +100,8 @@ func getContactMutex(phone string) *sync.Mutex {
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
 	record, err := resolveWebhookDeviceRecord(ctx, payload)
-	if err != nil {
+	recordResolutionFailed := err != nil
+	if recordResolutionFailed {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
@@ -108,8 +109,13 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	}
 	webhookConfig := webhookConfigFromRecord(record)
 
+	// A resolution failure hides whatever per-device WebhookIgnoreGroups the emitting
+	// slot has, including an explicit true. Falling back to the global config in that
+	// case would forward a group event the device meant to suppress, so fail closed for
+	// group events until the record is resolved; non-group events keep the fallback above.
 	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig) &&
-		!shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record))
+		!shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record)) &&
+		!(recordResolutionFailed && payloadIsGroupEvent(payload))
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	if !webhookAllowed && !chatwootAllowed {
@@ -226,6 +232,23 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 		return false
 	}
 	return len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
+}
+
+// payloadIsGroupEvent reports whether the event's chat or sender JID (checked in the same
+// nested payload fields as shouldIgnoreWebhookJID: chat_id/from and their LID forms
+// chat_lid/from_lid) is a group JID ("@g.us"). It is used to fail closed on the generic
+// webhook when the device record couldn't be resolved, independent of any ignore-list logic.
+func payloadIsGroupEvent(payload map[string]any) bool {
+	data, ok := payload["payload"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
+		if jid, _ := data[key].(string); strings.HasSuffix(jid, "@g.us") {
+			return true
+		}
+	}
+	return false
 }
 
 // shouldIgnoreWebhookJID reports whether an event should be skipped for WHATSAPP_WEBHOOK

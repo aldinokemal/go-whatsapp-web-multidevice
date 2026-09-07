@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -310,5 +311,44 @@ func TestWebhookIgnoreJID_DeviceOverrideFalseScopeIsTheWildcard(t *testing.T) {
 				t.Fatalf("expected forwarded=%v with ignore list %v and override=false, got %v", tc.wantForwarded, tc.ignoreJids, got)
 			}
 		})
+	}
+}
+
+// TestWebhookIgnoreJID_ResolverErrorFailsClosedForGroupEvent covers the maintainer's P1:
+// when resolveWebhookDeviceRecord errors, the caller must not fall back to the global
+// webhook config for a group event, because that fallback would silently drop an
+// explicit per-device WebhookIgnoreGroups=true the resolver simply failed to read. The
+// device is never actually reachable here (storage errors on every lookup), so the group
+// override of true is not even in scope -- the point is that resolution failing must not
+// be treated as "no override" and forwarded anyway.
+func TestWebhookIgnoreJID_ResolverErrorFailsClosedForGroupEvent(t *testing.T) {
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return nil, errors.New("storage unavailable")
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	// No global "@g.us" wildcard -- pre-fix, a resolution failure fell back to this empty
+	// list and forwarded the group event anyway.
+	if runIgnoreJidForward(t, nil, "message", payload) {
+		t.Fatal("group message must not be forwarded when device record resolution errors, even with no global @g.us entry")
+	}
+}
+
+// TestWebhookIgnoreJID_ResolverErrorStillForwardsNonGroupEvent pins the documented
+// non-group fallback: a resolution failure keeps falling back to the global webhook
+// config for non-group JIDs, since there is no per-device group policy that could be
+// silently dropped for them.
+func TestWebhookIgnoreJID_ResolverErrorStillForwardsNonGroupEvent(t *testing.T) {
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return nil, errors.New("storage unavailable")
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	payload := ignoreJidPayload("628999@s.whatsapp.net", "628999@s.whatsapp.net")
+	if !runIgnoreJidForward(t, nil, "message", payload) {
+		t.Fatal("non-group message should still be forwarded via the global config fallback when device record resolution errors")
 	}
 }
