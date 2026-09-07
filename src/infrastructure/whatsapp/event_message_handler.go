@@ -78,11 +78,18 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
-func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !config.WhatsappAutoDownloadMedia {
-		return
+func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
+	if !autoDownloadMedia {
+		return true
 	}
-	if config.WhatsappIgnoreStatusMedia && evt.Info.Chat == types.StatusBroadcastJID {
+	if ignoreStatusMedia && chatJID == types.StatusBroadcastJID {
+		return true
+	}
+	return false
+}
+
+func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
 	if client == nil {
