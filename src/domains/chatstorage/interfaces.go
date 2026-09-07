@@ -124,7 +124,10 @@ type IChatStorageRepository interface {
 	// present in patch are touched.
 	SetDeviceStorageSettings(deviceID string, patch DeviceStoragePatch) error
 	// GetDeviceStorageSettings retrieves the per-device chat_storage /
-	// auto_download_media overrides. Returns nil fields when no override is set.
+	// auto_download_media overrides. Returns (nil, nil) if the device does not
+	// exist. For an existing device, always returns a non-nil
+	// *DeviceStorageSettings; ChatStorage/AutoDownloadMedia are nil fields on it
+	// when no override is set for that field.
 	GetDeviceStorageSettings(deviceID string) (*DeviceStorageSettings, error)
 
 	// Schema operations
