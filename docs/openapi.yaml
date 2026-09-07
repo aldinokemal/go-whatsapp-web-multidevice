@@ -979,6 +979,7 @@ paths:
             schema:
               type: object
               minProperties: 1
+              additionalProperties: false
               properties:
                 chat_storage:
                   type: boolean
