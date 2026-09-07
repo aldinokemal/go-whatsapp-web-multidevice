@@ -70,6 +70,7 @@ func TestChatJIDParamRejectsMalformedEscape(t *testing.T) {
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
@@ -126,6 +127,7 @@ func TestRequestChatHistoryAllowsEmptyBody(t *testing.T) {
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "6289685028129@s.whatsapp.net", spy.lastRequest.ChatJID)
@@ -146,6 +148,7 @@ func TestRequestChatHistoryIgnoresConflictingBodyChatJID(t *testing.T) {
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "6289685028129@s.whatsapp.net", spy.lastRequest.ChatJID)
