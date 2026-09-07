@@ -45,12 +45,6 @@ func TestStructuredWithJSON(t *testing.T) {
 			summary:    "Found 0 contacts",
 			want:       "Found 0 contacts\nnull",
 		},
-		{
-			name:       "unmarshalable payload keeps the summary",
-			structured: make(chan int),
-			summary:    "Retrieved 0 chats",
-			want:       "Retrieved 0 chats",
-		},
 	}
 
 	for _, tc := range cases {
@@ -60,6 +54,14 @@ func TestStructuredWithJSON(t *testing.T) {
 			assert.Equal(t, tc.structured, res.StructuredContent)
 		})
 	}
+
+	t.Run("unmarshalable payload drops structured content", func(t *testing.T) {
+		res := structuredWithJSON(make(chan int), "Retrieved 0 chats")
+		assert.Equal(t, "Retrieved 0 chats", resultText(t, res))
+		assert.Nil(t, res.StructuredContent)
+		_, err := json.Marshal(res)
+		assert.NoError(t, err)
+	})
 }
 
 func TestReadToolsSerializePayloadIntoText(t *testing.T) {

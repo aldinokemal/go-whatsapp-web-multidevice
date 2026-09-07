@@ -12,7 +12,7 @@ import (
 func structuredWithJSON(structured any, summary string) *mcpg.CallToolResult {
 	payload, err := json.Marshal(structured)
 	if err != nil {
-		return mcpg.NewToolResultStructured(structured, summary)
+		return mcpg.NewToolResultText(summary)
 	}
 	return mcpg.NewToolResultStructured(structured, summary+"\n"+string(payload))
 }
