@@ -90,6 +90,46 @@ func TestGetCallRecordsRespectsLimitOffsetAndChatFilter(t *testing.T) {
 	require.Equal(t, "call:4", filtered[0].ID)
 }
 
+func TestGetCallRecordsPaginatesDeterministicallyWithEqualTimestamps(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	same := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+
+	seedCallRecord(t, repo, deviceID, chatJID, "call:1", "", same)
+	seedCallRecord(t, repo, deviceID, chatJID, "call:2", "", same)
+	seedCallRecord(t, repo, deviceID, chatJID, "call:3", "", same)
+	seedCallRecord(t, repo, deviceID, chatJID, "call:4", "", same)
+	seedCallRecord(t, repo, deviceID, chatJID, "call:5", "", same)
+
+	page1, total, err := repo.GetCallRecords(&domainChatStorage.CallRecordFilter{
+		DeviceID: deviceID,
+		Limit:    3,
+		Offset:   0,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(5), total)
+	require.Len(t, page1, 3)
+
+	page2, total, err := repo.GetCallRecords(&domainChatStorage.CallRecordFilter{
+		DeviceID: deviceID,
+		Limit:    3,
+		Offset:   3,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(5), total)
+	require.Len(t, page2, 2)
+
+	seen := make(map[string]bool)
+	var ids []string
+	for _, record := range append(append([]*domainChatStorage.Message{}, page1...), page2...) {
+		require.Falsef(t, seen[record.ID], "record %s duplicated across pages", record.ID)
+		seen[record.ID] = true
+		ids = append(ids, record.ID)
+	}
+	require.Equal(t, []string{"call:5", "call:4", "call:3", "call:2", "call:1"}, ids)
+}
+
 func TestGetCallRecordsRequiresDeviceID(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 

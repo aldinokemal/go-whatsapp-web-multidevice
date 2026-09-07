@@ -2375,7 +2375,7 @@ func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFi
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
 		FROM messages` + whereClause + `
-		ORDER BY timestamp DESC
+		ORDER BY timestamp DESC, id DESC
 	`
 
 	if filter.Limit > 0 {
