@@ -193,7 +193,7 @@ func TestReplayChatwootReopenIntentReadsWrappedConversationPayload(t *testing.T)
 	server, paths := chatwootReopenServer(t, body)
 	stubChatwootClientForReopen(t, server, 1)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if n := countPaths(paths(), "/toggle_status"); n != 1 {
@@ -279,7 +279,7 @@ func TestReplayChatwootReopenIntentReopensWhenActivityPredatesTheIntent(t *testi
 	intent := stuckReopenIntent()
 	intent.EnqueuedAt = time.Now().Add(-time.Hour).Unix()
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, intent)); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, intent)); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if n := countPaths(paths(), "/toggle_status"); n != 1 {
@@ -294,7 +294,7 @@ func TestReplayChatwootReopenIntentDropsAccountMismatch(t *testing.T) {
 	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
 	stubChatwootClientForReopen(t, server, 9)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v, want the mismatch to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -311,7 +311,7 @@ func TestReplayChatwootReopenIntentDropsWhenReopenDisabled(t *testing.T) {
 	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
 	stubChatwootClientForReopen(t, server, 1)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -330,7 +330,7 @@ func TestReplayChatwootReopenIntentGivesUpOutsideTheWindow(t *testing.T) {
 	intent := stuckReopenIntent()
 	intent.EnqueuedAt = time.Now().Add(-maxChatwootReopenRetryWindow - time.Hour).Unix()
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, intent)); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, intent)); err != nil {
 		t.Fatalf("replay: %v, want the expired intent to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -348,7 +348,7 @@ func TestReplayChatwootReopenIntentDropsMalformedRow(t *testing.T) {
 	row := reopenQueueRow(t, stuckReopenIntent())
 	row.PayloadJSON = `{"conversation_id":42,"account_id":1}`
 
-	if err := replayChatwootReopenIntent(row); err != nil {
+	if err := replayChatwootReopenIntent(nil, row); err != nil {
 		t.Fatalf("replay: %v, want the malformed row to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -559,5 +559,248 @@ func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
 	repo.mu.Unlock()
 	if queuedAfterReplay != 0 {
 		t.Fatalf("queued rows after the later run = %d, want 0 (cleared after the reopen finally succeeded)", queuedAfterReplay)
+	}
+}
+
+// TestChatwootReopenIntentDoesNotToggleWhenPostsAndVoidFail tests the maintainer's
+// failure-safe cancellation requirement end to end:
+// pre-arm write succeeds -> all posts fail -> cancellation/void write fails ->
+// worker must not toggle the conversation.
+func TestChatwootReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testing.T) {
+	enableChatwootReopen(t)
+
+	const contactID, conversationID = 7, 42
+	msg := &domainChatStorage.Message{
+		ID:        "wa-all-posts-fail",
+		DeviceID:  "device-a@s.whatsapp.net",
+		ChatJID:   "628123456789@s.whatsapp.net",
+		Content:   "hello",
+		Timestamp: time.Now(),
+	}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+	repo := newPrearmRefreshFailsRepo(chat, msg)
+
+	var toggles atomic.Int32
+	var messagePosts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/search"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": contactID, "name": "Contact", "phone_number": "+628123456789"}}})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/7/conversations"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": conversationID, "inbox_id": 2, "status": "resolved"}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/messages"):
+			messagePosts.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/toggle_status"):
+			toggles.Add(1)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/conversations/42"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "resolved"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := &chatwoot.Client{
+		BaseURL:    server.URL,
+		APIToken:   "token",
+		AccountID:  1,
+		InboxID:    2,
+		HTTPClient: server.Client(),
+	}
+
+	// 1. Run sync: pre-arm succeeds (enqueues=1), message POST fails (500),
+	// voidReopenIntent fails (enqueues>1 -> "database is locked").
+	svc := chatwoot.NewSyncService(client, repo)
+	_, _ = svc.SyncHistory(context.Background(), msg.DeviceID, nil, chatwoot.DefaultSyncOptions())
+
+	if got := messagePosts.Load(); got != 3 {
+		t.Fatalf("messages attempted during sync = %d, want 3 (all retries failing)", got)
+	}
+	if got := toggles.Load(); got != 0 {
+		t.Fatalf("toggle_status calls during sync = %d, want 0", got)
+	}
+	repo.mu.Lock()
+	queuedAfterSync := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterSync != 1 {
+		t.Fatalf("queued rows after sync = %d, want 1 (pre-arm left behind after failed void)", queuedAfterSync)
+	}
+
+	// 2. Run the retry worker: it must drop the unconfirmed intent without
+	// calling toggle_status.
+	stubChatwootClientForReopen(t, server, 1)
+	processDueChatwootForwardRetries(repo)
+
+	if got := toggles.Load(); got != 0 {
+		t.Fatalf("toggle_status calls total = %d, want 0: worker must not toggle when no message landed", got)
+	}
+	repo.mu.Lock()
+	queuedAfterReplay := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterReplay != 0 {
+		t.Fatalf("queued rows after replay = %d, want 0 (unconfirmed intent cleared)", queuedAfterReplay)
+	}
+}
+
+// TestRESTMediaPrePassReopenIntentDoesNotToggleWhenPostsAndVoidFail verifies
+// that media messages failing to post in the REST pre-pass leave an unconfirmed
+// pre-arm intent that the worker drops rather than toggles, even if voiding fails.
+func TestRESTMediaPrePassReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testing.T) {
+	enableChatwootReopen(t)
+
+	const contactID, conversationID = 7, 42
+	msg := &domainChatStorage.Message{
+		ID:        "wa-media-fails",
+		DeviceID:  "device-a@s.whatsapp.net",
+		ChatJID:   "628123456789@s.whatsapp.net",
+		Content:   "audio message",
+		MediaType: "audio",
+		Timestamp: time.Now(),
+	}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+	repo := newPrearmRefreshFailsRepo(chat, msg)
+
+	var toggles atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/search"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": contactID, "name": "Contact", "phone_number": "+628123456789"}}})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/7/conversations"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": conversationID, "inbox_id": 2, "status": "resolved"}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/messages"):
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/toggle_status"):
+			toggles.Add(1)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/conversations/42"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "resolved"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := &chatwoot.Client{
+		BaseURL:    server.URL,
+		APIToken:   "token",
+		AccountID:  1,
+		InboxID:    2,
+		HTTPClient: server.Client(),
+	}
+
+	// REST media pre-pass without a WhatsApp client: media download fails,
+	// so no message posts, and void fails because enqueues > 1.
+	svc := chatwoot.NewSyncService(client, repo)
+	_, _ = svc.SyncHistory(context.Background(), msg.DeviceID, nil, chatwoot.DefaultSyncOptions())
+
+	repo.mu.Lock()
+	queuedAfterSync := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterSync != 1 {
+		t.Fatalf("queued rows after sync = %d, want 1", queuedAfterSync)
+	}
+
+	// Worker must not toggle:
+	stubChatwootClientForReopen(t, server, 1)
+	processDueChatwootForwardRetries(repo)
+
+	if got := toggles.Load(); got != 0 {
+		t.Fatalf("toggle_status calls total = %d, want 0", got)
+	}
+	repo.mu.Lock()
+	queuedAfterReplay := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterReplay != 0 {
+		t.Fatalf("queued rows after replay = %d, want 0", queuedAfterReplay)
+	}
+}
+
+// TestReplayChatwootReopenIntentDropsUnconfirmedPreArmIntent asserts that an
+// intent carrying MessageIDs is dropped when no corresponding message link is found.
+func TestReplayChatwootReopenIntentDropsUnconfirmedPreArmIntent(t *testing.T) {
+	enableChatwootReopen(t)
+	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
+	stubChatwootClientForReopen(t, server, 1)
+
+	msg := &domainChatStorage.Message{ID: "wa-unlinked", DeviceID: "device-a", ChatJID: "628123456789@s.whatsapp.net"}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID}
+	repo := newPrearmRefreshFailsRepo(chat, msg)
+
+	intent := stuckReopenIntent()
+	intent.MessageIDs = []string{"wa-unlinked"}
+	intent.EnqueuedAt = time.Now().Add(-time.Minute).Unix()
+
+	if err := replayChatwootReopenIntent(repo, reopenQueueRow(t, intent)); err != nil {
+		t.Fatalf("replay: %v, want unconfirmed intent to be dropped cleanly", err)
+	}
+	if got := paths(); len(got) != 0 {
+		t.Fatalf("Chatwoot received %v, want no toggle for an unconfirmed pre-arm intent", got)
+	}
+}
+
+// TestReplayChatwootReopenIntentReopensConfirmedPreArmIntent asserts that an
+// intent carrying MessageIDs succeeds and toggles when at least one message is linked.
+func TestReplayChatwootReopenIntentReopensConfirmedPreArmIntent(t *testing.T) {
+	enableChatwootReopen(t)
+	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
+	stubChatwootClientForReopen(t, server, 1)
+
+	msg := &domainChatStorage.Message{ID: "wa-linked", DeviceID: "device-a", ChatJID: "628123456789@s.whatsapp.net"}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID}
+	repo := newPrearmRefreshFailsRepo(chat, msg)
+	_ = repo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
+		DeviceID:          "device-a",
+		WhatsAppMessageID: "wa-linked",
+		ChatwootMessageID: 101,
+	})
+
+	intent := stuckReopenIntent()
+	intent.MessageIDs = []string{"wa-linked"}
+	intent.EnqueuedAt = time.Now().Add(-time.Minute).Unix()
+
+	row := reopenQueueRow(t, intent)
+	row.DeviceID = "device-a"
+	if err := replayChatwootReopenIntent(repo, row); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if n := countPaths(paths(), "/toggle_status"); n != 1 {
+		t.Fatalf("toggle_status called %d times, want 1 for a confirmed pre-arm intent\n%v", n, paths())
+	}
+}
+
+// flakyLinkLookupRepo simulates a transient database error during message link lookup.
+type flakyLinkLookupRepo struct {
+	*prearmRefreshFailsRepo
+}
+
+func (r *flakyLinkLookupRepo) GetChatwootMessageLinkByWhatsAppID(string, string) (*domainChatStorage.ChatwootMessageLink, error) {
+	return nil, errors.New("database is locked")
+}
+
+// TestReplayChatwootReopenIntentRetriesOnRepoLookupError asserts that a storage
+// failure during message-link verification returns the error so the job is rescheduled.
+func TestReplayChatwootReopenIntentRetriesOnRepoLookupError(t *testing.T) {
+	enableChatwootReopen(t)
+	server, _ := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
+	stubChatwootClientForReopen(t, server, 1)
+
+	msg := &domainChatStorage.Message{ID: "wa-db-err", DeviceID: "device-a", ChatJID: "628123456789@s.whatsapp.net"}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID}
+	baseRepo := newPrearmRefreshFailsRepo(chat, msg)
+	repo := &flakyLinkLookupRepo{prearmRefreshFailsRepo: baseRepo}
+
+	intent := stuckReopenIntent()
+	intent.MessageIDs = []string{"wa-db-err"}
+	intent.EnqueuedAt = time.Now().Add(-time.Minute).Unix()
+
+	row := reopenQueueRow(t, intent)
+	row.DeviceID = "device-a"
+	err := replayChatwootReopenIntent(repo, row)
+	if err == nil || !strings.Contains(err.Error(), "database is locked") {
+		t.Fatalf("err = %v, want database is locked error for retry rescheduling", err)
 	}
 }

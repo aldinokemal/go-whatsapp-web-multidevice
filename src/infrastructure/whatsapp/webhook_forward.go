@@ -1345,7 +1345,7 @@ const reopenIntentActivityGrace = time.Minute
 // pointing at the account the intent was queued for, a conversation that is
 // already open, one whose newer activity means the resolve is no longer the one
 // the sync raced, a permanent Chatwoot rejection, or an expired window.
-func replayChatwootReopenIntent(event *domainChatStorage.ChatwootForwardEvent) error {
+func replayChatwootReopenIntent(repo domainChatStorage.IChatStorageRepository, event *domainChatStorage.ChatwootForwardEvent) error {
 	var intent chatwoot.ReopenIntent
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &intent); err != nil {
 		return fmt.Errorf("decode reopen intent %d: %w", event.ID, err)
@@ -1358,6 +1358,21 @@ func replayChatwootReopenIntent(event *domainChatStorage.ChatwootForwardEvent) e
 		logrus.Infof("Chatwoot: dropping reopen intent for conversation %d; reopening is disabled", intent.ConversationID)
 		return nil
 	}
+
+	// A pre-armed intent written before posting records the message IDs it was
+	// armed for. Verify that at least one of those messages was actually posted
+	// and linked in local storage; if none were linked, all posts in that pass
+	// failed and any subsequent void/cancellation write was lost. Reopening here
+	// would reopen a resolved thread with nothing added.
+	confirmed, err := intent.HasConfirmedPosts(repo, event.DeviceID)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		logrus.Infof("Chatwoot: dropping unconfirmed reopen intent %d for conversation %d; no messages were posted", event.ID, intent.ConversationID)
+		return nil
+	}
+
 	enqueuedAt := time.Unix(intent.EnqueuedAt, 0)
 	if time.Since(enqueuedAt) > maxChatwootReopenRetryWindow {
 		logrus.Errorf("Chatwoot: giving up on reopening conversation %d for %s, queued %s ago; it stays resolved with new messages inside", intent.ConversationID, intent.ChatJID, time.Since(enqueuedAt).Round(time.Minute))
@@ -1418,7 +1433,7 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 		return nil
 	}
 	if event.EventName == chatwoot.ReopenForwardEventName {
-		return replayChatwootReopenIntent(event)
+		return replayChatwootReopenIntent(repo, event)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {

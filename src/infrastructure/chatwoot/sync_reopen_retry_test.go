@@ -364,3 +364,91 @@ func TestSyncChatAbortsWhenPreArmEnqueueFails(t *testing.T) {
 		t.Fatalf("queued rows = %d, want 0: the failed pre-arm must not leave a partial row behind", len(inner.queued))
 	}
 }
+
+// prearmVoidFailsRepo allows the pre-arm enqueue to succeed (enqueues == 1),
+// but fails subsequent enqueue attempts (such as voidReopenIntent), simulating
+// a transient storage failure during cancellation after every post has failed.
+type prearmVoidFailsRepo struct {
+	*chatwootSyncChatRepo
+	queued   map[string]*domainChatStorage.ChatwootForwardEvent
+	enqueues int
+}
+
+func newPrearmVoidFailsRepo(messages ...*domainChatStorage.Message) *prearmVoidFailsRepo {
+	return &prearmVoidFailsRepo{
+		chatwootSyncChatRepo: newChatwootSyncChatRepo(messages...),
+		queued:               make(map[string]*domainChatStorage.ChatwootForwardEvent),
+	}
+}
+
+func (r *prearmVoidFailsRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	r.enqueues++
+	if r.enqueues > 1 {
+		return errors.New("database is locked")
+	}
+	cloned := *event
+	r.queued[event.DeviceID+"\x00"+event.EventName+"\x00"+event.WhatsAppMessageID] = &cloned
+	return nil
+}
+
+func (r *prearmVoidFailsRepo) only(t *testing.T) *domainChatStorage.ChatwootForwardEvent {
+	t.Helper()
+	if len(r.queued) != 1 {
+		t.Fatalf("queued rows = %d, want exactly 1", len(r.queued))
+	}
+	for _, event := range r.queued {
+		return event
+	}
+	return nil
+}
+
+// When pre-arm enqueue succeeds, every message POST fails, and the subsequent
+// void/cancellation queue write also fails, the pre-armed row remaining in the
+// queue must be unconfirmed (HasConfirmedPosts returns false) because no message
+// was ever posted or linked.
+func TestSyncChatPreArmReopenIntentIsUnconfirmedWhenPostsAndVoidFail(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	msg := chatwootSyncChatMessage("wa-posts-fail")
+	repo := newPrearmVoidFailsRepo(msg)
+	// Server returns 500 on /messages, so every message post fails.
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, msg.ChatJID, http.StatusInternalServerError)
+	svc.chatStorageRepo = repo
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	_ = svc.syncChat(context.Background(), msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID))
+
+	if got := countEvents(events(), "/messages"); got != 3 {
+		t.Fatalf("messages attempted = %d, want 3 (all retries failing)", got)
+	}
+	if got := countEvents(events(), "/toggle_status"); got != 0 {
+		t.Fatalf("toggle_status called %d times, want 0 during sync", got)
+	}
+
+	// Void failed, so the pre-armed row is still sitting in the queue.
+	queued := repo.only(t)
+	intent := decodeReopenIntent(t, queued)
+	if len(intent.MessageIDs) == 0 || intent.MessageIDs[0] != msg.ID {
+		t.Fatalf("intent MessageIDs = %v, want [%s]", intent.MessageIDs, msg.ID)
+	}
+
+	// No message link was stored:
+	link, err := repo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+	if err != nil {
+		t.Fatalf("lookup link: %v", err)
+	}
+	if link != nil {
+		t.Fatalf("link = %v, want nil", link)
+	}
+
+	// HasConfirmedPosts must report false, preventing the worker from toggling!
+	confirmed, err := intent.HasConfirmedPosts(repo, msg.DeviceID)
+	if err != nil {
+		t.Fatalf("HasConfirmedPosts: %v", err)
+	}
+	if confirmed {
+		t.Fatal("expected pre-armed intent to be unconfirmed when every post failed")
+	}
+}
