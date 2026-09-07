@@ -219,17 +219,22 @@ func (controller *Chat) RequestChatHistory(c fiber.Ctx) error {
 			Results: nil,
 		})
 	}
-	request.ChatJID = chatJID
-
-	// Parse JSON body (optional — count defaults when the body is empty)
-	if err := c.Bind().Body(&request); err != nil {
-		return c.Status(400).JSON(utils.ResponseData{
-			Status:  400,
-			Code:    "BAD_REQUEST",
-			Message: "Invalid request body",
-			Results: nil,
-		})
+	// Parse JSON body (optional — count defaults when the body is empty).
+	// Fiber v3.4.0's Bind().Body() picks a binder from Content-Type and
+	// returns ErrUnprocessableEntity when the body is empty and no
+	// Content-Type is set, so binding is skipped for an empty body.
+	if len(c.Body()) > 0 {
+		if err := c.Bind().Body(&request); err != nil {
+			return c.Status(400).JSON(utils.ResponseData{
+				Status:  400,
+				Code:    "BAD_REQUEST",
+				Message: "Invalid request body",
+				Results: nil,
+			})
+		}
 	}
+	// Route JID is authoritative; a body chat_jid must never override it.
+	request.ChatJID = chatJID
 
 	response, err := controller.Service.RequestChatHistory(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
