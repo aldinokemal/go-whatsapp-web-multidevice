@@ -386,3 +386,19 @@ func TestGetConversationState_MalformedBodyRejectsWithoutEchoingBody(t *testing.
 		t.Fatalf("error echoes response body content: %v", err)
 	}
 }
+
+func TestGetConversationState_KeepsFractionalEpochSeconds(t *testing.T) {
+	// updated_at is only 0.5s newer than last_activity_at; truncating to whole
+	// seconds would make them equal and hide which one is newer.
+	server := getConversationStateServer(t, http.StatusOK, `{"status":"resolved","last_activity_at":1700000000.25,"updated_at":1700000000.75}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if want := time.Unix(1700000000, 750000000); !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want %v", state.LastActivityAt, want)
+	}
+}

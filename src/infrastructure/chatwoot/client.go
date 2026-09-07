@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -559,7 +560,8 @@ func (t *chatwootTimestamp) UnmarshalJSON(data []byte) error {
 		*t = chatwootTimestamp(time.Time{})
 		return nil
 	}
-	*t = chatwootTimestamp(time.Unix(int64(epoch), 0))
+	seconds, fractional := math.Modf(epoch)
+	*t = chatwootTimestamp(time.Unix(int64(seconds), int64(fractional*1e9)))
 	return nil
 }
 
