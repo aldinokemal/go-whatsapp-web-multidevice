@@ -82,6 +82,9 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 	if !config.WhatsappAutoDownloadMedia {
 		return
 	}
+	if config.WhatsappIgnoreStatusMedia && strings.Contains(evt.Info.SourceString(), "broadcast") {
+		return
+	}
 	if client == nil {
 		return
 	}
