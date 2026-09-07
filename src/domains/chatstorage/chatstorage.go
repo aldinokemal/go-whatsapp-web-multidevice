@@ -172,6 +172,13 @@ type DeviceWebhookConfig struct {
 	// for this device specifically. nil means "never configured" — the resolver
 	// falls back to whether the global ignore list contains "@g.us".
 	WebhookIgnoreGroups *bool `json:"webhook_ignore_groups,omitempty"`
+	// WebhookIgnoreGroupsSet tells SetDeviceWebhookConfig whether WebhookIgnoreGroups
+	// carries an explicit value to write (true, false, or nil to clear) or should be
+	// left untouched at the stored value. It lets the repository apply the PATCH
+	// tri-state ("omitted preserves") atomically in the update statement itself,
+	// instead of the caller reading the current value first and writing it back --
+	// a read-modify-write that a concurrent update could race and overwrite.
+	WebhookIgnoreGroupsSet bool `json:"-"`
 }
 
 // MessageFilter represents query filters for messages

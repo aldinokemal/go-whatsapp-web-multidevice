@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -377,7 +378,8 @@ func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsRoundTrip(t *testing.T)
 	// Explicitly set to true.
 	trueVal := true
 	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
-		WebhookIgnoreGroups: &trueVal,
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
 	}); err != nil {
 		t.Fatalf("unexpected error setting config: %v", err)
 	}
@@ -392,7 +394,8 @@ func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsRoundTrip(t *testing.T)
 	// Explicitly set to false (must persist as false, not fall back to nil).
 	falseVal := false
 	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
-		WebhookIgnoreGroups: &falseVal,
+		WebhookIgnoreGroups:    &falseVal,
+		WebhookIgnoreGroupsSet: true,
 	}); err != nil {
 		t.Fatalf("unexpected error setting config: %v", err)
 	}
@@ -478,13 +481,15 @@ func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull(t *testing
 
 	trueVal := true
 	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
-		WebhookIgnoreGroups: &trueVal,
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
 	}); err != nil {
 		t.Fatalf("unexpected error setting config: %v", err)
 	}
 
 	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
-		WebhookIgnoreGroups: nil,
+		WebhookIgnoreGroups:    nil,
+		WebhookIgnoreGroupsSet: true,
 	}); err != nil {
 		t.Fatalf("unexpected error clearing config: %v", err)
 	}
@@ -506,5 +511,75 @@ func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull(t *testing
 	}
 	if rec.WebhookIgnoreGroups != nil {
 		t.Fatalf("expected WebhookIgnoreGroups nil via GetDeviceRecordByJID, got %v", *rec.WebhookIgnoreGroups)
+	}
+}
+
+// TestSQLiteRepositoryDeviceWebhookConfig_PreserveIsAtomicUnderConcurrency guards the
+// fix for the maintainer's second P1: PATCH /devices/:device_id/webhook used to resolve
+// an omitted webhook_ignore_groups by reading the stored value in Go and writing it back
+// as an explicit value, so a request that read the old value before a concurrent explicit
+// update could commit after it and clobber it with the stale value. The fix moves
+// preservation into the UPDATE statement itself (WebhookIgnoreGroupsSet=false takes the
+// CASE ... ELSE webhook_ignore_groups branch, carrying no value to go stale), so a
+// "preserve" write can never clobber a concurrent explicit write, in any interleaving.
+// This test fires many concurrent preserve writes against one concurrent explicit write
+// and asserts the explicit value always wins, regardless of goroutine scheduling.
+func TestSQLiteRepositoryDeviceWebhookConfig_PreserveIsAtomicUnderConcurrency(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-concurrent-preserve"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("failed to seed initial override: %v", err)
+	}
+
+	falseVal := false
+	const preservers = 25
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+			WebhookIgnoreGroups:    &falseVal,
+			WebhookIgnoreGroupsSet: true,
+		}); err != nil {
+			t.Errorf("explicit set failed: %v", err)
+		}
+	}()
+
+	for i := 0; i < preservers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			// Mirrors an omitted-field PATCH: no explicit value, WebhookIgnoreGroupsSet=false.
+			if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{}); err != nil {
+				t.Errorf("preserve write failed: %v", err)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected the single explicit write (false) to win over any number of concurrent preserve writes, got %v", cfg.WebhookIgnoreGroups)
 	}
 }

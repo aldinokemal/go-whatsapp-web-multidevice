@@ -226,8 +226,14 @@ func TestUpdateDeviceWebhook_PreservesIgnoreGroupsWhenOmitted(t *testing.T) {
 	if stub.receivedConfig == nil {
 		t.Fatal("expected webhook config to be forwarded to the usecase, got nil")
 	}
-	if stub.receivedConfig.WebhookIgnoreGroups == nil || !*stub.receivedConfig.WebhookIgnoreGroups {
-		t.Fatalf("expected previously-stored webhook_ignore_groups=true to be preserved, got %v", stub.receivedConfig.WebhookIgnoreGroups)
+	// Omitted must NOT resolve to the stored value here: preservation is now applied
+	// atomically by the repository update (WebhookIgnoreGroupsSet=false), not read back
+	// and forwarded as an explicit value, which could race a concurrent explicit update.
+	if stub.receivedConfig.WebhookIgnoreGroupsSet {
+		t.Fatalf("expected WebhookIgnoreGroupsSet=false for an omitted field, got true (value %v)", stub.receivedConfig.WebhookIgnoreGroups)
+	}
+	if stub.receivedConfig.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected WebhookIgnoreGroups=nil for an omitted field, got %v", *stub.receivedConfig.WebhookIgnoreGroups)
 	}
 
 	var respBody map[string]any
@@ -323,22 +329,31 @@ func TestUpdateDeviceWebhook_IgnoreGroupsTriState(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
-		want *bool
+		// want is the response's expected effective value in every case, and also the
+		// value the usecase should receive when the field was explicitly set (wantSet).
+		// For the omitted case the usecase must receive it unset -- preservation is now
+		// the repository's job -- while the response still reports the stored value,
+		// fetched after the write.
+		want    *bool
+		wantSet bool
 	}{
 		{
-			name: "omitted key keeps the stored override",
-			body: `{"webhook_url": "https://hook.example.com"}`,
-			want: &stored,
+			name:    "omitted key keeps the stored override",
+			body:    `{"webhook_url": "https://hook.example.com"}`,
+			want:    &stored,
+			wantSet: false,
 		},
 		{
-			name: "explicit null clears the override back to NULL",
-			body: `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": null}`,
-			want: nil,
+			name:    "explicit null clears the override back to NULL",
+			body:    `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": null}`,
+			want:    nil,
+			wantSet: true,
 		},
 		{
-			name: "explicit false sets the override",
-			body: `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": false}`,
-			want: new(bool),
+			name:    "explicit false sets the override",
+			body:    `{"webhook_url": "https://hook.example.com", "webhook_ignore_groups": false}`,
+			want:    new(bool),
+			wantSet: true,
 		},
 	}
 
@@ -364,13 +379,18 @@ func TestUpdateDeviceWebhook_IgnoreGroupsTriState(t *testing.T) {
 			if stub.receivedConfig == nil {
 				t.Fatal("expected webhook config to be forwarded to the usecase, got nil")
 			}
+			if stub.receivedConfig.WebhookIgnoreGroupsSet != tc.wantSet {
+				t.Fatalf("expected WebhookIgnoreGroupsSet=%v, got %v", tc.wantSet, stub.receivedConfig.WebhookIgnoreGroupsSet)
+			}
 			got := stub.receivedConfig.WebhookIgnoreGroups
 			switch {
-			case tc.want == nil && got != nil:
+			case !tc.wantSet && got != nil:
+				t.Fatalf("expected the usecase to receive nil for an omitted field, got %v", *got)
+			case tc.wantSet && tc.want == nil && got != nil:
 				t.Fatalf("expected the usecase to receive nil, got %v", *got)
-			case tc.want != nil && got == nil:
+			case tc.wantSet && tc.want != nil && got == nil:
 				t.Fatalf("expected the usecase to receive %v, got nil", *tc.want)
-			case tc.want != nil && *got != *tc.want:
+			case tc.wantSet && tc.want != nil && *got != *tc.want:
 				t.Fatalf("expected the usecase to receive %v, got %v", *tc.want, *got)
 			}
 

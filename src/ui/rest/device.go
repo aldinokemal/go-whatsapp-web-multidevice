@@ -232,24 +232,30 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		})
 	}
 
-	existing, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID)
-	utils.PanicIfNeeded(err)
-
-	ignoreGroups := req.WebhookIgnoreGroups.Ptr()
-	if !req.WebhookIgnoreGroups.Set && existing != nil {
-		ignoreGroups = existing.WebhookIgnoreGroups
-	}
-
+	// WebhookIgnoreGroups preservation ("omitted keeps the stored value") is applied
+	// atomically by the repository's update statement (WebhookIgnoreGroupsSet), not
+	// read here and written back -- a read-modify-write could race a concurrent
+	// explicit update and overwrite it with a stale value.
 	config := &chatstorage.DeviceWebhookConfig{
 		WebhookURL:                req.WebhookURL,
 		WebhookSecret:             req.WebhookSecret,
 		WebhookEvents:             req.WebhookEvents,
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
-		WebhookIgnoreGroups:       ignoreGroups,
+		WebhookIgnoreGroups:       req.WebhookIgnoreGroups.Ptr(),
+		WebhookIgnoreGroupsSet:    req.WebhookIgnoreGroups.Set,
 	}
 
-	err = handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
+	err := handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
 	utils.PanicIfNeeded(err)
+
+	ignoreGroups := config.WebhookIgnoreGroups
+	if !req.WebhookIgnoreGroups.Set {
+		// Report the value actually stored after the atomic preserve, not a value
+		// read before the write (which could already be stale by response time).
+		if current, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID); err == nil && current != nil {
+			ignoreGroups = current.WebhookIgnoreGroups
+		}
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,

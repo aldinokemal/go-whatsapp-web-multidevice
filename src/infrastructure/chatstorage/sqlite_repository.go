@@ -1753,11 +1753,18 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 		webhookURL = config.WebhookURL
 	}
 
+	// webhook_ignore_groups is only overwritten when the caller explicitly set it
+	// (WebhookIgnoreGroupsSet); otherwise the CASE keeps the column's current value
+	// in the same statement, so a PATCH that omits the field can't race a concurrent
+	// explicit update and write a stale value back over it.
 	result, err := r.db.Exec(`
 		UPDATE devices
-		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?, webhook_ignore_groups = ?, updated_at = ?
+		SET webhook_url = ?, webhook_secret = ?, webhook_events = ?, webhook_insecure_skip_verify = ?,
+			webhook_ignore_groups = CASE WHEN ? THEN ? ELSE webhook_ignore_groups END,
+			updated_at = ?
 		WHERE device_id = ?
-	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify, config.WebhookIgnoreGroups, time.Now(), deviceID)
+	`, webhookURL, config.WebhookSecret, config.WebhookEvents, config.WebhookInsecureSkipVerify,
+		config.WebhookIgnoreGroupsSet, config.WebhookIgnoreGroups, time.Now(), deviceID)
 	if err != nil {
 		return err
 	}
