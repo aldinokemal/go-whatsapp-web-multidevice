@@ -436,6 +436,62 @@ func TestSQLiteRepositoryGetOldestMessageByDevice(t *testing.T) {
 	}
 }
 
+// TestSQLiteRepositoryGetOldestMessageByDeviceSkipsSyntheticCallRows pins the
+// history-sync anchor fix: a synthetic call row (media_type "call", id
+// "call:<callID>") stored by CreateIncomingCallRecord is not a real WhatsApp
+// message the phone can recognize as a history-sync anchor, so it must never
+// be selected over an older-but-real message.
+func TestSQLiteRepositoryGetOldestMessageByDeviceSkipsSyntheticCallRows(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	base := time.Date(2026, time.June, 19, 8, 0, 0, 0, time.UTC)
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        deviceID,
+		JID:             chatJID,
+		Name:            chatJID,
+		LastMessageTime: base,
+	}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+
+	// Synthetic call row, older than the real message.
+	if err := repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "call:call-1",
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    "628999999999@s.whatsapp.net",
+		Content:   "Incoming call",
+		Timestamp: base.Add(-1 * time.Hour),
+		MediaType: "call",
+	}); err != nil {
+		t.Fatalf("store synthetic call row: %v", err)
+	}
+
+	if err := repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "msg-real",
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    "628999999999@s.whatsapp.net",
+		Content:   "real message",
+		Timestamp: base,
+	}); err != nil {
+		t.Fatalf("store real message: %v", err)
+	}
+
+	got, err := repo.GetOldestMessageByDevice(deviceID, chatJID)
+	if err != nil {
+		t.Fatalf("get oldest message: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected the real message, got nil")
+	}
+	if got.ID != "msg-real" {
+		t.Fatalf("oldest message ID = %q, want %q (synthetic call row must be excluded)", got.ID, "msg-real")
+	}
+}
+
 func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 	t.Helper()
 	var count int
