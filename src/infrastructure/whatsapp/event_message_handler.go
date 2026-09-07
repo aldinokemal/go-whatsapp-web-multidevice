@@ -82,7 +82,7 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 	if !config.WhatsappAutoDownloadMedia {
 		return
 	}
-	if config.WhatsappIgnoreStatusMedia && strings.Contains(evt.Info.SourceString(), "broadcast") {
+	if config.WhatsappIgnoreStatusMedia && evt.Info.Chat == types.StatusBroadcastJID {
 		return
 	}
 	if client == nil {

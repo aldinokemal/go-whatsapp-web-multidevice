@@ -289,3 +289,55 @@ func reactionEventForTest(eventID, targetID, emoji string) *events.Message {
 		},
 	}
 }
+
+func TestHandleImageMessageSkipsStatusBroadcast(t *testing.T) {
+	originalAutoDownload := config.WhatsappAutoDownloadMedia
+	originalIgnoreStatus := config.WhatsappIgnoreStatusMedia
+	defer func() {
+		config.WhatsappAutoDownloadMedia = originalAutoDownload
+		config.WhatsappIgnoreStatusMedia = originalIgnoreStatus
+	}()
+
+	config.WhatsappAutoDownloadMedia = true
+	config.WhatsappIgnoreStatusMedia = true
+
+	// Provide a non-nil client to bypass the `client == nil` guard.
+	// If the execution reaches utils.ExtractMedia, this client will cause a panic
+	// because its internal fields (Store, etc.) are uninitialized.
+	// This acts as our spy to detect whether the early-return guard was bypassed.
+	dummyClient := &whatsmeow.Client{}
+
+	t.Run("skips status broadcast", func(t *testing.T) {
+		statusEvt := &events.Message{
+			Info: types.MessageInfo{
+				Chat: types.StatusBroadcastJID,
+			},
+			Message: &waE2E.Message{
+				ImageMessage: &waE2E.ImageMessage{},
+			},
+		}
+		
+		// If the guard clause works, it should return early and NOT panic.
+		handleImageMessage(context.Background(), statusEvt, dummyClient)
+	})
+
+	t.Run("does not skip normal broadcast list", func(t *testing.T) {
+		broadcastListEvt := &events.Message{
+			Info: types.MessageInfo{
+				Chat: types.NewJID("123456789", types.BroadcastServer),
+			},
+			Message: &waE2E.Message{
+				ImageMessage: &waE2E.ImageMessage{},
+			},
+		}
+		
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("Expected panic due to uninitialized client reaching ExtractMedia, but it did not panic")
+			}
+		}()
+		
+		// This should bypass the guard clause, reach ExtractMedia, and panic.
+		handleImageMessage(context.Background(), broadcastListEvt, dummyClient)
+	})
+}
