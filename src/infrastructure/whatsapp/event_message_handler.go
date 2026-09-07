@@ -32,9 +32,13 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// edit-handling paths unchanged. No-op when the envelope is absent or when
 	// decryption fails.
 	evt = materializeSecretEditMessage(ctx, evt, client)
-	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
 
-	chatStorageEnabled := isChatStorageEnabledForClient(client)
+	// Resolve the chat_storage policy before preparing the poll payload: a poll
+	// creation/edit/add-option must not persist poll data when the device has
+	// chat_storage=false, the same rule handleMessage applies below to messages
+	// and reactions.
+	chatStorageEnabled := isChatStorageEnabledForClient(ctx, client)
+	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt, chatStorageEnabled)
 
 	if isReactionMessage(evt) {
 		if chatStorageEnabled {
@@ -85,7 +89,7 @@ func buildMessageMetaParts(evt *events.Message) []string {
 }
 
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !isAutoDownloadMediaEnabledForClient(client) {
+	if !isAutoDownloadMediaEnabledForClient(ctx, client) {
 		return
 	}
 	if client == nil {

@@ -101,7 +101,7 @@ func TestPreparePollWebhookPayloadStoresCreation(t *testing.T) {
 		}},
 	}
 
-	payload := preparePollWebhookPayload(ctx, nil, store, evt)
+	payload := preparePollWebhookPayload(ctx, nil, store, evt, true)
 	if payload == nil || payload.Type != "creation" || payload.PollID != "POLL-1" || payload.Question != "Lunch?" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
@@ -112,6 +112,129 @@ func TestPreparePollWebhookPayloadStoresCreation(t *testing.T) {
 	if err != nil || stored == nil || stored.Version != "v3" || len(stored.Options) != 2 {
 		t.Fatalf("stored definition=%+v err=%v", stored, err)
 	}
+}
+
+// TestPreparePollWebhookPayloadCreationSkipsPersistenceWhenChatStorageDisabled
+// covers the maintainer's P1: a poll creation must not persist the poll
+// definition when the device has chat_storage=false, the same rule handleMessage
+// applies to messages and reactions. Regression for #833.
+func TestPreparePollWebhookPayloadCreationSkipsPersistenceWhenChatStorageDisabled(t *testing.T) {
+	store := newMemoryPollStore()
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("device-a", nil, nil))
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: types.NewJID("120363000000", types.GroupServer)},
+			ID:            "POLL-DISABLED-1",
+		},
+		Message: &waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{
+			Name:                   proto.String("Lunch?"),
+			SelectableOptionsCount: proto.Uint32(1),
+			Options:                []*waE2E.PollCreationMessage_Option{{OptionName: proto.String("Pizza")}},
+		}},
+	}
+
+	payload := preparePollWebhookPayload(ctx, nil, store, evt, false)
+	if payload == nil || payload.Type != "creation" || payload.Question != "Lunch?" {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	stored, err := store.GetPollDefinition("device-a", evt.Info.Chat.String(), "POLL-DISABLED-1")
+	if err != nil {
+		t.Fatalf("GetPollDefinition: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("expected poll definition not persisted when chat storage is disabled, got %+v", stored)
+	}
+}
+
+// TestPreparePollWebhookPayloadAddOptionSkipsPersistenceWhenChatStorageDisabled
+// covers the maintainer's P1 for add-option events. Regression for #833.
+func TestPreparePollWebhookPayloadAddOptionSkipsPersistenceWhenChatStorageDisabled(t *testing.T) {
+	store := newMemoryPollStore()
+	deviceID := "device-a"
+	chat := types.NewJID("120363000000", types.GroupServer)
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
+	if err := store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: deviceID, ChatJID: chat.String(), PollMessageID: "POLL-ADD-DISABLED-1", Question: "Lunch?",
+		Options: []domainChatStorage.PollOption{{Name: "Pizza", Hash: pollOptionHash("Pizza")}},
+	}); err != nil {
+		t.Fatalf("UpsertPollDefinition: %v", err)
+	}
+	evt := &events.Message{
+		Info: types.MessageInfo{MessageSource: types.MessageSource{Chat: chat}, ID: "ADD-DISABLED-1"},
+		Message: &waE2E.Message{PollAddOptionMessage: &waE2E.PollAddOptionMessage{
+			PollCreationMessageKey: &waCommon.MessageKey{ID: proto.String("POLL-ADD-DISABLED-1")},
+			AddOption:              &waE2E.PollCreationMessage_Option{OptionName: proto.String("Sushi")},
+		}},
+	}
+
+	payload := preparePollWebhookPayload(ctx, nil, store, evt, false)
+	if payload == nil || payload.Type != "add_option" {
+		t.Fatalf("unexpected add-option payload: %+v", payload)
+	}
+	definition, err := store.GetPollDefinition(deviceID, chat.String(), "POLL-ADD-DISABLED-1")
+	if err != nil || definition == nil {
+		t.Fatalf("definition=%+v err=%v", definition, err)
+	}
+	if len(definition.Options) != 1 {
+		t.Fatalf("expected the option not appended when chat storage is disabled, got %+v", definition.Options)
+	}
+}
+
+// TestPreparePollWebhookPayloadEditSkipsPersistenceWhenChatStorageDisabled covers
+// the maintainer's P1 for encrypted poll-edit events: a successfully decrypted
+// edit must still build the webhook payload but must not overwrite the stored
+// poll definition when the device has chat_storage=false. Regression for #833.
+func TestPreparePollWebhookPayloadEditSkipsPersistenceWhenChatStorageDisabled(t *testing.T) {
+	ctx := context.Background()
+	voter := types.NewJID("628222", types.DefaultUserServer)
+	client := newPollCryptoClient(t, "poll-event-edit-disabled-test", voter)
+	chat := types.NewJID("120363000000", types.GroupServer)
+	pollID := "POLL-EDIT-DISABLED-1"
+	secret := bytes.Repeat([]byte{0x55}, 32)
+	require.NoError(t, client.Store.MsgSecrets.PutMessageSecret(ctx, chat, voter, pollID, secret))
+
+	store := newMemoryPollStore()
+	require.NoError(t, store.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: voter.String(), ChatJID: chat.String(), PollMessageID: pollID, Question: "Old question",
+		Options: []domainChatStorage.PollOption{{Name: "Pizza", Hash: pollOptionHash("Pizza")}},
+	}))
+
+	// Encrypt a real poll-creation edit, using the same "Poll Edit" secret
+	// derivation whatsmeow applies to POLL_EDIT.
+	plaintext, err := proto.Marshal(&waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{
+		Name:                   proto.String("New question"),
+		SelectableOptionsCount: proto.Uint32(1),
+		Options: []*waE2E.PollCreationMessage_Option{
+			{OptionName: proto.String("Pizza")},
+			{OptionName: proto.String("Sushi")},
+		},
+	}})
+	require.NoError(t, err)
+	useCaseSecret := pollID + voter.ToNonAD().String() + voter.ToNonAD().String() + "Poll Edit"
+	secretKey := hkdfutil.SHA256(secret, nil, []byte(useCaseSecret), 32)
+	iv := bytes.Repeat([]byte{0x22}, 12)
+	ciphertext, err := gcmutil.Encrypt(secretKey, iv, plaintext, nil)
+	require.NoError(t, err)
+
+	payload := preparePollWebhookPayload(ctx, client, store, &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: chat, Sender: voter, IsGroup: true, IsFromMe: true},
+			ID:            "EDIT-DISABLED-1",
+		},
+		Message: &waE2E.Message{SecretEncryptedMessage: &waE2E.SecretEncryptedMessage{
+			SecretEncType:    waE2E.SecretEncryptedMessage_POLL_EDIT.Enum(),
+			TargetMessageKey: &waCommon.MessageKey{RemoteJID: proto.String(chat.String()), FromMe: proto.Bool(true), ID: proto.String(pollID)},
+			EncIV:            iv,
+			EncPayload:       ciphertext,
+		}},
+	}, false)
+	require.NotNil(t, payload)
+	assert.Equal(t, "edit", payload.Type)
+
+	stored, err := store.GetPollDefinition(voter.String(), chat.String(), pollID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.Equal(t, "Old question", stored.Question, "edit must not persist when chat storage is disabled")
 }
 
 func TestResolvePollSelectionsStatuses(t *testing.T) {
@@ -208,7 +331,7 @@ func TestPreparePollWebhookPayloadDecryptsRealVote(t *testing.T) {
 			ID:            "VOTE-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	if payload == nil || payload.ResolutionStatus != "resolved" || payload.SelectedOptions == nil || len(*payload.SelectedOptions) != 1 || (*payload.SelectedOptions)[0] != "Sushi" {
 		t.Fatalf("unexpected decrypted payload: %+v", payload)
 	}
@@ -238,7 +361,7 @@ func TestPreparePollWebhookPayloadDecryptsRealVote(t *testing.T) {
 			ID:            "VOTE-FAILED-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	if failed == nil || failed.ResolutionStatus != pollResolutionDecryptFailed || failed.Question != "Lunch?" || failed.SelectedOptions != nil || failed.SelectedOptionHashes != nil {
 		t.Fatalf("unexpected authentication-failure payload: %+v", failed)
 	}
@@ -299,7 +422,7 @@ func TestPreparePollWebhookPayloadDecryptsVoteAfterHandlerContextCanceled(t *tes
 			ID:            "VOTE-CANCELED-CTX-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	require.NotNil(t, payload)
 	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
 	require.NotNil(t, payload.SelectedOptions)
@@ -342,7 +465,7 @@ func TestPreparePollWebhookPayloadDegradesAddOptionWithoutInnerMessage(t *testin
 			EncIV:            iv,
 			EncPayload:       ciphertext,
 		}},
-	})
+	}, true)
 	require.NotNil(t, payload)
 	assert.Equal(t, "add_option", payload.Type)
 	assert.Equal(t, pollID, payload.PollID)
@@ -400,7 +523,7 @@ func TestPreparePollWebhookPayloadDecryptsLIDGroupVote(t *testing.T) {
 			ID:            "VOTE-LID-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	if payload == nil || payload.ResolutionStatus != pollResolutionResolved || payload.SelectedOptions == nil || len(*payload.SelectedOptions) != 1 || (*payload.SelectedOptions)[0] != "Yes" {
 		t.Fatalf("unexpected LID payload: %+v", payload)
 	}
@@ -454,7 +577,7 @@ func TestPreparePollWebhookPayloadFindsDefinitionStoredBeforeLIDMapping(t *testi
 			ID: "VOTE-LATE-LID-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	require.NotNil(t, payload)
 	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
 	require.NotNil(t, payload.SelectedOptions)
@@ -508,7 +631,7 @@ func TestPreparePollWebhookPayloadFindsPNDefinitionForUnmappedLIDVote(t *testing
 			ID: "VOTE-UNMAPPED-LID-1",
 		},
 		Message: voteMessage,
-	})
+	}, true)
 	require.NotNil(t, payload)
 	assert.Equal(t, pollResolutionResolved, payload.ResolutionStatus)
 	require.NotNil(t, payload.SelectedOptions)
@@ -535,7 +658,7 @@ func TestPreparePollWebhookPayloadAppliesAddOptionIdempotently(t *testing.T) {
 	}
 
 	for range 2 {
-		payload := preparePollWebhookPayload(ctx, nil, store, evt)
+		payload := preparePollWebhookPayload(ctx, nil, store, evt, true)
 		if payload == nil || payload.Type != "add_option" || payload.AddedOption == nil || payload.AddedOption.Name != "Sushi" {
 			t.Fatalf("unexpected add-option payload: %+v", payload)
 		}
@@ -562,7 +685,7 @@ func TestPreparePollWebhookPayloadDegradesEncryptedPollUpdateWithoutClient(t *te
 			SecretEncType:    waE2E.SecretEncryptedMessage_POLL_EDIT.Enum(),
 			TargetMessageKey: &waCommon.MessageKey{ID: proto.String("POLL-EDIT-1")},
 		}},
-	})
+	}, true)
 	if payload == nil || payload.Type != "edit" || payload.PollID != "POLL-EDIT-1" || payload.Question != "Old question" || payload.ResolutionStatus != pollResolutionDecryptFailed {
 		t.Fatalf("unexpected degraded payload: %+v", payload)
 	}
@@ -601,7 +724,7 @@ func TestPreparePollAddOptionPayloadUsesEncryptedEnvelopePollID(t *testing.T) {
 	}
 	payload := preparePollAddOptionPayload(store, deviceID, chatJID, &waE2E.PollAddOptionMessage{
 		AddOption: &waE2E.PollCreationMessage_Option{OptionName: proto.String("New")},
-	}, "POLL-FALLBACK-1")
+	}, true, "POLL-FALLBACK-1")
 	if payload == nil || payload.PollID != "POLL-FALLBACK-1" || payload.Question != "Q" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
