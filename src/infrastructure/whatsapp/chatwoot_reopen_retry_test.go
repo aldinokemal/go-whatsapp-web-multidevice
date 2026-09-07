@@ -1,11 +1,14 @@
 package whatsapp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -350,5 +353,211 @@ func TestReplayChatwootReopenIntentDropsMalformedRow(t *testing.T) {
 	}
 	if got := paths(); len(got) != 0 {
 		t.Fatalf("Chatwoot received %v, want no request for a row with no enqueue stamp", got)
+	}
+}
+
+// prearmRefreshFailsRepo backs a real chatwoot.SyncService for the sync half
+// of the maintainer's scenario, and then serves the exact same durable rows
+// to processDueChatwootForwardRetries for the "later run" half, so one test
+// proves the full chain with the real code on both sides -- not a
+// reimplementation of either.
+//
+// EnqueueChatwootForwardEvent lets exactly the first call through (the
+// pre-arm syncChat makes before posting) and fails every call after that
+// (the refresh persistReopenIntent makes once the live toggle fails),
+// reproducing "queue write fails" on the write that is not the pre-arm.
+type prearmRefreshFailsRepo struct {
+	domainChatStorage.IChatStorageRepository
+	mu       sync.Mutex
+	chats    []*domainChatStorage.Chat
+	messages []*domainChatStorage.Message
+	links    map[string]*domainChatStorage.ChatwootMessageLink
+	queue    map[string]*domainChatStorage.ChatwootForwardEvent
+	enqueues int
+}
+
+func newPrearmRefreshFailsRepo(chat *domainChatStorage.Chat, messages ...*domainChatStorage.Message) *prearmRefreshFailsRepo {
+	return &prearmRefreshFailsRepo{
+		chats:    []*domainChatStorage.Chat{chat},
+		messages: messages,
+		links:    make(map[string]*domainChatStorage.ChatwootMessageLink),
+		queue:    make(map[string]*domainChatStorage.ChatwootForwardEvent),
+	}
+}
+
+func (r *prearmRefreshFailsRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	return r.chats, nil
+}
+
+func (r *prearmRefreshFailsRepo) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	return r.messages, nil
+}
+
+func (r *prearmRefreshFailsRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	link := r.links[deviceID+"\x00"+waMessageID]
+	if link == nil {
+		return nil, nil
+	}
+	cloned := *link
+	return &cloned, nil
+}
+
+func (r *prearmRefreshFailsRepo) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cloned := *link
+	r.links[link.DeviceID+"\x00"+link.WhatsAppMessageID] = &cloned
+	return nil
+}
+
+func (r *prearmRefreshFailsRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.enqueues++
+	if r.enqueues > 1 {
+		return errors.New("database is locked")
+	}
+	cloned := *event
+	cloned.ID = 1
+	r.queue[event.DeviceID+"\x00"+event.EventName+"\x00"+event.WhatsAppMessageID] = &cloned
+	return nil
+}
+
+func (r *prearmRefreshFailsRepo) ListDueChatwootForwardEvents(time.Time, int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	events := make([]*domainChatStorage.ChatwootForwardEvent, 0, len(r.queue))
+	for _, event := range r.queue {
+		cloned := *event
+		events = append(events, &cloned)
+	}
+	return events, nil
+}
+
+func (r *prearmRefreshFailsRepo) MarkChatwootForwardEventDone(id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, event := range r.queue {
+		if event.ID == id {
+			delete(r.queue, key)
+		}
+	}
+	return nil
+}
+
+func (r *prearmRefreshFailsRepo) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, event := range r.queue {
+		if event.ID == id {
+			event.LastError = lastError
+			event.NextAttemptAt = nextAttemptAt
+			event.Attempts++
+		}
+	}
+	return nil
+}
+
+// TestChatwootReopenIntentSurvivesFailedQueueRefresh runs the maintainer's
+// named scenario end to end, through the real chatwoot.SyncService and the
+// real forward-retry worker: post succeeds -> link stored -> the live toggle
+// fails -> the post-failure queue write (persistReopenIntent's refresh) also
+// fails -> a later run still repairs the conversation, without reposting
+// anything. It is the pre-arm written before posting, not the refresh, that
+// makes this possible: the refresh failing is a no-op because the pre-armed
+// row is still sitting in the queue underneath it.
+func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
+	enableChatwootReopen(t)
+
+	const contactID, conversationID = 7, 42
+	msg := &domainChatStorage.Message{
+		ID:        "wa-refresh-fails",
+		DeviceID:  "device-a@s.whatsapp.net",
+		ChatJID:   "628123456789@s.whatsapp.net",
+		Content:   "hello",
+		Timestamp: time.Now(),
+	}
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+	repo := newPrearmRefreshFailsRepo(chat, msg)
+
+	var toggles atomic.Int32
+	var messagePosts atomic.Int32
+	var mu sync.Mutex
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/search"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": contactID, "name": "Contact", "phone_number": "+628123456789"}}})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contacts/7/conversations"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": conversationID, "inbox_id": 2, "status": "resolved"}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/messages"):
+			messagePosts.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 900})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/toggle_status"):
+			n := toggles.Add(1)
+			// Fail every toggle during the sync pass (its retry budget is 3);
+			// the later run's single attempt (the 4th call overall) succeeds.
+			if n <= 3 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/conversations/42"):
+			// Still resolved when the later run checks state before replaying.
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "resolved"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := &chatwoot.Client{
+		BaseURL:    server.URL,
+		APIToken:   "token",
+		AccountID:  1,
+		InboxID:    2,
+		HTTPClient: server.Client(),
+	}
+
+	// Sync half: real SyncService, real syncChat/persistReopenIntent.
+	svc := chatwoot.NewSyncService(client, repo)
+	if _, err := svc.SyncHistory(context.Background(), msg.DeviceID, nil, chatwoot.DefaultSyncOptions()); err != nil {
+		t.Fatalf("SyncHistory: %v", err)
+	}
+
+	if got := messagePosts.Load(); got != 1 {
+		t.Fatalf("messages posted during sync = %d, want 1", got)
+	}
+	if got := toggles.Load(); got != 3 {
+		t.Fatalf("toggle_status calls during sync = %d, want 3 (the retry budget, all failing)", got)
+	}
+	repo.mu.Lock()
+	queuedAfterSync := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterSync != 1 {
+		t.Fatalf("queued rows after sync = %d, want 1 (the pre-arm; the refresh failed and must not have removed it)", queuedAfterSync)
+	}
+
+	// Later run: the real forward-retry worker, against the same durable row.
+	stubChatwootClientForReopen(t, server, 1)
+	processDueChatwootForwardRetries(repo)
+
+	if got := toggles.Load(); got != 4 {
+		t.Fatalf("toggle_status calls total = %d, want 4 (3 failing during sync, 1 succeeding on the later run)", got)
+	}
+	if got := messagePosts.Load(); got != 1 {
+		t.Fatalf("messages posted total = %d, want still 1: the later run must never repost", got)
+	}
+	repo.mu.Lock()
+	queuedAfterReplay := len(repo.queue)
+	repo.mu.Unlock()
+	if queuedAfterReplay != 0 {
+		t.Fatalf("queued rows after the later run = %d, want 0 (cleared after the reopen finally succeeded)", queuedAfterReplay)
 	}
 }

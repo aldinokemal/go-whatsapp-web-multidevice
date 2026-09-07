@@ -158,8 +158,12 @@ func TestSyncChatQueuesOneReopenIntentPerConversation(t *testing.T) {
 	repo.only(t)
 }
 
-// A reopen that succeeds inside the pass leaves nothing behind: the queue is
-// for the failure case only.
+// A reopen that succeeds inside the pass leaves the pre-armed row behind, not
+// a fresh one: syncChat writes it once before posting (so posting into a
+// resolved conversation is always recoverable), and persistReopenIntent is
+// never reached because the live toggle succeeded. The row itself becomes a
+// harmless no-op for the worker on its next pass, since GetConversationState
+// will no longer report the conversation as resolved.
 func TestSyncChatQueuesNoReopenIntentWhenToggleSucceeds(t *testing.T) {
 	prevReopen := config.ChatwootReopenConversation
 	defer func() { config.ChatwootReopenConversation = prevReopen }()
@@ -177,8 +181,12 @@ func TestSyncChatQueuesNoReopenIntentWhenToggleSucceeds(t *testing.T) {
 	if got := countEvents(events(), "/toggle_status"); got != 1 {
 		t.Fatalf("toggle_status called %d times, want 1", got)
 	}
-	if repo.enqueues != 0 {
-		t.Fatalf("enqueued %d retry rows, want 0 after a successful reopen", repo.enqueues)
+	if repo.enqueues != 1 {
+		t.Fatalf("enqueued %d retry rows, want exactly 1 (the pre-arm before posting)", repo.enqueues)
+	}
+	queued := repo.only(t)
+	if !strings.Contains(queued.LastError, "before posting") {
+		t.Fatalf("LastError = %q, want the pre-arm placeholder (persistReopenIntent was never reached)", queued.LastError)
 	}
 }
 
@@ -304,5 +312,55 @@ func TestPersistReopenIntentRecoversFromTransientQueueWriteFailures(t *testing.T
 	}
 	if got := countEvents(events(), "/messages"); got != 0 {
 		t.Fatalf("messages posted = %d, want 0: persistReopenIntent must never repost", got)
+	}
+}
+
+// alwaysFailsReopenQueueRepo fails every EnqueueChatwootForwardEvent call, so
+// the pre-arm in syncChat can never write a live intent before posting.
+type alwaysFailsReopenQueueRepo struct {
+	*chatwootReopenQueueRepo
+	calls int
+}
+
+func (r *alwaysFailsReopenQueueRepo) EnqueueChatwootForwardEvent(*domainChatStorage.ChatwootForwardEvent) error {
+	r.calls++
+	return errors.New("database is locked")
+}
+
+// A pre-arm that cannot be written at all must abort the chat instead of
+// posting into a resolved conversation with no durable trace that a reopen
+// is owed. Nothing has happened yet at that point (no post, no link), so
+// returning an error here costs nothing but a retry of the whole chat on the
+// next sync -- which is exactly what should happen, with no duplicate risk.
+func TestSyncChatAbortsWhenPreArmEnqueueFails(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	msg := chatwootSyncChatMessage("wa-prearm-fails")
+	inner := newChatwootReopenQueueRepo(msg)
+	repo := &alwaysFailsReopenQueueRepo{chatwootReopenQueueRepo: inner}
+	svc, events := chatwootReopenStub(t, inner.chatwootSyncChatRepo, msg.ChatJID, http.StatusOK)
+	svc.chatStorageRepo = repo
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	err := svc.syncChat(context.Background(), msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID))
+	if err == nil {
+		t.Fatal("syncChat: expected an error when the pre-arm enqueue fails")
+	}
+	if !strings.Contains(err.Error(), "failed to queue reopen intent before posting") {
+		t.Fatalf("err = %v, want it to name the pre-arm failure", err)
+	}
+	if repo.calls != reopenIntentEnqueueAttempts {
+		t.Fatalf("EnqueueChatwootForwardEvent calls = %d, want %d (all retries exhausted)", repo.calls, reopenIntentEnqueueAttempts)
+	}
+	if got := countEvents(events(), "/messages"); got != 0 {
+		t.Fatalf("messages posted = %d, want 0: nothing may post before the pre-arm succeeds", got)
+	}
+	if got := countEvents(events(), "/toggle_status"); got != 0 {
+		t.Fatalf("toggle_status called %d times, want 0", got)
+	}
+	if len(inner.queued) != 0 {
+		t.Fatalf("queued rows = %d, want 0: the failed pre-arm must not leave a partial row behind", len(inner.queued))
 	}
 }

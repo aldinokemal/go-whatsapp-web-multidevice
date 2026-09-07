@@ -333,6 +333,23 @@ func (s *SyncService) syncChat(
 	}
 	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
 
+	// 4a. Pre-arm the durable reopen intent BEFORE posting anything, when the
+	// conversation is resolved and reopening is enabled. This, not the retry
+	// around the queue write, is what makes the state machine recoverable:
+	// nothing below this point (post, link, live reopen) is durable yet, so a
+	// failure here can safely abort the whole chat and let the next sync
+	// retry from scratch with no duplicate. Once a message posts and links,
+	// that is no longer true -- the row already queued here is what a failed
+	// live reopen falls back to instead of racing a fresh enqueue against an
+	// already-irreversible state.
+	preArmed := false
+	if config.ChatwootReopenConversation && conversation.Status == "resolved" {
+		if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation"); err != nil {
+			return fmt.Errorf("failed to queue reopen intent before posting: %w", err)
+		}
+		preArmed = true
+	}
+
 	// 5. Sync each message. Reopen the thread once, right after the first
 	// message actually lands. A pending set whose every post fails -- media
 	// that expired, a 4xx the retry policy gives up on, a link-store race --
@@ -375,6 +392,12 @@ func (s *SyncService) syncChat(
 		// now, so no later pass will look at them again -- the reopen has to
 		// outlive this run on its own.
 		s.persistReopenIntent(ctx, deviceID, conversation, chat.JID, reopenErr)
+	} else if preArmed && !anyPosted {
+		// Nothing posted this pass (every message failed, or a link-store race
+		// took every one of them), but the pre-arm above already queued a live
+		// intent. Void it so the worker does not reopen a thread nothing was
+		// added to.
+		s.voidReopenIntent(ctx, deviceID, conversation, chat.JID)
 	}
 	return nil
 }
@@ -389,6 +412,14 @@ func (s *SyncService) syncChat(
 // ChatwootImportMediaWithREST is enabled, downloadable media rows are first
 // uploaded through Chatwoot REST with the same source_id; the following DB
 // import then skips those REST-created rows idempotently.
+//
+// pgimport's own reopen (inside ImportChat) needs no pre-arm: it runs in the
+// same DB transaction as the message writes it follows and only commits once,
+// so a failed reopen there rolls the whole write back instead of leaving a
+// posted-and-linked message behind with nothing durable pointing at an owed
+// reopen. The REST media pre-pass below is a separate write path (Chatwoot
+// REST, not this transaction) and does need its own pre-arm; see
+// restMediaPrePass.
 func (s *SyncService) syncChatPG(
 	ctx context.Context,
 	importer *pgimport.Importer,
@@ -682,42 +713,65 @@ func ReopenIntentQueueKey(conversationID int) string {
 // allowed to make that terminal the way one failed toggle already isn't.
 const reopenIntentEnqueueAttempts = 3
 
-// persistReopenIntent queues a reopen the sync could not complete, so the
-// Chatwoot forward retry worker finishes it later without reposting anything.
+// enqueueReopenIntent writes (or refreshes) the durable reopen-intent row for
+// conversation, retrying the write itself against transient local-storage
+// failures. lastError is stored on the row for operators reading the queue;
+// it does not have to name a Chatwoot failure -- the pre-arm call in syncChat
+// passes a fixed description since no reopen attempt has happened yet.
 //
-// It is the last line of the ordering this file establishes. A REST post is
-// durable the moment Chatwoot answers, and its local link is stored right
-// after, so the next sync filters that message out: if the toggle that follows
-// keeps failing, nothing in a later pass would ever look at the thread again
-// and it would stay resolved with new messages inside it. The queued row
-// carries only the conversation, never the message, so the retry can never
-// duplicate a post.
-func (s *SyncService) persistReopenIntent(ctx context.Context, deviceID string, conversation *Conversation, chatJID string, reopenErr error) {
+// Re-enqueueing an existing row rewrites its payload (the queue's unique key
+// is device+event+conversation), so a later call refreshes EnqueuedAt and the
+// window the worker allows itself, and also updates TargetStatus/LastError to
+// the latest call's values.
+func (s *SyncService) enqueueReopenIntent(ctx context.Context, deviceID string, conversation *Conversation, chatJID, lastError string) error {
+	return s.writeReopenIntentRow(ctx, deviceID, conversation, chatJID, lastError, time.Now().Unix())
+}
+
+// voidReopenIntent overwrites a pre-armed reopen-intent row so it can never
+// fire. It exists for the one case the pre-arm in syncChat/restMediaPrePass
+// creates on its own: the pre-arm runs before the posting loop, so a pass
+// where every post then fails would otherwise leave a real, live intent
+// behind for a conversation nothing was actually added to -- reopening it on
+// the worker's next pass would be exactly the "resolved thread reopened with
+// nothing new inside" regression pendingHistoryMessages/
+// reopenHistoryConversation exist to prevent.
+//
+// It reuses replayChatwootReopenIntent's existing malformed-intent guard
+// (EnqueuedAt <= 0) rather than adding a second cancellation state: that path
+// already drops the row outright, with no Chatwoot call, so voiding here is
+// exactly "make the row look like the thing the worker already ignores."
+// Best-effort: if a message posts later and this row gets refreshed by
+// persistReopenIntent or a future pre-arm, the void is overwritten by a real
+// EnqueuedAt, same as any other re-enqueue.
+func (s *SyncService) voidReopenIntent(ctx context.Context, deviceID string, conversation *Conversation, chatJID string) {
 	if conversation == nil {
 		return
 	}
+	if err := s.writeReopenIntentRow(ctx, deviceID, conversation, chatJID, "voided: nothing posted this pass", 0); err != nil {
+		logrus.Errorf("Chatwoot Sync: failed to void the pre-armed reopen intent for conversation %d after nothing posted; it may still reopen the thread with nothing added: %v", conversation.ID, err)
+	}
+}
+
+// writeReopenIntentRow is the shared write behind enqueueReopenIntent (a real,
+// live intent) and voidReopenIntent (a deliberately inert one, enqueuedAt=0).
+func (s *SyncService) writeReopenIntentRow(ctx context.Context, deviceID string, conversation *Conversation, chatJID, lastError string, enqueuedAt int64) error {
+	if conversation == nil {
+		return nil
+	}
 	if s.chatStorageRepo == nil || s.client == nil || deviceID == "" {
-		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it and cannot queue a retry (device=%q storage=%v client=%v); it stays resolved with new messages inside",
-			conversation.ID, chatJID, deviceID, s.chatStorageRepo != nil, s.client != nil)
-		return
+		return fmt.Errorf("cannot queue reopen intent for conversation %d (device=%q storage=%v client=%v)",
+			conversation.ID, deviceID, s.chatStorageRepo != nil, s.client != nil)
 	}
 
-	now := time.Now()
 	payload, err := json.Marshal(ReopenIntent{
 		ConversationID: conversation.ID,
 		AccountID:      s.client.AccountID,
 		TargetStatus:   conversationStatusForNew(),
 		ChatJID:        chatJID,
-		EnqueuedAt:     now.Unix(),
+		EnqueuedAt:     enqueuedAt,
 	})
 	if err != nil {
-		logrus.Errorf("Chatwoot Sync: failed to serialize reopen intent for conversation %d: %v", conversation.ID, err)
-		return
-	}
-
-	lastError := "reopen after history post failed"
-	if reopenErr != nil {
-		lastError = reopenErr.Error()
+		return fmt.Errorf("failed to serialize reopen intent for conversation %d: %w", conversation.ID, err)
 	}
 
 	event := &domainChatStorage.ChatwootForwardEvent{
@@ -727,16 +781,41 @@ func (s *SyncService) persistReopenIntent(ctx context.Context, deviceID string, 
 		PayloadJSON:       string(payload),
 		LastError:         lastError,
 		// One minute is the first delay the forward queue uses; the worker
-		// takes over the doubling from there. Re-enqueueing an existing row
-		// rewrites this payload, so a fresh failure also refreshes EnqueuedAt
-		// and the window the worker allows itself.
-		NextAttemptAt: now.Add(time.Minute),
+		// takes over the doubling from there.
+		NextAttemptAt: time.Now().Add(time.Minute),
 	}
-	enqueueErr := retrySyncOp(ctx, reopenIntentEnqueueAttempts, func() error {
+	return retrySyncOp(ctx, reopenIntentEnqueueAttempts, func() error {
 		return s.chatStorageRepo.EnqueueChatwootForwardEvent(event)
 	})
-	if enqueueErr != nil {
-		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it, and queueing the retry failed after %d attempts (%v); it stays resolved with new messages inside", conversation.ID, chatJID, reopenIntentEnqueueAttempts, enqueueErr)
+}
+
+// persistReopenIntent refreshes the reopen-intent row after a live reopen
+// attempt failed post-post, so the Chatwoot forward retry worker finishes the
+// toggle later without reposting anything.
+//
+// By the time this runs, the row it refreshes was normally already written by
+// the pre-arm call in syncChat/restMediaPrePass before anything was posted --
+// that pre-arm, not this call, is what makes the state recoverable: it exists
+// before the post, so nothing here can be the only durable trace of an owed
+// reopen. This call still retries the write and still logs loudly on failure,
+// because a chat can reach this point without a pre-arm (e.g. the conversation
+// was open when posting started and only became resolved through the message
+// itself, or an older row predates this pre-arm existing), and because a
+// refreshed EnqueuedAt/LastError is worth having even when it is not the only
+// copy.
+func (s *SyncService) persistReopenIntent(ctx context.Context, deviceID string, conversation *Conversation, chatJID string, reopenErr error) {
+	if conversation == nil {
+		return
+	}
+
+	lastError := "reopen after history post failed"
+	if reopenErr != nil {
+		lastError = reopenErr.Error()
+	}
+
+	if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chatJID, lastError); err != nil {
+		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it, and refreshing the retry queue failed after %d attempts (%v); a pre-armed row queued before posting may still cover it",
+			conversation.ID, chatJID, reopenIntentEnqueueAttempts, err)
 		return
 	}
 	logrus.Warnf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it; queued a durable reopen retry", conversation.ID, chatJID)
@@ -770,10 +849,31 @@ func (s *SyncService) restMediaPrePass(
 		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
 		return
 	}
-	if anyPosted, reopened, reopenErr := s.syncHybridMediaMessagesREST(ctx, conversation, mediaMessages, waClient, opts, isGroup); anyPosted && !reopened {
+
+	// Pre-arm the durable reopen intent before posting any attachment, for the
+	// same reason syncChat does: nothing below this point is durable yet, so a
+	// pre-arm failure can skip the pre-pass entirely (the importer that follows
+	// still runs, and its own transactional reopen is unaffected) instead of
+	// risking a posted-and-linked attachment with no durable trace that a
+	// reopen is owed.
+	preArmed := false
+	if config.ChatwootReopenConversation && conversation.Status == "resolved" {
+		if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation"); err != nil {
+			logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: failed to queue reopen intent before posting: %v", chat.JID, err)
+			return
+		}
+		preArmed = true
+	}
+
+	anyPosted, reopened, reopenErr := s.syncHybridMediaMessagesREST(ctx, conversation, mediaMessages, waClient, opts, isGroup)
+	if anyPosted && !reopened {
 		// The importer that follows only reopens on its own writes, and these
 		// rows will be skipped there, so nothing downstream would retry.
 		s.persistReopenIntent(ctx, deviceID, conversation, chat.JID, reopenErr)
+	} else if preArmed && !anyPosted {
+		// No attachment posted this pass; void the pre-armed row for the same
+		// reason syncChat does -- nothing was added, so nothing should reopen.
+		s.voidReopenIntent(ctx, deviceID, conversation, chat.JID)
 	}
 }
 

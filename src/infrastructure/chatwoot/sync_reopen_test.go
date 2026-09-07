@@ -397,8 +397,9 @@ func TestSyncChatDoesNotReopenWhenEveryPostFails(t *testing.T) {
 	config.ChatwootReopenConversation = true
 
 	msg := chatwootSyncChatMessage("wa-rejected")
-	repo := newChatwootSyncChatRepo(msg)
-	svc, events := chatwootReopenStub(t, repo, msg.ChatJID, http.StatusUnprocessableEntity)
+	repo := newChatwootReopenQueueRepo(msg)
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, msg.ChatJID, http.StatusUnprocessableEntity)
+	svc.chatStorageRepo = repo
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
 	progress := NewSyncProgress(msg.DeviceID)
@@ -414,6 +415,14 @@ func TestSyncChatDoesNotReopenWhenEveryPostFails(t *testing.T) {
 	}
 	if progress.FailedMessages != 1 {
 		t.Fatalf("FailedMessages = %d, want 1", progress.FailedMessages)
+	}
+
+	// The pre-arm wrote a live intent before posting; since nothing posted, it
+	// must have been voided rather than left live to reopen an untouched
+	// thread on the worker's next pass.
+	queued := repo.only(t)
+	if intent := decodeReopenIntent(t, queued); intent.EnqueuedAt != 0 {
+		t.Fatalf("EnqueuedAt = %d, want 0 (voided): a live intent here would reopen the thread with nothing added", intent.EnqueuedAt)
 	}
 }
 
@@ -431,8 +440,9 @@ func TestRESTMediaPrePassDoesNotReopenWhenNoAttachmentPosts(t *testing.T) {
 	config.ChatwootImportMediaWithREST = true
 
 	msg := chatwootSyncChatMediaMessage("wa-expired-media")
-	repo := newChatwootSyncChatRepo(msg)
-	svc, events := chatwootReopenStub(t, repo, msg.ChatJID, http.StatusOK)
+	repo := newChatwootReopenQueueRepo(msg)
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, msg.ChatJID, http.StatusOK)
+	svc.chatStorageRepo = repo
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
 	// No WhatsApp client: the download fails, the attachment is required, so
@@ -448,6 +458,11 @@ func TestRESTMediaPrePassDoesNotReopenWhenNoAttachmentPosts(t *testing.T) {
 	}
 	if got := countEvents(ev, "/toggle_status"); got != 0 {
 		t.Fatalf("toggle_status called %d times, want 0 when no attachment posted\n%v", got, ev)
+	}
+
+	queued := repo.only(t)
+	if intent := decodeReopenIntent(t, queued); intent.EnqueuedAt != 0 {
+		t.Fatalf("EnqueuedAt = %d, want 0 (voided): a live intent here would reopen the thread with nothing added", intent.EnqueuedAt)
 	}
 }
 
