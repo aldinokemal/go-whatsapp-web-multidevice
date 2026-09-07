@@ -344,14 +344,25 @@ func (s *SyncService) syncChat(
 	preArmed := false
 	var msgIDs []string
 	if config.ChatwootReopenConversation && conversation.Status == "resolved" {
-		msgIDs = make([]string, len(pending))
-		for i, m := range pending {
-			msgIDs[i] = m.ID
+		if existingIDs, confirmed := s.checkExistingConfirmedReopenIntent(deviceID, conversation.ID); confirmed {
+			// A previous pass already successfully posted and queued a confirmed reopen intent.
+			// Do not pre-arm (which would risk voiding an existing confirmed intent if this pass
+			// fails to post anything). Merge existing confirmed message IDs so any later
+			// persistReopenIntent call preserves them.
+			msgIDs = append(msgIDs, existingIDs...)
+			for _, m := range pending {
+				msgIDs = append(msgIDs, m.ID)
+			}
+		} else {
+			msgIDs = make([]string, len(pending))
+			for i, m := range pending {
+				msgIDs[i] = m.ID
+			}
+			if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation", msgIDs); err != nil {
+				return fmt.Errorf("failed to queue reopen intent before posting: %w", err)
+			}
+			preArmed = true
 		}
-		if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation", msgIDs); err != nil {
-			return fmt.Errorf("failed to queue reopen intent before posting: %w", err)
-		}
-		preArmed = true
 	}
 
 	// 5. Sync each message. Reopen the thread once, right after the first
@@ -738,6 +749,48 @@ func ReopenIntentQueueKey(conversationID int) string {
 	return fmt.Sprintf("conversation:%d", conversationID)
 }
 
+func dedupeStrings(slice []string) []string {
+	seen := make(map[string]struct{}, len(slice))
+	out := make([]string, 0, len(slice))
+	for _, s := range slice {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// checkExistingConfirmedReopenIntent checks if there is already an active,
+// confirmed reopen intent in the retry queue for the conversation. If so, it returns
+// the recorded message IDs and true. This ensures a subsequent pass will not
+// overwrite and later void an owed reopen intent when all posts in that pass fail.
+func (s *SyncService) checkExistingConfirmedReopenIntent(deviceID string, conversationID int) ([]string, bool) {
+	if s.chatStorageRepo == nil {
+		return nil, false
+	}
+	existingEvent, err := s.chatStorageRepo.GetChatwootForwardEvent(deviceID, ReopenForwardEventName, ReopenIntentQueueKey(conversationID))
+	if err != nil {
+		logrus.Warnf("Chatwoot Sync: failed to check existing reopen intent for conversation %d: %v", conversationID, err)
+		return nil, false
+	}
+	if existingEvent == nil {
+		return nil, false
+	}
+	var existingIntent ReopenIntent
+	if err := json.Unmarshal([]byte(existingEvent.PayloadJSON), &existingIntent); err != nil {
+		return nil, false
+	}
+	if existingIntent.EnqueuedAt <= 0 {
+		return nil, false
+	}
+	confirmed, err := existingIntent.HasConfirmedPosts(s.chatStorageRepo, deviceID)
+	if err != nil || !confirmed {
+		return nil, false
+	}
+	return existingIntent.MessageIDs, true
+}
+
 // reopenIntentEnqueueAttempts bounds the retries around the queue write in
 // persistReopenIntent. The message that made this necessary is already
 // durable (posted and linked); the queue row is the only thing standing
@@ -848,6 +901,10 @@ func (s *SyncService) persistReopenIntent(ctx context.Context, deviceID string, 
 	if len(msgIDs) > 0 {
 		ids = msgIDs[0]
 	}
+	if existingIDs, confirmed := s.checkExistingConfirmedReopenIntent(deviceID, conversation.ID); confirmed && len(existingIDs) > 0 {
+		ids = append(existingIDs, ids...)
+	}
+	ids = dedupeStrings(ids)
 
 	if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chatJID, lastError, ids); err != nil {
 		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it, and refreshing the retry queue failed after %d attempts (%v); a pre-armed row queued before posting may still cover it",
@@ -895,15 +952,25 @@ func (s *SyncService) restMediaPrePass(
 	preArmed := false
 	var msgIDs []string
 	if config.ChatwootReopenConversation && conversation.Status == "resolved" {
-		msgIDs = make([]string, len(mediaMessages))
-		for i, m := range mediaMessages {
-			msgIDs[i] = m.ID
+		if existingIDs, confirmed := s.checkExistingConfirmedReopenIntent(deviceID, conversation.ID); confirmed {
+			// A previous pass already successfully posted and queued a confirmed reopen intent.
+			// Do not pre-arm (avoid overwriting and voiding if this pass fails to post).
+			// Merge existing confirmed message IDs so any later persistReopenIntent call preserves them.
+			msgIDs = append(msgIDs, existingIDs...)
+			for _, m := range mediaMessages {
+				msgIDs = append(msgIDs, m.ID)
+			}
+		} else {
+			msgIDs = make([]string, len(mediaMessages))
+			for i, m := range mediaMessages {
+				msgIDs[i] = m.ID
+			}
+			if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation", msgIDs); err != nil {
+				logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: failed to queue reopen intent before posting: %v", chat.JID, err)
+				return
+			}
+			preArmed = true
 		}
-		if err := s.enqueueReopenIntent(ctx, deviceID, conversation, chat.JID, "reopen queued before posting into a resolved conversation", msgIDs); err != nil {
-			logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: failed to queue reopen intent before posting: %v", chat.JID, err)
-			return
-		}
-		preArmed = true
 	}
 
 	anyPosted, reopened, reopenErr := s.syncHybridMediaMessagesREST(ctx, conversation, mediaMessages, waClient, opts, isGroup)
@@ -916,6 +983,21 @@ func (s *SyncService) restMediaPrePass(
 		// reason syncChat does -- nothing was added, so nothing should reopen.
 		s.voidReopenIntent(ctx, deviceID, conversation, chat.JID)
 	}
+}
+
+// RestMediaPrePass runs the REST media pre-pass for the given chat.
+// It is used by the direct Postgres importer to upload downloadable media
+// attachments via REST before the database import runs.
+func (s *SyncService) RestMediaPrePass(
+	ctx context.Context,
+	deviceID string,
+	chat *domainChatStorage.Chat,
+	messages []*domainChatStorage.Message,
+	waClient *whatsmeow.Client,
+	opts SyncOptions,
+	isGroup bool,
+) {
+	s.restMediaPrePass(ctx, deviceID, chat, messages, waClient, opts, isGroup)
 }
 
 // syncHybridMediaMessagesREST posts each media message and, once one has

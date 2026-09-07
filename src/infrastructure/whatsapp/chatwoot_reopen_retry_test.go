@@ -40,6 +40,16 @@ func (r *chatwootReopenQueueRepo) MarkChatwootForwardEventFailed(id int64, _ str
 	return nil
 }
 
+func (r *chatwootReopenQueueRepo) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	for _, e := range r.due {
+		if e.DeviceID == deviceID && e.EventName == eventName && e.WhatsAppMessageID == waMessageID {
+			cloned := *e
+			return &cloned, nil
+		}
+	}
+	return nil, nil
+}
+
 // chatwootConversationBody is what the stub server answers the conversation GET
 // with. wrap puts it under a "payload" key, as some Chatwoot versions do.
 type chatwootConversationBody struct {
@@ -425,6 +435,17 @@ func (r *prearmRefreshFailsRepo) EnqueueChatwootForwardEvent(event *domainChatSt
 	return nil
 }
 
+func (r *prearmRefreshFailsRepo) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	event := r.queue[deviceID+"\x00"+eventName+"\x00"+waMessageID]
+	if event == nil {
+		return nil, nil
+	}
+	cloned := *event
+	return &cloned, nil
+}
+
 func (r *prearmRefreshFailsRepo) ListDueChatwootForwardEvents(time.Time, int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -650,6 +671,9 @@ func TestChatwootReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testing.T) {
 // pre-arm intent that the worker drops rather than toggles, even if voiding fails.
 func TestRESTMediaPrePassReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testing.T) {
 	enableChatwootReopen(t)
+	prevREST := config.ChatwootImportMediaWithREST
+	defer func() { config.ChatwootImportMediaWithREST = prevREST }()
+	config.ChatwootImportMediaWithREST = true
 
 	const contactID, conversationID = 7, 42
 	msg := &domainChatStorage.Message{
@@ -658,6 +682,8 @@ func TestRESTMediaPrePassReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testin
 		ChatJID:   "628123456789@s.whatsapp.net",
 		Content:   "audio message",
 		MediaType: "audio",
+		URL:       "https://mmg.whatsapp.net/d/f/fake.enc",
+		MediaKey:  []byte("fake-key-32-bytes-long-12345678"),
 		Timestamp: time.Now(),
 	}
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
@@ -695,13 +721,13 @@ func TestRESTMediaPrePassReopenIntentDoesNotToggleWhenPostsAndVoidFail(t *testin
 	// REST media pre-pass without a WhatsApp client: media download fails,
 	// so no message posts, and void fails because enqueues > 1.
 	svc := chatwoot.NewSyncService(client, repo)
-	_, _ = svc.SyncHistory(context.Background(), msg.DeviceID, nil, chatwoot.DefaultSyncOptions())
+	svc.RestMediaPrePass(context.Background(), msg.DeviceID, chat, []*domainChatStorage.Message{msg}, nil, chatwoot.DefaultSyncOptions(), false)
 
 	repo.mu.Lock()
 	queuedAfterSync := len(repo.queue)
 	repo.mu.Unlock()
 	if queuedAfterSync != 1 {
-		t.Fatalf("queued rows after sync = %d, want 1", queuedAfterSync)
+		t.Fatalf("queued rows after pre-pass = %d, want 1", queuedAfterSync)
 	}
 
 	// Worker must not toggle:

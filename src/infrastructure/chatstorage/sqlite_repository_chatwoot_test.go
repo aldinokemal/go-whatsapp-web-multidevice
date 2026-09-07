@@ -469,3 +469,57 @@ func TestSQLiteRepositoryReenqueueRewritesChatwootForwardPayload(t *testing.T) {
 		t.Fatalf("Attempts = %d, want 1; a re-enqueue must not reset the backoff", due[0].Attempts)
 	}
 }
+
+func TestSQLiteRepository_GetChatwootForwardEvent(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	eventName := "chatwoot.conversation.reopen"
+	waMessageID := "conversation:42"
+
+	// When not found, returns nil, nil
+	got, err := repo.GetChatwootForwardEvent(deviceID, eventName, waMessageID)
+	if err != nil {
+		t.Fatalf("GetChatwootForwardEvent unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil when not found, got %v", got)
+	}
+
+	// Enqueue an event
+	now := time.Now().Truncate(time.Second)
+	event := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          deviceID,
+		EventName:         eventName,
+		WhatsAppMessageID: waMessageID,
+		PayloadJSON:       `{"conversation_id":42,"enqueued_at":1000}`,
+		LastError:         "toggle failed",
+		NextAttemptAt:     now.Add(time.Minute),
+	}
+	if err := repo.EnqueueChatwootForwardEvent(event); err != nil {
+		t.Fatalf("enqueue event: %v", err)
+	}
+
+	// Now it should be found
+	got, err = repo.GetChatwootForwardEvent(deviceID, eventName, waMessageID)
+	if err != nil {
+		t.Fatalf("GetChatwootForwardEvent error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if got.DeviceID != deviceID || got.EventName != eventName || got.WhatsAppMessageID != waMessageID {
+		t.Fatalf("got event %v, want matching keys", got)
+	}
+	if got.PayloadJSON != event.PayloadJSON {
+		t.Fatalf("PayloadJSON = %q, want %q", got.PayloadJSON, event.PayloadJSON)
+	}
+
+	// Non-matching keys return nil
+	gotOther, err := repo.GetChatwootForwardEvent(deviceID, eventName, "conversation:99")
+	if err != nil {
+		t.Fatalf("unexpected error for other key: %v", err)
+	}
+	if gotOther != nil {
+		t.Fatalf("expected nil for non-matching key, got %v", gotOther)
+	}
+}

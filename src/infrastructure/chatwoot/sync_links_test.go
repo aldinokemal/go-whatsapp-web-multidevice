@@ -49,6 +49,10 @@ func (r *chatwootSyncLinkRepo) EnqueueChatwootForwardEvent(*domainChatStorage.Ch
 	return nil
 }
 
+func (r *chatwootSyncLinkRepo) GetChatwootForwardEvent(string, string, string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	return nil, nil
+}
+
 func TestSyncMessageSkipsExistingChatwootLink(t *testing.T) {
 	repo := newChatwootSyncLinkTestRepo()
 	msg := &domainChatStorage.Message{

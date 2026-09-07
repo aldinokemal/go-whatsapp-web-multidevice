@@ -36,6 +36,16 @@ func (r *chatwootReopenQueueRepo) EnqueueChatwootForwardEvent(event *domainChatS
 	return nil
 }
 
+func (r *chatwootReopenQueueRepo) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	key := deviceID + "\x00" + eventName + "\x00" + waMessageID
+	event := r.queued[key]
+	if event == nil {
+		return nil, nil
+	}
+	cloned := *event
+	return &cloned, nil
+}
+
 func (r *chatwootReopenQueueRepo) only(t *testing.T) *domainChatStorage.ChatwootForwardEvent {
 	t.Helper()
 	if len(r.queued) != 1 {
@@ -391,6 +401,16 @@ func (r *prearmVoidFailsRepo) EnqueueChatwootForwardEvent(event *domainChatStora
 	return nil
 }
 
+func (r *prearmVoidFailsRepo) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	key := deviceID + "\x00" + eventName + "\x00" + waMessageID
+	event := r.queued[key]
+	if event == nil {
+		return nil, nil
+	}
+	cloned := *event
+	return &cloned, nil
+}
+
 func (r *prearmVoidFailsRepo) only(t *testing.T) *domainChatStorage.ChatwootForwardEvent {
 	t.Helper()
 	if len(r.queued) != 1 {
@@ -450,5 +470,206 @@ func TestSyncChatPreArmReopenIntentIsUnconfirmedWhenPostsAndVoidFail(t *testing.
 	}
 	if confirmed {
 		t.Fatal("expected pre-armed intent to be unconfirmed when every post failed")
+	}
+}
+
+// When REST media pre-pass pre-arm enqueue succeeds, media fails to post, and
+// the subsequent void write fails, the pre-armed row in the queue must remain
+// unconfirmed (HasConfirmedPosts returns false) because no attachment was posted/linked.
+func TestRESTMediaPrePassPreArmReopenIntentIsUnconfirmedWhenPostsAndVoidFail(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	prevREST := config.ChatwootImportMediaWithREST
+	defer func() {
+		config.ChatwootReopenConversation = prevReopen
+		config.ChatwootImportMediaWithREST = prevREST
+	}()
+	config.ChatwootReopenConversation = true
+	config.ChatwootImportMediaWithREST = true
+
+	msg := chatwootSyncChatMediaMessage("wa-media-fails")
+	repo := newPrearmVoidFailsRepo(msg)
+	// Server returns 500 on /messages
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, msg.ChatJID, http.StatusInternalServerError)
+	svc.chatStorageRepo = repo
+	svc.mediaDownloader = fakeMediaDownloader(t)
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	svc.restMediaPrePass(context.Background(), msg.DeviceID, chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
+
+	if got := countEvents(events(), "/messages"); got != 3 {
+		t.Fatalf("messages attempted = %d, want 3 (all retries failing)", got)
+	}
+	if got := countEvents(events(), "/toggle_status"); got != 0 {
+		t.Fatalf("toggle_status called %d times, want 0 during sync", got)
+	}
+
+	// Void failed, so the pre-armed row is still sitting in the queue.
+	queued := repo.only(t)
+	intent := decodeReopenIntent(t, queued)
+	if len(intent.MessageIDs) == 0 || intent.MessageIDs[0] != msg.ID {
+		t.Fatalf("intent MessageIDs = %v, want [%s]", intent.MessageIDs, msg.ID)
+	}
+
+	// No message link was stored:
+	link, err := repo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+	if err != nil {
+		t.Fatalf("lookup link: %v", err)
+	}
+	if link != nil {
+		t.Fatalf("link = %v, want nil", link)
+	}
+
+	// HasConfirmedPosts must report false, preventing the worker from toggling!
+	confirmed, err := intent.HasConfirmedPosts(repo, msg.DeviceID)
+	if err != nil {
+		t.Fatalf("HasConfirmedPosts: %v", err)
+	}
+	if confirmed {
+		t.Fatal("expected pre-armed intent to be unconfirmed when every post failed")
+	}
+}
+
+// A subsequent sync pass for a conversation that already has a confirmed reopen
+// intent in the retry queue must not overwrite/pre-arm or void it when all posts
+// in the second pass fail.
+func TestSyncPreservesExistingConfirmedReopenIntentAcrossSubsequentFailedPasses(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	firstMsg := chatwootSyncChatMessage("wa-pass-1")
+	secondMsg := chatwootSyncChatMessage("wa-pass-2")
+
+	repo := newChatwootReopenQueueRepo(firstMsg, secondMsg)
+	chat := &domainChatStorage.Chat{JID: firstMsg.ChatJID, Name: "Contact"}
+	conversation := &Conversation{ID: 42, Status: "resolved"}
+
+	// Simulate Pass 1: firstMsg was posted and linked, but live reopen failed,
+	// so a confirmed reopen intent was queued.
+	seedChatwootLink(t, repo.chatwootSyncChatRepo, firstMsg, 101)
+	if err := repo.EnqueueChatwootForwardEvent(&domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          firstMsg.DeviceID,
+		EventName:         ReopenForwardEventName,
+		WhatsAppMessageID: ReopenIntentQueueKey(conversation.ID),
+		PayloadJSON: func() string {
+			b, _ := json.Marshal(ReopenIntent{
+				ConversationID: conversation.ID,
+				AccountID:      1,
+				TargetStatus:   "open",
+				ChatJID:        firstMsg.ChatJID,
+				EnqueuedAt:     time.Now().Unix(),
+				MessageIDs:     []string{firstMsg.ID},
+			})
+			return string(b)
+		}(),
+		NextAttemptAt: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("enqueue confirmed intent: %v", err)
+	}
+
+	// Reset enqueue counter so we can track what Pass 2 does
+	repo.enqueues = 0
+
+	// Pass 2: only secondMsg is pending, and /messages fails with 500
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, firstMsg.ChatJID, http.StatusInternalServerError)
+	svc.chatStorageRepo = repo
+
+	_ = svc.syncChat(context.Background(), secondMsg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(secondMsg.DeviceID))
+
+	// All 3 retries on secondMsg failed
+	if got := countEvents(events(), "/messages"); got != 3 {
+		t.Fatalf("messages attempted = %d, want 3", got)
+	}
+
+	// Pass 2 must NOT have enqueued a new pre-arm or voided the existing confirmed intent!
+	if repo.enqueues != 0 {
+		t.Fatalf("repo.enqueues = %d, want 0 (existing confirmed intent preserved without pre-arm or void)", repo.enqueues)
+	}
+
+	// The queue must still contain the confirmed intent from Pass 1
+	queued := repo.only(t)
+	intent := decodeReopenIntent(t, queued)
+	if intent.EnqueuedAt <= 0 {
+		t.Fatalf("EnqueuedAt = %d, want > 0 (must not be voided)", intent.EnqueuedAt)
+	}
+	confirmed, err := intent.HasConfirmedPosts(repo, firstMsg.DeviceID)
+	if err != nil {
+		t.Fatalf("HasConfirmedPosts: %v", err)
+	}
+	if !confirmed {
+		t.Fatal("expected preserved intent to remain confirmed by firstMsg link")
+	}
+}
+
+// A subsequent REST media pre-pass must also preserve an existing confirmed reopen
+// intent if all attachments in that pre-pass fail to post.
+func TestRESTMediaPrePassPreservesExistingConfirmedReopenIntentAcrossFailedPasses(t *testing.T) {
+	prevReopen := config.ChatwootReopenConversation
+	prevREST := config.ChatwootImportMediaWithREST
+	defer func() {
+		config.ChatwootReopenConversation = prevReopen
+		config.ChatwootImportMediaWithREST = prevREST
+	}()
+	config.ChatwootReopenConversation = true
+	config.ChatwootImportMediaWithREST = true
+
+	firstMsg := chatwootSyncChatMessage("wa-pass-1")
+	mediaMsg := chatwootSyncChatMediaMessage("wa-media-fail-pass-2")
+
+	repo := newChatwootReopenQueueRepo(firstMsg, mediaMsg)
+	chat := &domainChatStorage.Chat{JID: firstMsg.ChatJID, Name: "Contact"}
+	conversation := &Conversation{ID: 42, Status: "resolved"}
+
+	// Seed confirmed link and intent from Pass 1
+	seedChatwootLink(t, repo.chatwootSyncChatRepo, firstMsg, 101)
+	if err := repo.EnqueueChatwootForwardEvent(&domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          firstMsg.DeviceID,
+		EventName:         ReopenForwardEventName,
+		WhatsAppMessageID: ReopenIntentQueueKey(conversation.ID),
+		PayloadJSON: func() string {
+			b, _ := json.Marshal(ReopenIntent{
+				ConversationID: conversation.ID,
+				AccountID:      1,
+				TargetStatus:   "open",
+				ChatJID:        firstMsg.ChatJID,
+				EnqueuedAt:     time.Now().Unix(),
+				MessageIDs:     []string{firstMsg.ID},
+			})
+			return string(b)
+		}(),
+		NextAttemptAt: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("enqueue confirmed intent: %v", err)
+	}
+
+	repo.enqueues = 0
+
+	// Media post fails with 500
+	svc, events := chatwootReopenStub(t, repo.chatwootSyncChatRepo, firstMsg.ChatJID, http.StatusInternalServerError)
+	svc.chatStorageRepo = repo
+	svc.mediaDownloader = fakeMediaDownloader(t)
+
+	svc.restMediaPrePass(context.Background(), mediaMsg.DeviceID, chat, []*domainChatStorage.Message{mediaMsg}, nil, DefaultSyncOptions(), false)
+
+	if got := countEvents(events(), "/messages"); got != 3 {
+		t.Fatalf("messages attempted = %d, want 3", got)
+	}
+
+	// Must not have called enqueue (no pre-arm, no void)
+	if repo.enqueues != 0 {
+		t.Fatalf("repo.enqueues = %d, want 0 (confirmed intent preserved)", repo.enqueues)
+	}
+
+	queued := repo.only(t)
+	intent := decodeReopenIntent(t, queued)
+	if intent.EnqueuedAt <= 0 {
+		t.Fatalf("EnqueuedAt = %d, want > 0", intent.EnqueuedAt)
+	}
+	confirmed, err := intent.HasConfirmedPosts(repo, firstMsg.DeviceID)
+	if err != nil {
+		t.Fatalf("HasConfirmedPosts: %v", err)
+	}
+	if !confirmed {
+		t.Fatal("expected preserved intent to remain confirmed")
 	}
 }
