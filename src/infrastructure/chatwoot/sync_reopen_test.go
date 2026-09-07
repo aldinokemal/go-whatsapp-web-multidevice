@@ -494,8 +494,11 @@ func fakeMediaDownloader(t *testing.T) func(context.Context, *domainChatStorage.
 		if err != nil {
 			return "", err
 		}
-		defer f.Close()
 		if _, err := f.WriteString("jpeg bytes for " + msg.ID); err != nil {
+			f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
 			return "", err
 		}
 		return f.Name(), nil
