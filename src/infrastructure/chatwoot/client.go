@@ -515,23 +515,67 @@ type ConversationState struct {
 	LastActivityAt time.Time
 }
 
+// chatwootTimestamp decodes a Chatwoot timestamp field that different API
+// versions send in different shapes -- epoch seconds (integer or float) most
+// commonly, but an RFC-3339 string on some endpoints/versions. A value in
+// either shape must decode; only genuinely malformed JSON is an error, and an
+// absent/null field decodes to the zero time rather than failing the
+// surrounding response decode -- a shape neither format we know about must
+// still leave `status` readable, since that is what the caller actually acts
+// on.
+type chatwootTimestamp time.Time
+
+func (t *chatwootTimestamp) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	if s[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		str = strings.TrimSpace(str)
+		if str == "" {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		parsed, err := time.Parse(time.RFC3339, str)
+		if err != nil {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		*t = chatwootTimestamp(parsed)
+		return nil
+	}
+	var epoch float64
+	if err := json.Unmarshal(data, &epoch); err != nil {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	if epoch <= 0 {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	*t = chatwootTimestamp(time.Unix(int64(epoch), 0))
+	return nil
+}
+
 // conversationStatePayload decodes the conversation fields ConversationState is
-// built from. Chatwoot sends these timestamps as epoch seconds and renders
-// updated_at as a float in some versions, so both are read as numbers and the
-// newer of the two wins.
+// built from. LastActivityAt and UpdatedAt tolerate either timestamp shape
+// Chatwoot sends; the newer of the two wins.
 type conversationStatePayload struct {
-	Status         string   `json:"status"`
-	LastActivityAt *float64 `json:"last_activity_at"`
-	UpdatedAt      *float64 `json:"updated_at"`
+	Status         string            `json:"status"`
+	LastActivityAt chatwootTimestamp `json:"last_activity_at"`
+	UpdatedAt      chatwootTimestamp `json:"updated_at"`
 }
 
 func (p conversationStatePayload) state() *ConversationState {
 	state := &ConversationState{Status: p.Status}
-	for _, epoch := range []*float64{p.LastActivityAt, p.UpdatedAt} {
-		if epoch == nil || *epoch <= 0 {
-			continue
-		}
-		if at := time.Unix(int64(*epoch), 0); at.After(state.LastActivityAt) {
+	for _, ts := range []chatwootTimestamp{p.LastActivityAt, p.UpdatedAt} {
+		if at := time.Time(ts); at.After(state.LastActivityAt) {
 			state.LastActivityAt = at
 		}
 	}
@@ -576,7 +620,7 @@ func (c *Client) GetConversationState(conversationID int) (*ConversationState, e
 		return flat.state(), nil
 	}
 
-	return nil, fmt.Errorf("failed to decode conversation %d response (no status found): %s", conversationID, string(bodyBytes))
+	return nil, fmt.Errorf("failed to decode conversation %d response (no status found, %d bytes)", conversationID, len(bodyBytes))
 }
 
 // conversationStatusForNew returns the status a newly created or reopened
