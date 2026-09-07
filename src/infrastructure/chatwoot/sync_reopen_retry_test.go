@@ -232,7 +232,7 @@ func TestReenqueuedReopenIntentRefreshesEnqueuedAt(t *testing.T) {
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 	conversation := &Conversation{ID: 42, Status: "resolved"}
 
-	svc.persistReopenIntent(msg.DeviceID, conversation, chat.JID, errors.New("first failure"))
+	svc.persistReopenIntent(context.Background(), msg.DeviceID, conversation, chat.JID, errors.New("first failure"))
 	first := decodeReopenIntent(t, repo.only(t))
 
 	// Re-stamp the stored row as if it had been queued a day ago, then let a
@@ -245,7 +245,7 @@ func TestReenqueuedReopenIntentRefreshesEnqueuedAt(t *testing.T) {
 	}
 	repo.only(t).PayloadJSON = string(stalePayload)
 
-	svc.persistReopenIntent(msg.DeviceID, conversation, chat.JID, errors.New("second failure"))
+	svc.persistReopenIntent(context.Background(), msg.DeviceID, conversation, chat.JID, errors.New("second failure"))
 
 	queued := repo.only(t)
 	if repo.enqueues != 2 {
@@ -257,5 +257,52 @@ func TestReenqueuedReopenIntentRefreshesEnqueuedAt(t *testing.T) {
 	}
 	if queued.LastError != "second failure" {
 		t.Fatalf("LastError = %q, want the newer failure", queued.LastError)
+	}
+}
+
+// flakyReopenQueueRepo fails EnqueueChatwootForwardEvent the first failCount
+// times before delegating to the embedded repo, simulating the kind of
+// transient local-storage error (SQLite lock contention, a momentary write
+// failure) persistReopenIntent must survive.
+type flakyReopenQueueRepo struct {
+	*chatwootReopenQueueRepo
+	failCount int
+	calls     int
+}
+
+func (r *flakyReopenQueueRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	r.calls++
+	if r.calls <= r.failCount {
+		return errors.New("database is locked")
+	}
+	return r.chatwootReopenQueueRepo.EnqueueChatwootForwardEvent(event)
+}
+
+// The queue write is the last durable checkpoint a failed reopen has: if it
+// fails outright, the message stays posted and linked with nothing left to
+// repair it later. persistReopenIntent must retry that write itself rather
+// than treat one failed INSERT as equivalent to a failed toggle -- post
+// succeeds -> link stored -> toggle fails -> queue write fails on a later
+// attempt still recovers, without persistReopenIntent ever posting anything.
+func TestPersistReopenIntentRecoversFromTransientQueueWriteFailures(t *testing.T) {
+	msg := chatwootSyncChatMessage("wa-queue-write-flaky")
+	inner := newChatwootReopenQueueRepo(msg)
+	repo := &flakyReopenQueueRepo{chatwootReopenQueueRepo: inner, failCount: reopenIntentEnqueueAttempts - 1}
+	svc, events := chatwootReopenStubWithToggleFailures(t, inner.chatwootSyncChatRepo, msg.ChatJID, http.StatusOK, 99)
+	svc.chatStorageRepo = repo
+	conversation := &Conversation{ID: 42, Status: "resolved"}
+
+	svc.persistReopenIntent(context.Background(), msg.DeviceID, conversation, msg.ChatJID, errors.New("toggle failed"))
+
+	if repo.calls != reopenIntentEnqueueAttempts {
+		t.Fatalf("EnqueueChatwootForwardEvent calls = %d, want %d (last attempt succeeds)", repo.calls, reopenIntentEnqueueAttempts)
+	}
+	queued := inner.only(t)
+	intent := decodeReopenIntent(t, queued)
+	if intent.ConversationID != 42 {
+		t.Fatalf("ConversationID = %d, want 42", intent.ConversationID)
+	}
+	if got := countEvents(events(), "/messages"); got != 0 {
+		t.Fatalf("messages posted = %d, want 0: persistReopenIntent must never repost", got)
 	}
 }

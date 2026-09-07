@@ -374,7 +374,7 @@ func (s *SyncService) syncChat(
 		// Every reopen attempt this pass failed. The posted messages are linked
 		// now, so no later pass will look at them again -- the reopen has to
 		// outlive this run on its own.
-		s.persistReopenIntent(deviceID, conversation, chat.JID, reopenErr)
+		s.persistReopenIntent(ctx, deviceID, conversation, chat.JID, reopenErr)
 	}
 	return nil
 }
@@ -674,6 +674,14 @@ func ReopenIntentQueueKey(conversationID int) string {
 	return fmt.Sprintf("conversation:%d", conversationID)
 }
 
+// reopenIntentEnqueueAttempts bounds the retries around the queue write in
+// persistReopenIntent. The message that made this necessary is already
+// durable (posted and linked); the queue row is the only thing standing
+// between that state and a conversation stuck resolved forever, so a single
+// failed INSERT (SQLite lock contention, a momentary disk hiccup) must not be
+// allowed to make that terminal the way one failed toggle already isn't.
+const reopenIntentEnqueueAttempts = 3
+
 // persistReopenIntent queues a reopen the sync could not complete, so the
 // Chatwoot forward retry worker finishes it later without reposting anything.
 //
@@ -684,7 +692,7 @@ func ReopenIntentQueueKey(conversationID int) string {
 // and it would stay resolved with new messages inside it. The queued row
 // carries only the conversation, never the message, so the retry can never
 // duplicate a post.
-func (s *SyncService) persistReopenIntent(deviceID string, conversation *Conversation, chatJID string, reopenErr error) {
+func (s *SyncService) persistReopenIntent(ctx context.Context, deviceID string, conversation *Conversation, chatJID string, reopenErr error) {
 	if conversation == nil {
 		return
 	}
@@ -712,19 +720,23 @@ func (s *SyncService) persistReopenIntent(deviceID string, conversation *Convers
 		lastError = reopenErr.Error()
 	}
 
-	// One minute is the first delay the forward queue uses; the worker takes
-	// over the doubling from there. Re-enqueueing an existing row rewrites this
-	// payload, so a fresh failure also refreshes EnqueuedAt and the window the
-	// worker allows itself.
-	if err := s.chatStorageRepo.EnqueueChatwootForwardEvent(&domainChatStorage.ChatwootForwardEvent{
+	event := &domainChatStorage.ChatwootForwardEvent{
 		DeviceID:          deviceID,
 		EventName:         ReopenForwardEventName,
 		WhatsAppMessageID: ReopenIntentQueueKey(conversation.ID),
 		PayloadJSON:       string(payload),
 		LastError:         lastError,
-		NextAttemptAt:     now.Add(time.Minute),
-	}); err != nil {
-		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it, and queueing the retry failed (%v); it stays resolved with new messages inside", conversation.ID, chatJID, err)
+		// One minute is the first delay the forward queue uses; the worker
+		// takes over the doubling from there. Re-enqueueing an existing row
+		// rewrites this payload, so a fresh failure also refreshes EnqueuedAt
+		// and the window the worker allows itself.
+		NextAttemptAt: now.Add(time.Minute),
+	}
+	enqueueErr := retrySyncOp(ctx, reopenIntentEnqueueAttempts, func() error {
+		return s.chatStorageRepo.EnqueueChatwootForwardEvent(event)
+	})
+	if enqueueErr != nil {
+		logrus.Errorf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it, and queueing the retry failed after %d attempts (%v); it stays resolved with new messages inside", conversation.ID, chatJID, reopenIntentEnqueueAttempts, enqueueErr)
 		return
 	}
 	logrus.Warnf("Chatwoot Sync: posted into conversation %d for %s but could not reopen it; queued a durable reopen retry", conversation.ID, chatJID)
@@ -761,7 +773,7 @@ func (s *SyncService) restMediaPrePass(
 	if anyPosted, reopened, reopenErr := s.syncHybridMediaMessagesREST(ctx, conversation, mediaMessages, waClient, opts, isGroup); anyPosted && !reopened {
 		// The importer that follows only reopens on its own writes, and these
 		// rows will be skipped there, so nothing downstream would retry.
-		s.persistReopenIntent(deviceID, conversation, chat.JID, reopenErr)
+		s.persistReopenIntent(ctx, deviceID, conversation, chat.JID, reopenErr)
 	}
 }
 
@@ -903,8 +915,8 @@ func (s *SyncService) syncMessageWithOptions(
 	}
 
 	// From here on a message exists in Chatwoot whatever happens to the link
-	// store below; callers use posted to decide whether to reopen the thread.
-	posted = true
+	// store below; callers use the returned true to decide whether to reopen
+	// the thread.
 	MarkMessageAsSent(s.client.AccountID, msgID)
 	if msgID != 0 && msg.ID != "" && msg.DeviceID != "" && s.chatStorageRepo != nil {
 		if err := s.chatStorageRepo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
