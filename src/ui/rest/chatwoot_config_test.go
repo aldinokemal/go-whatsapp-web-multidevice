@@ -10,6 +10,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -317,3 +318,82 @@ func TestChatwootConfigRejectsRoutingEditWithLinks(t *testing.T) {
 		t.Fatal("token should have been rotated")
 	}
 }
+
+// TestChatwootConfigMultiDeviceNoDeviceMiddlewareLeak verifies that in a multi-device setup
+// (where DeviceManager disambiguation fails when no device id is provided),
+// Chatwoot config routes registered before headerDeviceGroup are not intercepted
+// by DeviceMiddleware, allowing GET /chatwoot/configs and PUT /devices/:device_id/chatwoot/config
+// without X-Device-Id header or device_id query param.
+func TestChatwootConfigMultiDeviceNoDeviceMiddlewareLeak(t *testing.T) {
+	store := newFakeConfigStore()
+	dm := whatsapp.NewDeviceManager(nil, nil, nil)
+	dm.AddDevice(whatsapp.NewDeviceInstance("dev1", nil, nil))
+	dm.AddDevice(whatsapp.NewDeviceInstance("dev2", nil, nil))
+	chatwoot.InitClientRegistry(store)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	h := &ChatwootHandler{DeviceManager: dm, ChatStorageRepo: store}
+
+	t.Run("routes registered before empty prefix group are not intercepted", func(t *testing.T) {
+		app := fiber.New()
+
+		// Registered before headerDeviceGroup so they are not intercepted by DeviceMiddleware
+		app.Get("/chatwoot/configs", h.ListChatwootConfigs)
+		app.Get("/devices/:device_id/chatwoot/config", h.GetChatwootConfig)
+		app.Put("/devices/:device_id/chatwoot/config", h.UpsertChatwootConfig)
+		app.Delete("/devices/:device_id/chatwoot/config", h.DeleteChatwootConfig)
+
+		// Device-scoped operations (header-based) with empty prefix group
+		headerDeviceGroup := app.Group("", middleware.DeviceMiddleware(dm))
+		headerDeviceGroup.Get("/device-scoped-probe", func(c fiber.Ctx) error {
+			return c.SendStatus(fiber.StatusOK)
+		})
+
+		// 1. GET /chatwoot/configs without X-Device-Id responds with OK, NOT DEVICE_ID_REQUIRED
+		resp, body := doJSON(t, app, http.MethodGet, "/chatwoot/configs", "")
+		if resp.StatusCode != fiber.StatusOK {
+			t.Fatalf("GET /chatwoot/configs status = %d body = %s, want %d", resp.StatusCode, body, fiber.StatusOK)
+		}
+
+		// 2. PUT /devices/dev1/chatwoot/config without X-Device-Id responds with OK, NOT DEVICE_ID_REQUIRED
+		resp, body = doJSON(t, app, http.MethodPut, "/devices/dev1/chatwoot/config",
+			`{"chatwoot_url":"https://203.0.113.10/","account_id":1,"inbox_id":5,"api_token":"super-secret-token"}`)
+		if resp.StatusCode != fiber.StatusOK {
+			t.Fatalf("PUT /devices/dev1/chatwoot/config status = %d body = %s, want %d", resp.StatusCode, body, fiber.StatusOK)
+		}
+
+		// 3. GET /devices/dev1/chatwoot/config without X-Device-Id responds with OK, NOT DEVICE_ID_REQUIRED
+		resp, body = doJSON(t, app, http.MethodGet, "/devices/dev1/chatwoot/config", "")
+		if resp.StatusCode != fiber.StatusOK {
+			t.Fatalf("GET /devices/dev1/chatwoot/config status = %d body = %s, want %d", resp.StatusCode, body, fiber.StatusOK)
+		}
+
+		// 4. Device-scoped probe without X-Device-Id must be intercepted by DeviceMiddleware and fail with DEVICE_ID_REQUIRED
+		resp, body = doJSON(t, app, http.MethodGet, "/device-scoped-probe", "")
+		if resp.StatusCode != fiber.StatusBadRequest {
+			t.Fatalf("GET /device-scoped-probe status = %d body = %s, want %d", resp.StatusCode, body, fiber.StatusBadRequest)
+		}
+		if !strings.Contains(body, "DEVICE_ID_REQUIRED") {
+			t.Fatalf("GET /device-scoped-probe body = %s, want DEVICE_ID_REQUIRED", body)
+		}
+	})
+
+	t.Run("routes registered after empty prefix group mistakenly inherit middleware", func(t *testing.T) {
+		app := fiber.New()
+
+		// Buggy ordering: empty-prefix group with DeviceMiddleware registered first
+		headerDeviceGroup := app.Group("", middleware.DeviceMiddleware(dm))
+		headerDeviceGroup.Get("/device-scoped-probe", func(c fiber.Ctx) error {
+			return c.SendStatus(fiber.StatusOK)
+		})
+
+		// Chatwoot routes registered after: Fiber v3 leaks DeviceMiddleware to subsequent routes
+		app.Get("/chatwoot/configs", h.ListChatwootConfigs)
+
+		resp, body := doJSON(t, app, http.MethodGet, "/chatwoot/configs", "")
+		if resp.StatusCode != fiber.StatusBadRequest || !strings.Contains(body, "DEVICE_ID_REQUIRED") {
+			t.Fatalf("expected leaked middleware to reject with DEVICE_ID_REQUIRED, got status=%d body=%s", resp.StatusCode, body)
+		}
+	})
+}
+

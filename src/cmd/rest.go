@@ -170,12 +170,9 @@ func restServer(_ *cobra.Command, _ []string) {
 		})
 	}
 
-	// Device-scoped operations (header-based)
-	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
-	registerDeviceScopedRoutes(headerDeviceGroup)
-
 	// Chatwoot sync + per-device config routes - require authentication (the
-	// webhooks are registered earlier without auth).
+	// webhooks are registered earlier without auth). Registered before
+	// headerDeviceGroup so they are not intercepted by DeviceMiddleware.
 	if config.ChatwootEnabled {
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
@@ -184,6 +181,10 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup.Put("/devices/:device_id/chatwoot/config", chatwootHandler.UpsertChatwootConfig)
 		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
+
+	// Device-scoped operations (header-based)
+	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	// Dashboard: gowa-ui is a separate project released as one HTML file;
 	// serve the runtime-downloaded copy at "/" (behind basic auth like the
