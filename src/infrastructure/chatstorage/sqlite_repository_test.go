@@ -9,7 +9,12 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 func newTestSQLiteRepository(t *testing.T) *SQLiteRepository {
@@ -42,6 +47,55 @@ func TestSQLiteRepositoryInitializesMessageReactionsSchema(t *testing.T) {
 	}
 	if tableName != "message_reactions" {
 		t.Fatalf("expected message_reactions table, got %q", tableName)
+	}
+}
+
+func TestCreateMessageFromMeKeepsPeerChatName(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	accountJID := types.NewJID("15550101000", types.DefaultUserServer)
+	peerJID := types.NewJID("15550102000", types.DefaultUserServer)
+	timestamp := time.Date(2026, time.September, 2, 15, 30, 0, 0, time.UTC)
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        accountJID.String(),
+		JID:             peerJID.String(),
+		Name:            peerJID.User,
+		LastMessageTime: timestamp.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("store peer chat: %v", err)
+	}
+
+	ctx := whatsapp.ContextWithDevice(
+		context.Background(),
+		whatsapp.NewDeviceInstance(accountJID.String(), nil, repo),
+	)
+	event := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     peerJID,
+				Sender:   accountJID,
+				IsFromMe: true,
+			},
+			ID:        "outgoing-message-1",
+			PushName:  "Alice Smith",
+			Timestamp: timestamp,
+		},
+		Message: &waE2E.Message{Conversation: proto.String("Hello Bob")},
+	}
+
+	if err := repo.CreateMessage(ctx, event); err != nil {
+		t.Fatalf("create outgoing message: %v", err)
+	}
+
+	chat, err := repo.GetChatByDevice(accountJID.String(), peerJID.String())
+	if err != nil {
+		t.Fatalf("get peer chat: %v", err)
+	}
+	if chat == nil {
+		t.Fatal("expected peer chat")
+	}
+	if chat.Name != peerJID.User {
+		t.Fatalf("outgoing message changed peer chat name to %q, want %q", chat.Name, peerJID.User)
 	}
 }
 
