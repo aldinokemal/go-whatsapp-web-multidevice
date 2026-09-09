@@ -122,6 +122,8 @@ Download:
   - `--auto-mark-read=true`
 - Automatically download media from incoming messages:
   - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+- Ignore downloading status media:
+  - `--ignore-status-media=true` disables downloading status media (default: `false`).
 - Automatically reject incoming calls:
   - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see
     [Webhook Payload](./docs/webhook-payload.md#call-events) for call events).
@@ -252,6 +254,7 @@ To use environment variables:
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
+| `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
 | `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
