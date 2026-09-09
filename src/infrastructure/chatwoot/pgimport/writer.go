@@ -97,7 +97,7 @@ func (i *Importer) ImportChat(ctx context.Context, req ImportChatRequest) (*Impo
 		return nil, fmt.Errorf("pgimport: upsert contact_inbox: %w", err)
 	}
 
-	convID, err := i.findOrCreateConversation(ctx, tx, contactID, contactInboxID, req.Messages)
+	convID, wasResolved, err := i.findOrCreateConversation(ctx, tx, contactID, contactInboxID, req.Messages)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("pgimport: conversation: %w", err)
@@ -146,6 +146,15 @@ func (i *Importer) ImportChat(ctx context.Context, req ImportChatRequest) (*Impo
 		if err := i.touchConversation(ctx, tx, convID, lastActivity); err != nil {
 			_ = tx.Rollback()
 			return res, fmt.Errorf("pgimport: touch conversation %d: %w", convID, err)
+		}
+		// Reopen only now, once something was actually added. A replay whose
+		// every row hit the idempotency probe reaches neither this branch nor
+		// the reopen, so a thread the agent resolved stays resolved.
+		if config.ChatwootReopenConversation && wasResolved {
+			if err := i.reopenConversation(ctx, tx, convID); err != nil {
+				_ = tx.Rollback()
+				return res, fmt.Errorf("pgimport: %w", err)
+			}
 		}
 	}
 
@@ -295,36 +304,23 @@ func conversationStatusForNew() int {
 	return conversationStatusOpen
 }
 
-// findOrCreateConversation returns the id of the most recent conversation
-// for (account, inbox, contact), opening a fresh one if none exists. We
-// match regardless of `status` so that a conversation resolved by an agent
-// and then re-imported from WhatsApp reuses the same row instead of
-// creating a duplicate (the live REST path hits the same row for new
-// inbound messages, so the two paths agree). When CHATWOOT_REOPEN_CONVERSATION
-// is enabled (the default), a reused *resolved* conversation is flipped back to
-// the configured new-status so a returning customer's history resurfaces in the
-// agent queue — matching the REST path's reopen behavior. (When reopen is
-// disabled the REST path opens a brand-new conversation instead; the importer
-// still reuses the row here to avoid duplicate threads, leaving its status
-// untouched. This is a deliberate, narrow asymmetry: the live REST path opens
-// a fresh thread when reopen is off, while this importer reuses any existing
-// conversation regardless of status and never spawns a second one — keeping a
-// backfilled history in a single thread.)
+// findOrCreateConversation returns the id of the most recent conversation for
+// (account, inbox, contact), opening a fresh one if none exists, and whether
+// that conversation was reused in the resolved state. We match regardless of
+// `status` so that a conversation resolved by an agent is reused rather than
+// duplicated.
 //
-// We deliberately do NOT supply `display_id`. Chatwoot installs a
-// BEFORE INSERT trigger `conversations_before_insert_row_tr` that
-// unconditionally assigns `NEW.display_id := nextval('conv_dpid_seq_' || account_id)`,
-// so any value we pass would be thrown away. Letting the trigger fill it
-// avoids racing the per-account sequence with the live Rails path.
-//
-// `gen_random_uuid()` is guaranteed present: Chatwoot's schema.rb calls
-// `enable_extension "pgcrypto"` at the top.
+// It never changes the status of a reused conversation. Reopening a resolved
+// thread is a side effect that must wait until ImportChat knows a message was
+// actually written: deciding it here, before the per-message idempotency
+// probe, reopened threads on replays that then skipped every row. The caller
+// reopens via reopenConversation only after a write, and only when wasResolved.
 func (i *Importer) findOrCreateConversation(
 	ctx context.Context,
 	tx *sql.Tx,
 	contactID, contactInboxID int,
 	msgs []*domainChatStorage.Message,
-) (int, error) {
+) (int, bool, error) {
 	var id, status int
 	err := tx.QueryRowContext(ctx, `
 		SELECT id, status
@@ -336,23 +332,10 @@ func (i *Importer) findOrCreateConversation(
 		LIMIT 1
 	`, i.accountID, i.inboxID, contactID).Scan(&id, &status)
 	if err == nil {
-		// Reopen a reused resolved thread when configured. Only `resolved`
-		// is touched (pending/snoozed reused rows are left as the agent set
-		// them), matching the REST path. The UPDATE is idempotent via its
-		// WHERE status guard.
-		if config.ChatwootReopenConversation && status == conversationStatusResolved {
-			if _, uerr := tx.ExecContext(ctx, `
-				UPDATE conversations
-				SET status = $1, updated_at = now()
-				WHERE id = $2 AND account_id = $3 AND status = $4
-			`, conversationStatusForNew(), id, i.accountID, conversationStatusResolved); uerr != nil {
-				return 0, fmt.Errorf("reopen conversation %d: %w", id, uerr)
-			}
-		}
-		return id, nil
+		return id, status == conversationStatusResolved, nil
 	}
 	if err != sql.ErrNoRows {
-		return 0, err
+		return 0, false, err
 	}
 
 	// Anchor the new conversation's created_at at the first message's
@@ -382,10 +365,28 @@ func (i *Importer) findOrCreateConversation(
 		RETURNING id
 	`, i.accountID, i.inboxID, conversationStatusForNew(), contactID, contactInboxID, createdAt).Scan(&newID)
 	if err != nil {
-		return 0, fmt.Errorf("insert conversation: %w", err)
+		return 0, false, fmt.Errorf("insert conversation: %w", err)
 	}
 	logrus.Debugf("Chatwoot pgimport: created conversation id=%d contact=%d", newID, contactID)
-	return newID, nil
+	return newID, false, nil
+}
+
+// reopenConversation flips a resolved conversation back to the new-message
+// status so the returning customer's thread resurfaces in the agent queue,
+// matching the REST path. Only `resolved` is touched -- pending and snoozed
+// rows are left as the agent set them -- and the WHERE guard keeps the UPDATE
+// idempotent. ImportChat calls this only after at least one message was
+// written into a conversation it reused resolved, so a replay that skips every
+// row leaves the thread as the agent left it.
+func (i *Importer) reopenConversation(ctx context.Context, tx *sql.Tx, convID int) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE conversations
+		SET status = $1, updated_at = now()
+		WHERE id = $2 AND account_id = $3 AND status = $4
+	`, conversationStatusForNew(), convID, i.accountID, conversationStatusResolved); err != nil {
+		return fmt.Errorf("reopen conversation %d: %w", convID, err)
+	}
+	return nil
 }
 
 // insertMessageSavepoint wraps one INSERT in a SAVEPOINT so a single bad

@@ -24,6 +24,17 @@ func (r *chatwootForwardQueueTestRepo) EnqueueChatwootForwardEvent(event *chatst
 	return nil
 }
 
+func (r *chatwootForwardQueueTestRepo) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*chatstorage.ChatwootForwardEvent, error) {
+	for i := len(r.events) - 1; i >= 0; i-- {
+		e := r.events[i]
+		if e.DeviceID == deviceID && e.EventName == eventName && e.WhatsAppMessageID == waMessageID {
+			cloned := *e
+			return &cloned, nil
+		}
+	}
+	return nil, nil
+}
+
 func TestForwardPayloadToConfiguredWebhooks_NoWebhooksConfigured(t *testing.T) {
 	ctx := context.Background()
 	payload := map[string]any{"foo": "bar"}

@@ -1323,9 +1323,117 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	}
 }
 
+// maxChatwootReopenRetryWindow bounds how long a queued reopen keeps chasing a
+// conversation. The intent argues that a resolve is stale; a day after the sync
+// that posted, a still-resolved thread is far likelier to have been resolved on
+// purpose than to be waiting on a Chatwoot that has been down the whole time,
+// and reopening it then would be the regression this path exists to avoid. A
+// later sync that posts and fails to reopen again rewrites the row's payload,
+// so a genuinely stuck thread gets a fresh window rather than one that expires.
+const maxChatwootReopenRetryWindow = 24 * time.Hour
+
+// reopenIntentActivityGrace absorbs clock skew between this host and the
+// Chatwoot server when comparing their timestamps.
+const reopenIntentActivityGrace = time.Minute
+
+// replayChatwootReopenIntent finishes a history-sync reopen that failed after
+// its messages had already been posted and linked. It never posts anything: the
+// queued row holds a conversation, not a message.
+//
+// The intent is dropped (marked done) rather than retried whenever retrying
+// cannot help or would be wrong: reopening turned off, the device no longer
+// pointing at the account the intent was queued for, a conversation that is
+// already open, one whose newer activity means the resolve is no longer the one
+// the sync raced, a permanent Chatwoot rejection, or an expired window.
+func replayChatwootReopenIntent(repo domainChatStorage.IChatStorageRepository, event *domainChatStorage.ChatwootForwardEvent) error {
+	var intent chatwoot.ReopenIntent
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &intent); err != nil {
+		return fmt.Errorf("decode reopen intent %d: %w", event.ID, err)
+	}
+	if intent.ConversationID == 0 || intent.EnqueuedAt <= 0 {
+		logrus.Errorf("Chatwoot: dropping malformed reopen intent %d (conversation=%d enqueued_at=%d)", event.ID, intent.ConversationID, intent.EnqueuedAt)
+		return nil
+	}
+	if !config.ChatwootReopenConversation {
+		logrus.Infof("Chatwoot: dropping reopen intent for conversation %d; reopening is disabled", intent.ConversationID)
+		return nil
+	}
+
+	// A pre-armed intent written before posting records the message IDs it was
+	// armed for. Verify that at least one of those messages was actually posted
+	// and linked in local storage; if none were linked, all posts in that pass
+	// failed and any subsequent void/cancellation write was lost. Reopening here
+	// would reopen a resolved thread with nothing added.
+	confirmed, err := intent.HasConfirmedPosts(repo, event.DeviceID)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		logrus.Infof("Chatwoot: dropping unconfirmed reopen intent %d for conversation %d; no messages were posted", event.ID, intent.ConversationID)
+		return nil
+	}
+
+	enqueuedAt := time.Unix(intent.EnqueuedAt, 0)
+	if time.Since(enqueuedAt) > maxChatwootReopenRetryWindow {
+		logrus.Errorf("Chatwoot: giving up on reopening conversation %d for %s, queued %s ago; it stays resolved with new messages inside", intent.ConversationID, intent.ChatJID, time.Since(enqueuedAt).Round(time.Minute))
+		return nil
+	}
+
+	resolved, err := getChatwootClientFn(event.DeviceID)
+	if err != nil {
+		return err
+	}
+	if resolved == nil || resolved.Client == nil || !resolved.Client.IsConfigured() {
+		logrus.Warnf("Chatwoot: dropping reopen intent for conversation %d; device %s has no Chatwoot config", intent.ConversationID, event.DeviceID)
+		return nil
+	}
+	cw := resolved.Client
+	if intent.AccountID != 0 && intent.AccountID != cw.AccountID {
+		logrus.Warnf("Chatwoot: dropping reopen intent for conversation %d; it was queued for account %d and device %s now points at %d", intent.ConversationID, intent.AccountID, event.DeviceID, cw.AccountID)
+		return nil
+	}
+
+	state, err := cw.GetConversationState(intent.ConversationID)
+	if err != nil {
+		if !chatwoot.Retryable(err) {
+			logrus.Errorf("Chatwoot: dropping reopen intent for conversation %d: %v", intent.ConversationID, err)
+			return nil
+		}
+		return err
+	}
+	if state.Status != "resolved" {
+		logrus.Debugf("Chatwoot: conversation %d is already %s; reopen intent satisfied", intent.ConversationID, state.Status)
+		return nil
+	}
+	// Still resolved, but not necessarily by the resolve this intent argues
+	// with: activity newer than the intent means the thread was opened and
+	// resolved again since, and that decision is the current one.
+	if state.LastActivityAt.After(enqueuedAt.Add(reopenIntentActivityGrace)) {
+		logrus.Infof("Chatwoot: dropping reopen intent for conversation %d; it was resolved again after activity at %s", intent.ConversationID, state.LastActivityAt.Format(time.RFC3339))
+		return nil
+	}
+
+	target := intent.TargetStatus
+	if target == "" {
+		target = "open"
+	}
+	if err := cw.ToggleConversationStatus(intent.ConversationID, target); err != nil {
+		if !chatwoot.Retryable(err) {
+			logrus.Errorf("Chatwoot: dropping reopen intent for conversation %d: %v", intent.ConversationID, err)
+			return nil
+		}
+		return err
+	}
+	logrus.Infof("Chatwoot: reopened conversation %d for %s from the retry queue", intent.ConversationID, intent.ChatJID)
+	return nil
+}
+
 func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageRepository, event *domainChatStorage.ChatwootForwardEvent) error {
 	if event == nil {
 		return nil
+	}
+	if event.EventName == chatwoot.ReopenForwardEventName {
+		return replayChatwootReopenIntent(repo, event)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
