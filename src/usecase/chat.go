@@ -13,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type serviceChat struct {
@@ -413,6 +414,88 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 		"chat_jid": request.ChatJID,
 		"archived": request.Archived,
 	}).Info("Chat archive operation completed successfully")
+
+	return response, nil
+}
+
+// RequestChatHistory asks the phone for older messages of a chat (what
+// WhatsApp Web does when you scroll up / "load older messages"). It anchors
+// the request at the oldest message currently stored for that chat and sends
+// a HISTORY_SYNC_ON_DEMAND peer message via whatsmeow's
+// BuildHistorySyncRequest. The phone answers asynchronously with a
+// *events.HistorySync (ON_DEMAND), which the existing history-sync handler
+// persists into chat storage the same way it does for the initial bootstrap.
+func (service serviceChat) RequestChatHistory(ctx context.Context, request domainChat.RequestChatHistoryRequest) (response domainChat.RequestChatHistoryResponse, err error) {
+	if err = validations.ValidateRequestChatHistory(ctx, &request); err != nil {
+		return response, err
+	}
+
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return response, fmt.Errorf("device identification required")
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Resolve the anchor before touching the network: a chat with no stored
+	// messages has nothing for the phone to anchor an on-demand sync on, so
+	// fail fast on that instead of requiring a live connection first.
+	oldest, err := service.chatStorageRepo.GetOldestMessageByDevice(deviceID, request.ChatJID)
+	if err != nil {
+		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to look up oldest stored message")
+		return response, err
+	}
+	if oldest == nil {
+		return response, pkgError.ValidationError("chat has no stored messages yet; nothing to anchor the history sync request on")
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	senderJID := targetJID
+	if parsed, parseErr := types.ParseJID(oldest.Sender); parseErr == nil {
+		senderJID = parsed
+	} else if oldest.IsFromMe && client.Store != nil && client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD()
+	}
+
+	anchor := &types.MessageInfo{
+		MessageSource: types.MessageSource{
+			Chat:     targetJID,
+			Sender:   senderJID,
+			IsFromMe: oldest.IsFromMe,
+			IsGroup:  targetJID.Server == types.GroupServer,
+		},
+		ID:        oldest.ID,
+		Timestamp: oldest.Timestamp,
+	}
+
+	historyRequest := client.BuildHistorySyncRequest(anchor, request.Count)
+	if _, err = client.SendPeerMessage(ctx, historyRequest); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"count":    request.Count,
+		}).Error("Failed to send on-demand history sync request")
+		return response, err
+	}
+
+	response.Status = "requested"
+	response.ChatJID = request.ChatJID
+	response.RequestedCount = request.Count
+	response.AnchorMessageID = oldest.ID
+	response.AnchorTimestamp = oldest.Timestamp.Format(time.RFC3339)
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid":          request.ChatJID,
+		"requested_count":   request.Count,
+		"anchor_message_id": oldest.ID,
+	}).Info("Requested on-demand chat history successfully")
 
 	return response, nil
 }

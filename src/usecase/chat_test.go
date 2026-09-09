@@ -9,6 +9,7 @@ import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -371,11 +372,23 @@ func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 
 type chatUsecaseRepoStub struct {
 	domainChatStorage.IChatStorageRepository
-	chat                *domainChatStorage.Chat
-	chats               []*domainChatStorage.Chat
-	messages            []*domainChatStorage.Message
-	globalMessageCount  int64
-	deviceMessageCounts map[string]int64
+	chat                  *domainChatStorage.Chat
+	chats                 []*domainChatStorage.Chat
+	messages              []*domainChatStorage.Message
+	globalMessageCount    int64
+	deviceMessageCounts   map[string]int64
+	oldestMessage         *domainChatStorage.Message
+	oldestMessageErr      error
+	oldestMessageCalled   bool
+	oldestMessageDeviceID string
+	oldestMessageChatJID  string
+}
+
+func (r *chatUsecaseRepoStub) GetOldestMessageByDevice(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	r.oldestMessageCalled = true
+	r.oldestMessageDeviceID = deviceID
+	r.oldestMessageChatJID = chatJID
+	return r.oldestMessage, r.oldestMessageErr
 }
 
 func (r *chatUsecaseRepoStub) GetChatByDevice(_, _ string) (*domainChatStorage.Chat, error) {
@@ -438,5 +451,90 @@ func TestChatDisplayName(t *testing.T) {
 				t.Fatalf("chatDisplayName(%q, %q) = %q, want %q", tc.jid, tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRequestChatHistoryValidation pins the request-body validation (bad
+// chat_jid, out-of-range count) that RequestChatHistory delegates to
+// validations.ValidateRequestChatHistory before touching storage or the
+// network.
+func TestRequestChatHistoryValidation(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	repo := &chatUsecaseRepoStub{}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "",
+		Count:   50,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty chat_jid, got nil")
+	}
+	if repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be skipped when validation fails")
+	}
+
+	_, err = service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "628123456789@s.whatsapp.net",
+		Count:   501,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for count above cap, got nil")
+	}
+}
+
+// TestRequestChatHistoryRequiresClient mirrors the other chat mutation
+// usecases (PinChat/ArchiveChat): without a WhatsApp client in context, the
+// call must fail with ErrWaCLI instead of attempting anything else.
+func TestRequestChatHistoryRequiresClient(t *testing.T) {
+	deviceID := "628999999999@s.whatsapp.net"
+	repo := &chatUsecaseRepoStub{}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "628123456789@s.whatsapp.net",
+		Count:   50,
+	})
+	if err != pkgError.ErrWaCLI {
+		t.Fatalf("expected ErrWaCLI, got %v", err)
+	}
+	if repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be skipped without a client")
+	}
+}
+
+// TestRequestChatHistoryNoStoredMessages pins the anchor-resolution rule: the
+// phone needs an oldest known message ID/timestamp to know where to start
+// looking for older history, so a chat with nothing stored yet must fail
+// validation instead of sending an unanchored request.
+func TestRequestChatHistoryNoStoredMessages(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	chatJID := "628123456789@s.whatsapp.net"
+	repo := &chatUsecaseRepoStub{oldestMessage: nil}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: chatJID,
+		Count:   50,
+	})
+	if err == nil {
+		t.Fatal("expected error when chat has no stored messages, got nil")
+	}
+	if _, ok := err.(pkgError.ValidationError); !ok {
+		t.Fatalf("expected a ValidationError, got %T: %v", err, err)
+	}
+	if !repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be attempted")
+	}
+	if repo.oldestMessageDeviceID != deviceID || repo.oldestMessageChatJID != chatJID {
+		t.Fatalf("anchor lookup used device=%q chat=%q, want device=%q chat=%q",
+			repo.oldestMessageDeviceID, repo.oldestMessageChatJID, deviceID, chatJID)
 	}
 }

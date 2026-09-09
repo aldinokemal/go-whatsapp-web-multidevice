@@ -23,6 +23,7 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
 	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
 	app.Post("/chat/:chat_jid/archive", rest.ArchiveChat)
+	app.Post("/chat/:chat_jid/history", rest.RequestChatHistory)
 
 	return rest
 }
@@ -201,6 +202,47 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: response.Message,
+		Results: response,
+	})
+}
+
+func (controller *Chat) RequestChatHistory(c fiber.Ctx) error {
+	var request domainChat.RequestChatHistoryRequest
+
+	// Parse path parameter
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
+	}
+	// Parse JSON body (optional — count defaults when the body is empty).
+	// Fiber v3.4.0's Bind().Body() picks a binder from Content-Type and
+	// returns ErrUnprocessableEntity when the body is empty and no
+	// Content-Type is set, so binding is skipped for an empty body.
+	if len(c.Body()) > 0 {
+		if err := c.Bind().Body(&request); err != nil {
+			return c.Status(400).JSON(utils.ResponseData{
+				Status:  400,
+				Code:    "BAD_REQUEST",
+				Message: "Invalid request body",
+				Results: nil,
+			})
+		}
+	}
+	// Route JID is authoritative; a body chat_jid must never override it.
+	request.ChatJID = chatJID
+
+	response, err := controller.Service.RequestChatHistory(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "History sync requested successfully",
 		Results: response,
 	})
 }
