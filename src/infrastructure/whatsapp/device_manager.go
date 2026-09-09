@@ -213,6 +213,41 @@ func (m *DeviceManager) deleteStoreRowsForJID(ctx context.Context, jid string) e
 		return nil
 	}
 
+	// Legacy slot-ownership guard (issue #760): on the bare-number path we can only match
+	// store rows by number, and the per-container store-row count below already refuses to
+	// delete when several rows share the number. But a single SURVIVING row is still
+	// ambiguous when more than one device slot claims the bare number (e.g. a sibling's
+	// companion was evicted, leaving one live row that belongs to the OTHER slot). Deleting
+	// it on behalf of the slot being logged out would destroy the sibling's live session.
+	// So on the bare-number path, refuse up front when >1 slot claims this number and let
+	// prune-devices clean up once the AD JIDs are backfilled. Skipped when storage is nil
+	// (callers without a registry) or on the AD path (target.Device != 0 is already exact).
+	if target.Device == 0 && m.storage != nil {
+		bare := target.ToNonAD().String()
+		records, lerr := m.storage.ListDeviceRecords()
+		if lerr != nil {
+			// Fail closed: a safety guard that silently disables itself on a storage error
+			// is worse than useless. If we cannot enumerate slots we cannot prove this
+			// bare-number delete is unambiguous, so refuse rather than risk a sibling's
+			// live session. The caller surfaces the error; a retry (or prune-devices)
+			// cleans up later.
+			logrus.WithError(lerr).Errorf("[DEVICE_MANAGER] cannot resolve slot ownership for number %s; refusing to delete store rows", bare)
+			return lerr
+		}
+		slotsClaiming := 0
+		for _, rec := range records {
+			if rec != nil && rec.JID == bare {
+				slotsClaiming++
+			}
+		}
+		if slotsClaiming > 1 {
+			// A safe skip (not an execution error): mirror the store-row-count guard below,
+			// which also warns and returns without deleting.
+			logrus.Warnf("[DEVICE_MANAGER] %d slots claim number %s and no AD JID is known; refusing to delete any whatsmeow rows -- run prune-devices after the AD JIDs are backfilled", slotsClaiming, bare)
+			return nil
+		}
+	}
+
 	var firstErr error
 	deleteFrom := func(container *sqlstore.Container, label string) {
 		if container == nil {

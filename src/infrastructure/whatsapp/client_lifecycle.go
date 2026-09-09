@@ -19,6 +19,14 @@ func getStoreContainers() (*sqlstore.Container, *sqlstore.Container) {
 	return db, keysDB
 }
 
+// GetStoreContainers exposes the primary and keys whatsmeow store containers to
+// out-of-package maintenance commands (e.g. the prune-devices CLI) that need to read the
+// session store without starting the REST server or dialing WhatsApp. Returns whatever
+// initApp wired; either may be nil if the app has not been initialized.
+func GetStoreContainers() (*sqlstore.Container, *sqlstore.Container) {
+	return getStoreContainers()
+}
+
 // InitializeDeviceManager creates the global DeviceManager if it doesn't exist.
 func InitializeDeviceManager(storeContainer, keysStoreContainer *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceManager {
 	globalStateMu.Lock()

@@ -50,6 +50,13 @@ func (s *keepSlotStubStorage) GetChatwootDeviceConfig(string) (*domainChatStorag
 	return nil, nil
 }
 
+// ListDeviceRecords is consulted by the bare-number slot-ownership guard in
+// deleteStoreRowsForJID. The base stub reports no registry records (a lone slot with no
+// competing claim); tests that exercise the multi-slot guard override this.
+func (s *keepSlotStubStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
+	return nil, nil
+}
+
 // assertStoreLacksJID fails if any device row in the container still matches the given
 // NonAD JID. Matching mirrors deleteStoreRowsForJID / LoadExistingDevices.
 func assertStoreLacksJID(t *testing.T, ctx context.Context, c *sqlstore.Container, nonADJID string) {
