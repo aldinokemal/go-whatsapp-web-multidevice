@@ -6,6 +6,8 @@ import (
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -808,4 +810,292 @@ func TestExtractContextInfoInteractiveMessage(t *testing.T) {
 			t.Fatalf("expected nil ContextInfo, got %+v", ci)
 		}
 	})
+}
+
+func TestExtractMessageTextFromProtoBusinessMessages(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "HydratedTemplateContentText",
+			msg: &waE2E.Message{
+				TemplateMessage: &waE2E.TemplateMessage{
+					HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+						Title:               &waE2E.TemplateMessage_HydratedFourRowTemplate_HydratedTitleText{HydratedTitleText: "Order update"},
+						HydratedContentText: proto.String("Your order #42 has shipped"),
+						HydratedFooterText:  proto.String("Acme Store"),
+					},
+				},
+			},
+			want: "Your order #42 has shipped",
+		},
+		{
+			name: "HydratedTemplateFallsBackToTitle",
+			msg: &waE2E.Message{
+				TemplateMessage: &waE2E.TemplateMessage{
+					Format: &waE2E.TemplateMessage_HydratedFourRowTemplate_{
+						HydratedFourRowTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+							Title: &waE2E.TemplateMessage_HydratedFourRowTemplate_HydratedTitleText{HydratedTitleText: "Order update"},
+						},
+					},
+				},
+			},
+			want: "Order update",
+		},
+		{
+			name: "FourRowTemplateHydratedContent",
+			msg: &waE2E.Message{
+				TemplateMessage: &waE2E.TemplateMessage{
+					Format: &waE2E.TemplateMessage_FourRowTemplate_{
+						FourRowTemplate: &waE2E.TemplateMessage_FourRowTemplate{
+							Content: &waE2E.HighlyStructuredMessage{
+								HydratedHsm: &waE2E.TemplateMessage{
+									HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+										HydratedContentText: proto.String("Legacy template body"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: "Legacy template body",
+		},
+		{
+			name: "HighlyStructuredMessage",
+			msg: &waE2E.Message{
+				HighlyStructuredMessage: &waE2E.HighlyStructuredMessage{
+					ElementName: proto.String("order_confirmation"),
+					HydratedHsm: &waE2E.TemplateMessage{
+						HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+							HydratedContentText: proto.String("Thanks for your order"),
+						},
+					},
+				},
+			},
+			want: "Thanks for your order",
+		},
+		{
+			name: "HighlyStructuredMessageWithoutHydrationStaysEmpty",
+			msg: &waE2E.Message{
+				HighlyStructuredMessage: &waE2E.HighlyStructuredMessage{
+					ElementName: proto.String("order_confirmation"),
+					Params:      []string{"42"},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "InteractiveMessageBody",
+			msg: &waE2E.Message{
+				InteractiveMessage: &waE2E.InteractiveMessage{
+					Header: &waE2E.InteractiveMessage_Header{Title: proto.String("Support")},
+					Body:   &waE2E.InteractiveMessage_Body{Text: proto.String("How can we help?")},
+					Footer: &waE2E.InteractiveMessage_Footer{Text: proto.String("Acme Support")},
+				},
+			},
+			want: "How can we help?",
+		},
+		{
+			name: "InteractiveMessageFallsBackToHeaderTitle",
+			msg: &waE2E.Message{
+				InteractiveMessage: &waE2E.InteractiveMessage{
+					Header: &waE2E.InteractiveMessage_Header{Title: proto.String("Support")},
+				},
+			},
+			want: "Support",
+		},
+		{
+			name: "InteractiveResponseMessageBody",
+			msg: &waE2E.Message{
+				InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+					Body: &waE2E.InteractiveResponseMessage_Body{Text: proto.String("Track my order")},
+				},
+			},
+			want: "Track my order",
+		},
+		{
+			name: "ButtonsMessageContentText",
+			msg: &waE2E.Message{
+				ButtonsMessage: &waE2E.ButtonsMessage{
+					ContentText: proto.String("Pick an option"),
+					FooterText:  proto.String("Acme"),
+				},
+			},
+			want: "Pick an option",
+		},
+		{
+			name: "ButtonsMessageFallsBackToHeaderText",
+			msg: &waE2E.Message{
+				ButtonsMessage: &waE2E.ButtonsMessage{
+					Header: &waE2E.ButtonsMessage_Text{Text: "Welcome"},
+				},
+			},
+			want: "Welcome",
+		},
+		{
+			name: "ListMessageDescription",
+			msg: &waE2E.Message{
+				ListMessage: &waE2E.ListMessage{
+					Title:       proto.String("Menu"),
+					Description: proto.String("Choose a product"),
+				},
+			},
+			want: "Choose a product",
+		},
+		{
+			name: "ListMessageFallsBackToTitle",
+			msg: &waE2E.Message{
+				ListMessage: &waE2E.ListMessage{
+					Title: proto.String("Menu"),
+				},
+			},
+			want: "Menu",
+		},
+		{
+			name: "ProductMessageBody",
+			msg: &waE2E.Message{
+				ProductMessage: &waE2E.ProductMessage{
+					Body: proto.String("Limited edition mug"),
+					Product: &waE2E.ProductMessage_ProductSnapshot{
+						Title: proto.String("Mug"),
+					},
+				},
+			},
+			want: "Limited edition mug",
+		},
+		{
+			name: "OrderMessage",
+			msg: &waE2E.Message{
+				OrderMessage: &waE2E.OrderMessage{
+					Message:    proto.String("2 items - $30.00"),
+					OrderTitle: proto.String("Order #42"),
+				},
+			},
+			want: "2 items - $30.00",
+		},
+		{
+			// Regression: history sync passes the raw WebMessageInfo.Message
+			// (still wrapped) into this extractor, unlike live events which
+			// arrive pre-unwrapped through UnwrapMessage.
+			name: "EphemeralWrappedTemplateMessage",
+			msg: &waE2E.Message{
+				EphemeralMessage: &waE2E.FutureProofMessage{
+					Message: &waE2E.Message{
+						TemplateMessage: &waE2E.TemplateMessage{
+							HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+								HydratedContentText: proto.String("Your order #42 has shipped"),
+							},
+						},
+					},
+				},
+			},
+			want: "Your order #42 has shipped",
+		},
+		{
+			name: "ViewOnceWrappedInteractiveMessage",
+			msg: &waE2E.Message{
+				ViewOnceMessage: &waE2E.FutureProofMessage{
+					Message: &waE2E.Message{
+						InteractiveMessage: &waE2E.InteractiveMessage{
+							Body: &waE2E.InteractiveMessage_Body{Text: proto.String("How can we help?")},
+						},
+					},
+				},
+			},
+			want: "How can we help?",
+		},
+		{
+			name: "UnknownTypeStaysEmpty",
+			msg: &waE2E.Message{
+				ReactionMessage: &waE2E.ReactionMessage{
+					Text: proto.String("👍"),
+				},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractMessageTextFromProto(tt.msg)
+			if got != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildEventMessageBusinessMessage(t *testing.T) {
+	evt := &events.Message{
+		Info: types.MessageInfo{ID: "MSG1"},
+		Message: &waE2E.Message{
+			InteractiveMessage: &waE2E.InteractiveMessage{
+				Body: &waE2E.InteractiveMessage_Body{Text: proto.String("How can we help?")},
+			},
+		},
+	}
+
+	if got := BuildEventMessage(evt).Text; got != "How can we help?" {
+		t.Fatalf("BuildEventMessage().Text = %q, want %q", got, "How can we help?")
+	}
+}
+
+// TestExtractMessageTextFromProtoWrappedBusinessMessagesMatchWebhook pins that
+// history sync's raw-message extraction (ExtractMessageTextFromProto called
+// directly on the still-wrapped WebMessageInfo.Message) returns the same text
+// as the live webhook path (BuildEventMessage, which unwraps before
+// extracting) for the same ephemeral/view-once business message.
+func TestExtractMessageTextFromProtoWrappedBusinessMessagesMatchWebhook(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want string
+	}{
+		{
+			name: "EphemeralWrappedTemplateMessage",
+			msg: &waE2E.Message{
+				EphemeralMessage: &waE2E.FutureProofMessage{
+					Message: &waE2E.Message{
+						TemplateMessage: &waE2E.TemplateMessage{
+							HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+								HydratedContentText: proto.String("Your order #42 has shipped"),
+							},
+						},
+					},
+				},
+			},
+			want: "Your order #42 has shipped",
+		},
+		{
+			name: "ViewOnceWrappedInteractiveMessage",
+			msg: &waE2E.Message{
+				ViewOnceMessage: &waE2E.FutureProofMessage{
+					Message: &waE2E.Message{
+						InteractiveMessage: &waE2E.InteractiveMessage{
+							Body: &waE2E.InteractiveMessage_Body{Text: proto.String("How can we help?")},
+						},
+					},
+				},
+			},
+			want: "How can we help?",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			storageContent := ExtractMessageTextFromProto(tt.msg)
+			if storageContent != tt.want {
+				t.Fatalf("ExtractMessageTextFromProto() = %q, want %q", storageContent, tt.want)
+			}
+
+			evt := &events.Message{Info: types.MessageInfo{ID: "MSG1"}, Message: tt.msg}
+			webhookText := BuildEventMessage(evt).Text
+			if webhookText != storageContent {
+				t.Fatalf("storage/webhook mismatch: ExtractMessageTextFromProto() = %q, BuildEventMessage().Text = %q", storageContent, webhookText)
+			}
+		})
+	}
 }
