@@ -134,6 +134,13 @@ func (r *deviceChatStorage) SearchMessages(deviceID, chatJID, searchText string,
 	return r.base.SearchMessages(targetDeviceID, chatJID, searchText, limit)
 }
 
+func (r *deviceChatStorage) GetCallRecords(filter *domainChatStorage.CallRecordFilter) ([]*domainChatStorage.Message, int64, error) {
+	if filter != nil && filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetCallRecords(filter)
+}
+
 func (r *deviceChatStorage) DeleteMessage(id, chatJID string) error {
 	return r.base.DeleteMessageByDevice(r.deviceID, id, chatJID)
 }

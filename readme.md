@@ -677,6 +677,7 @@ You may also fork or modify the source code.
 | ✅       | Forward Message                        | POST   | /message/:message_id/forward        |
 | ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Reject Call                            | POST   | /call/reject                        |
+| ✅       | Get Call Logs                          | GET    | /call/logs                          |
 | ✅       | Join Group with Link                   | POST   | /group/join-with-link               |
 | ✅       | Get Group Info from Link               | GET    | /group/info-from-link               |
 | ✅       | Get Group Info                         | GET    | /group/info                         |
