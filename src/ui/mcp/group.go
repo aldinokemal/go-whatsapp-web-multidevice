@@ -81,13 +81,13 @@ func (h *GroupHandler) handleGroup(ctx context.Context, request mcpg.CallToolReq
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Fetched group info for %s", groupID)), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Fetched group info for %s", groupID)), nil
 	case "participants":
 		resp, err := h.groupService.GetGroupParticipants(ctx, domainGroup.GetGroupParticipantsRequest{GroupID: groupID})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Group %s has %d participants", resp.GroupID, len(resp.Participants))), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Group %s has %d participants", resp.GroupID, len(resp.Participants))), nil
 	case "add_participants", "remove_participants", "promote", "demote":
 		change := map[string]whatsmeow.ParticipantChange{
 			"add_participants":    whatsmeow.ParticipantChangeAdd,
@@ -150,7 +150,7 @@ func (h *GroupHandler) handleGroup(ctx context.Context, request mcpg.CallToolReq
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Group %s has %d pending requests", groupID, len(resp))), nil
+		return structuredWithJSON(resp, fmt.Sprintf("Group %s has %d pending requests", groupID, len(resp))), nil
 	case "manage_join_requests":
 		change, err := parseParticipantRequestChange(request.GetString("request_action", ""))
 		if err != nil {

@@ -56,7 +56,7 @@ func (h *AppHandler) handleApp(ctx context.Context, request mcpg.CallToolRequest
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		structured := map[string]any{"is_connected": isConnected, "is_logged_in": isLoggedIn, "device_id": deviceID}
-		return mcpg.NewToolResultStructured(structured, fmt.Sprintf("connected=%t logged_in=%t", isConnected, isLoggedIn)), nil
+		return structuredWithJSON(structured, fmt.Sprintf("connected=%t logged_in=%t", isConnected, isLoggedIn)), nil
 	case "login_qr":
 		resp, err := h.appService.Login(ctx, deviceID)
 		if err != nil {

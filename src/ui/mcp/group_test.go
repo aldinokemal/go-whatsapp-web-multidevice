@@ -17,6 +17,7 @@ type stubGroupService struct {
 	left         *domainGroup.LeaveGroupRequest
 	infoReq      *domainGroup.GroupInfoRequest
 	partsReq     *domainGroup.GetGroupParticipantsRequest
+	partsResp    domainGroup.GetGroupParticipantsResponse
 	managed      *domainGroup.ParticipantRequest
 	inviteReq    *domainGroup.GetGroupInviteLinkRequest
 	namedReq     *domainGroup.SetGroupNameRequest
@@ -45,7 +46,7 @@ func (s *stubGroupService) GroupInfo(_ context.Context, r domainGroup.GroupInfoR
 }
 func (s *stubGroupService) GetGroupParticipants(_ context.Context, r domainGroup.GetGroupParticipantsRequest) (domainGroup.GetGroupParticipantsResponse, error) {
 	s.partsReq = &r
-	return domainGroup.GetGroupParticipantsResponse{}, nil
+	return s.partsResp, nil
 }
 func (s *stubGroupService) ManageParticipant(_ context.Context, r domainGroup.ParticipantRequest) ([]domainGroup.ParticipantStatus, error) {
 	s.managed = &r
