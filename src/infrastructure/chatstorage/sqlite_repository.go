@@ -350,6 +350,82 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 }
 
 // StoreMessagesBatch creates or updates multiple messages in a single transaction
+// storeSentMessagePreservingEdits writes a sent message without ever moving its
+// content backwards.
+//
+// The edit check lives INSIDE the UPDATE rather than in a preceding SELECT: a
+// separate check leaves a window where an edit can commit between the check and
+// the write, and the write then clobbers it. SQLite evaluates the EXISTS as part
+// of the same statement, so the check and the write are one operation.
+//
+// Everything except content is written as normal — only content is pinned once
+// an edit exists for this row.
+func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatStorage.Message) error {
+	now := time.Now()
+	message.CreatedAt = now
+	message.UpdatedAt = now
+
+	if message.Content == "" && message.MediaType == "" {
+		return nil
+	}
+
+	const guardedUpdate = `
+		UPDATE messages SET sender = ?,
+			content = CASE WHEN EXISTS (
+				SELECT 1 FROM message_edits
+				WHERE original_message_id = messages.id
+				  AND chat_jid = messages.chat_jid
+				  AND device_id = messages.device_id
+			) THEN content ELSE ? END,
+			timestamp = ?, is_from_me = ?,
+			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`
+	updateArgs := []any{
+		message.Sender, message.Content, message.Timestamp, message.IsFromMe,
+		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath,
+		message.MediaKey, message.FileSHA256, message.FileEncSHA256, message.FileLength,
+		message.ReferralMetadata, message.UpdatedAt,
+		message.ID, message.ChatJID, message.DeviceID,
+	}
+
+	result, err := r.db.Exec(guardedUpdate, updateArgs...)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows > 0 {
+		return nil
+	}
+
+	_, insertErr := r.db.Exec(`
+		INSERT INTO messages (
+			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
+		message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
+		message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
+		message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
+	if insertErr == nil {
+		return nil
+	}
+
+	// Lost the insert race: an edit created the row between the update above and
+	// this insert. Re-run the guarded update so the sent metadata still lands and
+	// the edited content is preserved. Only if that finds nothing is the insert
+	// error real.
+	retry, retryErr := r.db.Exec(guardedUpdate, updateArgs...)
+	if retryErr != nil {
+		return insertErr
+	}
+	if rows, _ := retry.RowsAffected(); rows > 0 {
+		return nil
+	}
+	return insertErr
+}
+
 func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	if len(messages) == 0 {
 		return nil
@@ -2461,7 +2537,12 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		FileEncSHA256: fileEncSHA256,
 		FileLength:    fileLength,
 	}
-	if err := r.StoreMessage(message); err != nil {
+	// wrapSendMessage persists asynchronously, so an edit sent moments later can
+	// reach storage BEFORE this does. StoreMessage's existing-row path updates
+	// content unconditionally, so writing the original text now would roll that
+	// edit back — and mergeReplyContext quotes from that row, which is the stale
+	// quote the edit sync exists to prevent.
+	if err := r.storeSentMessagePreservingEdits(message); err != nil {
 		return fmt.Errorf("failed to store message: %w", err)
 	}
 
