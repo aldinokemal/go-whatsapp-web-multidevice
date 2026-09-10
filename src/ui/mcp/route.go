@@ -59,9 +59,15 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 
 	handler := adaptor.HTTPHandler(httpServer)
 	// POST carries JSON-RPC calls; DELETE is part of the streamable-HTTP
-	// session lifecycle. GET is intentionally not mounted: with streaming
-	// disabled mcp-go would just 405 it, so Fiber's own 404 for an
-	// unmounted method is equivalent and keeps the route surface narrow.
+	// session lifecycle. GET is required by the streamable-HTTP handshake:
+	// clients such as Claude Code or Cursor perform a GET first to agree on
+	// MCP-Protocol-Version before their initial POST, and drop the server on
+	// any non-2xx. With streaming disabled (and the server stateless) there
+	// are no server-initiated messages, so a minimal 200 is spec-compliant.
+	router.Get("/mcp", func(c fiber.Ctx) error {
+		c.Set("MCP-Protocol-Version", "2025-03-26")
+		return c.SendString("")
+	})
 	router.Post("/mcp", handler)
 	router.Delete("/mcp", handler)
 }
