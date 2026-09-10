@@ -98,8 +98,9 @@ func TestMcpEndpointRequiresBasicAuth(t *testing.T) {
 // TestMcpEndpointGetDoesNotHang guards C1: a GET on /mcp must not reach
 // mcp-go's standalone SSE notification stream, which blocks forever behind
 // the fasthttp adaptor (ctx.Done() only fires on server shutdown, never on
-// client disconnect). Only POST and DELETE are mounted, so GET must come
-// back as a client error without app.Test's default timeout ever tripping.
+// client disconnect). Streaming is disabled and the server is stateless, so
+// the GET handshake is answered immediately with a minimal 200; app.Test's
+// default timeout below guards that it does not hang.
 func TestMcpEndpointGetDoesNotHang(t *testing.T) {
 	app := newMcpTestApp(false)
 
@@ -109,8 +110,11 @@ func TestMcpEndpointGetDoesNotHang(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	assert.True(t, resp.StatusCode == fiber.StatusNotFound || resp.StatusCode == fiber.StatusMethodNotAllowed,
-		"GET /mcp returned %d, want 404 or 405", resp.StatusCode)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode, "GET /mcp returned %d, want 200", resp.StatusCode)
+	assert.Equal(t, "2025-03-26", resp.Header.Get("MCP-Protocol-Version"))
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Empty(t, body)
 }
 
 // TestMcpToolCallRejectsInvalidArgumentsViaSchema guards I1: with
