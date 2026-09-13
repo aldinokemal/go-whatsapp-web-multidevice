@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -504,6 +505,124 @@ func (c *Client) ToggleConversationStatus(conversationID int, status string) err
 		return &HTTPStatusError{StatusCode: resp.StatusCode, Op: "toggle conversation status", Body: string(body)}
 	}
 	return nil
+}
+
+// ConversationState is the part of a Chatwoot conversation the reopen retry
+// reads back: the current status, and when the thread last saw activity. The
+// retry needs both -- the status alone cannot tell a resolve that predates the
+// queued intent from one an agent made after newer activity.
+type ConversationState struct {
+	Status         string
+	LastActivityAt time.Time
+}
+
+// chatwootTimestamp decodes a Chatwoot timestamp field that different API
+// versions send in different shapes -- epoch seconds (integer or float) most
+// commonly, but an RFC-3339 string on some endpoints/versions. A value in
+// either shape must decode; only genuinely malformed JSON is an error, and an
+// absent/null field decodes to the zero time rather than failing the
+// surrounding response decode -- a shape neither format we know about must
+// still leave `status` readable, since that is what the caller actually acts
+// on.
+type chatwootTimestamp time.Time
+
+func (t *chatwootTimestamp) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	if s[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		str = strings.TrimSpace(str)
+		if str == "" {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		parsed, err := time.Parse(time.RFC3339, str)
+		if err != nil {
+			*t = chatwootTimestamp(time.Time{})
+			return nil
+		}
+		*t = chatwootTimestamp(parsed)
+		return nil
+	}
+	var epoch float64
+	if err := json.Unmarshal(data, &epoch); err != nil {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	if epoch <= 0 {
+		*t = chatwootTimestamp(time.Time{})
+		return nil
+	}
+	seconds, fractional := math.Modf(epoch)
+	*t = chatwootTimestamp(time.Unix(int64(seconds), int64(fractional*1e9)))
+	return nil
+}
+
+// conversationStatePayload decodes the conversation fields ConversationState is
+// built from. LastActivityAt and UpdatedAt tolerate either timestamp shape
+// Chatwoot sends; the newer of the two wins.
+type conversationStatePayload struct {
+	Status         string            `json:"status"`
+	LastActivityAt chatwootTimestamp `json:"last_activity_at"`
+	UpdatedAt      chatwootTimestamp `json:"updated_at"`
+}
+
+func (p conversationStatePayload) state() *ConversationState {
+	state := &ConversationState{Status: p.Status}
+	for _, ts := range []chatwootTimestamp{p.LastActivityAt, p.UpdatedAt} {
+		if at := time.Time(ts); at.After(state.LastActivityAt) {
+			state.LastActivityAt = at
+		}
+	}
+	return state
+}
+
+// GetConversationState fetches a conversation via GET /conversations/{id}. The
+// reopen retry worker calls it before toggling, so replaying a queued intent
+// against a thread that is already open costs nothing and changes nothing.
+//
+// A response with no status is an error rather than an empty state: the caller
+// drops an intent whose conversation is not resolved, and a body it could not
+// read must be retried instead of mistaken for one.
+func (c *Client) GetConversationState(conversationID int) (*ConversationState, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d", c.BaseURL, c.AccountID, conversationID)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("api_access_token", c.APIToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "get conversation", Body: string(bodyBytes)}
+	}
+
+	var wrapped struct {
+		Payload conversationStatePayload `json:"payload"`
+	}
+	if err := json.Unmarshal(bodyBytes, &wrapped); err == nil && wrapped.Payload.Status != "" {
+		return wrapped.Payload.state(), nil
+	}
+
+	var flat conversationStatePayload
+	if err := json.Unmarshal(bodyBytes, &flat); err == nil && flat.Status != "" {
+		return flat.state(), nil
+	}
+
+	return nil, fmt.Errorf("failed to decode conversation %d response (no status found, %d bytes)", conversationID, len(bodyBytes))
 }
 
 // conversationStatusForNew returns the status a newly created or reopened
