@@ -144,6 +144,10 @@ Download:
   - When a device has a custom webhook, events for that device are sent to the device-specific URL.
   - When no device webhook is set, events fall back to the global webhook (`--webhook`).
   - Set `webhook_url` to an empty string with `PATCH` to clear it and use the global webhook.
+  - Set `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (or `--webhook-device-merge-global=true`) to make a
+    device webhook an addition instead of a replacement: the global `--webhook` URLs still receive the
+    device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
+    device URL keeps its own secret and event filter.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
   header, generated with the default key `secret`.
 
@@ -258,6 +262,7 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
 | `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (SOCKS5/HTTP/HTTPS) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
