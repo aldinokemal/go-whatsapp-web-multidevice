@@ -78,11 +78,13 @@ func TestHandleMessagePersistsPollBeforeForwardingWebhook(t *testing.T) {
 	originalWebhookURLs := config.WhatsappWebhook
 	originalWebhookEvents := config.WhatsappWebhookEvents
 	originalSubmit := submitWebhookFn
+	originalStorage := webhookStorageForTest
 	originalLog := log
 	defer func() {
 		config.WhatsappWebhook = originalWebhookURLs
 		config.WhatsappWebhookEvents = originalWebhookEvents
 		submitWebhookFn = originalSubmit
+		webhookStorageForTest = originalStorage
 		log = originalLog
 	}()
 	log = waLog.Noop
@@ -95,7 +97,11 @@ func TestHandleMessagePersistsPollBeforeForwardingWebhook(t *testing.T) {
 		done <- payload
 		return nil
 	}
-	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("device-a", nil, nil))
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return &domainChatStorage.DeviceRecord{DeviceID: deviceJID}, nil
+	}
+	client := newPollCryptoClient(t, "event-message-handler-poll-test", types.NewJID("628111", types.DefaultUserServer))
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("device-a", client, nil))
 	evt := &events.Message{
 		Info: types.MessageInfo{
 			MessageSource: types.MessageSource{Chat: types.NewJID("120363000000", types.GroupServer)},
@@ -111,7 +117,7 @@ func TestHandleMessagePersistsPollBeforeForwardingWebhook(t *testing.T) {
 		}},
 	}
 
-	handleMessage(ctx, evt, repo, nil)
+	handleMessage(ctx, evt, repo, client)
 	select {
 	case delivered := <-done:
 		payload := delivered["payload"].(map[string]any)

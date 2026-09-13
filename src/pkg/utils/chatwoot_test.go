@@ -141,6 +141,49 @@ func TestMatchesIgnoredJID(t *testing.T) {
 	}
 }
 
+func TestMatchesExactIgnoredJID(t *testing.T) {
+	tests := []struct {
+		name   string
+		jid    string
+		ignore []string
+		want   bool
+	}{
+		{
+			// The wildcard is what the per-device override neutralizes.
+			name:   "WildcardIgnored",
+			jid:    "120363999000111@g.us",
+			ignore: []string{"@g.us"},
+			want:   false,
+		},
+		{
+			name:   "ExactStillMatches",
+			jid:    "120363999000111@g.us",
+			ignore: []string{"@g.us", "120363999000111@g.us"},
+			want:   true,
+		},
+		{
+			name:   "OtherExactDoesNotMatch",
+			jid:    "120363999000111@g.us",
+			ignore: []string{"120363000000222@g.us"},
+			want:   false,
+		},
+		{
+			name:   "EmptyJID",
+			jid:    "",
+			ignore: []string{"120363999000111@g.us"},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := MatchesExactIgnoredJID(tt.jid, tt.ignore); got != tt.want {
+				t.Fatalf("MatchesExactIgnoredJID(%q, %v) = %v, want %v", tt.jid, tt.ignore, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsNewsletterJID(t *testing.T) {
 	// Newsletter (channel) JIDs like 120363144038483540@newsletter are
 	// broadcast feeds, not conversations. Their local part is an 18-digit
