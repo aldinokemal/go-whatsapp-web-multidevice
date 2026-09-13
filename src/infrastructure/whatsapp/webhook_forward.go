@@ -1345,7 +1345,7 @@ const reopenIntentActivityGrace = time.Minute
 // pointing at the account the intent was queued for, a conversation that is
 // already open, one whose newer activity means the resolve is no longer the one
 // the sync raced, a permanent Chatwoot rejection, or an expired window.
-func replayChatwootReopenIntent(event *domainChatStorage.ChatwootForwardEvent) error {
+func replayChatwootReopenIntent(repo domainChatStorage.IChatStorageRepository, event *domainChatStorage.ChatwootForwardEvent) error {
 	var intent chatwoot.ReopenIntent
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &intent); err != nil {
 		return fmt.Errorf("decode reopen intent %d: %w", event.ID, err)
@@ -1360,8 +1360,31 @@ func replayChatwootReopenIntent(event *domainChatStorage.ChatwootForwardEvent) e
 	}
 	enqueuedAt := time.Unix(intent.EnqueuedAt, 0)
 	if time.Since(enqueuedAt) > maxChatwootReopenRetryWindow {
-		logrus.Errorf("Chatwoot: giving up on reopening conversation %d for %s, queued %s ago; it stays resolved with new messages inside", intent.ConversationID, intent.ChatJID, time.Since(enqueuedAt).Round(time.Minute))
+		logrus.Warnf("Chatwoot: dropping expired reopen intent for conversation %d for %s, queued %s ago", intent.ConversationID, intent.ChatJID, time.Since(enqueuedAt).Round(time.Minute))
 		return nil
+	}
+	if len(intent.PendingMessageIDs) > 0 {
+		if repo == nil {
+			return fmt.Errorf("cannot verify pending reopen intent %d without storage", event.ID)
+		}
+		posted := false
+		for _, messageID := range intent.PendingMessageIDs {
+			link, err := repo.GetChatwootMessageLinkByWhatsAppID(event.DeviceID, messageID)
+			if err != nil {
+				return fmt.Errorf("verify message for reopen intent %d: %w", event.ID, err)
+			}
+			if link != nil && link.ChatwootMessageID > 0 &&
+				link.ChatwootConversationID == intent.ConversationID &&
+				link.ChatwootAccountID == intent.AccountID &&
+				link.WhatsAppChatJID == intent.ChatJID {
+				posted = true
+				break
+			}
+		}
+		if !posted {
+			// A concurrent POST can still create the link after this check.
+			return fmt.Errorf("reopen intent %d is awaiting a posted message", event.ID)
+		}
 	}
 
 	resolved, err := getChatwootClientFn(event.DeviceID)
@@ -1418,7 +1441,7 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 		return nil
 	}
 	if event.EventName == chatwoot.ReopenForwardEventName {
-		return replayChatwootReopenIntent(event)
+		return replayChatwootReopenIntent(repo, event)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {

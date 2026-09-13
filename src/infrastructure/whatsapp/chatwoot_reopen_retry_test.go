@@ -193,7 +193,7 @@ func TestReplayChatwootReopenIntentReadsWrappedConversationPayload(t *testing.T)
 	server, paths := chatwootReopenServer(t, body)
 	stubChatwootClientForReopen(t, server, 1)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if n := countPaths(paths(), "/toggle_status"); n != 1 {
@@ -279,7 +279,7 @@ func TestReplayChatwootReopenIntentReopensWhenActivityPredatesTheIntent(t *testi
 	intent := stuckReopenIntent()
 	intent.EnqueuedAt = time.Now().Add(-time.Hour).Unix()
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, intent)); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, intent)); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if n := countPaths(paths(), "/toggle_status"); n != 1 {
@@ -294,7 +294,7 @@ func TestReplayChatwootReopenIntentDropsAccountMismatch(t *testing.T) {
 	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
 	stubChatwootClientForReopen(t, server, 9)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v, want the mismatch to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -311,7 +311,7 @@ func TestReplayChatwootReopenIntentDropsWhenReopenDisabled(t *testing.T) {
 	server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
 	stubChatwootClientForReopen(t, server, 1)
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, stuckReopenIntent())); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, stuckReopenIntent())); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -330,7 +330,7 @@ func TestReplayChatwootReopenIntentGivesUpOutsideTheWindow(t *testing.T) {
 	intent := stuckReopenIntent()
 	intent.EnqueuedAt = time.Now().Add(-maxChatwootReopenRetryWindow - time.Hour).Unix()
 
-	if err := replayChatwootReopenIntent(reopenQueueRow(t, intent)); err != nil {
+	if err := replayChatwootReopenIntent(nil, reopenQueueRow(t, intent)); err != nil {
 		t.Fatalf("replay: %v, want the expired intent to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -348,7 +348,7 @@ func TestReplayChatwootReopenIntentDropsMalformedRow(t *testing.T) {
 	row := reopenQueueRow(t, stuckReopenIntent())
 	row.PayloadJSON = `{"conversation_id":42,"account_id":1}`
 
-	if err := replayChatwootReopenIntent(row); err != nil {
+	if err := replayChatwootReopenIntent(nil, row); err != nil {
 		t.Fatalf("replay: %v, want the malformed row to be dropped", err)
 	}
 	if got := paths(); len(got) != 0 {
@@ -368,12 +368,13 @@ func TestReplayChatwootReopenIntentDropsMalformedRow(t *testing.T) {
 // reproducing "queue write fails" on the write that is not the pre-arm.
 type prearmRefreshFailsRepo struct {
 	domainChatStorage.IChatStorageRepository
-	mu       sync.Mutex
-	chats    []*domainChatStorage.Chat
-	messages []*domainChatStorage.Message
-	links    map[string]*domainChatStorage.ChatwootMessageLink
-	queue    map[string]*domainChatStorage.ChatwootForwardEvent
-	enqueues int
+	mu        sync.Mutex
+	chats     []*domainChatStorage.Chat
+	messages  []*domainChatStorage.Message
+	links     map[string]*domainChatStorage.ChatwootMessageLink
+	queue     map[string]*domainChatStorage.ChatwootForwardEvent
+	enqueues  int
+	lookupErr error
 }
 
 func newPrearmRefreshFailsRepo(chat *domainChatStorage.Chat, messages ...*domainChatStorage.Message) *prearmRefreshFailsRepo {
@@ -396,6 +397,9 @@ func (r *prearmRefreshFailsRepo) GetMessages(*domainChatStorage.MessageFilter) (
 func (r *prearmRefreshFailsRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.lookupErr != nil {
+		return nil, r.lookupErr
+	}
 	link := r.links[deviceID+"\x00"+waMessageID]
 	if link == nil {
 		return nil, nil
@@ -469,6 +473,64 @@ func (r *prearmRefreshFailsRepo) MarkChatwootForwardEventFailed(id int64, lastEr
 // makes this possible: the refresh failing is a no-op because the pre-armed
 // row is still sitting in the queue underneath it.
 func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
+	testChatwootReopenIntentAfterQueueWriteFailure(t, false)
+}
+
+func TestChatwootReopenIntentDoesNotRunAfterFailedCancellation(t *testing.T) {
+	testChatwootReopenIntentAfterQueueWriteFailure(t, true)
+}
+
+func TestPendingChatwootReopenIntentRequiresMatchingPostedMessage(t *testing.T) {
+	for _, scenario := range []string{"not_posted", "other_conversation", "other_account", "other_chat", "lookup_error", "posted"} {
+		t.Run(scenario, func(t *testing.T) {
+			enableChatwootReopen(t)
+			server, paths := chatwootReopenServer(t, resolvedConversation(time.Now().Add(-time.Hour)))
+			stubChatwootClientForReopen(t, server, 1)
+			intent := stuckReopenIntent()
+			intent.PendingMessageIDs = []string{"wa-pending"}
+			row := reopenQueueRow(t, intent)
+			repo := newPrearmRefreshFailsRepo(nil)
+			link := &domainChatStorage.ChatwootMessageLink{
+				DeviceID: row.DeviceID, WhatsAppMessageID: "wa-pending", WhatsAppChatJID: intent.ChatJID,
+				ChatwootMessageID: 900, ChatwootConversationID: 42, ChatwootAccountID: 1,
+			}
+			switch scenario {
+			case "other_conversation":
+				link.ChatwootConversationID++
+			case "other_account":
+				link.ChatwootAccountID++
+			case "other_chat":
+				link.WhatsAppChatJID = "other@s.whatsapp.net"
+			case "lookup_error":
+				repo.lookupErr = errors.New("database is locked")
+			}
+			if scenario != "not_posted" {
+				if err := repo.UpsertChatwootMessageLink(link); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := replayChatwootReopenIntent(repo, row)
+			if scenario == "posted" {
+				if err != nil || countPaths(paths(), "/toggle_status") != 1 {
+					t.Fatalf("matching posted message: err=%v paths=%v", err, paths())
+				}
+			} else if err == nil || len(paths()) != 0 {
+				t.Fatalf("unconfirmed intent must remain retryable without Chatwoot calls: err=%v paths=%v", err, paths())
+			}
+			if scenario == "not_posted" {
+				if err := repo.UpsertChatwootMessageLink(link); err != nil {
+					t.Fatal(err)
+				}
+				if err := replayChatwootReopenIntent(repo, row); err != nil || countPaths(paths(), "/toggle_status") != 1 {
+					t.Fatalf("intent must recover after the in-flight post lands: err=%v paths=%v", err, paths())
+				}
+			}
+		})
+	}
+}
+
+func testChatwootReopenIntentAfterQueueWriteFailure(t *testing.T, failPosts bool) {
+	t.Helper()
 	enableChatwootReopen(t)
 
 	const contactID, conversationID = 7, 42
@@ -498,6 +560,10 @@ func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{{"id": conversationID, "inbox_id": 2, "status": "resolved"}}})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/messages"):
 			messagePosts.Add(1)
+			if failPosts {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 900})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conversations/42/toggle_status"):
 			n := toggles.Add(1)
@@ -534,8 +600,12 @@ func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
 	if got := messagePosts.Load(); got != 1 {
 		t.Fatalf("messages posted during sync = %d, want 1", got)
 	}
-	if got := toggles.Load(); got != 3 {
-		t.Fatalf("toggle_status calls during sync = %d, want 3 (the retry budget, all failing)", got)
+	wantToggles := int32(3)
+	if failPosts {
+		wantToggles = 0
+	}
+	if got := toggles.Load(); got != wantToggles {
+		t.Fatalf("toggle_status calls during sync = %d, want %d", got, wantToggles)
 	}
 	repo.mu.Lock()
 	queuedAfterSync := len(repo.queue)
@@ -543,13 +613,19 @@ func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
 	if queuedAfterSync != 1 {
 		t.Fatalf("queued rows after sync = %d, want 1 (the pre-arm; the refresh failed and must not have removed it)", queuedAfterSync)
 	}
+	if repo.enqueues != 4 {
+		t.Fatalf("queue writes = %d, want pre-arm plus three failed refresh/cancel attempts", repo.enqueues)
+	}
 
 	// Later run: the real forward-retry worker, against the same durable row.
 	stubChatwootClientForReopen(t, server, 1)
 	processDueChatwootForwardRetries(repo)
 
-	if got := toggles.Load(); got != 4 {
-		t.Fatalf("toggle_status calls total = %d, want 4 (3 failing during sync, 1 succeeding on the later run)", got)
+	if !failPosts {
+		wantToggles++
+	}
+	if got := toggles.Load(); got != wantToggles {
+		t.Fatalf("toggle_status calls total = %d, want %d", got, wantToggles)
 	}
 	if got := messagePosts.Load(); got != 1 {
 		t.Fatalf("messages posted total = %d, want still 1: the later run must never repost", got)
@@ -557,7 +633,11 @@ func TestChatwootReopenIntentSurvivesFailedQueueRefresh(t *testing.T) {
 	repo.mu.Lock()
 	queuedAfterReplay := len(repo.queue)
 	repo.mu.Unlock()
-	if queuedAfterReplay != 0 {
-		t.Fatalf("queued rows after the later run = %d, want 0 (cleared after the reopen finally succeeded)", queuedAfterReplay)
+	wantQueued := 0
+	if failPosts {
+		wantQueued = 1
+	}
+	if queuedAfterReplay != wantQueued {
+		t.Fatalf("queued rows after the later run = %d, want %d", queuedAfterReplay, wantQueued)
 	}
 }

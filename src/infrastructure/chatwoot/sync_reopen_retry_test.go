@@ -224,6 +224,60 @@ func TestRESTMediaPrePassQueuesReopenIntentWhenEveryToggleFails(t *testing.T) {
 	}
 }
 
+type prearmOnlyReopenQueueRepo struct {
+	*chatwootReopenQueueRepo
+	calls int
+}
+
+func (r *prearmOnlyReopenQueueRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
+	r.calls++
+	if r.calls > 1 {
+		return errors.New("database is locked")
+	}
+	return r.chatwootReopenQueueRepo.EnqueueChatwootForwardEvent(event)
+}
+
+func TestRESTMediaPrePassKeepsPostedMessageProofWhenQueueWritesFail(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			previousReopen := config.ChatwootReopenConversation
+			previousREST := config.ChatwootImportMediaWithREST
+			config.ChatwootReopenConversation = true
+			config.ChatwootImportMediaWithREST = true
+			t.Cleanup(func() {
+				config.ChatwootReopenConversation = previousReopen
+				config.ChatwootImportMediaWithREST = previousREST
+			})
+			msg := chatwootSyncChatMediaMessage("wa-media-queue-failure")
+			inner := newChatwootReopenQueueRepo(msg)
+			repo := &prearmOnlyReopenQueueRepo{chatwootReopenQueueRepo: inner}
+			svc, events := chatwootReopenStubWithToggleFailures(t, inner.chatwootSyncChatRepo, msg.ChatJID, status, 99)
+			svc.chatStorageRepo = repo
+			svc.mediaDownloader = fakeMediaDownloader(t)
+			chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+			svc.restMediaPrePass(context.Background(), msg.DeviceID, chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
+			intent := decodeReopenIntent(t, inner.only(t))
+			if len(intent.PendingMessageIDs) != 1 || intent.PendingMessageIDs[0] != msg.ID {
+				t.Fatalf("pending message IDs = %v, want %s", intent.PendingMessageIDs, msg.ID)
+			}
+			if repo.calls != 1+reopenIntentEnqueueAttempts {
+				t.Fatalf("queue calls = %d, want pre-arm plus exhausted refresh/cancel retries", repo.calls)
+			}
+			link, err := repo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status == http.StatusOK {
+				if link == nil || link.ChatwootConversationID != intent.ConversationID || link.ChatwootAccountID != intent.AccountID {
+					t.Fatalf("successful attachment lost durable message evidence: %+v", link)
+				}
+			} else if link != nil || countEvents(events(), "/toggle_status") != 0 {
+				t.Fatalf("failed attachment must leave no post evidence or toggle: link=%+v events=%v", link, events())
+			}
+		})
+	}
+}
+
 // A later sync that posts into the same thread and fails to reopen again must
 // refresh the intent, not extend a dead one: the queue's ON CONFLICT rewrites
 // payload_json, so the new EnqueuedAt restarts the window the worker allows
