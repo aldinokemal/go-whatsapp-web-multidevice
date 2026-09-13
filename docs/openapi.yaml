@@ -887,6 +887,161 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /devices/{device_id}/settings:
+    get:
+      operationId: getDeviceStorageSettings
+      tags:
+        - device
+      summary: Get device storage settings
+      description: |
+        Get the per-device chat_storage / auto_download_media overrides for a specific device.
+        A null value means the device has no override and follows the instance-wide default
+        (chat storage is always on; auto_download_media follows --auto-download-media /
+        WHATSAPP_AUTO_DOWNLOAD_MEDIA).
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Device storage settings retrieved
+                  results:
+                    type: object
+                    properties:
+                      device_id:
+                        type: string
+                        description: The device ID
+                        example: 'my-device'
+                      chat_storage:
+                        type: boolean
+                        nullable: true
+                        description: Per-device chat storage override. Null follows the instance-wide default (always on).
+                        example: false
+                      auto_download_media:
+                        type: boolean
+                        nullable: true
+                        description: Per-device auto-download-media override. Null follows --auto-download-media / WHATSAPP_AUTO_DOWNLOAD_MEDIA.
+                        example: true
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    patch:
+      operationId: updateDeviceStorageSettings
+      tags:
+        - device
+      summary: Set device storage settings
+      description: |
+        Apply a partial update to a device's chat_storage / auto_download_media overrides.
+        Only the fields present in the request body are changed — an omitted field keeps its
+        current value. A field sent as `null` clears the override, falling back to the
+        instance-wide default. At least one of chat_storage or auto_download_media is required.
+
+        Useful when one instance hosts many devices: specific devices (e.g. notification-only
+        accounts) can be kept out of chat storage or off automatic media downloads without
+        changing the instance-wide flags for every other device.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                chat_storage:
+                  type: boolean
+                  nullable: true
+                  description: Set to enable/disable chat storage for this device, or null to clear the override.
+                  example: false
+                auto_download_media:
+                  type: boolean
+                  nullable: true
+                  description: Set to enable/disable auto media download for this device, or null to clear the override.
+                  example: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Device storage settings updated
+                  results:
+                    type: object
+                    properties:
+                      device_id:
+                        type: string
+                        description: The device ID
+                        example: 'my-device'
+                      chat_storage:
+                        type: boolean
+                        nullable: true
+                        example: false
+                      auto_download_media:
+                        type: boolean
+                        nullable: true
+                        example: true
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /user/info:
     get:
       operationId: userInfo

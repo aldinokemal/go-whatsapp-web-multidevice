@@ -348,7 +348,7 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 
 func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any) error {
 	if audioMedia := msg.GetAudioMessage(); audioMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, audioMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -366,7 +366,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if documentMedia := msg.GetDocumentMessage(); documentMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -385,7 +385,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if imageMedia := msg.GetImageMessage(); imageMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -404,7 +404,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if stickerMedia := msg.GetStickerMessage(); stickerMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, stickerMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -422,7 +422,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if videoMedia := msg.GetVideoMessage(); videoMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -441,7 +441,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if ptvMedia := msg.GetPtvMessage(); ptvMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if isAutoDownloadMediaEnabledForClient(ctx, client) {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, ptvMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -487,7 +487,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 // header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
 // handled: no existing payload field/attachment path covers them here.
 func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage) []string {
-	if im == nil || !config.WhatsappAutoDownloadMedia {
+	if im == nil || !isAutoDownloadMediaEnabledForClient(ctx, client) {
 		return nil
 	}
 

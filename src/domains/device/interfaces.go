@@ -28,4 +28,9 @@ type IDeviceUsecase interface {
 	SetDeviceWebhookConfig(ctx context.Context, deviceID string, config *chatstorage.DeviceWebhookConfig) error
 	// GetDeviceWebhookConfig retrieves the complete webhook configuration for a specific device.
 	GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*chatstorage.DeviceWebhookConfig, error)
+	// SetDeviceStorageSettings applies a partial update to a device's chat_storage /
+	// auto_download_media overrides.
+	SetDeviceStorageSettings(ctx context.Context, deviceID string, patch chatstorage.DeviceStoragePatch) error
+	// GetDeviceStorageSettings retrieves a device's chat_storage / auto_download_media overrides.
+	GetDeviceStorageSettings(ctx context.Context, deviceID string) (*chatstorage.DeviceStorageSettings, error)
 }

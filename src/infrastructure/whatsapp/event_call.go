@@ -30,7 +30,7 @@ func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo
 		}
 	}
 
-	if chatStorageRepo != nil {
+	if chatStorageRepo != nil && isChatStorageEnabledForClient(ctx, client) {
 		if err := chatStorageRepo.CreateIncomingCallRecord(ctx, evt, autoRejected); err != nil {
 			switch {
 			case errors.Is(err, domainChatStorage.ErrMissingDeviceContext),

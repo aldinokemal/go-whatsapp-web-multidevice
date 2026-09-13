@@ -119,6 +119,16 @@ type IChatStorageRepository interface {
 	SetDeviceWebhookConfig(deviceID string, config *DeviceWebhookConfig) error
 	// GetDeviceWebhookConfig retrieves the full webhook configuration for a device.
 	GetDeviceWebhookConfig(deviceID string) (*DeviceWebhookConfig, error)
+	// SetDeviceStorageSettings applies a partial update to the per-device
+	// chat_storage / auto_download_media overrides. Only the fields flagged as
+	// present in patch are touched.
+	SetDeviceStorageSettings(deviceID string, patch DeviceStoragePatch) error
+	// GetDeviceStorageSettings retrieves the per-device chat_storage /
+	// auto_download_media overrides. Returns (nil, nil) if the device does not
+	// exist. For an existing device, always returns a non-nil
+	// *DeviceStorageSettings; ChatStorage/AutoDownloadMedia are nil fields on it
+	// when no override is set for that field.
+	GetDeviceStorageSettings(deviceID string) (*DeviceStorageSettings, error)
 
 	// Schema operations
 	InitializeSchema() error
