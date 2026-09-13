@@ -100,7 +100,7 @@ func getContactMutex(phone string) *sync.Mutex {
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
 	record, err := resolveWebhookDeviceRecord(ctx, payload)
-	recordResolutionFailed := err != nil
+	recordResolutionFailed := err != nil || record == nil
 	if recordResolutionFailed {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.

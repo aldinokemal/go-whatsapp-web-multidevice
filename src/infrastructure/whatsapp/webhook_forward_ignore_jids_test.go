@@ -76,7 +76,7 @@ func TestWebhookIgnoreJID_ExactJIDMatchesSender(t *testing.T) {
 
 func TestWebhookIgnoreJID_EmptyListForwardsAll(t *testing.T) {
 	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
-	if !runIgnoreJidForward(t, nil, "message", payload) {
+	if !runIgnoreJidForwardWithDeviceOverride(t, nil, nil, "message", payload) {
 		t.Fatal("group message should be forwarded when the ignore list is empty (default)")
 	}
 }
@@ -333,6 +333,19 @@ func TestWebhookIgnoreJID_ResolverErrorFailsClosedForGroupEvent(t *testing.T) {
 	// list and forwarded the group event anyway.
 	if runIgnoreJidForward(t, nil, "message", payload) {
 		t.Fatal("group message must not be forwarded when device record resolution errors, even with no global @g.us entry")
+	}
+}
+
+func TestWebhookIgnoreJID_MissingDeviceRecordFailsClosedForGroupEvent(t *testing.T) {
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		return nil, nil
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
+	if runIgnoreJidForward(t, nil, "message", payload) {
+		t.Fatal("group message must not be forwarded when the device record is missing, even with no global @g.us entry")
 	}
 }
 
