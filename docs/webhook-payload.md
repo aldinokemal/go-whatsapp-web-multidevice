@@ -114,6 +114,11 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
   `null` to drop the override and follow the global list again. Exact group JIDs in the global list
   are still honoured regardless of the override.
 - Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
+- `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (`--webhook-device-merge-global`) changes what a per-device
+  `webhook_url` means: instead of replacing the global `WHATSAPP_WEBHOOK` targets it is added to them. The
+  device URL is signed with the device's `webhook_secret` and filtered by its `webhook_events`; the global
+  URLs keep the global secret and `WHATSAPP_WEBHOOK_EVENTS`. The ignore-JID rules above apply to both. A
+  global URL that equals the device URL is delivered once. Default `false` keeps the replace behaviour.
 - `@g.us` is the recommended way to mute groups (it matches the group `chat_id`). The
   `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
   `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific

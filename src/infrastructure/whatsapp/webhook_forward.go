@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -118,19 +119,30 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	// slot has, including an explicit true. Falling back to the global config in that
 	// case would forward a group event the device meant to suppress, so fail closed for
 	// group events until the record is resolved; non-group events keep the fallback above.
-	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig) &&
-		!shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record)) &&
+	jidAllowed := !shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record)) &&
 		!(recordResolutionFailed && payloadIsGroupEvent(payload))
+	webhookAllowed := jidAllowed && isEventWhitelistedForDevice(eventName, webhookConfig)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
-
-	if !webhookAllowed && !chatwootAllowed {
-		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
-		return nil
-	}
 
 	webhookURLs := getWebhookURLsFromConfig(webhookConfig)
 	if len(webhookURLs) == 0 {
 		webhookURLs = config.WhatsappWebhook
+	}
+
+	// With WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL a per-device webhook is an addition
+	// to the global targets instead of a replacement: the global URLs still get the
+	// event, signed with the global secret and filtered by the global event
+	// whitelist, while the device URL keeps its own secret and event filter.
+	var globalURLs []string
+	if config.WhatsappWebhookDeviceMergeGlobal && webhookConfig != nil && jidAllowed &&
+		isEventWhitelistedForDevice(eventName, nil) {
+		globalURLs = globalWebhookURLsExcluding(webhookURLs)
+	}
+	globalAllowed := len(globalURLs) > 0
+
+	if !webhookAllowed && !globalAllowed && !chatwootAllowed {
+		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
+		return nil
 	}
 
 	// Enrich the payload with the operator-facing session id so multi-tenant
@@ -138,7 +150,7 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	// back to the session id they registered via POST /devices. Done here,
 	// synchronously, before the Chatwoot goroutine is spawned below, so the
 	// shared payload map is never mutated concurrently.
-	if webhookAllowed {
+	if webhookAllowed || globalAllowed {
 		addWebhookSessionID(payload)
 	}
 
@@ -147,6 +159,19 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs, webhookConfig)
 	} else {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
+	}
+	if globalAllowed {
+		globalErr := forwardToWebhooks(ctx, payload, eventName, globalURLs, nil)
+		// Same contract as forwardToWebhooks: only report failure when every
+		// target that was attempted failed.
+		switch {
+		case !webhookAllowed:
+			webhookErr = globalErr
+		case webhookErr != nil && globalErr != nil:
+			webhookErr = fmt.Errorf("%w; global: %v", webhookErr, globalErr)
+		default:
+			webhookErr = nil
+		}
 	}
 
 	if chatwootAllowed {
@@ -223,6 +248,23 @@ func getWebhookURLsFromConfig(config *domainChatStorage.DeviceWebhookConfig) []s
 		return nil
 	}
 	return []string{*config.WebhookURL}
+}
+
+// globalWebhookURLsExcluding returns the global WHATSAPP_WEBHOOK targets minus any
+// URL already covered by the device-specific delivery, so a device whose webhook
+// duplicates a global URL is not hit twice for the same event.
+func globalWebhookURLsExcluding(deviceURLs []string) []string {
+	if len(config.WhatsappWebhook) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(config.WhatsappWebhook))
+	for _, url := range config.WhatsappWebhook {
+		if slices.Contains(deviceURLs, url) {
+			continue
+		}
+		urls = append(urls, url)
+	}
+	return urls
 }
 
 // isEventWhitelistedForDevice checks if an event is whitelisted for a specific device.
