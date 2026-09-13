@@ -2,18 +2,104 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
+
+func TestHandleMessageSettingsLookupErrorSkipsStorageAndMediaSideEffects(t *testing.T) {
+	originalWebhookURLs := config.WhatsappWebhook
+	originalWebhookEvents := config.WhatsappWebhookEvents
+	originalAutoReply := config.WhatsappAutoReplyMessage
+	originalAutoMarkRead := config.WhatsappAutoMarkRead
+	originalAutoDownloadMedia := config.WhatsappAutoDownloadMedia
+	originalExtractMedia := extractIncomingMedia
+	originalLog := log
+	t.Cleanup(func() {
+		config.WhatsappWebhook = originalWebhookURLs
+		config.WhatsappWebhookEvents = originalWebhookEvents
+		config.WhatsappAutoReplyMessage = originalAutoReply
+		config.WhatsappAutoMarkRead = originalAutoMarkRead
+		config.WhatsappAutoDownloadMedia = originalAutoDownloadMedia
+		extractIncomingMedia = originalExtractMedia
+		log = originalLog
+	})
+
+	log = waLog.Noop
+	config.WhatsappWebhook = nil
+	config.WhatsappWebhookEvents = nil
+	config.WhatsappAutoReplyMessage = ""
+	config.WhatsappAutoMarkRead = false
+	config.WhatsappAutoDownloadMedia = true
+
+	const deviceID = "device-settings-error"
+	lookupCount := 0
+	withDeviceStorageSettingsForTest(t, func(gotDeviceID string) (*domainChatStorage.DeviceStorageSettings, error) {
+		lookupCount++
+		if gotDeviceID != deviceID {
+			t.Fatalf("settings lookup used device ID %q, want %q", gotDeviceID, deviceID)
+		}
+		return nil, errors.New("settings unavailable")
+	})
+
+	extractCalls := 0
+	extractIncomingMedia = func(context.Context, *whatsmeow.Client, string, whatsmeow.DownloadableMessage) (utils.ExtractedMedia, error) {
+		extractCalls++
+		return utils.ExtractedMedia{}, nil
+	}
+
+	statusChat := types.NewJID("status", types.BroadcastServer)
+	tests := []struct {
+		name string
+		evt  *events.Message
+	}{
+		{name: "message", evt: textEventForTest("message-settings-error", statusChat)},
+		{name: "reaction", evt: reactionEventForTest("reaction-settings-error", "target-message", "thumbs-up")},
+		{name: "image media", evt: &events.Message{
+			Info: types.MessageInfo{
+				MessageSource: types.MessageSource{Chat: statusChat},
+				ID:            "image-settings-error",
+				Timestamp:     time.Date(2026, time.September, 13, 10, 0, 0, 0, time.UTC),
+			},
+			Message: &waE2E.Message{ImageMessage: &waE2E.ImageMessage{}},
+		}},
+	}
+
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.evt.Info.Chat = statusChat
+			repo := &messageHandlerRepoSpy{}
+			beforeExtractCalls := extractCalls
+
+			handleMessage(ctx, tt.evt, repo, &whatsmeow.Client{})
+
+			if got := repo.createMessageCount(); got != 0 {
+				t.Fatalf("CreateMessage called %d times after settings lookup error", got)
+			}
+			if got := repo.createReactionCount(); got != 0 {
+				t.Fatalf("CreateReaction called %d times after settings lookup error", got)
+			}
+			if extractCalls != beforeExtractCalls {
+				t.Fatalf("ExtractMedia called after settings lookup error")
+			}
+		})
+	}
+	if lookupCount == 0 {
+		t.Fatal("expected device settings lookup")
+	}
+}
 
 func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 	originalWebhookURLs := config.WhatsappWebhook
