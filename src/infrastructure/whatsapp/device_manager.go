@@ -266,6 +266,11 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		return fmt.Errorf("device id is required")
 	}
 
+	inst, resolvedID, err := m.ResolveDevice(deviceID)
+	if err != nil {
+		return err
+	}
+
 	var firstErr error
 	recordErr := func(err error) {
 		if err != nil {
@@ -275,46 +280,54 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 
 	// Resolve the device's WhatsApp identity before tearing anything down so we can
 	// delete its whatsmeow store rows even when no live client is attached.
-	var jid string
-	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
-		jid = storeIdentity(inst)
-		if cli := inst.GetClient(); cli != nil {
-			// The WhatsApp unlink is best-effort: a dead/expired session may fail
-			// here, but that must not block local cleanup or fail the purge.
-			if err := cli.Logout(ctx); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
-			}
-			cli.Disconnect()
+	jid := storeIdentity(inst)
+	if cli := inst.GetClient(); cli != nil {
+		// A purge-triggered LoggedOut must not run the keep-slot callback: that
+		// would resurrect the slot (and persist it) while DELETE promises removal.
+		inst.SetOnLoggedOut(nil)
+		// The WhatsApp unlink is best-effort: a dead/expired session may fail
+		// here, but that must not block local cleanup or fail the purge.
+		if err := cli.Logout(ctx); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", resolvedID)
 		}
+		cli.Disconnect()
 	}
 
 	// Delete chatstorage data for this device (local cleanup — surfaced on failure).
+	// Chats/messages are partitioned by the WhatsApp JID once paired, while the
+	// registry slot keeps its own id — purge both keys when they differ.
 	if m.storage != nil {
-		if err := m.storage.DeleteDeviceData(deviceID); err != nil {
-			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s", deviceID)
-			recordErr(err)
+		partitionKeys := []string{resolvedID}
+		if jidKey := strings.TrimSpace(inst.JID()); jidKey != "" && jidKey != resolvedID {
+			partitionKeys = append(partitionKeys, jidKey)
+		}
+		for _, key := range partitionKeys {
+			if err := m.storage.DeleteDeviceData(key); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s (partition %s)", resolvedID, key)
+				recordErr(err)
+			}
 		}
 
 		// Drop the device's Chatwoot config (and its message links) with it. An
 		// orphaned row would keep claiming the device's JID under the unique
 		// device_jid index, blocking a re-created device for the same number from
 		// being configured.
-		if cfg, err := m.storage.GetChatwootDeviceConfig(deviceID); err != nil {
-			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to load chatwoot config for device %s", deviceID)
+		if cfg, err := m.storage.GetChatwootDeviceConfig(resolvedID); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to load chatwoot config for device %s", resolvedID)
 			recordErr(err)
 		} else if cfg != nil {
-			if err := m.storage.DeleteChatwootDeviceConfig(deviceID); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot config for device %s", deviceID)
+			if err := m.storage.DeleteChatwootDeviceConfig(resolvedID); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot config for device %s", resolvedID)
 				recordErr(err)
 			} else {
 				if cfg.ID != 0 {
 					if err := m.storage.DeleteChatwootMessageLinksByConfig(cfg.ID); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot links for device %s", deviceID)
+						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot links for device %s", resolvedID)
 						recordErr(err)
 					}
 				}
 				if reg := chatwoot.GetClientRegistry(); reg != nil {
-					reg.Invalidate(deviceID)
+					reg.Invalidate(resolvedID)
 				}
 			}
 		}
@@ -324,7 +337,7 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	recordErr(m.deleteStoreRowsForJID(ctx, jid))
 
 	// Remove from registry last
-	m.RemoveDevice(deviceID)
+	m.RemoveDevice(resolvedID)
 	return firstErr
 }
 

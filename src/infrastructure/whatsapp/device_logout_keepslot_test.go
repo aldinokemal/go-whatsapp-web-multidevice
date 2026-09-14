@@ -190,6 +190,55 @@ func TestPurgeDevice_SurfacesLocalCleanupFailure(t *testing.T) {
 	}
 }
 
+func TestPurgeDevice_RequiresExistingSlot(t *testing.T) {
+	manager := NewDeviceManager(nil, nil, nil)
+	if err := manager.PurgeDevice(context.Background(), "missing-slot"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected PurgeDevice to fail for missing slot, got %v", err)
+	}
+}
+
+func TestPurgeDevice_ResolvesByJID(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "slot-resolve-jid"
+	nonAD := "6281999999999@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+
+	if err := manager.PurgeDevice(ctx, nonAD); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); ok {
+		t.Fatal("expected slot to be removed when purging by JID")
+	}
+	if len(storage.deletedRecords) == 0 || storage.deletedRecords[0] != slotID {
+		t.Fatalf("expected device record deletion for %s, got %v", slotID, storage.deletedRecords)
+	}
+}
+
+func TestPurgeDevice_RemovesSlotEvenWhenLogoutWouldKeepIt(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "slot-purge-over-keep"
+	inst := &DeviceInstance{id: slotID, jid: "6281888888888@s.whatsapp.net", createdAt: time.Now()}
+	inst.SetOnLoggedOut(func(deviceID string) {
+		if err := manager.keepSlotLogout(ctx, deviceID); err != nil {
+			t.Errorf("keepSlotLogout during purge: %v", err)
+		}
+	})
+	manager.devices[slotID] = inst
+
+	if err := manager.PurgeDevice(ctx, slotID); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); ok {
+		t.Fatal("expected slot to be removed even when a keep-slot callback is wired")
+	}
+}
+
 // deleteStoreRowsForJID is a no-op for an empty JID: a slot that was never paired has no
 // store rows, and an empty JID must never scan/delete anything.
 func TestDeleteStoreRowsForJID_EmptyJIDIsNoOp(t *testing.T) {
