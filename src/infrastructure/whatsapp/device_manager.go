@@ -187,6 +187,61 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 	return nil, "", fmt.Errorf("device id is required")
 }
 
+// resolveDeviceForPurge locates a slot for destructive cleanup without trimming the
+// requested id. CreateDevice stores ids verbatim, so "sales" and " sales" are distinct
+// slots; ResolveDevice trims and must not be used for DELETE/purge.
+func (m *DeviceManager) resolveDeviceForPurge(deviceID string) (*DeviceInstance, string, error) {
+	if m == nil {
+		return nil, "", fmt.Errorf("device manager not initialized")
+	}
+	if deviceID == "" {
+		return nil, "", fmt.Errorf("device id is required")
+	}
+	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
+		return inst, deviceID, nil
+	}
+	if inst, ok := m.getDeviceByJID(deviceID); ok && inst != nil {
+		return inst, inst.ID(), nil
+	}
+	return nil, deviceID, fmt.Errorf("device %s not found", deviceID)
+}
+
+// nonADJIDClaimedByOtherSlot reports whether another registered slot still uses the
+// same bare-number JID for chat-storage partitioning (companion slots on one number).
+func (m *DeviceManager) nonADJIDClaimedByOtherSlot(excludeSlotID, nonADJID string) bool {
+	nonADJID = strings.TrimSpace(nonADJID)
+	excludeSlotID = strings.TrimSpace(excludeSlotID)
+	if nonADJID == "" {
+		return false
+	}
+	if m.storage != nil {
+		records, err := m.storage.ListDeviceRecords()
+		if err != nil {
+			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to list device records while checking shared JID partitions")
+			return true
+		}
+		for _, rec := range records {
+			if rec == nil || rec.DeviceID == excludeSlotID {
+				continue
+			}
+			if strings.TrimSpace(rec.JID) == nonADJID {
+				return true
+			}
+		}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for id, inst := range m.devices {
+		if id == excludeSlotID || inst == nil {
+			continue
+		}
+		if strings.TrimSpace(inst.JID()) == nonADJID {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *DeviceManager) RemoveDevice(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -266,7 +321,7 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		return fmt.Errorf("device id is required")
 	}
 
-	inst, resolvedID, err := m.ResolveDevice(deviceID)
+	inst, resolvedID, err := m.resolveDeviceForPurge(deviceID)
 	if err != nil {
 		return err
 	}
@@ -299,7 +354,11 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	if m.storage != nil {
 		partitionKeys := []string{resolvedID}
 		if jidKey := strings.TrimSpace(inst.JID()); jidKey != "" && jidKey != resolvedID {
-			partitionKeys = append(partitionKeys, jidKey)
+			if !m.nonADJIDClaimedByOtherSlot(resolvedID, jidKey) {
+				partitionKeys = append(partitionKeys, jidKey)
+			} else {
+				logrus.Warnf("[DEVICE_MANAGER] skipping shared chatstorage partition %s for slot %s (another slot still claims this number)", jidKey, resolvedID)
+			}
 		}
 		for _, key := range partitionKeys {
 			if err := m.storage.DeleteDeviceData(key); err != nil {
@@ -336,8 +395,10 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	// Delete whatsmeow store/keys rows by JID (local cleanup — surfaced on failure).
 	recordErr(m.deleteStoreRowsForJID(ctx, jid))
 
-	// Remove from registry last
-	m.RemoveDevice(resolvedID)
+	// Keep the registry entry when local cleanup failed so DELETE can be retried.
+	if firstErr == nil {
+		m.RemoveDevice(resolvedID)
+	}
 	return firstErr
 }
 
