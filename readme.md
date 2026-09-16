@@ -290,6 +290,40 @@ To use environment variables:
 | `CHATWOOT_MESSAGE_READ`                 | Sync read state for linked WhatsApp/Chatwoot messages         | `false`                                      | `CHATWOOT_MESSAGE_READ=true`                  |
 | `CHATWOOT_MESSAGE_DELETE`               | Delete linked opposite-side messages when deletion is reported | `false`                                     | `CHATWOOT_MESSAGE_DELETE=true`                |
 
+#### PostgreSQL schema isolation
+
+`DB_URI` (and `DB_KEYS_URI`) are handed to the PostgreSQL driver as-is, so
+`search_path` works as a normal connection parameter. Use it to keep the
+`whatsmeow_*` tables out of `public` on a shared database such as Supabase:
+
+```env
+DB_URI=postgres://user:pass@host:5432/db?sslmode=require&search_path=whatsapp
+```
+
+Use at least `sslmode=require` on a remote/shared database — `DB_URI` carries
+both the database credentials and the WhatsApp session/key material. For
+production, prefer `sslmode=verify-full` with `sslrootcert` pointing at the
+provider's CA certificate, so the connection also validates the server
+identity.
+
+Create the schema before the first start — the app does not create it:
+
+```sql
+CREATE SCHEMA whatsapp;
+```
+
+Starting against a missing schema fails with
+`pq: no schema has been selected to create in (3F000)`.
+
+The schema must also be the only place in that database holding `whatsmeow_*`
+tables. The migration runner checks for existing tables through
+`information_schema` without filtering by schema, so if `public` (or any other
+schema) already has them, startup either fails with
+`pq: relation "whatsmeow_version" does not exist (42P01)` or silently keeps
+writing to the old schema when `public` is in the `search_path` list. Point a
+schema-isolated instance at a database with no other `whatsmeow_*` tables, and
+give `DB_KEYS_URI` its own database rather than a second schema in the same one.
+
 **Documentation:**
 
 - For detailed webhook payload schemas, security implementation, and integration examples, see
