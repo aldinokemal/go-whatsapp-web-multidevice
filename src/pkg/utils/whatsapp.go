@@ -178,6 +178,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return ""
 	}
 
+	// Unwrap FutureProof wrappers (ephemeral, view-once) so callers that pass
+	// raw WebMessageInfo.Message (e.g. history sync) see the inner content.
+	msg = UnwrapMessage(msg)
+
 	// Check for regular text message
 	if text := msg.GetConversation(); text != "" {
 		return text
@@ -225,6 +229,12 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return templateButtonReply.GetSelectedDisplayText()
 	}
 
+	// Check for business-originated types (template, interactive, buttons,
+	// list, product and order messages sent by Business/Cloud API senders)
+	if businessText := extractBusinessMessageText(msg); businessText != "" {
+		return businessText
+	}
+
 	// Check for shared contact card
 	if contact := msg.GetContactMessage(); contact != nil {
 		return FormatContactSummary(contact.GetDisplayName(), ExtractPhoneFromVCard(contact.GetVcard()), false)
@@ -249,6 +259,128 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return FormatLocationSummary(live.GetCaption(), "", live.GetDegreesLatitude(), live.GetDegreesLongitude())
 	}
 
+	return ""
+}
+
+// extractBusinessMessageText extracts the display text of message types used by
+// WhatsApp Business and Cloud API senders. These carry their body outside the
+// conversation/extended-text fields, so without this they read as empty.
+func extractBusinessMessageText(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
+
+	if tpl := msg.GetTemplateMessage(); tpl != nil {
+		if text := extractTemplateMessageText(tpl); text != "" {
+			return text
+		}
+	}
+
+	if hsm := msg.GetHighlyStructuredMessage(); hsm != nil {
+		if text := extractHighlyStructuredText(hsm); text != "" {
+			return text
+		}
+	}
+
+	if interactive := msg.GetInteractiveMessage(); interactive != nil {
+		if text := extractInteractiveMessageText(interactive); text != "" {
+			return text
+		}
+	}
+
+	if response := msg.GetInteractiveResponseMessage(); response != nil {
+		if text := response.GetBody().GetText(); text != "" {
+			return text
+		}
+	}
+
+	if buttons := msg.GetButtonsMessage(); buttons != nil {
+		if text := firstNonEmptyText(buttons.GetContentText(), buttons.GetText(), buttons.GetFooterText()); text != "" {
+			return text
+		}
+	}
+
+	if list := msg.GetListMessage(); list != nil {
+		if text := firstNonEmptyText(list.GetDescription(), list.GetTitle(), list.GetFooterText()); text != "" {
+			return text
+		}
+	}
+
+	if product := msg.GetProductMessage(); product != nil {
+		if text := firstNonEmptyText(
+			product.GetBody(),
+			product.GetProduct().GetTitle(),
+			product.GetProduct().GetDescription(),
+			product.GetCatalog().GetTitle(),
+			product.GetFooter(),
+		); text != "" {
+			return text
+		}
+	}
+
+	if order := msg.GetOrderMessage(); order != nil {
+		if text := firstNonEmptyText(order.GetMessage(), order.GetOrderTitle()); text != "" {
+			return text
+		}
+	}
+
+	return ""
+}
+
+func extractTemplateMessageText(tpl *waE2E.TemplateMessage) string {
+	if tpl == nil {
+		return ""
+	}
+
+	if text := firstNonEmptyText(
+		extractHydratedTemplateText(tpl.GetHydratedTemplate()),
+		extractHydratedTemplateText(tpl.GetHydratedFourRowTemplate()),
+	); text != "" {
+		return text
+	}
+
+	if fourRow := tpl.GetFourRowTemplate(); fourRow != nil {
+		if text := firstNonEmptyText(
+			extractHighlyStructuredText(fourRow.GetContent()),
+			extractHighlyStructuredText(fourRow.GetHighlyStructuredMessage()),
+			extractHighlyStructuredText(fourRow.GetFooter()),
+		); text != "" {
+			return text
+		}
+	}
+
+	return extractInteractiveMessageText(tpl.GetInteractiveMessageTemplate())
+}
+
+func extractHydratedTemplateText(tpl *waE2E.TemplateMessage_HydratedFourRowTemplate) string {
+	return firstNonEmptyText(tpl.GetHydratedContentText(), tpl.GetHydratedTitleText(), tpl.GetHydratedFooterText())
+}
+
+// extractHighlyStructuredText only reads the hydrated form: a non-hydrated HSM
+// carries an element name plus substitution params, not renderable text.
+func extractHighlyStructuredText(hsm *waE2E.HighlyStructuredMessage) string {
+	tpl := hsm.GetHydratedHsm()
+	return firstNonEmptyText(
+		extractHydratedTemplateText(tpl.GetHydratedTemplate()),
+		extractHydratedTemplateText(tpl.GetHydratedFourRowTemplate()),
+	)
+}
+
+func extractInteractiveMessageText(interactive *waE2E.InteractiveMessage) string {
+	return firstNonEmptyText(
+		interactive.GetBody().GetText(),
+		interactive.GetHeader().GetTitle(),
+		interactive.GetHeader().GetSubtitle(),
+		interactive.GetFooter().GetText(),
+	)
+}
+
+func firstNonEmptyText(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
 	return ""
 }
 
@@ -1140,6 +1272,10 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			}
 			return message
 		}
+	}
+
+	if message.Text == "" {
+		message.Text = extractBusinessMessageText(msg)
 	}
 
 	if ci := ExtractContextInfo(msg); ci != nil {
