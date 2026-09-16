@@ -1102,6 +1102,26 @@ func (r *SQLiteRepository) EnqueueChatwootForwardEvent(event *domainChatStorage.
 	return err
 }
 
+func (r *SQLiteRepository) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	row := r.db.QueryRow(`
+		SELECT id, device_id, event_name, wa_message_id, payload_json,
+			attempts, last_error, next_attempt_at, created_at, updated_at
+		FROM chatwoot_forward_queue
+		WHERE device_id = ? AND event_name = ? AND wa_message_id = ?
+	`, deviceID, eventName, waMessageID)
+	event := &domainChatStorage.ChatwootForwardEvent{}
+	err := row.Scan(&event.ID, &event.DeviceID, &event.EventName, &event.WhatsAppMessageID,
+		&event.PayloadJSON, &event.Attempts, &event.LastError, &event.NextAttemptAt,
+		&event.CreatedAt, &event.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
 func (r *SQLiteRepository) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
 	if limit <= 0 {
 		limit = 20

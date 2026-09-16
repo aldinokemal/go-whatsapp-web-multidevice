@@ -405,3 +405,121 @@ func TestSQLiteRepositoryChatwootForwardQueueLifecycle(t *testing.T) {
 		t.Fatalf("due after done len = %d, want 0", len(due))
 	}
 }
+
+// A reopen intent is re-enqueued under the same key every time a later sync
+// posts into the thread and still cannot reopen it. The upsert has to rewrite
+// payload_json -- that is where the worker reads the enqueue stamp its retry
+// window runs from, so a fresh failure must restart the window rather than
+// inherit an exhausted one. Attempts deliberately survive, so the backoff does
+// not reset with it.
+func TestSQLiteRepositoryReenqueueRewritesChatwootForwardPayload(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	now := time.Date(2026, time.June, 6, 10, 0, 0, 0, time.UTC)
+
+	event := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          "device-a@s.whatsapp.net",
+		EventName:         "chatwoot.conversation.reopen",
+		WhatsAppMessageID: "conversation:42",
+		PayloadJSON:       `{"conversation_id":42,"enqueued_at":1000}`,
+		LastError:         "first failure",
+		NextAttemptAt:     now,
+	}
+	if err := repo.EnqueueChatwootForwardEvent(event); err != nil {
+		t.Fatalf("enqueue reopen intent: %v", err)
+	}
+
+	due, err := repo.ListDueChatwootForwardEvents(now, 10)
+	if err != nil {
+		t.Fatalf("list due events: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("due len = %d, want 1", len(due))
+	}
+	if err := repo.MarkChatwootForwardEventFailed(due[0].ID, "still down", now.Add(time.Minute)); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	// A later sync fails to reopen the same conversation.
+	requeued := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          "device-a@s.whatsapp.net",
+		EventName:         "chatwoot.conversation.reopen",
+		WhatsAppMessageID: "conversation:42",
+		PayloadJSON:       `{"conversation_id":42,"enqueued_at":2000}`,
+		LastError:         "second failure",
+		NextAttemptAt:     now.Add(2 * time.Minute),
+	}
+	if err := repo.EnqueueChatwootForwardEvent(requeued); err != nil {
+		t.Fatalf("re-enqueue reopen intent: %v", err)
+	}
+
+	due, err = repo.ListDueChatwootForwardEvents(now.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatalf("list after re-enqueue: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("due len = %d, want the re-enqueue to collapse into one row", len(due))
+	}
+	if due[0].PayloadJSON != requeued.PayloadJSON {
+		t.Fatalf("PayloadJSON = %q, want the fresh enqueue stamp %q", due[0].PayloadJSON, requeued.PayloadJSON)
+	}
+	if due[0].LastError != "second failure" {
+		t.Fatalf("LastError = %q, want the newer failure", due[0].LastError)
+	}
+	if due[0].Attempts != 1 {
+		t.Fatalf("Attempts = %d, want 1; a re-enqueue must not reset the backoff", due[0].Attempts)
+	}
+}
+
+func TestSQLiteRepository_GetChatwootForwardEvent(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	eventName := "chatwoot.conversation.reopen"
+	waMessageID := "conversation:42"
+
+	// When not found, returns nil, nil
+	got, err := repo.GetChatwootForwardEvent(deviceID, eventName, waMessageID)
+	if err != nil {
+		t.Fatalf("GetChatwootForwardEvent unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil when not found, got %v", got)
+	}
+
+	// Enqueue an event
+	now := time.Now().Truncate(time.Second)
+	event := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID:          deviceID,
+		EventName:         eventName,
+		WhatsAppMessageID: waMessageID,
+		PayloadJSON:       `{"conversation_id":42,"enqueued_at":1000}`,
+		LastError:         "toggle failed",
+		NextAttemptAt:     now.Add(time.Minute),
+	}
+	if err := repo.EnqueueChatwootForwardEvent(event); err != nil {
+		t.Fatalf("enqueue event: %v", err)
+	}
+
+	// Now it should be found
+	got, err = repo.GetChatwootForwardEvent(deviceID, eventName, waMessageID)
+	if err != nil {
+		t.Fatalf("GetChatwootForwardEvent error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if got.DeviceID != deviceID || got.EventName != eventName || got.WhatsAppMessageID != waMessageID {
+		t.Fatalf("got event %v, want matching keys", got)
+	}
+	if got.PayloadJSON != event.PayloadJSON {
+		t.Fatalf("PayloadJSON = %q, want %q", got.PayloadJSON, event.PayloadJSON)
+	}
+
+	// Non-matching keys return nil
+	gotOther, err := repo.GetChatwootForwardEvent(deviceID, eventName, "conversation:99")
+	if err != nil {
+		t.Fatalf("unexpected error for other key: %v", err)
+	}
+	if gotOther != nil {
+		t.Fatalf("expected nil for non-matching key, got %v", gotOther)
+	}
+}

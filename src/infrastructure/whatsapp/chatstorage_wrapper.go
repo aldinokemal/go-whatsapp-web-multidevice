@@ -228,6 +228,14 @@ func (r *deviceChatStorage) EnqueueChatwootForwardEvent(event *domainChatStorage
 	return r.base.EnqueueChatwootForwardEvent(event)
 }
 
+func (r *deviceChatStorage) GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*domainChatStorage.ChatwootForwardEvent, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetChatwootForwardEvent(targetDeviceID, eventName, waMessageID)
+}
+
 func (r *deviceChatStorage) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
 	return r.base.ListDueChatwootForwardEvents(now, limit)
 }

@@ -68,6 +68,7 @@ type IChatStorageRepository interface {
 	// scoping instead of relying on the legacy-zero wildcard. Idempotent.
 	BackfillChatwootMessageLinkAccount(accountID int) (int64, error)
 	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
+	GetChatwootForwardEvent(deviceID, eventName, waMessageID string) (*ChatwootForwardEvent, error)
 	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
 	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
 	MarkChatwootForwardEventDone(id int64) error
