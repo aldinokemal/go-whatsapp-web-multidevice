@@ -49,8 +49,10 @@ func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorage
 
 	log.Infof("Wrote history sync to %s", fileName)
 
-	// Process history sync data to database
-	if chatStorageRepo != nil {
+	// Process history sync data to database. Skipped for devices with a chat_storage=false
+	// override, same as live messages in handleMessage — a device kept out of chat storage
+	// should not backfill history into it either.
+	if chatStorageRepo != nil && isChatStorageEnabledForClient(ctx, client) {
 		if err := processHistorySync(ctx, evt.Data, chatStorageRepo, client); err != nil {
 			log.Errorf("Failed to process history sync to database: %v", err)
 		}

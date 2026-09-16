@@ -208,7 +208,7 @@ func resolvePollSelections(definition *domainChatStorage.PollDefinition, selecte
 	return names, hashes, pollResolutionResolved
 }
 
-func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, store pollDefinitionStore, evt *events.Message) *webhookPollPayload {
+func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, store pollDefinitionStore, evt *events.Message, chatStorageEnabled bool) *webhookPollPayload {
 	if evt == nil || evt.Message == nil {
 		return nil
 	}
@@ -228,7 +228,7 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 
 	if poll, version := utils.ExtractPollCreationMessage(msg); poll != nil {
 		definition := pollDefinitionFromCreation(deviceID, chatJID, evt.Info.ID, version, poll, evt.Info.Timestamp)
-		if store != nil && definition.DeviceID != "" && definition.ChatJID != "" {
+		if chatStorageEnabled && store != nil && definition.DeviceID != "" && definition.ChatJID != "" {
 			if err := store.UpsertPollDefinition(definition); err != nil {
 				logrus.Warnf("Failed to persist poll definition %s: %v", evt.Info.ID, err)
 			}
@@ -265,7 +265,7 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 		if definition := loadPollDefinition(store, deviceID, add.GetPollCreationMessageKey().GetID(), addChatIDs...); definition != nil {
 			addChatID = definition.ChatJID
 		}
-		return preparePollAddOptionPayload(store, deviceID, addChatID, add)
+		return preparePollAddOptionPayload(store, deviceID, addChatID, add, chatStorageEnabled)
 	}
 
 	secret := msg.GetSecretEncryptedMessage()
@@ -299,7 +299,7 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 			if definition := loadPollDefinition(store, deviceID, pollID, updateChatIDs...); definition != nil {
 				addChatID = definition.ChatJID
 			}
-			return preparePollAddOptionPayload(store, deviceID, addChatID, add, pollID)
+			return preparePollAddOptionPayload(store, deviceID, addChatID, add, chatStorageEnabled, pollID)
 		}
 		return degraded()
 	}
@@ -311,7 +311,7 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 		chatJID = existing.ChatJID
 	}
 	definition := pollDefinitionFromCreation(deviceID, chatJID, pollID, version, poll, evt.Info.Timestamp)
-	if store != nil {
+	if chatStorageEnabled && store != nil {
 		if err := store.UpsertPollDefinition(definition); err != nil {
 			logrus.Warnf("Failed to persist edited poll definition %s: %v", pollID, err)
 		}
@@ -319,7 +319,7 @@ func preparePollWebhookPayload(ctx context.Context, client *whatsmeow.Client, st
 	return webhookPollFromDefinition("edit", definition)
 }
 
-func preparePollAddOptionPayload(store pollDefinitionStore, deviceID, chatJID string, add *waE2E.PollAddOptionMessage, fallbackPollID ...string) *webhookPollPayload {
+func preparePollAddOptionPayload(store pollDefinitionStore, deviceID, chatJID string, add *waE2E.PollAddOptionMessage, chatStorageEnabled bool, fallbackPollID ...string) *webhookPollPayload {
 	if add == nil {
 		return nil
 	}
@@ -329,7 +329,7 @@ func preparePollAddOptionPayload(store pollDefinitionStore, deviceID, chatJID st
 	}
 	option := domainChatStorage.PollOption{Name: add.GetAddOption().GetOptionName()}
 	option.Hash = pollOptionHash(option.Name)
-	if store != nil && option.Name != "" {
+	if chatStorageEnabled && store != nil && option.Name != "" {
 		if err := store.AppendPollOption(deviceID, chatJID, pollID, option); err != nil {
 			logrus.Warnf("Failed to append option to poll %s: %v", pollID, err)
 		}

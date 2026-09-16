@@ -315,6 +315,72 @@ func (s *serviceDevice) GetDeviceWebhookConfig(ctx context.Context, deviceID str
 	return config, nil
 }
 
+// SetDeviceStorageSettings applies a partial update to a device's chat_storage /
+// auto_download_media overrides.
+func (s *serviceDevice) SetDeviceStorageSettings(ctx context.Context, deviceID string, patch chatstorage.DeviceStoragePatch) error {
+	if s.manager == nil {
+		return fmt.Errorf("device manager not initialized")
+	}
+
+	_, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return pkgError.ErrDeviceNotFound
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return fmt.Errorf("storage not available")
+	}
+
+	if err := storage.SetDeviceStorageSettings(deviceID, patch); err != nil {
+		return fmt.Errorf("failed to set device storage settings: %w", err)
+	}
+
+	// A patch with neither field flagged as present is a no-op at the repository
+	// layer (nothing changed), so skip the notification rather than telling
+	// clients a setting was updated when it wasn't.
+	if !patch.HasChatStorage && !patch.HasAutoDownloadMedia {
+		return nil
+	}
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "DEVICE_STORAGE_SETTINGS_UPDATED",
+		Message: fmt.Sprintf("Device %s storage settings updated", deviceID),
+		Result: map[string]any{
+			"device_id": deviceID,
+		},
+	}
+
+	return nil
+}
+
+// GetDeviceStorageSettings retrieves a device's chat_storage / auto_download_media overrides.
+func (s *serviceDevice) GetDeviceStorageSettings(ctx context.Context, deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+	if s.manager == nil {
+		return nil, fmt.Errorf("device manager not initialized")
+	}
+
+	_, ok := s.manager.GetDevice(deviceID)
+	if !ok {
+		return nil, pkgError.ErrDeviceNotFound
+	}
+
+	storage := s.manager.GetStorage()
+	if storage == nil {
+		return nil, fmt.Errorf("storage not available")
+	}
+
+	settings, err := storage.GetDeviceStorageSettings(deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device storage settings: %w", err)
+	}
+	if settings == nil {
+		settings = &chatstorage.DeviceStorageSettings{}
+	}
+
+	return settings, nil
+}
+
 func convertInstance(inst *whatsapp.DeviceInstance) domainDevice.Device {
 	if inst == nil {
 		return domainDevice.Device{}
