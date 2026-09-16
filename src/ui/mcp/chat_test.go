@@ -13,13 +13,14 @@ import (
 type stubChatService struct {
 	domainChat.IChatUsecase
 	listed   *domainChat.ListChatsRequest
+	listResp domainChat.ListChatsResponse
 	fetched  *domainChat.GetChatMessagesRequest
 	archived *domainChat.ArchiveChatRequest
 }
 
 func (s *stubChatService) ListChats(_ context.Context, r domainChat.ListChatsRequest) (domainChat.ListChatsResponse, error) {
 	s.listed = &r
-	return domainChat.ListChatsResponse{}, nil
+	return s.listResp, nil
 }
 func (s *stubChatService) GetChatMessages(_ context.Context, r domainChat.GetChatMessagesRequest) (domainChat.GetChatMessagesResponse, error) {
 	s.fetched = &r
@@ -27,7 +28,7 @@ func (s *stubChatService) GetChatMessages(_ context.Context, r domainChat.GetCha
 }
 func (s *stubChatService) ArchiveChat(_ context.Context, r domainChat.ArchiveChatRequest) (domainChat.ArchiveChatResponse, error) {
 	s.archived = &r
-	return domainChat.ArchiveChatResponse{}, nil
+	return domainChat.ArchiveChatResponse{Message: "Chat archived"}, nil
 }
 
 type stubUserService struct {
