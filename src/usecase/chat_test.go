@@ -369,6 +369,82 @@ func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 	}
 }
 
+func TestGetChatMessagesExposesReferralMetadata(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.May, 16, 8, 0, 0, 0, time.UTC)
+	referralMetadata := `{"ctwa_clid":"clid_123","source_app":"whatsapp"}`
+	repo := &chatUsecaseRepoStub{
+		chat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			Name:            "Alice",
+			LastMessageTime: now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		messages: []*domainChatStorage.Message{
+			{
+				ID:               "msg-ad",
+				ChatJID:          chatJID,
+				DeviceID:         deviceID,
+				Sender:           chatJID,
+				Content:          "hello from the ad",
+				Timestamp:        now,
+				CreatedAt:        now,
+				UpdatedAt:        now,
+				ReferralMetadata: referralMetadata,
+			},
+			{
+				ID:        "msg-plain",
+				ChatJID:   chatJID,
+				DeviceID:  deviceID,
+				Sender:    chatJID,
+				Content:   "hello again",
+				Timestamp: now.Add(time.Minute),
+				CreatedAt: now.Add(time.Minute),
+				UpdatedAt: now.Add(time.Minute),
+			},
+		},
+	}
+	service := NewChatService(repo)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID, PushName: "Primary Account"}}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	response, err := service.GetChatMessages(ctx, domainChat.GetChatMessagesRequest{
+		ChatJID: chatJID,
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("get chat messages: %v", err)
+	}
+	if len(response.Data) != 2 {
+		t.Fatalf("expected two messages, got %d", len(response.Data))
+	}
+	if response.Data[0].ReferralMetadata != referralMetadata {
+		t.Fatalf("referral metadata = %q, want %q", response.Data[0].ReferralMetadata, referralMetadata)
+	}
+	if response.Data[1].ReferralMetadata != "" {
+		t.Fatalf("expected empty referral metadata, got %q", response.Data[1].ReferralMetadata)
+	}
+
+	payload, err := json.Marshal(response.Data)
+	if err != nil {
+		t.Fatalf("marshal messages payload: %v", err)
+	}
+	var messages []map[string]any
+	if err := json.Unmarshal(payload, &messages); err != nil {
+		t.Fatalf("unmarshal messages payload: %v", err)
+	}
+	if messages[0]["referral_metadata"] != referralMetadata {
+		t.Fatalf("message referral_metadata = %#v", messages[0]["referral_metadata"])
+	}
+	if _, ok := messages[1]["referral_metadata"]; ok {
+		t.Fatalf("referral_metadata must be omitted when empty, got %#v", messages[1])
+	}
+}
+
 type chatUsecaseRepoStub struct {
 	domainChatStorage.IChatStorageRepository
 	chat                *domainChatStorage.Chat
