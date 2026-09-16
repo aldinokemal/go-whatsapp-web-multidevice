@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -355,6 +356,76 @@ func seedChatMessage(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, me
 	}
 }
 
+func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsRoundTrip(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-ignore-groups"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	// Never configured -> nil.
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected nil WebhookIgnoreGroups for a never-configured device, got %v", *cfg.WebhookIgnoreGroups)
+	}
+
+	// Explicitly set to true.
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+	cfg, err = repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || !*cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=true after set, got %v", cfg.WebhookIgnoreGroups)
+	}
+
+	// Explicitly set to false (must persist as false, not fall back to nil).
+	falseVal := false
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    &falseVal,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+	cfg, err = repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=false after explicit set, got %v", cfg.WebhookIgnoreGroups)
+	}
+
+	// GetDeviceRecordByJID must also surface the field (used by the webhook resolver).
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+		JID:      "5511999990000@s.whatsapp.net",
+	}); err != nil {
+		t.Fatalf("failed to set jid on device record: %v", err)
+	}
+	rec, err := repo.GetDeviceRecordByJID("5511999990000@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("expected device record, got nil")
+	}
+	if rec.WebhookIgnoreGroups == nil || *rec.WebhookIgnoreGroups {
+		t.Fatalf("expected WebhookIgnoreGroups=false via GetDeviceRecordByJID, got %v", rec.WebhookIgnoreGroups)
+	}
+}
+
 func seedReaction(t *testing.T, repo *SQLiteRepository, deviceID, chatJID, messageID, reactorJID string) {
 	t.Helper()
 	if err := repo.StoreReaction(&domainChatStorage.Reaction{
@@ -392,4 +463,123 @@ func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 		t.Fatalf("count message reactions: %v", err)
 	}
 	return count
+}
+
+// TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull covers the leg the
+// REST tri-state relies on: once an override has been stored, writing nil must put the
+// column back to NULL so the device falls back to the global "@g.us" wildcard again.
+func TestSQLiteRepositoryDeviceWebhookConfig_IgnoreGroupsClearsToNull(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-clear-ignore-groups"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+		JID:      "5511999990001@s.whatsapp.net",
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("unexpected error setting config: %v", err)
+	}
+
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    nil,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("unexpected error clearing config: %v", err)
+	}
+
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected WebhookIgnoreGroups back to nil after clearing, got %v", *cfg.WebhookIgnoreGroups)
+	}
+
+	rec, err := repo.GetDeviceRecordByJID("5511999990001@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("expected device record, got nil")
+	}
+	if rec.WebhookIgnoreGroups != nil {
+		t.Fatalf("expected WebhookIgnoreGroups nil via GetDeviceRecordByJID, got %v", *rec.WebhookIgnoreGroups)
+	}
+}
+
+// TestSQLiteRepositoryDeviceWebhookConfig_PreserveIsAtomicUnderConcurrency guards the
+// fix for the maintainer's second P1: PATCH /devices/:device_id/webhook used to resolve
+// an omitted webhook_ignore_groups by reading the stored value in Go and writing it back
+// as an explicit value, so a request that read the old value before a concurrent explicit
+// update could commit after it and clobber it with the stale value. The fix moves
+// preservation into the UPDATE statement itself (WebhookIgnoreGroupsSet=false takes the
+// CASE ... ELSE webhook_ignore_groups branch, carrying no value to go stale), so a
+// "preserve" write can never clobber a concurrent explicit write, in any interleaving.
+// This test fires many concurrent preserve writes against one concurrent explicit write
+// and asserts the explicit value always wins, regardless of goroutine scheduling.
+func TestSQLiteRepositoryDeviceWebhookConfig_PreserveIsAtomicUnderConcurrency(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	deviceID := "dev-concurrent-preserve"
+	if err := repo.SaveDeviceRecord(&domainChatStorage.DeviceRecord{
+		DeviceID: deviceID,
+	}); err != nil {
+		t.Fatalf("failed to seed device record: %v", err)
+	}
+
+	trueVal := true
+	if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+		WebhookIgnoreGroups:    &trueVal,
+		WebhookIgnoreGroupsSet: true,
+	}); err != nil {
+		t.Fatalf("failed to seed initial override: %v", err)
+	}
+
+	falseVal := false
+	const preservers = 25
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{
+			WebhookIgnoreGroups:    &falseVal,
+			WebhookIgnoreGroupsSet: true,
+		}); err != nil {
+			t.Errorf("explicit set failed: %v", err)
+		}
+	}()
+
+	for i := 0; i < preservers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			// Mirrors an omitted-field PATCH: no explicit value, WebhookIgnoreGroupsSet=false.
+			if err := repo.SetDeviceWebhookConfig(deviceID, &domainChatStorage.DeviceWebhookConfig{}); err != nil {
+				t.Errorf("preserve write failed: %v", err)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	cfg, err := repo.GetDeviceWebhookConfig(deviceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookIgnoreGroups == nil || *cfg.WebhookIgnoreGroups {
+		t.Fatalf("expected the single explicit write (false) to win over any number of concurrent preserve writes, got %v", cfg.WebhookIgnoreGroups)
+	}
 }

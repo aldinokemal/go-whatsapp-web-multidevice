@@ -209,6 +209,9 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		WebhookSecret             string  `json:"webhook_secret"`
 		WebhookEvents             string  `json:"webhook_events"`
 		WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify"`
+		// Tri-state: absent keeps the stored override, null clears it back to the
+		// global "@g.us" wildcard, true/false sets it for this device.
+		WebhookIgnoreGroups utils.Nullable[bool] `json:"webhook_ignore_groups"`
 	}
 
 	if err := c.Bind().Body(&req); err != nil {
@@ -229,15 +232,30 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 		})
 	}
 
+	// WebhookIgnoreGroups preservation ("omitted keeps the stored value") is applied
+	// atomically by the repository's update statement (WebhookIgnoreGroupsSet), not
+	// read here and written back -- a read-modify-write could race a concurrent
+	// explicit update and overwrite it with a stale value.
 	config := &chatstorage.DeviceWebhookConfig{
 		WebhookURL:                req.WebhookURL,
 		WebhookSecret:             req.WebhookSecret,
 		WebhookEvents:             req.WebhookEvents,
 		WebhookInsecureSkipVerify: req.WebhookInsecureSkipVerify,
+		WebhookIgnoreGroups:       req.WebhookIgnoreGroups.Ptr(),
+		WebhookIgnoreGroupsSet:    req.WebhookIgnoreGroups.Set,
 	}
 
 	err := handler.Service.SetDeviceWebhookConfig(c.Context(), deviceID, config)
 	utils.PanicIfNeeded(err)
+
+	ignoreGroups := config.WebhookIgnoreGroups
+	if !req.WebhookIgnoreGroups.Set {
+		// Report the value actually stored after the atomic preserve, not a value
+		// read before the write (which could already be stale by response time).
+		if current, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID); err == nil && current != nil {
+			ignoreGroups = current.WebhookIgnoreGroups
+		}
+	}
 
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -249,6 +267,7 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 			"webhook_secret":               req.WebhookSecret,
 			"webhook_events":               req.WebhookEvents,
 			"webhook_insecure_skip_verify": req.WebhookInsecureSkipVerify,
+			"webhook_ignore_groups":        ignoreGroups,
 		},
 	})
 }
@@ -288,6 +307,12 @@ func (handler *Device) GetDeviceWebhook(c fiber.Ctx) error {
 					return config.WebhookInsecureSkipVerify
 				}
 				return false
+			}(),
+			"webhook_ignore_groups": func() *bool {
+				if config != nil {
+					return config.WebhookIgnoreGroups
+				}
+				return nil
 			}(),
 		},
 	})

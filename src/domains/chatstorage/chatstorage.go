@@ -157,6 +157,7 @@ type DeviceRecord struct {
 	WebhookSecret             string    `db:"webhook_secret"`
 	WebhookEvents             string    `db:"webhook_events"`
 	WebhookInsecureSkipVerify bool      `db:"webhook_insecure_skip_verify"`
+	WebhookIgnoreGroups       *bool     `db:"webhook_ignore_groups"`
 	CreatedAt                 time.Time `db:"created_at"`
 	UpdatedAt                 time.Time `db:"updated_at"`
 }
@@ -167,6 +168,17 @@ type DeviceWebhookConfig struct {
 	WebhookSecret             string  `json:"webhook_secret,omitempty"`
 	WebhookEvents             string  `json:"webhook_events,omitempty"`
 	WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify,omitempty"`
+	// WebhookIgnoreGroups overrides WHATSAPP_WEBHOOK_IGNORE_JIDS's "@g.us" wildcard
+	// for this device specifically. nil means "never configured" — the resolver
+	// falls back to whether the global ignore list contains "@g.us".
+	WebhookIgnoreGroups *bool `json:"webhook_ignore_groups,omitempty"`
+	// WebhookIgnoreGroupsSet tells SetDeviceWebhookConfig whether WebhookIgnoreGroups
+	// carries an explicit value to write (true, false, or nil to clear) or should be
+	// left untouched at the stored value. It lets the repository apply the PATCH
+	// tri-state ("omitted preserves") atomically in the update statement itself,
+	// instead of the caller reading the current value first and writing it back --
+	// a read-modify-write that a concurrent update could race and overwrite.
+	WebhookIgnoreGroupsSet bool `json:"-"`
 }
 
 // MessageFilter represents query filters for messages
