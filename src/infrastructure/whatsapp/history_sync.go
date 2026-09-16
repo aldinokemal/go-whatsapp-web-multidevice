@@ -98,6 +98,10 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		deviceID = client.Store.ID.ToNonAD().String()
 	}
 
+	// The contact store is authoritative for chat names; the conversation's own
+	// DisplayName is not. The resolver caches contacts, so build it once.
+	chatNameResolver := NewChatDisplayNameResolver(ctx, client)
+
 	for _, conv := range conversations {
 		rawChatJID := conv.GetID()
 		if rawChatJID == "" {
@@ -115,7 +119,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		jid = NormalizeJIDFromLID(ctx, jid, client)
 		chatJID := jid.String()
 
-		displayName := conv.GetDisplayName()
+		displayName := conversationChatName(ctx, chatNameResolver, chatJID, jid, conv.GetDisplayName())
 
 		// Get or create chat
 		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
@@ -378,4 +382,28 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 	}
 
 	return nil
+}
+
+// conversationChatName picks the name to store for a synced conversation.
+//
+// A conversation's own DisplayName cannot be trusted for one-to-one chats: it
+// arrives empty for many of them, and for some it carries the account owner's
+// own push name, which then gets written as the name of somebody else's chat.
+// Neither is repairable later — the read path's resolver only replaces names
+// that look like a JID or a bare number, so an owner's name sticks forever, and
+// chat search filters on the stored name in SQL before any resolver runs, which
+// makes those contacts unsearchable.
+//
+// So ask the contact store first, passing no stored name so the resolver cannot
+// short-circuit on one. When it knows nobody it answers the bare user part,
+// which is no better than what we already have, so keep DisplayName then.
+func conversationChatName(ctx context.Context, resolver *ChatDisplayNameResolver, chatJID string, jid types.JID, displayName string) string {
+	if resolver == nil {
+		return displayName
+	}
+	resolved := resolver.Resolve(ctx, chatJID, "")
+	if resolved == "" || resolved == chatJID || resolved == jid.ToNonAD().User {
+		return displayName
+	}
+	return resolved
 }
