@@ -401,6 +401,12 @@ func conversationChatName(ctx context.Context, resolver *ChatDisplayNameResolver
 	if resolver == nil {
 		return displayName
 	}
+	// Only one-to-one chats are named from the contact store. Asking the resolver with
+	// no stored name makes it answer "Group <id>" / "Newsletter <id>" for those servers,
+	// which is strictly worse than the subject the conversation already carries.
+	if jid.Server == types.GroupServer || jid.Server == types.NewsletterServer {
+		return displayName
+	}
 	resolved := resolver.Resolve(ctx, chatJID, "")
 	if resolved == "" || resolved == chatJID || resolved == jid.ToNonAD().User {
 		return displayName

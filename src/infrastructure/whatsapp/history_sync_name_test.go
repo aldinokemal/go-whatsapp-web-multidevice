@@ -7,7 +7,9 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-type nameContactsSpy struct{ contacts map[types.JID]types.ContactInfo }
+type nameContactsSpy struct {
+	contacts map[types.JID]types.ContactInfo
+}
 
 func (s nameContactsSpy) GetContact(_ context.Context, jid types.JID) (types.ContactInfo, error) {
 	return s.contacts[jid], nil
@@ -48,5 +50,28 @@ func TestConversationChatNameWithoutResolver(t *testing.T) {
 	jid := types.NewJID("5491100000000", types.DefaultUserServer)
 	if got := conversationChatName(context.Background(), nil, jid.String(), jid, "Some Label"); got != "Some Label" {
 		t.Fatalf("nil resolver should be a no-op: got %q", got)
+	}
+}
+
+// Groups and newsletters carry their real subject in DisplayName. Asking the resolver
+// with no stored name answers "Group <id>" / "Newsletter <id>", so those servers must
+// never reach it.
+func TestConversationChatNameKeepsDisplayNameForGroupAndNewsletter(t *testing.T) {
+	resolver := newChatDisplayNameResolver(nameContactsSpy{contacts: map[types.JID]types.ContactInfo{}}, nil)
+
+	for _, tc := range []struct {
+		name        string
+		jid         types.JID
+		displayName string
+	}{
+		{"group", types.NewJID("120363012345678901", types.GroupServer), "Family Group"},
+		{"newsletter", types.NewJID("120363111111111111", types.NewsletterServer), "Tech Channel"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := conversationChatName(context.Background(), resolver, tc.jid.String(), tc.jid, tc.displayName)
+			if got != tc.displayName {
+				t.Fatalf("expected %q to be kept for %s, got %q", tc.displayName, tc.jid, got)
+			}
+		})
 	}
 }
