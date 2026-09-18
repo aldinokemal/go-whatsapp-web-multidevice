@@ -1903,8 +1903,17 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
 	}
 
+	// PushName belongs to the sender. For messages sent from this account, using
+	// it as the peer chat name would label the recipient with our own name.
+	chatNameSenderUser := normalizedSender.User
+	chatNamePushName := evt.Info.PushName
+	if evt.Info.IsFromMe {
+		chatNameSenderUser = normalizedChatJID.User
+		chatNamePushName = ""
+	}
+
 	// Get appropriate chat name using pushname if available (device-scoped)
-	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, normalizedSender.User, evt.Info.PushName)
+	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, chatNameSenderUser, chatNamePushName)
 
 	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
