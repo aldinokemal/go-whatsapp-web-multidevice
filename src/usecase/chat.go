@@ -458,19 +458,11 @@ func (service serviceChat) RequestChatHistory(ctx context.Context, request domai
 		return response, err
 	}
 
-	senderJID := targetJID
-	if parsed, parseErr := types.ParseJID(oldest.Sender); parseErr == nil {
-		senderJID = parsed
-	} else if oldest.IsFromMe && client.Store != nil && client.Store.ID != nil {
-		senderJID = client.Store.ID.ToNonAD()
-	}
-
+	// BuildHistorySyncRequest reads only Chat, ID, IsFromMe and Timestamp.
 	anchor := &types.MessageInfo{
 		MessageSource: types.MessageSource{
 			Chat:     targetJID,
-			Sender:   senderJID,
 			IsFromMe: oldest.IsFromMe,
-			IsGroup:  targetJID.Server == types.GroupServer,
 		},
 		ID:        oldest.ID,
 		Timestamp: oldest.Timestamp,

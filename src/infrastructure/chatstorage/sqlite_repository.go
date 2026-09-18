@@ -2804,5 +2804,7 @@ func (r *SQLiteRepository) getMigrations() []string {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (device_id, chat_jid, poll_message_id)
 		)`,
+		// Migration 45: Anchor on-demand history sync without sorting the whole chat
+		`CREATE INDEX IF NOT EXISTS idx_messages_chat_device_timestamp ON messages(chat_jid, device_id, timestamp)`,
 	}
 }

@@ -312,6 +312,12 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 						chat.LastMessageTime = existing.LastMessageTime
 					}
 					chat.Archived = existing.Archived
+					// An on-demand chunk carries no ephemeral setting, so a zero
+					// here means "not reported", not "disappearing messages off".
+					// Same rule the live message path uses.
+					if chat.EphemeralExpiration == 0 {
+						chat.EphemeralExpiration = existing.EphemeralExpiration
+					}
 				}
 			}
 

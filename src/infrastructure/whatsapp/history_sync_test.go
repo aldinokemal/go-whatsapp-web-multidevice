@@ -169,7 +169,8 @@ func TestProcessHistorySyncRoutesOnDemandToConversationMessages(t *testing.T) {
 // TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata pins the
 // on-demand chat-metadata regression: HISTORY_SYNC_ON_DEMAND carries messages
 // older than the local anchor, so its batch timestamp must never move an
-// already-newer LastMessageTime backward, nor unarchive an archived chat.
+// already-newer LastMessageTime backward, unarchive an archived chat, nor
+// clear the disappearing-messages timer the chunk does not report.
 func TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata(t *testing.T) {
 	originalLog := log
 	log = waLog.Noop
@@ -180,10 +181,11 @@ func TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata(t *testin
 	existingLastMessageTime := time.Date(2026, time.September, 6, 12, 0, 0, 0, time.UTC)
 	repo := &historyMessageBatchRepoSpy{
 		existingChat: &domainChatStorage.Chat{
-			DeviceID:        deviceID,
-			JID:             chatJID,
-			LastMessageTime: existingLastMessageTime,
-			Archived:        true,
+			DeviceID:            deviceID,
+			JID:                 chatJID,
+			LastMessageTime:     existingLastMessageTime,
+			Archived:            true,
+			EphemeralExpiration: 604800,
 		},
 	}
 	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
@@ -217,6 +219,9 @@ func TestProcessConversationMessagesOnDemandPreservesNewerChatMetadata(t *testin
 	}
 	if !repo.lastStoredChat.Archived {
 		t.Fatal("expected Archived to remain true after on-demand sync")
+	}
+	if repo.lastStoredChat.EphemeralExpiration != 604800 {
+		t.Fatalf("expected EphemeralExpiration to stay at 604800, got %d", repo.lastStoredChat.EphemeralExpiration)
 	}
 }
 
