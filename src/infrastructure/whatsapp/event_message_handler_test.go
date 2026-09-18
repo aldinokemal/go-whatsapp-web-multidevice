@@ -289,3 +289,58 @@ func reactionEventForTest(eventID, targetID, emoji string) *events.Message {
 		},
 	}
 }
+
+func TestShouldIgnoreImageDownload(t *testing.T) {
+	tests := []struct {
+		name              string
+		autoDownloadMedia bool
+		ignoreStatusMedia bool
+		chatJID           types.JID
+		expected          bool
+	}{
+		{
+			name:              "auto download disabled",
+			autoDownloadMedia: false,
+			ignoreStatusMedia: false,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          true,
+		},
+		{
+			name:              "status media ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          true,
+		},
+		{
+			name:              "normal broadcast list not ignored when status ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.NewJID("123456789", types.BroadcastServer),
+			expected:          false,
+		},
+		{
+			name:              "status media downloaded when ignore disabled",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: false,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          false,
+		},
+		{
+			name:              "normal user chat not ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.NewJID("123456789", types.DefaultUserServer),
+			expected:          false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldIgnoreImageDownload(tt.autoDownloadMedia, tt.ignoreStatusMedia, tt.chatJID)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
