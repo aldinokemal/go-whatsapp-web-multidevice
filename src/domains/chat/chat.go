@@ -93,6 +93,20 @@ type SetDisappearingTimerResponse struct {
 	TimerSeconds uint32 `json:"timer_seconds"`
 }
 
+// RequestChatHistory operations (on-demand history sync)
+type RequestChatHistoryRequest struct {
+	ChatJID string `json:"chat_jid" uri:"chat_jid"`
+	Count   int    `json:"count"`
+}
+
+type RequestChatHistoryResponse struct {
+	Status          string `json:"status"`
+	ChatJID         string `json:"chat_jid"`
+	RequestedCount  int    `json:"requested_count"`
+	AnchorMessageID string `json:"anchor_message_id"`
+	AnchorTimestamp string `json:"anchor_timestamp"`
+}
+
 // Archive Chat operations
 type ArchiveChatRequest struct {
 	ChatJID  string `json:"chat_jid" uri:"chat_jid"`
