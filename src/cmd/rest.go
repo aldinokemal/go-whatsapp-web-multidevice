@@ -182,16 +182,19 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup.Delete("/devices/:device_id/chatwoot/config", chatwootHandler.DeleteChatwootConfig)
 	}
 
-	// Device-scoped operations (header-based)
-	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
-	registerDeviceScopedRoutes(headerDeviceGroup)
-
 	// Dashboard: gowa-ui is a separate project released as one HTML file;
 	// serve the runtime-downloaded copy at "/" (behind basic auth like the
 	// rest of the API surface).
 	uiCtx, uiCancel := context.WithCancel(context.Background())
 	defer uiCancel()
 	registerUIRoute(apiGroup, uiCtx)
+
+	// Device-scoped operations (header-based). This must stay the LAST
+	// registration on apiGroup: Group("") registers a root "use" route that
+	// matches every path, so DeviceMiddleware would also run for anything
+	// mounted after it. TestDeviceGroupIsRegisteredLast pins the order.
+	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	go websocket.RunHub()
 

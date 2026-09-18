@@ -82,7 +82,12 @@ func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJI
 	if !autoDownloadMedia {
 		return true
 	}
-	if ignoreStatusMedia && chatJID == types.StatusBroadcastJID {
+	// Match on the JID's shape rather than struct equality: whatsmeow's
+	// broadcast branch assigns source.Chat without ToNonAD(), so a
+	// device-qualified status JID would not compare equal to
+	// types.StatusBroadcastJID. IsBroadcastList() is defined as "broadcast
+	// server and user != status", so negating it selects exactly status.
+	if ignoreStatusMedia && chatJID.Server == types.BroadcastServer && !chatJID.IsBroadcastList() {
 		return true
 	}
 	return false

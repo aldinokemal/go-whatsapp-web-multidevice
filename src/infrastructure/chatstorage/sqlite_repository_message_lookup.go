@@ -44,7 +44,7 @@ func (r *SQLiteRepository) GetOldestMessageByDevice(deviceID, chatJID string) (*
 			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
 		FROM messages
 		WHERE chat_jid = ? AND device_id = ? AND (media_type IS NULL OR media_type != 'call')
-		ORDER BY timestamp ASC
+		ORDER BY timestamp ASC, id ASC
 		LIMIT 1
 	`
 

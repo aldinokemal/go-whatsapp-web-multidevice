@@ -333,6 +333,15 @@ func TestShouldIgnoreImageDownload(t *testing.T) {
 			chatJID:           types.NewJID("123456789", types.DefaultUserServer),
 			expected:          false,
 		},
+		{
+			// whatsmeow's broadcast branch does not ToNonAD() source.Chat, so
+			// the status JID can arrive device-qualified and must still match.
+			name:              "device-qualified status jid ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.JID{User: "status", Server: types.BroadcastServer, Device: 1},
+			expected:          true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -2664,10 +2664,10 @@ paths:
                 count:
                   type: integer
                   default: 50
-                  minimum: 1
+                  minimum: 0
                   maximum: 500
                   example: 50
-                  description: Number of older messages to request from the phone
+                  description: Number of older messages to request from the phone. Omit it, or send 0, to use the default of 50.
       responses:
         '200':
           description: OK

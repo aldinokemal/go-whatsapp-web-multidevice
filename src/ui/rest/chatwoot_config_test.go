@@ -396,4 +396,3 @@ func TestChatwootConfigMultiDeviceNoDeviceMiddlewareLeak(t *testing.T) {
 		}
 	})
 }
-
