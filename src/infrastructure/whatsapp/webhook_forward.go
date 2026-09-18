@@ -124,7 +124,15 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	var globalURLs []string
 	if config.WhatsappWebhookDeviceMergeGlobal && webhookConfig != nil && jidAllowed &&
 		isEventWhitelistedForDevice(eventName, nil) {
-		globalURLs = globalWebhookURLsExcluding(webhookURLs)
+		// Only dedup against the device URLs when the device leg is actually going to
+		// deliver. A global URL that happens to equal the device URL is still a global
+		// subscription: if the device's own event filter rejects this event, excluding
+		// it here would drop the event entirely for a target the global config accepts.
+		deviceURLs := webhookURLs
+		if !webhookAllowed {
+			deviceURLs = nil
+		}
+		globalURLs = globalWebhookURLsExcluding(deviceURLs)
 	}
 	globalAllowed := len(globalURLs) > 0
 
@@ -142,14 +150,32 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		addWebhookSessionID(payload)
 	}
 
+	// Run the two legs concurrently. They share the caller's deadline, and each URL
+	// can spend up to ~15s in retry backoff, so running the device leg first would
+	// let one slow endpoint consume the whole budget and leave the global leg a dead
+	// context — precisely the silent drop this flag exists to prevent. Both legs only
+	// read the payload from here on, so sharing it is safe.
+	var (
+		globalErr  error
+		globalDone chan struct{}
+	)
+	if globalAllowed {
+		globalDone = make(chan struct{})
+		go func() {
+			defer close(globalDone)
+			globalErr = forwardToWebhooks(ctx, payload, eventName, globalURLs, nil)
+		}()
+	}
+
 	var webhookErr error
 	if webhookAllowed {
 		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs, webhookConfig)
-	} else {
+	} else if chatwootAllowed {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
+
 	if globalAllowed {
-		globalErr := forwardToWebhooks(ctx, payload, eventName, globalURLs, nil)
+		<-globalDone
 		// Same contract as forwardToWebhooks: only report failure when every
 		// target that was attempted failed.
 		switch {

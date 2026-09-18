@@ -88,7 +88,15 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 		}
 		logrus.Warnf("Attempt %d to submit webhook failed: %v", attempt+1, err)
 		if attempt < maxAttempts-1 {
-			time.Sleep(sleepDuration)
+			// Wait on the caller's context, not the wall clock. A plain Sleep here
+			// spends the full 1+2+4+8s of backoff even once the deadline has passed,
+			// so a single unreachable endpoint could overrun the caller's budget and
+			// starve whatever the caller still had to do.
+			select {
+			case <-ctx.Done():
+				return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt+1, ctx.Err()))
+			case <-time.After(sleepDuration):
+			}
 			sleepDuration *= 2
 		}
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -18,7 +20,7 @@ type mergeDelivery struct {
 // runDeviceMergeForward runs the forwarder for a device that has its own webhook
 // (deviceURL / deviceEvents) while the global config holds globalURLs, and reports
 // every delivery attempted together with the secret each one was signed with.
-func runDeviceMergeForward(t *testing.T, merge bool, globalURLs []string, globalEvents []string, deviceURL, deviceEvents, eventName string, failURLs map[string]bool) ([]mergeDelivery, error) {
+func runDeviceMergeForward(t *testing.T, merge bool, globalURLs []string, globalEvents []string, deviceURL, deviceEvents, eventName string, failURLs map[string]bool, ignoreJids ...string) ([]mergeDelivery, error) {
 	t.Helper()
 
 	originalWebhooks := config.WhatsappWebhook
@@ -27,7 +29,7 @@ func runDeviceMergeForward(t *testing.T, merge bool, globalURLs []string, global
 	originalMerge := config.WhatsappWebhookDeviceMergeGlobal
 	config.WhatsappWebhook = globalURLs
 	config.WhatsappWebhookEvents = globalEvents
-	config.WhatsappWebhookIgnoreJids = nil
+	config.WhatsappWebhookIgnoreJids = ignoreJids
 	config.WhatsappWebhookDeviceMergeGlobal = merge
 	defer func() {
 		config.WhatsappWebhook = originalWebhooks
@@ -48,14 +50,20 @@ func runDeviceMergeForward(t *testing.T, merge bool, globalURLs []string, global
 	}
 	defer func() { webhookStorageForTest = originalStorage }()
 
-	var deliveries []mergeDelivery
+	// The device and global legs run concurrently, so the recorder is shared state.
+	var (
+		mu         sync.Mutex
+		deliveries []mergeDelivery
+	)
 	originalSubmit := submitWebhookFn
 	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, cfg *domainChatStorage.DeviceWebhookConfig) error {
 		secret := "global-secret"
 		if cfg != nil {
 			secret = cfg.WebhookSecret
 		}
+		mu.Lock()
 		deliveries = append(deliveries, mergeDelivery{url: url, secret: secret})
+		mu.Unlock()
 		if failURLs[url] {
 			return errors.New("boom")
 		}
@@ -140,5 +148,89 @@ func TestWebhookDeviceMerge_ErrorOnlyWhenEveryLegFails(t *testing.T) {
 	_, err = runDeviceMergeForward(t, true, []string{"https://global-a"}, nil, "https://device", "", "message", map[string]bool{"https://device": true, "https://global-a": true})
 	if err == nil {
 		t.Fatal("expected an error when both the device and global deliveries fail")
+	}
+}
+
+// The ignore list gates both legs, so an ignored JID must silence the device and the
+// global targets alike rather than leaking the event to the global hub.
+func TestWebhookDeviceMerge_IgnoredJIDSuppressesBothLegs(t *testing.T) {
+	deliveries, err := runDeviceMergeForward(t, true, []string{"https://global-a"}, nil, "https://device", "", "message", nil, "628111@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deliveries) != 0 {
+		t.Fatalf("expected an ignored JID to suppress both legs, got %+v", deliveries)
+	}
+}
+
+// A global URL that happens to equal the device URL is still a global subscription.
+// When the device's own event filter rejects the event, the device leg delivers
+// nothing, so excluding that URL from the global leg would drop the event entirely
+// for a target the global config accepts.
+func TestWebhookDeviceMerge_SharedURLStillDeliversWhenDeviceFilterRejects(t *testing.T) {
+	deliveries, err := runDeviceMergeForward(t, true, []string{"https://hub"}, nil, "https://hub", "message", "message.ack", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].url != "https://hub" || deliveries[0].secret != "global-secret" {
+		t.Fatalf("expected the shared URL to be delivered once with the global secret, got %+v", deliveries)
+	}
+}
+
+// Both legs share the caller's deadline, and a single endpoint can spend seconds in
+// retry backoff. Running them sequentially let a slow device endpoint consume the whole
+// budget and silently starve the global hub, which is the failure this flag exists to
+// prevent — so the global leg must not wait on the device leg.
+func TestWebhookDeviceMerge_SlowDeviceLegDoesNotStarveGlobalLeg(t *testing.T) {
+	originalWebhooks := config.WhatsappWebhook
+	originalEvents := config.WhatsappWebhookEvents
+	originalIgnore := config.WhatsappWebhookIgnoreJids
+	originalMerge := config.WhatsappWebhookDeviceMergeGlobal
+	config.WhatsappWebhook = []string{"https://global"}
+	config.WhatsappWebhookEvents = nil
+	config.WhatsappWebhookIgnoreJids = nil
+	config.WhatsappWebhookDeviceMergeGlobal = true
+	defer func() {
+		config.WhatsappWebhook = originalWebhooks
+		config.WhatsappWebhookEvents = originalEvents
+		config.WhatsappWebhookIgnoreJids = originalIgnore
+		config.WhatsappWebhookDeviceMergeGlobal = originalMerge
+	}()
+
+	originalStorage := webhookStorageForTest
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		url := "https://device"
+		return &domainChatStorage.DeviceRecord{DeviceID: deviceJID, WebhookURL: &url, WebhookSecret: "device-secret"}, nil
+	}
+	defer func() { webhookStorageForTest = originalStorage }()
+
+	globalDelivered := make(chan struct{})
+	releaseDevice := make(chan struct{})
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		if url == "https://device" {
+			// Stands in for an endpoint stuck in retry backoff.
+			<-releaseDevice
+			return nil
+		}
+		close(globalDelivered)
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	payload := ignoreJidPayload("628111@s.whatsapp.net", "628111@s.whatsapp.net")
+	done := make(chan error, 1)
+	go func() { done <- forwardPayloadToConfiguredWebhooks(context.Background(), payload, "message") }()
+
+	select {
+	case <-globalDelivered:
+	case <-time.After(2 * time.Second):
+		close(releaseDevice)
+		t.Fatal("global leg never ran while the device leg was blocked")
+	}
+	close(releaseDevice)
+
+	if err := <-done; err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
