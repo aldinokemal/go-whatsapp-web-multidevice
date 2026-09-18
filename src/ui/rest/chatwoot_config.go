@@ -202,7 +202,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 	// param so a config orphaned by device removal stays deletable.
 	deviceID, ok := h.resolveConfigDeviceID(c)
 	if !ok {
-		deviceID = strings.TrimSpace(c.Params("device_id"))
+		deviceID = pathDeviceID(c)
 	}
 	if deviceID == "" {
 		return utils.ResponseError(c, "device_id is required")
@@ -233,7 +233,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 // request. Handlers persist this id (config rows, registry cache), so an
 // uncopied value would mutate under the next request.
 func (h *ChatwootHandler) resolveConfigDeviceID(c fiber.Ctx) (string, bool) {
-	deviceID := strings.TrimSpace(c.Params("device_id"))
+	deviceID := pathDeviceID(c)
 	if deviceID == "" || h.DeviceManager == nil {
 		return "", false
 	}
