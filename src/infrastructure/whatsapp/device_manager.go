@@ -208,24 +208,29 @@ func (m *DeviceManager) resolveDeviceForPurge(deviceID string) (*DeviceInstance,
 
 // nonADJIDClaimedByOtherSlot reports whether another registered slot still uses the
 // same bare-number JID for chat-storage partitioning (companion slots on one number).
-func (m *DeviceManager) nonADJIDClaimedByOtherSlot(excludeSlotID, nonADJID string) bool {
+//
+// excludeSlotID is compared verbatim: slots are stored under the id as supplied, so
+// trimming it here would stop a padded id such as " sales " from matching its own
+// record, and the slot would then read as somebody else's claim on its own number.
+//
+// A lookup failure is returned rather than swallowed. The caller cannot tell "claimed"
+// from "could not tell" otherwise, and would drop the partition while reporting success.
+func (m *DeviceManager) nonADJIDClaimedByOtherSlot(excludeSlotID, nonADJID string) (bool, error) {
 	nonADJID = strings.TrimSpace(nonADJID)
-	excludeSlotID = strings.TrimSpace(excludeSlotID)
 	if nonADJID == "" {
-		return false
+		return false, nil
 	}
 	if m.storage != nil {
 		records, err := m.storage.ListDeviceRecords()
 		if err != nil {
-			logrus.WithError(err).Warn("[DEVICE_MANAGER] failed to list device records while checking shared JID partitions")
-			return true
+			return true, err
 		}
 		for _, rec := range records {
 			if rec == nil || rec.DeviceID == excludeSlotID {
 				continue
 			}
 			if strings.TrimSpace(rec.JID) == nonADJID {
-				return true
+				return true, nil
 			}
 		}
 	}
@@ -236,10 +241,10 @@ func (m *DeviceManager) nonADJIDClaimedByOtherSlot(excludeSlotID, nonADJID strin
 			continue
 		}
 		if strings.TrimSpace(inst.JID()) == nonADJID {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func (m *DeviceManager) RemoveDevice(id string) {
@@ -354,10 +359,15 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	if m.storage != nil {
 		partitionKeys := []string{resolvedID}
 		if jidKey := strings.TrimSpace(inst.JID()); jidKey != "" && jidKey != resolvedID {
-			if !m.nonADJIDClaimedByOtherSlot(resolvedID, jidKey) {
-				partitionKeys = append(partitionKeys, jidKey)
-			} else {
+			claimed, err := m.nonADJIDClaimedByOtherSlot(resolvedID, jidKey)
+			switch {
+			case err != nil:
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to check shared chatstorage partition %s for slot %s", jidKey, resolvedID)
+				recordErr(err)
+			case claimed:
 				logrus.Warnf("[DEVICE_MANAGER] skipping shared chatstorage partition %s for slot %s (another slot still claims this number)", jidKey, resolvedID)
+			default:
+				partitionKeys = append(partitionKeys, jidKey)
 			}
 		}
 		for _, key := range partitionKeys {

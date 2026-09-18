@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type keepSlotStubStorage struct {
 	domainChatStorage.IChatStorageRepository
 	saveErr        error
 	deleteDataErr  error
+	listRecordsErr error
 	savedRecords   []*domainChatStorage.DeviceRecord
 	deviceRecords  []*domainChatStorage.DeviceRecord
 	deletedData    []string
@@ -52,7 +54,7 @@ func (s *keepSlotStubStorage) GetChatwootDeviceConfig(string) (*domainChatStorag
 }
 
 func (s *keepSlotStubStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
-	return s.deviceRecords, nil
+	return s.deviceRecords, s.listRecordsErr
 }
 
 // assertStoreLacksJID fails if any device row in the container still matches the given
@@ -486,4 +488,50 @@ func TestRemoteLogoutCallback_KeepsSlot(t *testing.T) {
 	}
 	assertStoreLacksJID(t, ctx, primaryStore, nonAD)
 	assertStoreLacksJID(t, ctx, keysStore, nonAD)
+}
+
+// A slot id is stored exactly as supplied, padding included. The shared-JID guard must
+// therefore compare it verbatim: trimming it would stop " sales " from matching its own
+// record, the slot would read as another claim on its own number, and its chat partition
+// would survive a purge that reported success.
+func TestPurgeDevice_PaddedSlotIDStillDeletesItsOwnJIDPartition(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = " sales "
+	nonAD := "6281700000001@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+	storage.deviceRecords = []*domainChatStorage.DeviceRecord{{DeviceID: slotID, JID: nonAD}}
+
+	if err := manager.PurgeDevice(ctx, slotID); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if !slices.Contains(storage.deletedData, nonAD) {
+		t.Fatalf("expected JID partition %q to be deleted for sole slot %q, got deletes %v", nonAD, slotID, storage.deletedData)
+	}
+}
+
+// A failed lookup is not evidence that another slot claims the number. Skipping the
+// partition is the safe response, but it must surface as an error so the slot stays
+// registered and DELETE can be retried rather than reporting a success that lost data.
+func TestPurgeDevice_SurfacesSharedJIDLookupFailureAndKeepsSlot(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{listRecordsErr: errors.New("database is locked")}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "solo"
+	nonAD := "6281700000002@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+
+	err := manager.PurgeDevice(ctx, slotID)
+	if err == nil {
+		t.Fatal("expected PurgeDevice to surface the shared-JID lookup failure, got nil")
+	}
+	if slices.Contains(storage.deletedData, nonAD) {
+		t.Fatalf("expected JID partition %q to be skipped when the claim check failed, got deletes %v", nonAD, storage.deletedData)
+	}
+	if _, ok := manager.GetDevice(slotID); !ok {
+		t.Fatal("expected slot to remain registered so the purge can be retried")
+	}
 }
