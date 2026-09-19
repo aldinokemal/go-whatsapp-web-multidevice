@@ -1,7 +1,7 @@
 # Chatwoot integration
 
-Use [configuration and routing docs](../../../docs/chatwoot.md) for integration
-changes. `client.go` owns REST calls, `provision.go` inbox setup,
+Use [configuration and routing docs](../../../docs/chatwoot.md) when changing setup,
+routing modes, or import configuration. `client.go` owns REST calls, `provision.go` inbox setup,
 `client_registry.go` destination routing, and `sync.go` history orchestration.
 Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
 

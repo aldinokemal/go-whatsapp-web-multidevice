@@ -6,10 +6,12 @@ enabled; both transports share the same device manager and usecases.
 
 ## Working scope and completion
 
-- Read the nearest scoped `AGENTS.md` and the source relevant to the task. Use the
-  entry points below as needed; a small edit does not require a full repository tour.
-- Continue authorized local edits, checks, and fixes until the requested behavior
-  is verified or a concrete blocker remains. Report the result, checks, and limitations.
+- Use the applicable scoped `AGENTS.md` and task-relevant source. The entry points
+  below are routing hints; follow the ones needed for the affected behavior.
+- For multi-step work, identify the requested outcome and how to verify it. Continue
+  through implementation, relevant checks, and fixes caused by the change. When the
+  request includes running or inspecting the result, include that in completion.
+  If blocked, report what remains and the specific missing input or access.
 - Preserve unrelated working-tree changes. Keep `.env`, SQLite databases, session
   data, QR codes, generated media, and history dumps out of commits.
 - Local tests using temporary databases, mocks, and fake clients can be run and
@@ -19,15 +21,16 @@ enabled; both transports share the same device manager and usecases.
 
 ## Task entry points
 
-- API contracts and business behavior: [domains](src/domains/AGENTS.md),
-  [usecases](src/usecase/AGENTS.md), and [validation](src/validations/AGENTS.md).
+- DTOs and interfaces: [domains](src/domains/AGENTS.md). Business orchestration:
+  [usecases](src/usecase/AGENTS.md). Input rules: [validation](src/validations/AGENTS.md).
 - REST, MCP, and websocket transport: [UI adapters](src/ui/AGENTS.md). For MCP
   authentication, use [the OAuth guide](docs/mcp-oauth.md).
 - Device lifecycle, events, JIDs, and presence: [WhatsApp infrastructure](src/infrastructure/whatsapp/AGENTS.md).
   For webhook payload changes, consult [the payload contract](docs/webhook-payload.md).
 - SQL queries, migrations, and cleanup: [chat storage](src/infrastructure/chatstorage/AGENTS.md).
-- Chatwoot routing, live sync, and history: [Chatwoot infrastructure](src/infrastructure/chatwoot/AGENTS.md)
-  and [configuration](docs/chatwoot.md). Direct Postgres changes have a [scoped guide](src/infrastructure/chatwoot/pgimport/AGENTS.md).
+- Chatwoot routing, live sync, and history: [Chatwoot infrastructure](src/infrastructure/chatwoot/AGENTS.md).
+  Setup or routing-mode changes: [configuration](docs/chatwoot.md).
+  Direct Postgres changes: [scoped guide](src/infrastructure/chatwoot/pgimport/AGENTS.md).
 - Embedded browser UI: `src/views/components/` and `src/views/index.html`. These are
   plain Vue 3 modules loaded from CDN, with Fomantic UI and `[[`, `]]` delimiters.
 - Startup and configuration: `src/cmd/root.go`, `src/cmd/rest.go`,
@@ -56,23 +59,25 @@ enabled; both transports share the same device manager and usecases.
 
 ## Local commands and validation
 
-Run Go commands from `src/`:
+Run Go commands from `src/`; select checks for the affected behavior:
 
 ```sh
 go test ./path/to/affected/package/...
 go test ./...
 go vet ./...
 go build -o whatsapp .
-go run . rest
 ```
 
 Choose checks for the changed behavior. Use the full suite for shared contracts,
-startup, or broad changes; repeat checks when edits or failures justify it. For
-Markdown-only changes, check the diff and references; application tests are unnecessary.
+startup, or broad changes. After relevant checks pass, repeat or broaden them only
+for new edits, failures, or unresolved risks. For Markdown-only changes, check the
+diff and references; application tests are unnecessary. Report checks actually run
+and any unverified behavior.
 Default SQLite builds use CGO; `-tags purego` selects `modernc.org/sqlite` when that
 build variant is relevant. Run `go mod tidy` when changing dependencies.
 
-Runtime paths are relative to the process directory. Direct runs use `src/storages`
+For an authorized runtime check, `go run . rest` starts the server. Runtime paths
+are relative to the process directory. Direct runs use `src/storages`
 and `src/statics`; Docker Compose mounts the root-level directories into `/app`.
 Keep these paths excluded from hot reload in `src/.air.toml`. The Docker entrypoint
 fixes volume ownership before dropping to `gowauser`.
