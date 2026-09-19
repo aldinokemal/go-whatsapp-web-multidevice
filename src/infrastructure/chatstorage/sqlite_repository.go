@@ -2348,6 +2348,71 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 	return r.StoreMessage(message)
 }
 
+// GetCallRecords retrieves stored call records (synthetic messages with
+// media_type "call") newest first, together with the unpaginated total.
+func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFilter) ([]*domainChatStorage.Message, int64, error) {
+	if filter == nil || filter.DeviceID == "" {
+		return nil, 0, fmt.Errorf("device_id is required for call record queries (data isolation)")
+	}
+
+	conditions := []string{"device_id = ?", "media_type = 'call'"}
+	args := []any{filter.DeviceID}
+
+	if filter.ChatJID != "" {
+		conditions = append(conditions, "chat_jid = ?")
+		args = append(args, filter.ChatJID)
+	}
+
+	whereClause := " WHERE " + strings.Join(conditions, " AND ")
+
+	total, err := r.getCount("SELECT COUNT(*) FROM messages"+whereClause, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+		FROM messages` + whereClause + `
+		ORDER BY timestamp DESC, id DESC
+	`
+
+	if filter.Limit > 0 {
+		if filter.Limit > 1000 {
+			filter.Limit = 1000
+		}
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+
+		if filter.Offset > 0 {
+			query += " OFFSET ?"
+			args = append(args, filter.Offset)
+		}
+	}
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var messages []*domainChatStorage.Message
+	for rows.Next() {
+		message, err := r.scanMessage(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		messages = append(messages, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return messages, total, nil
+}
+
 // GetStorageStatistics returns current storage statistics for logging purposes
 func (r *SQLiteRepository) GetStorageStatistics() (chatCount int64, messageCount int64, err error) {
 	// Count all chats using efficient query
