@@ -528,3 +528,43 @@ func TestSendForwardUnsupportedType(t *testing.T) {
 		t.Fatalf("error = %q, want %q", genericErr.Error(), utils.ErrUnsupportedForwardType)
 	}
 }
+
+// A sender persisted before senders were normalised on the way in still carries
+// AD/device identity. The quote reader must not trust it: a device-suffixed JID
+// matches no participant of a chat, so the recipient cannot attribute the quote.
+func TestMergeReplyContextNormalizesALegacyDeviceSuffixedSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{
+			Sender:  "628123456789:32@s.whatsapp.net", // written before the fix
+			Content: "quoted message body",
+		},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "628123456789@s.whatsapp.net" {
+		t.Fatalf("expected the stored sender to be normalized, got %q", got.GetParticipant())
+	}
+}
+
+// A stored value that will not parse must pass through rather than be dropped:
+// a wrong participant is recoverable, an empty one loses the quote entirely.
+func TestMergeReplyContextPassesThroughAnUnparseableSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{Sender: "not-a-jid", Content: "body"},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "not-a-jid" {
+		t.Fatalf("expected the raw sender to survive, got %q", got.GetParticipant())
+	}
+}
