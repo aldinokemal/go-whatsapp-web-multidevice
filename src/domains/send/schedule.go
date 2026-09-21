@@ -46,11 +46,28 @@ type Schedule struct {
 }
 
 type ScheduleFilter struct {
-	Status string `json:"status,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Search      string `json:"search,omitempty"`
+	MessageType string `json:"message_type,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
+}
+
+// PaginationResponse mirrors the chat list envelope so both list endpoints
+// page the same way.
+type PaginationResponse struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
+}
+
+type ScheduleListResponse struct {
+	Data       []Schedule         `json:"data"`
+	Pagination PaginationResponse `json:"pagination"`
 }
 
 type IScheduleUsecase interface {
-	List(ctx context.Context, filter ScheduleFilter) ([]Schedule, error)
+	List(ctx context.Context, filter ScheduleFilter) (ScheduleListResponse, error)
 	Get(ctx context.Context, id string) (*Schedule, error)
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error

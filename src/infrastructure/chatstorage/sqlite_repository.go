@@ -1585,21 +1585,54 @@ func (r *SQLiteRepository) CreateScheduledSend(job *domainChatStorage.ScheduledS
 	return err
 }
 
-func (r *SQLiteRepository) ListScheduledSends(deviceID, status string) ([]*domainChatStorage.ScheduledSend, error) {
-	if strings.TrimSpace(deviceID) == "" {
+// scheduledSendScope builds the shared WHERE clause so the list and the count
+// can never drift out of agreement on what a page is counted against.
+func scheduledSendScope(filter domainChatStorage.ScheduledSendFilter) (string, []any) {
+	clause := " WHERE device_id = ?"
+	args := []any{filter.DeviceID}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		clause += " AND status = ?"
+		args = append(args, status)
+	}
+	if messageType := strings.TrimSpace(filter.MessageType); messageType != "" {
+		clause += " AND message_type = ?"
+		args = append(args, messageType)
+	}
+	// One box over both columns: people look for a schedule either by who it
+	// goes to or by what it says.
+	if search := strings.TrimSpace(filter.Search); search != "" {
+		pattern := "%" + search + "%"
+		clause += " AND (phone LIKE ? OR summary LIKE ?)"
+		args = append(args, pattern, pattern)
+	}
+	return clause, args
+}
+
+// A limit of zero or less returns every row: the recurrence worker lists a
+// device's whole queue, and only the API pages.
+func (r *SQLiteRepository) ListScheduledSends(filter domainChatStorage.ScheduledSendFilter) ([]*domainChatStorage.ScheduledSend, error) {
+	if strings.TrimSpace(filter.DeviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
+	clause, args := scheduledSendScope(filter)
+	limit, offset := filter.Limit, filter.Offset
 	query := `SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
 		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
 		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		FROM scheduled_sends WHERE device_id = ?`
-	args := []any{deviceID}
-	if strings.TrimSpace(status) != "" {
-		query += " AND status = ?"
-		args = append(args, status)
-	}
+		FROM scheduled_sends` + clause
 	query += " ORDER BY next_run_at ASC, created_at DESC"
+	if limit > 0 {
+		if limit > 1000 {
+			limit = 1000
+		}
+		// SQLite rejects a bare OFFSET, so it only rides along with a LIMIT.
+		query += " LIMIT ? OFFSET ?"
+		if offset < 0 {
+			offset = 0
+		}
+		args = append(args, limit, offset)
+	}
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -1614,6 +1647,16 @@ func (r *SQLiteRepository) ListScheduledSends(deviceID, status string) ([]*domai
 		result = append(result, job)
 	}
 	return result, rows.Err()
+}
+
+func (r *SQLiteRepository) CountScheduledSends(filter domainChatStorage.ScheduledSendFilter) (int, error) {
+	if strings.TrimSpace(filter.DeviceID) == "" {
+		return 0, fmt.Errorf("device id is required")
+	}
+	clause, args := scheduledSendScope(filter)
+	var total int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM scheduled_sends`+clause, args...).Scan(&total)
+	return total, err
 }
 
 func (r *SQLiteRepository) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {

@@ -43,11 +43,17 @@ func (h *ScheduleHandler) handle(ctx context.Context, request mcpg.CallToolReque
 	id := request.GetString("schedule_id", "")
 	switch action {
 	case "list":
-		items, err := h.service.List(ctx, domainSend.ScheduleFilter{Status: request.GetString("status", "")})
+		result, err := h.service.List(ctx, domainSend.ScheduleFilter{
+			Status:      request.GetString("status", ""),
+			Search:      request.GetString("search", ""),
+			MessageType: request.GetString("message_type", ""),
+			Limit:       request.GetInt("limit", 25),
+			Offset:      request.GetInt("offset", 0),
+		})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(items, fmt.Sprintf("%d schedules", len(items))), nil
+		return mcpg.NewToolResultStructured(result, fmt.Sprintf("%d of %d schedules", len(result.Data), result.Pagination.Total)), nil
 	case "get":
 		item, err := h.service.Get(ctx, id)
 		if err != nil {

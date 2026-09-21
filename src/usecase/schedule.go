@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,20 +184,37 @@ func (s *ScheduleService) persistAssets(jobID string, inputs []scheduledAssetInp
 	return result, nil
 }
 
-func (s *ScheduleService) List(ctx context.Context, filter domainSend.ScheduleFilter) ([]domainSend.Schedule, error) {
-	jobs, err := s.repo.ListScheduledSends(scheduleDeviceID(ctx), filter.Status)
+func (s *ScheduleService) List(ctx context.Context, filter domainSend.ScheduleFilter) (domainSend.ScheduleListResponse, error) {
+	scope := domainChatStorage.ScheduledSendFilter{
+		DeviceID:    scheduleDeviceID(ctx),
+		Status:      filter.Status,
+		Search:      filter.Search,
+		MessageType: filter.MessageType,
+		Limit:       filter.Limit,
+		Offset:      filter.Offset,
+	}
+	response := domainSend.ScheduleListResponse{
+		Pagination: domainSend.PaginationResponse{Limit: filter.Limit, Offset: filter.Offset},
+	}
+	total, err := s.repo.CountScheduledSends(scope)
 	if err != nil {
-		return nil, err
+		return response, err
+	}
+	response.Pagination.Total = total
+	jobs, err := s.repo.ListScheduledSends(scope)
+	if err != nil {
+		return response, err
 	}
 	result := make([]domainSend.Schedule, 0, len(jobs))
 	for _, job := range jobs {
 		view, err := scheduleView(job)
 		if err != nil {
-			return nil, err
+			return response, err
 		}
 		result = append(result, view)
 	}
-	return result, nil
+	response.Data = result
+	return response, nil
 }
 
 func (s *ScheduleService) Get(ctx context.Context, id string) (*domainSend.Schedule, error) {
@@ -330,7 +349,7 @@ func (s *ScheduleService) garbageCollectAssets() {
 	records, err := s.repo.ListDeviceRecords()
 	if err == nil {
 		for _, record := range records {
-			jobs, listErr := s.repo.ListScheduledSends(record.DeviceID, "")
+			jobs, listErr := s.repo.ListScheduledSends(domainChatStorage.ScheduledSendFilter{DeviceID: record.DeviceID})
 			if listErr != nil {
 				continue
 			}
@@ -558,6 +577,19 @@ type hydratedAsset struct {
 	cleanup func()
 }
 
+// scheduledAssetContentType restores the MIME type captured when the job was
+// created. CreateFormFile would stamp every hydrated part as
+// application/octet-stream, which send validation rejects.
+func scheduledAssetContentType(asset scheduledAsset) string {
+	if asset.ContentType != "" {
+		return asset.ContentType
+	}
+	if byExt := mime.TypeByExtension(filepath.Ext(asset.Filename)); byExt != "" {
+		return byExt
+	}
+	return "application/octet-stream"
+}
+
 func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 	if asset.Path == "" {
 		return nil, nil
@@ -568,7 +600,10 @@ func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 	}
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile(field, asset.Filename)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", multipart.FileContentDisposition(field, asset.Filename))
+	partHeader.Set("Content-Type", scheduledAssetContentType(asset))
+	part, err := writer.CreatePart(partHeader)
 	if err != nil {
 		return nil, err
 	}

@@ -255,11 +255,18 @@ func (r *deviceChatStorage) CreateScheduledSend(job *domainChatStorage.Scheduled
 	return r.base.CreateScheduledSend(job)
 }
 
-func (r *deviceChatStorage) ListScheduledSends(deviceID, status string) ([]*domainChatStorage.ScheduledSend, error) {
-	if deviceID == "" {
-		deviceID = r.deviceID
+func (r *deviceChatStorage) ListScheduledSends(filter domainChatStorage.ScheduledSendFilter) ([]*domainChatStorage.ScheduledSend, error) {
+	if filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
 	}
-	return r.base.ListScheduledSends(deviceID, status)
+	return r.base.ListScheduledSends(filter)
+}
+
+func (r *deviceChatStorage) CountScheduledSends(filter domainChatStorage.ScheduledSendFilter) (int, error) {
+	if filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.CountScheduledSends(filter)
 }
 
 func (r *deviceChatStorage) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {

@@ -67,7 +67,11 @@ const scheduleSchema = `{
     "action": {"type": "string", "enum": ["list", "get", "pause", "resume", "cancel"]},
     "schedule_id": {"type": "string"},
     "status": {"type": "string"},
-    "device_id": {"type": "string"}
+    "device_id": {"type": "string"},
+    "search": {"type": "string", "description": "action=list: match recipient or message text"},
+    "message_type": {"type": "string", "enum": ["text","image","file","video","audio","sticker","contact","link","location","poll","forward"], "description": "action=list: only this kind of scheduled send"},
+    "limit": {"type": "integer", "description": "action=list: max rows (default 25)"},
+    "offset": {"type": "integer", "description": "action=list: rows to skip (default 0)"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"enum": ["get", "pause", "resume", "cancel"]}}}, "then": {"required": ["schedule_id"]}}

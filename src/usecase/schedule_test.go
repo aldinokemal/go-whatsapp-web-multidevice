@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -46,4 +48,40 @@ func TestScheduledSendStoresUserFacingDeviceID(t *testing.T) {
 	require.NotEmpty(t, response.ScheduleID)
 	require.Equal(t, "slot-a", repo.created.DeviceID)
 	require.Equal(t, "text", repo.created.MessageType)
+}
+
+func TestHydrateAssetPreservesContentType(t *testing.T) {
+	cases := []struct {
+		name  string
+		asset scheduledAsset
+		want  string
+	}{
+		{
+			name:  "uses stored content type",
+			asset: scheduledAsset{Filename: "photo.png", ContentType: "image/png"},
+			want:  "image/png",
+		},
+		{
+			name:  "falls back to the filename extension",
+			asset: scheduledAsset{Filename: "photo.jpg"},
+			want:  "image/jpeg",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tc.asset.Filename)
+			require.NoError(t, os.WriteFile(path, []byte("media-bytes"), 0o600))
+			asset := tc.asset
+			asset.Path = path
+
+			hydrated, err := hydrateAsset(asset, "image")
+			require.NoError(t, err)
+			require.NotNil(t, hydrated)
+			defer hydrated.cleanup()
+
+			require.Equal(t, tc.want, hydrated.Header.Header.Get("Content-Type"))
+			require.Equal(t, tc.asset.Filename, hydrated.Header.Filename)
+		})
+	}
 }

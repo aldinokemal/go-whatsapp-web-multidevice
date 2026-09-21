@@ -24,8 +24,14 @@ func InitRestSchedule(app fiber.Router, service domainSend.IScheduleUsecase) Sch
 }
 
 func (controller Schedule) List(c fiber.Ctx) error {
-	status := strings.TrimSpace(c.Query("status"))
-	result, err := controller.Service.List(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), domainSend.ScheduleFilter{Status: status})
+	filter := domainSend.ScheduleFilter{
+		Status:      strings.TrimSpace(c.Query("status")),
+		Search:      strings.TrimSpace(c.Query("search")),
+		MessageType: strings.TrimSpace(c.Query("message_type")),
+		Limit:       fiber.Query[int](c, "limit", 25),
+		Offset:      fiber.Query[int](c, "offset", 0),
+	}
+	result, err := controller.Service.List(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), filter)
 	utils.PanicIfNeeded(err)
 	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: "Schedules fetched", Results: result})
 }

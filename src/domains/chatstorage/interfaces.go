@@ -78,7 +78,8 @@ type IChatStorageRepository interface {
 
 	// Scheduled send operations.
 	CreateScheduledSend(job *ScheduledSend) error
-	ListScheduledSends(deviceID, status string) ([]*ScheduledSend, error)
+	ListScheduledSends(filter ScheduledSendFilter) ([]*ScheduledSend, error)
+	CountScheduledSends(filter ScheduledSendFilter) (int, error)
 	GetScheduledSend(deviceID, id string) (*ScheduledSend, error)
 	ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*ScheduledSend, error)
 	FailExpiredScheduledSends(now time.Time) error

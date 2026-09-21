@@ -182,6 +182,15 @@ type MessageFilter struct {
 }
 
 // ChatFilter represents query filters for chats
+type ScheduledSendFilter struct {
+	DeviceID    string
+	Status      string
+	Search      string
+	MessageType string
+	Limit       int
+	Offset      int
+}
+
 type ChatFilter struct {
 	DeviceID   string
 	Limit      int
