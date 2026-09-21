@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
@@ -50,8 +51,9 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	}
 
 	base := domainSend.BaseRequest{
-		Phone:       phone,
-		IsForwarded: request.GetBool("is_forwarded", false),
+		ScheduleOptions: scheduleOptions(request),
+		Phone:           phone,
+		IsForwarded:     request.GetBool("is_forwarded", false),
 	}
 
 	var res domainSend.GenericResponse
@@ -132,9 +134,10 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 		})
 	case "forward":
 		forwardReq := domainSend.ForwardRequest{
-			MessageID:     request.GetString("message_id", ""),
-			Phone:         phone,
-			ForceReupload: request.GetBool("force_reupload", false),
+			ScheduleOptions: scheduleOptions(request),
+			MessageID:       request.GetString("message_id", ""),
+			Phone:           phone,
+			ForceReupload:   request.GetBool("force_reupload", false),
 		}
 		if args := request.GetArguments(); args != nil {
 			if _, ok := args["duration"]; ok {
@@ -151,4 +154,21 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
 	return mcpg.NewToolResultText(fmt.Sprintf("%s sent successfully with ID %s", msgType, res.MessageID)), nil
+}
+
+func scheduleOptions(request mcpg.CallToolRequest) domainSend.ScheduleOptions {
+	options := domainSend.ScheduleOptions{
+		ScheduledAt:     request.GetString("scheduled_at", ""),
+		Timezone:        request.GetString("timezone", ""),
+		Recurrence:      request.GetString("recurrence", ""),
+		DayOfMonth:      request.GetInt("day_of_month", 0),
+		EndAt:           request.GetString("end_at", ""),
+		OccurrenceLimit: request.GetInt("occurrence_limit", 0),
+	}
+	for _, raw := range request.GetStringSlice("weekdays", nil) {
+		if day, err := strconv.Atoi(raw); err == nil {
+			options.Weekdays = append(options.Weekdays, day)
+		}
+	}
+	return options
 }

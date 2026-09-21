@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -1490,6 +1491,11 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 		return fmt.Errorf("failed to delete poll definitions: %w", err)
 	}
 
+	_, err = tx.Exec("DELETE FROM scheduled_sends")
+	if err != nil {
+		return fmt.Errorf("failed to delete scheduled sends: %w", err)
+	}
+
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
@@ -1537,6 +1543,10 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 		return fmt.Errorf("failed to delete device poll definitions: %w", err)
 	}
 
+	if _, err := tx.Exec(`DELETE FROM scheduled_sends WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device scheduled sends: %w", err)
+	}
+
 	// Delete messages after dependent rows via direct device_id filter.
 	if _, err := tx.Exec(`DELETE FROM messages WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device messages: %w", err)
@@ -1547,6 +1557,175 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 	}
 
 	return tx.Commit()
+}
+
+func (r *SQLiteRepository) CreateScheduledSend(job *domainChatStorage.ScheduledSend) error {
+	if job == nil || strings.TrimSpace(job.ID) == "" || strings.TrimSpace(job.DeviceID) == "" || strings.TrimSpace(job.MessageType) == "" {
+		return fmt.Errorf("scheduled send requires id, device id, and message type")
+	}
+	now := time.Now().UTC()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	job.UpdatedAt = now
+	if job.Status == "" {
+		job.Status = "active"
+	}
+	_, err := r.db.Exec(`
+		INSERT INTO scheduled_sends (
+			id, device_id, message_type, payload_json, assets_json, phone, summary,
+			scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
+			end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
+			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, job.ID, job.DeviceID, job.MessageType, job.PayloadJSON, job.AssetsJSON, job.Phone, job.Summary,
+		job.ScheduledAt, job.NextRunAt, job.Timezone, job.Recurrence, job.WeekdaysJSON, job.DayOfMonth,
+		job.EndAt, job.OccurrenceLimit, job.OccurrenceCount, job.Attempts, job.Status, job.LeaseToken,
+		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt)
+	return err
+}
+
+func (r *SQLiteRepository) ListScheduledSends(deviceID, status string) ([]*domainChatStorage.ScheduledSend, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return nil, fmt.Errorf("device id is required")
+	}
+	query := `SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
+		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
+		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
+		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
+		FROM scheduled_sends WHERE device_id = ?`
+	args := []any{deviceID}
+	if strings.TrimSpace(status) != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+	query += " ORDER BY next_run_at ASC, created_at DESC"
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]*domainChatStorage.ScheduledSend, 0)
+	for rows.Next() {
+		job, err := scanScheduledSend(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, job)
+	}
+	return result, rows.Err()
+}
+
+func (r *SQLiteRepository) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {
+	row := r.db.QueryRow(`SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
+		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
+		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
+		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
+		FROM scheduled_sends WHERE device_id = ? AND id = ?`, deviceID, id)
+	job, err := scanScheduledSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return job, err
+}
+
+func (r *SQLiteRepository) ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*domainChatStorage.ScheduledSend, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
+		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
+		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
+		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
+		FROM scheduled_sends
+		WHERE status = 'active' AND next_run_at <= ? AND (lease_until IS NULL OR lease_until <= ?)
+		ORDER BY next_run_at ASC, created_at ASC LIMIT ?`, now, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]*domainChatStorage.ScheduledSend, 0)
+	for rows.Next() {
+		job, scanErr := scanScheduledSend(rows)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		if _, updateErr := tx.Exec(`UPDATE scheduled_sends SET status = 'running', lease_token = ?, lease_until = ?, updated_at = ? WHERE id = ? AND status = 'active'`, leaseToken, leaseUntil, now, job.ID); updateErr != nil {
+			rows.Close()
+			return nil, updateErr
+		}
+		job.Status = "running"
+		job.LeaseToken = leaseToken
+		job.LeaseUntil = &leaseUntil
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func (r *SQLiteRepository) FailExpiredScheduledSends(now time.Time) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', last_error = 'execution interrupted before completion', lease_token = '', lease_until = NULL, updated_at = ? WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until <= ?`, now, now)
+	return err
+}
+
+func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, nextRunAt time.Time) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = attempts + 1, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
+	return err
+}
+
+func (r *SQLiteRepository) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
+	return err
+}
+
+func (r *SQLiteRepository) FailScheduledSend(id, leaseToken, lastError string) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', last_error = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, time.Now().UTC(), id, leaseToken)
+	return err
+}
+
+func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id, status string, nextRunAt *time.Time) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, next_run_at = COALESCE(?, next_run_at), lease_token = '', lease_until = NULL, updated_at = ? WHERE device_id = ? AND id = ?`, status, nextRunAt, time.Now().UTC(), deviceID, id)
+	return err
+}
+
+func (r *SQLiteRepository) DeleteScheduledSendsByDevice(deviceID string) error {
+	_, err := r.db.Exec(`DELETE FROM scheduled_sends WHERE device_id = ?`, deviceID)
+	return err
+}
+
+func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStorage.ScheduledSend, error) {
+	job := &domainChatStorage.ScheduledSend{}
+	var endAt, leaseUntil, lastRunAt sql.NullTime
+	if err := scanner.Scan(
+		&job.ID, &job.DeviceID, &job.MessageType, &job.PayloadJSON, &job.AssetsJSON, &job.Phone, &job.Summary,
+		&job.ScheduledAt, &job.NextRunAt, &job.Timezone, &job.Recurrence, &job.WeekdaysJSON, &job.DayOfMonth,
+		&endAt, &job.OccurrenceLimit, &job.OccurrenceCount, &job.Attempts, &job.Status, &job.LeaseToken,
+		&leaseUntil, &lastRunAt, &job.LastMessageID, &job.LastError, &job.CreatedAt, &job.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if endAt.Valid {
+		job.EndAt = &endAt.Time
+	}
+	if leaseUntil.Valid {
+		job.LeaseUntil = &leaseUntil.Time
+	}
+	if lastRunAt.Valid {
+		job.LastRunAt = &lastRunAt.Time
+	}
+	return job, nil
 }
 
 // SaveDeviceRecord upserts a device registration for persistence across restarts.
@@ -2806,5 +2985,40 @@ func (r *SQLiteRepository) getMigrations() []string {
 		)`,
 		// Migration 45: Anchor on-demand history sync without sorting the whole chat
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_device_timestamp ON messages(chat_jid, device_id, timestamp)`,
+
+		// Migration 46: Durable delayed and recurring message sends
+		`CREATE TABLE IF NOT EXISTS scheduled_sends (
+			id VARCHAR(64) PRIMARY KEY,
+			device_id VARCHAR(255) NOT NULL,
+			message_type VARCHAR(32) NOT NULL,
+			payload_json TEXT NOT NULL,
+			assets_json TEXT NOT NULL DEFAULT '{}',
+			phone VARCHAR(255) NOT NULL DEFAULT '',
+			summary TEXT NOT NULL DEFAULT '',
+			scheduled_at TIMESTAMP NOT NULL,
+			next_run_at TIMESTAMP NOT NULL,
+			timezone VARCHAR(128) NOT NULL,
+			recurrence VARCHAR(16) NOT NULL DEFAULT 'once',
+			weekdays_json TEXT NOT NULL DEFAULT '[]',
+			day_of_month INTEGER NOT NULL DEFAULT 0,
+			end_at TIMESTAMP NULL,
+			occurrence_limit INTEGER NOT NULL DEFAULT 0,
+			occurrence_count INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			status VARCHAR(16) NOT NULL DEFAULT 'active',
+			lease_token VARCHAR(64) NOT NULL DEFAULT '',
+			lease_until TIMESTAMP NULL,
+			last_run_at TIMESTAMP NULL,
+			last_message_id VARCHAR(255) NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// Migration 47: Fetch due schedules without scanning the full queue
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_sends_due ON scheduled_sends(status, next_run_at)`,
+
+		// Migration 48: Device-scoped schedule listing and cleanup
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_sends_device ON scheduled_sends(device_id, status, next_run_at)`,
 	}
 }

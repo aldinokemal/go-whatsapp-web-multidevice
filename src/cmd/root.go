@@ -46,11 +46,13 @@ var (
 	callUsecase       domainCall.ICallUsecase
 	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
+	scheduleUsecase   domainSend.IScheduleUsecase
 	userUsecase       domainUser.IUserUsecase
 	messageUsecase    domainMessage.IMessageUsecase
 	groupUsecase      domainGroup.IGroupUsecase
 	newsletterUsecase domainNewsletter.INewsletterUsecase
 	deviceUsecase     domainDevice.IDeviceUsecase
+	scheduleCancel    context.CancelFunc
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -712,12 +714,18 @@ func initApp() {
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
 	callUsecase = usecase.NewCallService()
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
-	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
+	baseSendUsecase := usecase.NewSendService(appUsecase, chatStorageRepo)
+	scheduleService := usecase.NewScheduleService(chatStorageRepo, baseSendUsecase, dm, config.PathSendItems)
+	scheduleUsecase = scheduleService
+	sendUsecase = usecase.NewScheduledSendService(baseSendUsecase, scheduleService)
 	userUsecase = usecase.NewUserService(chatStorageRepo)
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
 	deviceUsecase = usecase.NewDeviceService(dm, appUsecase)
+	var scheduleCtx context.Context
+	scheduleCtx, scheduleCancel = context.WithCancel(context.Background())
+	scheduleService.Start(scheduleCtx)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

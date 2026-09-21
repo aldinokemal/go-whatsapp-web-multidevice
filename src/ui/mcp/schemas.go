@@ -36,7 +36,14 @@ const sendSchema = `{
     "link": {"type": "string", "description": "type=link: the URL to send"},
     "message_id": {"type": "string", "description": "type=forward: source message ID from chat storage"},
     "duration": {"type": "integer", "description": "type=forward: disappearing duration seconds (0, 86400, 604800, 7776000)"},
-    "force_reupload": {"type": "boolean", "description": "type=forward: re-upload media instead of reusing references (default false)"}
+    "force_reupload": {"type": "boolean", "description": "type=forward: re-upload media instead of reusing references (default false)"},
+    "scheduled_at": {"type": "string", "description": "RFC3339 timestamp for delayed delivery"},
+    "timezone": {"type": "string", "description": "IANA timezone used for recurrence"},
+    "recurrence": {"type": "string", "enum": ["once","daily","weekly","monthly"]},
+    "weekdays": {"type": "array", "items": {"type": "string"}, "description": "weekly recurrence days, 0=Sunday through 6=Saturday"},
+    "day_of_month": {"type": "integer", "minimum": 1, "maximum": 31},
+    "end_at": {"type": "string", "description": "Optional RFC3339 recurrence end"},
+    "occurrence_limit": {"type": "integer", "minimum": 1}
   },
   "allOf": [
     {"if": {"properties": {"type": {"const": "text"}}},     "then": {"required": ["message"]}},
@@ -50,6 +57,20 @@ const sendSchema = `{
     {"if": {"properties": {"type": {"const": "poll"}}},     "then": {"required": ["question", "options"]}},
     {"if": {"properties": {"type": {"const": "link"}}},     "then": {"required": ["link", "caption"]}},
     {"if": {"properties": {"type": {"const": "forward"}}},  "then": {"required": ["message_id"]}}
+  ]
+}`
+
+const scheduleSchema = `{
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {"type": "string", "enum": ["list", "get", "pause", "resume", "cancel"]},
+    "schedule_id": {"type": "string"},
+    "status": {"type": "string"},
+    "device_id": {"type": "string"}
+  },
+  "allOf": [
+    {"if": {"properties": {"action": {"enum": ["get", "pause", "resume", "cancel"]}}}, "then": {"required": ["schedule_id"]}}
   ]
 }`
 

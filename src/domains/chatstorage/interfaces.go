@@ -76,6 +76,18 @@ type IChatStorageRepository interface {
 	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
 	MarkChatwootForwardEventDone(id int64) error
 
+	// Scheduled send operations.
+	CreateScheduledSend(job *ScheduledSend) error
+	ListScheduledSends(deviceID, status string) ([]*ScheduledSend, error)
+	GetScheduledSend(deviceID, id string) (*ScheduledSend, error)
+	ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*ScheduledSend, error)
+	FailExpiredScheduledSends(now time.Time) error
+	RetryScheduledSend(id, leaseToken, lastError string, nextRunAt time.Time) error
+	CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error
+	FailScheduledSend(id, leaseToken, lastError string) error
+	SetScheduledSendStatus(deviceID, id, status string, nextRunAt *time.Time) error
+	DeleteScheduledSendsByDevice(deviceID string) error
+
 	// Chatwoot per-device configuration (multi-device / multi-inbox routing)
 	SaveChatwootDeviceConfig(cfg *ChatwootDeviceConfig) error
 	// UpdateChatwootDeviceConfigJID stamps the device's current WhatsApp JID
