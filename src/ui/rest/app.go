@@ -49,6 +49,7 @@ func AppInfo(c fiber.Ctx) error {
 			"max_video_size":   config.WhatsappSettingMaxVideoSize,
 			"max_image_size":   config.WhatsappSettingMaxImageSize,
 			"chatwoot_enabled": config.ChatwootEnabled,
+			"scheduled_sends":  true,
 		},
 	})
 }

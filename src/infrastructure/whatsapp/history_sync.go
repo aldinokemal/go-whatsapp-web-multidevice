@@ -67,8 +67,11 @@ func processHistorySync(ctx context.Context, data *waHistorySync.HistorySync, ch
 	log.Infof("Processing history sync type: %s", syncType.String())
 
 	switch syncType {
-	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT:
-		// Process conversation messages
+	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP, waHistorySync.HistorySync_RECENT, waHistorySync.HistorySync_ON_DEMAND:
+		// Process conversation messages. ON_DEMAND is the phone's reply to a
+		// history sync request built with Client.BuildHistorySyncRequest (older
+		// messages fetched on demand, e.g. "load older messages"); it carries
+		// conversations in the same shape as INITIAL_BOOTSTRAP/RECENT.
 		return processConversationMessages(ctx, data, chatStorageRepo, client)
 	case waHistorySync.HistorySync_PUSH_NAME:
 		// Process push names to update chat names
@@ -98,6 +101,10 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		deviceID = client.Store.ID.ToNonAD().String()
 	}
 
+	// The contact store is authoritative for chat names; the conversation's own
+	// DisplayName is not. The resolver caches contacts, so build it once.
+	chatNameResolver := NewChatDisplayNameResolver(ctx, client)
+
 	for _, conv := range conversations {
 		rawChatJID := conv.GetID()
 		if rawChatJID == "" {
@@ -115,7 +122,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		jid = NormalizeJIDFromLID(ctx, jid, client)
 		chatJID := jid.String()
 
-		displayName := conv.GetDisplayName()
+		displayName := conversationChatName(ctx, chatNameResolver, chatJID, jid, conv.GetDisplayName())
 
 		// Get or create chat
 		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
@@ -291,10 +298,35 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				EphemeralExpiration: ephemeralExpiration,
 			}
 
+			storeChat := true
+			if data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND {
+				// ON_DEMAND delivers messages older than the local anchor, so its
+				// batch timestamp must never move the chat's activity time backward
+				// or clobber flags (e.g. archived) that live history didn't touch.
+				// If the current state cannot be read, leave the chat row alone.
+				if existing, err := chatStorageRepo.GetChatByDevice(deviceID, chatJID); err != nil {
+					log.Warnf("Failed to load existing chat %s for on-demand merge, keeping stored metadata: %v", chatJID, err)
+					storeChat = false
+				} else if existing != nil {
+					if existing.LastMessageTime.After(chat.LastMessageTime) {
+						chat.LastMessageTime = existing.LastMessageTime
+					}
+					chat.Archived = existing.Archived
+					// An on-demand chunk carries no ephemeral setting, so a zero
+					// here means "not reported", not "disappearing messages off".
+					// Same rule the live message path uses.
+					if chat.EphemeralExpiration == 0 {
+						chat.EphemeralExpiration = existing.EphemeralExpiration
+					}
+				}
+			}
+
 			// Store or update the chat
-			if err := chatStorageRepo.StoreChat(chat); err != nil {
-				log.Warnf("Failed to store chat %s: %v", chatJID, err)
-				continue
+			if storeChat {
+				if err := chatStorageRepo.StoreChat(chat); err != nil {
+					log.Warnf("Failed to store chat %s: %v", chatJID, err)
+					continue
+				}
 			}
 
 			// Store messages in batch
@@ -378,4 +410,34 @@ func processPushNames(ctx context.Context, data *waHistorySync.HistorySync, chat
 	}
 
 	return nil
+}
+
+// conversationChatName picks the name to store for a synced conversation.
+//
+// A conversation's own DisplayName cannot be trusted for one-to-one chats: it
+// arrives empty for many of them, and for some it carries the account owner's
+// own push name, which then gets written as the name of somebody else's chat.
+// Neither is repairable later — the read path's resolver only replaces names
+// that look like a JID or a bare number, so an owner's name sticks forever, and
+// chat search filters on the stored name in SQL before any resolver runs, which
+// makes those contacts unsearchable.
+//
+// So ask the contact store first, passing no stored name so the resolver cannot
+// short-circuit on one. When it knows nobody it answers the bare user part,
+// which is no better than what we already have, so keep DisplayName then.
+func conversationChatName(ctx context.Context, resolver *ChatDisplayNameResolver, chatJID string, jid types.JID, displayName string) string {
+	if resolver == nil {
+		return displayName
+	}
+	// Only one-to-one chats are named from the contact store. Asking the resolver with
+	// no stored name makes it answer "Group <id>" / "Newsletter <id>" for those servers,
+	// which is strictly worse than the subject the conversation already carries.
+	if jid.Server == types.GroupServer || jid.Server == types.NewsletterServer {
+		return displayName
+	}
+	resolved := resolver.Resolve(ctx, chatJID, "")
+	if resolved == "" || resolved == chatJID || resolved == jid.ToNonAD().User {
+		return displayName
+	}
+	return resolved
 }

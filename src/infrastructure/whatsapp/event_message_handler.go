@@ -78,8 +78,23 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
+func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
+	if !autoDownloadMedia {
+		return true
+	}
+	// Match on the JID's shape rather than struct equality: whatsmeow's
+	// broadcast branch assigns source.Chat without ToNonAD(), so a
+	// device-qualified status JID would not compare equal to
+	// types.StatusBroadcastJID. IsBroadcastList() is defined as "broadcast
+	// server and user != status", so negating it selects exactly status.
+	if ignoreStatusMedia && chatJID.Server == types.BroadcastServer && !chatJID.IsBroadcastList() {
+		return true
+	}
+	return false
+}
+
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !config.WhatsappAutoDownloadMedia {
+	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
 	if client == nil {

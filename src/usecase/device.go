@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -96,9 +97,28 @@ func (s *serviceDevice) RemoveDevice(ctx context.Context, deviceID string) error
 	// cleanup (chatstorage / store / keys rows) are surfaced: DELETE promises a real
 	// purge, so we propagate the error instead of masking it as success.
 	if err := s.manager.PurgeDevice(ctx, deviceID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return pkgError.ErrDeviceNotFound
+		}
 		logrus.WithError(err).Warnf("[DEVICE] purge for %s failed", deviceID)
 		return fmt.Errorf("purge device %s: %w", deviceID, err)
 	}
+
+	var devices []domainDevice.Device
+	for _, inst := range s.manager.ListDevices() {
+		inst.UpdateStateFromClient()
+		devices = append(devices, convertInstance(inst))
+	}
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "DEVICE_REMOVED",
+		Message: fmt.Sprintf("Device %s removed", deviceID),
+		Result: map[string]any{
+			"device_id": deviceID,
+			"devices":   devices,
+		},
+	}
+
 	return nil
 }
 

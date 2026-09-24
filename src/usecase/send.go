@@ -94,6 +94,24 @@ func buildHDVideoFFmpegArgs(inputPath, outputPath string) []string {
 	}
 }
 
+// buildStickerWebPFFmpegArgs converts a single still PNG into a static WebP sticker.
+// It must not pass -vsync: ffmpeg deprecated it in 5.1 and removed it in 9.0, and
+// frame-rate sync does nothing for a one-frame input anyway.
+func buildStickerWebPFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-y",
+		"-i", inputPath,
+		"-vcodec", "libwebp",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "60",
+		"-preset", "default",
+		"-loop", "0",
+		"-an",
+		outputPath,
+	}
+}
+
 func buildVideoTranscodeArgs(inputPath, outputPath string, compress, hd bool) ([]string, bool) {
 	if hd {
 		return buildHDVideoFFmpegArgs(inputPath, outputPath), true
@@ -190,10 +208,7 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	}
 
 	// Store the sent message using chatstorage
-	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.String()
-	}
+	senderJID := whatsapp.OwnSenderJID(client)
 
 	// Store message asynchronously with timeout.
 	// Preserve device context (for device_id scoping) but detach from request cancellation.
@@ -214,6 +229,32 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 	}()
 
 	return ts, nil
+}
+
+// normalizeStoredSender renders a stored sender in the plain user form a quote's
+// Participant requires.
+//
+// The reader cannot trust what is persisted. Rows written before senders were
+// normalised on the way in still carry AD/device identity
+// ("628123456789:32@s.whatsapp.net"), and a device-suffixed JID matches no
+// participant of a chat, so the recipient cannot attribute the quoted message.
+// Normalising here covers those rows without a migration, and mirrors
+// RevokeMessage, which parses and LID-normalises a stored sender for the same
+// reason. A value that will not parse is passed through untouched.
+func normalizeStoredSender(ctx context.Context, sender string) string {
+	// ParseJID does not report failure on a malformed value — it appends the
+	// default server, so "not-a-jid" becomes "not-a-jid@s.whatsapp.net". Only
+	// touch a value that already carries one, so anything else survives verbatim
+	// instead of being rewritten into a different unusable form.
+	if !strings.Contains(sender, "@") {
+		return sender
+	}
+	parsed, err := utils.ParseJID(sender)
+	if err != nil {
+		logrus.Warnf("Could not parse stored sender %q for reply context: %v", sender, err)
+		return sender
+	}
+	return whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).ToNonAD().String()
 }
 
 func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
@@ -237,7 +278,7 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 		contextInfo = &waE2E.ContextInfo{}
 	}
 	contextInfo.StanzaID = replyMessageID
-	contextInfo.Participant = proto.String(message.Sender)
+	contextInfo.Participant = proto.String(normalizeStoredSender(ctx, message.Sender))
 	contextInfo.QuotedMessage = &waE2E.Message{
 		Conversation: proto.String(message.Content),
 	}
@@ -1873,7 +1914,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Check if ffmpeg is available
 	if _, err := exec.LookPath("ffmpeg"); err == nil {
 		// Use ffmpeg to convert to WebP with transparency support, overwrite if exists
-		convertCmd = exec.CommandContext(convCtx, "ffmpeg", "-y", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
+		convertCmd = exec.CommandContext(convCtx, "ffmpeg", buildStickerWebPFFmpegArgs(pngPath, webpPath)...)
 	} else if _, err := exec.LookPath("cwebp"); err == nil {
 		// Use cwebp as fallback
 		convertCmd = exec.CommandContext(convCtx, "cwebp", "-q", "60", "-o", webpPath, pngPath)

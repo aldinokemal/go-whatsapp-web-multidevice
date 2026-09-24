@@ -1,137 +1,83 @@
-# PROJECT KNOWLEDGE BASE
+# Working on GOWA
 
-Generated: 2026-06-06
-Commit: 8c4ea8f
-Branch: fix/chatwoot-postgres
+GOWA is a Go WhatsApp API server using whatsmeow, Fiber, and SQLite. The Go module
+and local runtime directory are `src/`. `rest` also mounts MCP at `/mcp` when
+enabled; both transports share the same device manager and usecases.
 
-## OVERVIEW
+## Working scope and completion
 
-Go WhatsApp Web Multi-Device is a Go 1.26.0 WhatsApp Web API server. MCP is not a separate mode: the `rest`
-command serves it at `/mcp` (streamable HTTP) whenever `config.McpEnabled` is true.
-It uses whatsmeow sessions, Fiber, plain Vue 3 modules, and SQLite-backed chat/session storage by default.
+- Use the applicable scoped `AGENTS.md` and task-relevant source. The entry points
+  below are routing hints; follow the ones needed for the affected behavior.
+- For multi-step work, identify the requested outcome and how to verify it. Continue
+  through implementation, relevant checks, and fixes caused by the change. When the
+  request includes running or inspecting the result, include that in completion.
+  If blocked, report what remains and the specific missing input or access.
+- Preserve unrelated working-tree changes. Keep `.env`, SQLite databases, session
+  data, QR codes, generated media, and history dumps out of commits.
+- Local tests using temporary databases, mocks, and fake clients can be run and
+  repaired within the task without repeated approval. Running the app against saved
+  sessions can reconnect real WhatsApp devices; use that runtime only within the
+  user's authorized scope.
 
-## STRUCTURE
+## Task entry points
 
-```text
-go-whatsapp-web-multidevice/
-|-- src/                         # Go module root; run Go commands here
-|   |-- main.go                  # go:embed views, then cmd.Execute
-|   |-- cmd/                     # Cobra root, rest (mounts MCP), global app wiring
-|   |-- config/                  # Mutable package globals bound from flags/env
-|   |-- domains/                 # Interfaces and DTOs; see child AGENTS
-|   |-- usecase/                 # Business orchestration; see child AGENTS
-|   |-- validations/             # ozzo-validation plus table tests
-|   |-- ui/                      # REST, MCP, websocket adapters
-|   |-- infrastructure/
-|   |   |-- whatsapp/            # Device manager, events, presence pulse, JID utilities
-|   |   |-- chatstorage/         # chat/message/device SQL repository
-|   |   `-- chatwoot/            # Chatwoot REST sync and direct PG import
-|   |       `-- pgimport/        # Direct Chatwoot Postgres importer; see child AGENTS
-|   |-- views/                   # Embedded Vue 3 plain JS UI
-|   |-- statics/                 # Runtime media, QR codes, send items
-|   `-- storages/                # Runtime SQLite DBs and history dumps
-|-- docs/                        # OpenAPI, webhook payload, Chatwoot docs
-|-- docker/                      # Multi-stage Alpine image and entrypoint
-|-- gallery/                     # Project logo assets
-`-- .github/workflows/           # Docker publish, release, latest promotion
+- DTOs and interfaces: [domains](src/domains/AGENTS.md). Business orchestration:
+  [usecases](src/usecase/AGENTS.md). Input rules: [validation](src/validations/AGENTS.md).
+- REST, MCP, and websocket transport: [UI adapters](src/ui/AGENTS.md). For MCP
+  authentication, use [the OAuth guide](docs/mcp-oauth.md).
+- Device lifecycle, events, JIDs, and presence: [WhatsApp infrastructure](src/infrastructure/whatsapp/AGENTS.md).
+  For webhook payload changes, consult [the payload contract](docs/webhook-payload.md).
+- SQL queries, migrations, and cleanup: [chat storage](src/infrastructure/chatstorage/AGENTS.md).
+- Chatwoot routing, live sync, and history: [Chatwoot infrastructure](src/infrastructure/chatwoot/AGENTS.md).
+  Setup or routing-mode changes: [configuration](docs/chatwoot.md).
+  Direct Postgres changes: [scoped guide](src/infrastructure/chatwoot/pgimport/AGENTS.md).
+- Embedded browser UI: `src/views/components/` and `src/views/index.html`. These are
+  plain Vue 3 modules loaded from CDN, with Fomantic UI and `[[`, `]]` delimiters.
+- Startup and configuration: `src/cmd/root.go`, `src/cmd/rest.go`,
+  `src/cmd/helpers.go`, `src/config/settings.go`, and `src/.env.example`. Configuration
+  and service wiring use package globals; flags override env/Viper and `.env` defaults.
+- Packaging: `docker/golang.Dockerfile`, `docker/entrypoint.sh`, and `.github/workflows/`.
+  Read toolchain versions from those files and `src/go.mod`. `AppVersion` is a source
+  constant in `src/config/settings.go`; release builds do not inject it with ldflags.
+  Release jobs require a pushed tag and generate GoReleaser configuration in `/tmp`;
+  there is no committed `.goreleaser.yml`. Docker image publication is tag/manual driven.
+- Publishing a stable release: use [new-release](.agents/skills/new-release/SKILL.md)
+  only when explicitly invoked. For an existing release's notes, use
+  [update-release-note](.agents/skills/update-release-note/SKILL.md).
+
+## Cross-layer contracts
+
+- Keep transport parsing in `ui/`, orchestration in `usecase/`, and DTOs/interfaces
+  in `domains/`. Preserve JSON/form fields used by REST, MCP, and browser clients.
+- User-facing chat/message access must carry device scope. After login, storage
+  uses `client.Store.ID.ToNonAD().String()`, not the user-facing device alias.
+- Repository interface changes must reach all three layers:
+  `src/domains/chatstorage/interfaces.go`, `src/infrastructure/chatstorage/sqlite_repository.go`,
+  and `src/infrastructure/whatsapp/chatstorage_wrapper.go`.
+- Tests that mutate config, package globals, or scheduler state stay serial and
+  restore that state. Use existing colocated test helpers and stubs.
+
+## Local commands and validation
+
+Run Go commands from `src/`; select checks for the affected behavior:
+
+```sh
+go test ./path/to/affected/package/...
+go test ./...
+go vet ./...
+go build -o whatsapp .
 ```
 
-## WHERE TO LOOK
+Choose checks for the changed behavior. Use the full suite for shared contracts,
+startup, or broad changes. After relevant checks pass, repeat or broaden them only
+for new edits, failures, or unresolved risks. For Markdown-only changes, check the
+diff and references; application tests are unnecessary. Report checks actually run
+and any unverified behavior.
+Default SQLite builds use CGO; `-tags purego` selects `modernc.org/sqlite` when that
+build variant is relevant. Run `go mod tidy` when changing dependencies.
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Add message type | `src/domains/send/`, `src/usecase/send.go`, `src/ui/rest/send.go` | REST is primary; MCP support is selective. |
-| Add quoted reply support | `src/domains/send/`, `src/usecase/send.go`, `src/views/components/Send*.js` | Optional `reply_message_id`; use device-scoped quote lookup. |
-| Add REST endpoint | `src/ui/rest/`, `src/usecase/`, `src/domains/` | Handler parses request, usecase validates/executes, domain owns DTO/interface. |
-| Add MCP tool | `src/ui/mcp/` | Register in `Add*Tools`; resolve a device with `resolveDeviceContext` (`src/ui/mcp/device.go`). |
-| Handle WhatsApp event | `src/infrastructure/whatsapp/event_*.go` | Register the concrete event in `event_handler.go`. |
-| Presence behavior | `src/infrastructure/whatsapp/event_handler.go`, `presence_pulse.go`, `src/cmd/helpers.go` | Connect-time and scheduled pulse presence. |
-| Add chat storage method | `src/domains/chatstorage/interfaces.go`, `sqlite_repository.go`, `chatstorage_wrapper.go` | Update domain, repository, and wrapper together. |
-| Add DB migration | `src/infrastructure/chatstorage/sqlite_repository.go` `getMigrations()` | Append only. Current list has 29 migrations. |
-| Add UI component | `src/views/components/`, `src/views/index.html` | Plain JS modules, no `.vue` single-file components. |
-| Device management | `src/infrastructure/whatsapp/device_manager.go` | Central registry and purge/load/create logic. |
-| Chatwoot integration | `src/infrastructure/chatwoot/` and `src/ui/rest/chatwoot.go` | REST sync, public webhook, optional direct Postgres import. |
-| Direct Chatwoot import | `src/infrastructure/chatwoot/pgimport/` | Direct Chatwoot schema writes; see child AGENTS. |
-| Chatwoot link/retry state | `src/infrastructure/chatstorage/sqlite_repository.go`, `src/infrastructure/whatsapp/webhook_forward.go` | Message links, read/delete sync, and persistent forward retries. |
-| CLI flags / config | `src/cmd/root.go`, `src/config/settings.go`, `src/.env.example` | Flags and env mutate config package globals. |
-| Shared helpers | `src/pkg/utils/`, `src/pkg/error/`, `src/pkg/sqlite/` | Utilities, aliased package errors, and CGO/purego SQLite driver selection. |
-| Docker/release | `docker/golang.Dockerfile`, `.github/workflows/*.yaml` | Multi-arch Docker, tag/manual workflows, generated GoReleaser configs. |
-
-## CODE MAP
-
-| Symbol | Type | Location | Role |
-|--------|------|----------|------|
-| `cmd.Execute` | function | `src/cmd/root.go` | Stores embedded views and runs Cobra root command. |
-| `initApp` | function | `src/cmd/root.go` | Creates folders, DBs, WhatsApp client, device manager, repositories, and usecases. |
-| `DeviceManager` | struct | `src/infrastructure/whatsapp/device_manager.go` | Owns active device registry and persisted device records. |
-| `DeviceInstance` | struct | `src/infrastructure/whatsapp/device_instance.go` | Wraps per-device ID, JID, client, state, and storage. |
-| `IChatStorageRepository` | interface | `src/domains/chatstorage/interfaces.go` | Storage contract for chats, messages, edits, calls, stats, schema, and device records. |
-| `SQLiteRepository` | struct | `src/infrastructure/chatstorage/sqlite_repository.go` | Implements chat storage, Chatwoot link/retry state, and inline migrations. |
-| `deviceChatStorage` | wrapper | `src/infrastructure/whatsapp/chatstorage_wrapper.go` | Injects or enforces device scoping for event-side storage access. |
-| `StartPresencePulseScheduler` | function | `src/infrastructure/whatsapp/presence_pulse.go` | Periodically marks connected devices available, then unavailable. |
-| `StartChatwootForwardRetryWorker` | function | `src/infrastructure/whatsapp/webhook_forward.go` | Replays queued WhatsApp-to-Chatwoot forward failures. |
-| `NormalizeJIDFromLID` | function | `src/infrastructure/whatsapp/jid_utils.go` | Converts `@lid` JIDs to phone JIDs where whatsmeow can resolve them. |
-| `pgimport.Importer` | struct | `src/infrastructure/chatwoot/pgimport/conn.go` | Direct Chatwoot Postgres importer for historical messages. |
-| `DeviceMiddleware` | middleware | `src/ui/rest/middleware/device.go` | Resolves `X-Device-Id` or `device_id` and injects device context. |
-| `resolveDeviceContext` | helper | `src/ui/mcp/device.go` | Resolves the MCP call's device: `device_id` tool argument, else the `X-Device-Id`-derived device from `route.go`'s `HTTPContextFunc`, else error. |
-
-## CONVENTIONS
-
-- Go commands run from `src/`; the repo root is not the Go module root.
-- Local runtime paths are relative to process cwd, so direct local runs should start from `src/`.
-- Config priority is Cobra flags, then env/Viper, then `.env` loaded from `src/`.
-- MCP is not a separate process: `rest` mounts it at `/mcp` in the same app initialization, sharing one whatsmeow state.
-- Process-wide helpers in `cmd/helpers.go` guard auto-reconnect and presence-pulse startup for the shared REST+MCP process.
-- `domains/` defines DTOs and interfaces. Current contracts expose some whatsmeow and multipart types; follow existing contracts but do not add executable business logic there.
-- Usecases validate first, then obtain the device/client from context, then call whatsmeow/storage.
-- Device-scoped REST routes must pass `whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c))`.
-- MCP device resolution: `route.go`'s `HTTPContextFunc` resolves the connection's `X-Device-Id` header into context (an empty header resolves the default/only device); `resolveDeviceContext` (`src/ui/mcp/device.go`) lets a per-call `device_id` tool argument override it, else errors.
-- Optional boolean filters use `*bool` so nil means "not provided".
-- Tests are colocated as `*_test.go`, mostly table-driven with `testify/assert` and occasional `testify/suite`.
-- Tests that mutate config, package globals, or background worker state should stay serial and restore state with `defer`.
-- Chatwoot direct Postgres import is for history. Live forwarding still uses REST plus link/retry storage.
-
-## ANTI-PATTERNS
-
-- Do not query chats or messages without `device_id` scoping for user-facing/device-scoped flows.
-- Do not use `instance.ID()` as the chat/message table `device_id` after login; use `client.Store.ID.ToNonAD().String()` when deriving the WhatsApp storage identity.
-- Do not use raw `@lid` event JIDs for DB lookups; normalize with `NormalizeJIDFromLID()` first.
-- Do not add `IChatStorageRepository` methods without updating `chatstorage_wrapper.go` and the concrete repository.
-- Do not insert migrations in the middle of `getMigrations()`; append new entries only.
-- Do not remove the `evt.Sender.Device != 0` receipt check; it prevents duplicate webhook deliveries from linked devices.
-- Do not put generated/runtime media, QR codes, SQLite DBs, `.env`, or history dumps into source-oriented docs or commits unless explicitly requested.
-- Do not treat Chatwoot direct Postgres import as the live forwarding path; keep REST media handling and direct DB idempotency separate.
-
-## UNIQUE STYLES
-
-- Cobra subcommands are registered by `init()` side effects in `cmd/rest.go`; there is no separate `cmd/mcp.go` — `rest` mounts MCP itself.
-- The app uses mutable package globals for config, clients, repositories, and usecases instead of dependency injection from `main`.
-- MCP exposes 5 consolidated tools (`src/ui/mcp/`) — `whatsapp_send`, `whatsapp_message`, `whatsapp_chat`, `whatsapp_group`, `whatsapp_app` — each dispatching on a `type`/`action` argument, versus one REST route per operation.
-- Chat storage migrations are Go string literals in the repository, not external migration files.
-- The embedded UI uses Vue 3 from CDN, Fomantic UI modals/toasts, and custom delimiters `[[`, `]]`.
-- Release workflows generate GoReleaser YAML into `/tmp`; there is no committed `.goreleaser.yml`.
-- `AppVersion` is hard-coded as `v8.6.0` in `src/config/settings.go`; release workflows do not inject it with ldflags.
-- `src/pkg/error` declares package name `error`; import it with aliases such as `pkgError`.
-- Default SQLite builds use CGO `github.com/mattn/go-sqlite3`; `-tags purego` switches to `modernc.org/sqlite`.
-
-## COMMANDS
-
-```bash
-cd src && go run . rest
-cd src && go build -o whatsapp
-cd src && go test ./...
-cd src && go vet ./...
-cd src && go mod tidy
-docker compose up --build
-```
-
-## NOTES
-
-- Docker builds use `docker/golang.Dockerfile`, Go `1.25-alpine3.23`, CGO, and a final non-root `gowauser` process after the entrypoint fixes volume ownership.
-- Docker Compose mounts root-level `./storages` and `./statics` into `/app`; direct local runs from `src/` use `src/storages` and `src/statics`.
-- Docker publish is tag/manual driven. Arch-specific `-amd`, `-arm`, and `-armv7` images are merged into a versioned manifest; `latest` is also promoted by workflows.
-- `release.yml` declares `workflow_dispatch`, but release jobs are still guarded to tag refs.
-- GitHub workflows are release/publish oriented; there is no PR workflow that runs `go test`, `go vet`, or lint.
-- `DBKeysURI` defaults to the main DB URI when empty; avoid in-memory keys storage in production because privacy tokens must survive long-lived sessions.
-- `status@broadcast` chat names intentionally resolve to `Status`.
-- `src/.air.toml` excludes `statics` and `storages`; keep hot reload from watching runtime data.
+For an authorized runtime check, `go run . rest` starts the server. Runtime paths
+are relative to the process directory. Direct runs use `src/storages`
+and `src/statics`; Docker Compose mounts the root-level directories into `/app`.
+Keep these paths excluded from hot reload in `src/.air.toml`. The Docker entrypoint
+fixes volume ownership before dropping to `gowauser`.
