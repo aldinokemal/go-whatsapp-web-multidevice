@@ -66,12 +66,13 @@ type MessageInfo struct {
 	MediaType         string         `json:"media_type"`
 	Reactions         []ReactionInfo `json:"reactions,omitempty"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
-	CallMetadata string `json:"call_metadata,omitempty"`
-	Filename     string `json:"filename"`
-	URL          string `json:"url"`
-	FileLength   uint64 `json:"file_length"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	CallMetadata     string `json:"call_metadata,omitempty"`
+	ReferralMetadata string `json:"referral_metadata,omitempty"`
+	Filename         string `json:"filename"`
+	URL              string `json:"url"`
+	FileLength       uint64 `json:"file_length"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 type PaginationResponse struct {
@@ -91,6 +92,20 @@ type SetDisappearingTimerResponse struct {
 	Message      string `json:"message"`
 	ChatJID      string `json:"chat_jid"`
 	TimerSeconds uint32 `json:"timer_seconds"`
+}
+
+// RequestChatHistory operations (on-demand history sync)
+type RequestChatHistoryRequest struct {
+	ChatJID string `json:"chat_jid" uri:"chat_jid"`
+	Count   int    `json:"count"`
+}
+
+type RequestChatHistoryResponse struct {
+	Status          string `json:"status"`
+	ChatJID         string `json:"chat_jid"`
+	RequestedCount  int    `json:"requested_count"`
+	AnchorMessageID string `json:"anchor_message_id"`
+	AnchorTimestamp string `json:"anchor_timestamp"`
 }
 
 // Archive Chat operations

@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v9.3.0"
+	AppVersion             = "v9.4.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -45,11 +45,13 @@ var (
 	WhatsappAutoReplyMessage          string
 	WhatsappAutoMarkRead              = false // Auto-mark incoming messages as read
 	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
+	WhatsappIgnoreStatusMedia         = false // Ignore downloading status media
 	WhatsappWebhook                   []string
 	WhatsappWebhookSecret             = "secret"
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
 	WhatsappWebhookIgnoreJids         []string         // JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks
+	WhatsappWebhookDeviceMergeGlobal           = false // Per-device webhook adds to the global WHATSAPP_WEBHOOK targets instead of replacing them
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
 	WhatsappLogLevel                           = "ERROR"
 	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB

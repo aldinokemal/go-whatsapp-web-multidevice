@@ -94,6 +94,11 @@ Download:
   - Use the special keyword `@everyone` to automatically mention all group participants.
 - Post WhatsApp status updates.
 - Mark incoming audio messages and voice notes as played.
+- **Scheduled sends** — Send any message later, once or on a daily, weekly, or monthly repeat.
+  - Add `scheduled_at` (RFC3339) and `timezone` (IANA) to a send request; `recurrence`, `weekdays`, `day_of_month`,
+    `end_at`, and `occurrence_limit` control repeats.
+  - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
+    `/send/schedules`.
 - **Send stickers** — Automatically convert images to WebP sticker format.
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.
@@ -122,6 +127,8 @@ Download:
   - `--auto-mark-read=true`
 - Automatically download media from incoming messages:
   - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+- Ignore downloading status media:
+  - `--ignore-status-media=true` disables downloading status media (default: `false`).
 - Automatically reject incoming calls:
   - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see
     [Webhook Payload](./docs/webhook-payload.md#call-events) for call events).
@@ -144,6 +151,10 @@ Download:
   - When a device has a custom webhook, events for that device are sent to the device-specific URL.
   - When no device webhook is set, events fall back to the global webhook (`--webhook`).
   - Set `webhook_url` to an empty string with `PATCH` to clear it and use the global webhook.
+  - Set `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (or `--webhook-device-merge-global=true`) to make a
+    device webhook an addition instead of a replacement: the global `--webhook` URLs still receive the
+    device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
+    device URL keeps its own secret and event filter.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
   header, generated with the default key `secret`.
 
@@ -252,12 +263,14 @@ To use environment variables:
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
+| `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
 | `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
 | `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (SOCKS5/HTTP/HTTPS) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
@@ -397,16 +410,20 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are five consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are six consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
+| `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
+
+`whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
+`occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
 
 #### Device selection
 
@@ -666,6 +683,11 @@ You may also fork or modify the source code.
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
 | ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
+| ✅       | List Scheduled Sends                   | GET    | /send/schedules                     |
+| ✅       | Get Scheduled Send                     | GET    | /send/schedules/:schedule_id        |
+| ✅       | Pause Scheduled Send                   | POST   | /send/schedules/:schedule_id/pause  |
+| ✅       | Resume Scheduled Send                  | POST   | /send/schedules/:schedule_id/resume |
+| ✅       | Cancel Scheduled Send                  | POST   | /send/schedules/:schedule_id/cancel |
 | ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |
 | ✅       | React Message                          | POST   | /message/:message_id/reaction       |
 | ✅       | Delete Message                         | POST   | /message/:message_id/delete         |
@@ -705,6 +727,7 @@ You may also fork or modify the source code.
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
+| ✅       | Request Chat History (Load Older Msgs) | POST   | /chat/:chat_jid/history             |
 | ✅       | Chatwoot Sync History                  | POST   | /chatwoot/sync                      |
 | ✅       | Chatwoot Sync Status                   | GET    | /chatwoot/sync/status               |
 | ✅       | List Chatwoot Configurations           | GET    | /chatwoot/configs                   |

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"image"
 	"image/jpeg"
+	"image/png"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -132,6 +134,49 @@ func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T)
 	}
 
 	assert.Equal(t, want, buildHDVideoFFmpegArgs("input.mp4", "output.mp4"))
+}
+
+func TestBuildStickerWebPFFmpegArgs(t *testing.T) {
+	want := []string{
+		"-y",
+		"-i", "input.png",
+		"-vcodec", "libwebp",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "60",
+		"-preset", "default",
+		"-loop", "0",
+		"-an",
+		"output.webp",
+	}
+
+	got := buildStickerWebPFFmpegArgs("input.png", "output.webp")
+	assert.Equal(t, want, got)
+	assert.NotContains(t, got, "-vsync", "ffmpeg 9 removed -vsync; passing it fails the whole conversion")
+}
+
+func TestBuildStickerWebPFFmpegArgsConvertWithInstalledFFmpeg(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+
+	dir := t.TempDir()
+	pngPath := filepath.Join(dir, "sticker.png")
+	webpPath := filepath.Join(dir, "sticker.webp")
+
+	pngFile, err := os.Create(pngPath)
+	require.NoError(t, err)
+	require.NoError(t, png.Encode(pngFile, image.NewNRGBA(image.Rect(0, 0, 4, 4))))
+	require.NoError(t, pngFile.Close())
+
+	output, err := exec.Command("ffmpeg", buildStickerWebPFFmpegArgs(pngPath, webpPath)...).CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	webp, err := os.ReadFile(webpPath)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(webp), 12)
+	assert.Equal(t, "RIFF", string(webp[0:4]))
+	assert.Equal(t, "WEBP", string(webp[8:12]))
 }
 
 func TestBuildVideoTranscodeArgsSelectsRequestedQuality(t *testing.T) {
@@ -526,5 +571,45 @@ func TestSendForwardUnsupportedType(t *testing.T) {
 	}
 	if genericErr.Error() != utils.ErrUnsupportedForwardType {
 		t.Fatalf("error = %q, want %q", genericErr.Error(), utils.ErrUnsupportedForwardType)
+	}
+}
+
+// A sender persisted before senders were normalised on the way in still carries
+// AD/device identity. The quote reader must not trust it: a device-suffixed JID
+// matches no participant of a chat, so the recipient cannot attribute the quote.
+func TestMergeReplyContextNormalizesALegacyDeviceSuffixedSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{
+			Sender:  "628123456789:32@s.whatsapp.net", // written before the fix
+			Content: "quoted message body",
+		},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "628123456789@s.whatsapp.net" {
+		t.Fatalf("expected the stored sender to be normalized, got %q", got.GetParticipant())
+	}
+}
+
+// A stored value that will not parse must pass through rather than be dropped:
+// a wrong participant is recoverable, an empty one loses the quote entirely.
+func TestMergeReplyContextPassesThroughAnUnparseableSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{Sender: "not-a-jid", Content: "body"},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "not-a-jid" {
+		t.Fatalf("expected the raw sender to survive, got %q", got.GetParticipant())
 	}
 }
