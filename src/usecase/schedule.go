@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -450,9 +449,12 @@ func (s *ScheduleService) processJob(parent context.Context, job *domainChatStor
 	// An occurrence delayed by an offline device, downtime, or retries must not
 	// go out once the series has ended.
 	if job.EndAt != nil && s.now().After(*job.EndAt) {
-		_, err := s.repo.SetScheduledSendStatus(job.DeviceID, job.ID, []string{scheduleStatusRunning}, scheduleStatusCompleted, nil)
+		changed, err := s.repo.SetScheduledSendStatus(job.DeviceID, job.ID, []string{scheduleStatusRunning}, scheduleStatusCompleted, nil)
+		if err != nil || !changed {
+			return err
+		}
 		s.cleanupAssets(job)
-		return err
+		return nil
 	}
 	var instance *whatsapp.DeviceInstance
 	if s.manager != nil {
@@ -706,26 +708,29 @@ func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 		return nil, fmt.Errorf("read scheduled media: %w", err)
 	}
 	defer src.Close()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Set("Content-Disposition", multipart.FileContentDisposition(field, asset.Filename))
 	partHeader.Set("Content-Type", scheduledAssetContentType(asset))
-	part, err := writer.CreatePart(partHeader)
+	// The body streams through a pipe into ReadForm, whose small memory limit
+	// spills the part to a temp file (removed by form.RemoveAll), so large
+	// media is never held in memory here.
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	writer := multipart.NewWriter(pw)
+	boundary := writer.Boundary()
+	go func() {
+		part, err := writer.CreatePart(partHeader)
+		if err == nil {
+			_, err = io.Copy(part, src)
+		}
+		if err == nil {
+			err = writer.Close()
+		}
+		pw.CloseWithError(err)
+	}()
+	form, err := multipart.NewReader(pr, boundary).ReadForm(1 << 20)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := io.Copy(part, src); err != nil {
 		return nil, fmt.Errorf("read scheduled media: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	// A small memory limit spills the part to a temp file (removed by
-	// form.RemoveAll) instead of holding another copy of large media.
-	form, err := multipart.NewReader(&body, writer.Boundary()).ReadForm(1 << 20)
-	if err != nil {
-		return nil, err
 	}
 	files := form.File[field]
 	if len(files) == 0 {

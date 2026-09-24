@@ -1,9 +1,11 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,6 +96,24 @@ func TestHydrateAssetPreservesContentType(t *testing.T) {
 			require.Equal(t, tc.asset.Filename, hydrated.Header.Filename)
 		})
 	}
+}
+
+func TestHydrateAssetStreamsLargeMediaIntact(t *testing.T) {
+	// Larger than ReadForm's memory limit, so the part goes through a temp file.
+	data := bytes.Repeat([]byte("0123456789abcdef"), 1<<17)
+	path := filepath.Join(t.TempDir(), "clip.mp4")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	hydrated, err := hydrateAsset(scheduledAsset{Path: path, Filename: "clip.mp4", ContentType: "video/mp4"}, "video")
+	require.NoError(t, err)
+	defer hydrated.cleanup()
+
+	file, err := hydrated.Header.Open()
+	require.NoError(t, err)
+	defer file.Close()
+	got, err := io.ReadAll(file)
+	require.NoError(t, err)
+	require.Equal(t, data, got)
 }
 
 var scheduleTestNow = time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
