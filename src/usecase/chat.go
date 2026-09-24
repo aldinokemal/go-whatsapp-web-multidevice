@@ -205,6 +205,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 			IsFromMe:          message.IsFromMe,
 			MediaType:         message.MediaType,
 			CallMetadata:      message.CallMetadata,
+			ReferralMetadata:  message.ReferralMetadata,
 			Filename:          message.Filename,
 			URL:               message.URL,
 			FileLength:        message.FileLength,
