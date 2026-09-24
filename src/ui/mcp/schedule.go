@@ -54,13 +54,13 @@ func (h *ScheduleHandler) handle(ctx context.Context, request mcpg.CallToolReque
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(result, fmt.Sprintf("%d of %d schedules", len(result.Data), result.Pagination.Total)), nil
+		return mcpg.NewToolResultStructuredOnly(result), nil
 	case "get":
 		item, err := h.service.Get(ctx, id)
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(item, "Schedule fetched"), nil
+		return mcpg.NewToolResultStructuredOnly(item), nil
 	case "pause":
 		err = h.service.Pause(ctx, id)
 		done = "paused"
