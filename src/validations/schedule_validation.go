@@ -154,17 +154,25 @@ func NextScheduleOccurrence(spec ScheduleSpec, after time.Time) (time.Time, bool
 	return candidate.UTC(), true
 }
 
-// occurrenceOn puts start's wall clock on the given calendar day. time.Date can
-// resolve a wall time inside a DST gap onto the previous day (America/Santiago
-// skips midnight), so such a result is pushed forward onto the intended day;
-// every local day then gets at most one send.
+// occurrenceOn puts start's wall clock on the given calendar day. A wall time
+// inside a DST gap does not exist, and time.Date may resolve it earlier: New
+// York's skipped 02:30 becomes 01:30, Santiago's skipped 00:15 lands on the
+// previous day. Such a result is pushed forward past the gap, as Go already
+// resolves it in zones like Europe/Berlin, so every local day gets at most one
+// send and never before its wall time.
 func occurrenceOn(year int, month time.Month, day int, start time.Time) time.Time {
+	want := time.Date(year, month, day, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), time.UTC)
 	candidate := time.Date(year, month, day, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), start.Location())
-	noon := time.Date(year, month, day, 12, 0, 0, 0, start.Location())
-	for candidate.Before(noon) && candidate.Day() != noon.Day() {
+	for wallClock(candidate).Before(want) {
 		candidate = candidate.Add(time.Hour)
 	}
 	return candidate
+}
+
+// wallClock reads t's local date and time as if it were UTC, so wall times
+// compare without their offsets.
+func wallClock(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC)
 }
 
 // ValidateListSchedules applies the list page defaults and bounds, mirroring

@@ -113,6 +113,17 @@ func TestNextScheduleOccurrenceSantiagoGapLandsOnIntendedDay(t *testing.T) {
 	require.Equal(t, "2027-09-05 01:15", next.In(location).Format("2006-01-02 15:04"))
 }
 
+func TestNextScheduleOccurrenceGapTimeMovesForward(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	spec := ScheduleSpec{ScheduledAt: time.Date(2027, 3, 11, 2, 30, 0, 0, location), Location: location, Recurrence: "daily"}
+
+	// 02:30 does not exist on 2027-03-14; Go alone would answer 01:30.
+	next, ok := NextScheduleOccurrence(spec, time.Date(2027, 3, 13, 2, 30, 0, 0, location))
+	require.True(t, ok)
+	require.Equal(t, "2027-03-14 03:30", next.In(location).Format("2006-01-02 15:04"))
+}
+
 func TestNextScheduleOccurrenceWeeklyWraps(t *testing.T) {
 	location, err := time.LoadLocation("Asia/Jakarta")
 	require.NoError(t, err)

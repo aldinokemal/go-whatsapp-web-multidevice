@@ -248,31 +248,21 @@ func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64) error {
 	return r.base.MarkChatwootForwardEventDone(id)
 }
 
+// Scheduled sends are keyed by the registry slot alias, which r.deviceID (a
+// storage JID once logged in) is not, so these pass device IDs through as-is.
 func (r *deviceChatStorage) CreateScheduledSend(job *domainChatStorage.ScheduledSend) error {
-	if job != nil && job.DeviceID == "" {
-		job.DeviceID = r.deviceID
-	}
 	return r.base.CreateScheduledSend(job)
 }
 
 func (r *deviceChatStorage) ListScheduledSends(filter domainChatStorage.ScheduledSendFilter) ([]*domainChatStorage.ScheduledSend, error) {
-	if filter.DeviceID == "" {
-		filter.DeviceID = r.deviceID
-	}
 	return r.base.ListScheduledSends(filter)
 }
 
 func (r *deviceChatStorage) CountScheduledSends(filter domainChatStorage.ScheduledSendFilter) (int, error) {
-	if filter.DeviceID == "" {
-		filter.DeviceID = r.deviceID
-	}
 	return r.base.CountScheduledSends(filter)
 }
 
 func (r *deviceChatStorage) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {
-	if deviceID == "" {
-		deviceID = r.deviceID
-	}
 	return r.base.GetScheduledSend(deviceID, id)
 }
 
@@ -301,9 +291,6 @@ func (r *deviceChatStorage) FailScheduledSend(id, leaseToken, lastError string) 
 }
 
 func (r *deviceChatStorage) SetScheduledSendStatus(deviceID, id string, from []string, status string, nextRunAt *time.Time) (bool, error) {
-	if deviceID == "" {
-		deviceID = r.deviceID
-	}
 	return r.base.SetScheduledSendStatus(deviceID, id, from, status, nextRunAt)
 }
 

@@ -447,6 +447,13 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 }
 
 func (s *ScheduleService) processJob(parent context.Context, job *domainChatStorage.ScheduledSend) error {
+	// An occurrence delayed by an offline device, downtime, or retries must not
+	// go out once the series has ended.
+	if job.EndAt != nil && s.now().After(*job.EndAt) {
+		_, err := s.repo.SetScheduledSendStatus(job.DeviceID, job.ID, []string{scheduleStatusRunning}, scheduleStatusCompleted, nil)
+		s.cleanupAssets(job)
+		return err
+	}
 	var instance *whatsapp.DeviceInstance
 	if s.manager != nil {
 		instance, _ = s.manager.GetDevice(job.DeviceID)
@@ -694,10 +701,11 @@ func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 	if asset.Path == "" {
 		return nil, nil
 	}
-	data, err := os.ReadFile(asset.Path)
+	src, err := os.Open(asset.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read scheduled media: %w", err)
 	}
+	defer src.Close()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	partHeader := make(textproto.MIMEHeader)
@@ -707,13 +715,15 @@ func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := part.Write(data); err != nil {
-		return nil, err
+	if _, err := io.Copy(part, src); err != nil {
+		return nil, fmt.Errorf("read scheduled media: %w", err)
 	}
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	form, err := multipart.NewReader(bytes.NewReader(body.Bytes()), writer.FormDataContentType()[len("multipart/form-data; boundary="):]).ReadForm(int64(len(data) + 1024))
+	// A small memory limit spills the part to a temp file (removed by
+	// form.RemoveAll) instead of holding another copy of large media.
+	form, err := multipart.NewReader(&body, writer.Boundary()).ReadForm(1 << 20)
 	if err != nil {
 		return nil, err
 	}

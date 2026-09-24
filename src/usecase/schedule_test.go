@@ -269,6 +269,26 @@ func TestScheduleProcessJobOfflineDeviceKeepsAttempts(t *testing.T) {
 	}
 }
 
+func TestScheduleProcessJobEndsOverdueSeriesPastEndAt(t *testing.T) {
+	service, repo := newScheduleTestService(t, &scheduleSendStub{sendText: func() (domainSend.GenericResponse, error) {
+		t.Fatal("no send may happen after end_at")
+		return domainSend.GenericResponse{}, nil
+	}})
+	// The occurrence was due before end_at but is only picked up after it.
+	job := newScheduleTestJob("job", "daily", scheduleTestNow.Add(-2*time.Hour))
+	endAt := scheduleTestNow.Add(-time.Hour)
+	job.EndAt = &endAt
+	claimed := claimScheduleTestJob(t, service, repo, job)
+
+	require.NoError(t, service.processJob(context.Background(), claimed))
+
+	stored, err := repo.GetScheduledSend("device-a", "job")
+	require.NoError(t, err)
+	require.Equal(t, scheduleStatusCompleted, stored.Status)
+	_, statErr := os.Stat(filepath.Join(service.mediaRoot, "scheduled", "job"))
+	require.True(t, os.IsNotExist(statErr))
+}
+
 func TestScheduleProcessDueRecoversInterruptedJobsWithoutResending(t *testing.T) {
 	service, repo := newScheduleTestService(t, &scheduleSendStub{sendText: func() (domainSend.GenericResponse, error) {
 		t.Fatal("an interrupted occurrence must not be resent")
