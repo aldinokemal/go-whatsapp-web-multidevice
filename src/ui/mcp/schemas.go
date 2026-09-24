@@ -37,13 +37,13 @@ const sendSchema = `{
     "message_id": {"type": "string", "description": "type=forward: source message ID from chat storage"},
     "duration": {"type": "integer", "description": "type=forward: disappearing duration seconds (0, 86400, 604800, 7776000)"},
     "force_reupload": {"type": "boolean", "description": "type=forward: re-upload media instead of reusing references (default false)"},
-    "scheduled_at": {"type": "string", "description": "RFC3339 timestamp for delayed delivery"},
-    "timezone": {"type": "string", "description": "IANA timezone used for recurrence"},
-    "recurrence": {"type": "string", "enum": ["once","daily","weekly","monthly"]},
-    "weekdays": {"type": "array", "items": {"type": "string"}, "description": "weekly recurrence days, 0=Sunday through 6=Saturday"},
-    "day_of_month": {"type": "integer", "minimum": 1, "maximum": 31},
-    "end_at": {"type": "string", "description": "Optional RFC3339 recurrence end"},
-    "occurrence_limit": {"type": "integer", "minimum": 1}
+    "scheduled_at": {"type": "string", "description": "Schedule instead of sending now: RFC3339 time of the first send (must be in the future)"},
+    "timezone": {"type": "string", "description": "IANA timezone (e.g. Asia/Jakarta); required when scheduled_at is set"},
+    "recurrence": {"type": "string", "enum": ["once","daily","weekly","monthly"], "description": "Repeat pattern for a scheduled send (default once)"},
+    "weekdays": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "uniqueItems": true, "description": "recurrence=weekly (required): days to send, 0=Sunday through 6=Saturday"},
+    "day_of_month": {"type": "integer", "minimum": 1, "maximum": 31, "description": "recurrence=monthly (required): day to send, clamped to the month's last day"},
+    "end_at": {"type": "string", "description": "Recurring only: RFC3339 time after which no more sends happen"},
+    "occurrence_limit": {"type": "integer", "minimum": 1, "description": "Recurring only: stop after this many sends"}
   },
   "allOf": [
     {"if": {"properties": {"type": {"const": "text"}}},     "then": {"required": ["message"]}},
@@ -66,12 +66,12 @@ const scheduleSchema = `{
   "properties": {
     "action": {"type": "string", "enum": ["list", "get", "pause", "resume", "cancel"]},
     "schedule_id": {"type": "string"},
-    "status": {"type": "string"},
+    "status": {"type": "string", "enum": ["active","running","paused","completed","failed","cancelled"], "description": "action=list: only schedules in this status"},
     "device_id": {"type": "string"},
     "search": {"type": "string", "description": "action=list: match recipient or message text"},
-    "message_type": {"type": "string", "enum": ["text","image","file","video","audio","sticker","contact","link","location","poll","forward"], "description": "action=list: only this kind of scheduled send"},
-    "limit": {"type": "integer", "description": "action=list: max rows (default 25)"},
-    "offset": {"type": "integer", "description": "action=list: rows to skip (default 0)"}
+    "message_type": {"type": "string", "enum": ["text","image","file","video","audio","sticker","contact","link","location","poll","forward"], "description": "action=list: only this kind of scheduled send (file = whatsapp_send type=document)"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "action=list: max rows (default 25)"},
+    "offset": {"type": "integer", "minimum": 0, "description": "action=list: rows to skip (default 0)"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"enum": ["get", "pause", "resume", "cancel"]}}}, "then": {"required": ["schedule_id"]}}

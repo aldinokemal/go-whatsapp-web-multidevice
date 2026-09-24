@@ -2,6 +2,7 @@ package send
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type ScheduleOptions struct {
 }
 
 func (s ScheduleOptions) IsScheduled() bool {
-	return s.ScheduledAt != ""
+	return strings.TrimSpace(s.ScheduledAt) != ""
 }
 
 // Schedule represents a device-scoped scheduled send returned by the API.

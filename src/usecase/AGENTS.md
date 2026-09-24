@@ -15,6 +15,12 @@ the matching domain interface; keep Fiber/MCP response types in the adapters.
 - `wrapSendMessage` calls whatsmeow's `SendMessage` and normalizes errors. Code 463
   is surfaced as a server-side reach-out restriction; whatsmeow owns the token lifecycle.
   Async sent-message persistence retains device context while detaching cancellation.
+- `schedule.go` owns `ScheduleService` (durable worker, pause/resume/cancel) and
+  `scheduledSendService`, a decorator over `ISendUsecase`. A new send method whose
+  request embeds `ScheduleOptions` must branch on `IsScheduled()` and get
+  `validateScheduledPayload`/`dispatch` cases. The worker dispatches through the
+  undecorated base usecase, never the decorator. Rows are keyed by `instance.ID()`
+  (slot alias) so the worker can resolve them with `DeviceManager.GetDevice`.
 - `chat.go` owns history queries; `message.go` owns reactions, revokes, edits, and
   other message actions. Existing protocol-specific global ID lookups are exceptions,
   not a pattern for new user-facing reads; verify their caller contract before reuse.

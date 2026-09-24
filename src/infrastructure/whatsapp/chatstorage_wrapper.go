@@ -276,16 +276,20 @@ func (r *deviceChatStorage) GetScheduledSend(deviceID, id string) (*domainChatSt
 	return r.base.GetScheduledSend(deviceID, id)
 }
 
-func (r *deviceChatStorage) ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*domainChatStorage.ScheduledSend, error) {
-	return r.base.ClaimDueScheduledSends(now, limit, leaseUntil, leaseToken)
+func (r *deviceChatStorage) ClaimNextScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	return r.base.ClaimNextScheduledSend(now, leaseUntil, leaseToken)
 }
 
-func (r *deviceChatStorage) FailExpiredScheduledSends(now time.Time) error {
-	return r.base.FailExpiredScheduledSends(now)
+func (r *deviceChatStorage) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
+	return r.base.ListExpiredScheduledSends(now)
 }
 
-func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, nextRunAt time.Time) error {
-	return r.base.RetryScheduledSend(id, leaseToken, lastError, nextRunAt)
+func (r *deviceChatStorage) ListScheduledSendIDs() ([]string, error) {
+	return r.base.ListScheduledSendIDs()
+}
+
+func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
+	return r.base.RetryScheduledSend(id, leaseToken, lastError, attempts, nextRunAt)
 }
 
 func (r *deviceChatStorage) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
@@ -296,18 +300,11 @@ func (r *deviceChatStorage) FailScheduledSend(id, leaseToken, lastError string) 
 	return r.base.FailScheduledSend(id, leaseToken, lastError)
 }
 
-func (r *deviceChatStorage) SetScheduledSendStatus(deviceID, id, status string, nextRunAt *time.Time) error {
+func (r *deviceChatStorage) SetScheduledSendStatus(deviceID, id string, from []string, status string, nextRunAt *time.Time) (bool, error) {
 	if deviceID == "" {
 		deviceID = r.deviceID
 	}
-	return r.base.SetScheduledSendStatus(deviceID, id, status, nextRunAt)
-}
-
-func (r *deviceChatStorage) DeleteScheduledSendsByDevice(deviceID string) error {
-	if deviceID == "" {
-		deviceID = r.deviceID
-	}
-	return r.base.DeleteScheduledSendsByDevice(deviceID)
+	return r.base.SetScheduledSendStatus(deviceID, id, from, status, nextRunAt)
 }
 
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {

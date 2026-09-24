@@ -7,6 +7,7 @@ import (
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,12 +27,16 @@ type stubSendService struct {
 	lastPoll     *domainSend.PollRequest
 	lastLink     *domainSend.LinkRequest
 	lastForward  *domainSend.ForwardRequest
+	scheduled    bool
 	err          error
 }
 
 func (s *stubSendService) resp() (domainSend.GenericResponse, error) {
 	if s.err != nil {
 		return domainSend.GenericResponse{}, s.err
+	}
+	if s.scheduled {
+		return domainSend.GenericResponse{Status: "Message scheduled", ScheduleID: "S1", ScheduledAt: "2026-09-22T10:00:00Z", NextRunAt: "2026-09-22T10:00:00Z"}, nil
 	}
 	return domainSend.GenericResponse{MessageID: "MSG1"}, nil
 }
@@ -79,6 +84,15 @@ func (s *stubSendService) SendLink(_ context.Context, r domainSend.LinkRequest) 
 func (s *stubSendService) SendForward(_ context.Context, r domainSend.ForwardRequest) (domainSend.GenericResponse, error) {
 	s.lastForward = &r
 	return s.resp()
+}
+
+// resultText returns the text content a tool result reports to the client.
+func resultText(t *testing.T, res *mcpg.CallToolResult) string {
+	t.Helper()
+	require.NotEmpty(t, res.Content)
+	text, ok := res.Content[0].(mcpg.TextContent)
+	require.True(t, ok)
+	return text.Text
 }
 
 // deviceCtx returns a context that already carries a device, as the HTTP
@@ -219,6 +233,21 @@ func TestHandleSendDispatch(t *testing.T) {
 		require.NotNil(t, svc.lastForward)
 		require.NotNil(t, svc.lastForward.Duration)
 		assert.Equal(t, 86400, *svc.lastForward.Duration)
+	})
+
+	t.Run("scheduled send reports schedule_id", func(t *testing.T) {
+		svc := &stubSendService{scheduled: true}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "text", "phone": "628", "message": "hi",
+			"scheduled_at": "2026-09-22T10:00:00Z", "timezone": "UTC",
+			"recurrence": "weekly", "weekdays": []any{float64(1), float64(3)},
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.lastText)
+		assert.Equal(t, []int{1, 3}, svc.lastText.Weekdays)
+		assert.Equal(t, "text scheduled with schedule_id S1, next run 2026-09-22T10:00:00Z", resultText(t, res))
 	})
 
 	t.Run("usecase error becomes tool error", func(t *testing.T) {

@@ -12,6 +12,8 @@ For a contract change, update the domain interface and WhatsApp wrapper together
   is part of the request. Do not copy legacy global lookups into scoped flows.
 - Event/sent-message storage derives device identity from the whatsmeow client
   context. `status@broadcast` must display as `Status`.
+- `scheduled_sends` is keyed by the registry slot alias (`instance.ID()`), not the
+  storage JID, because the worker resolves clients with `DeviceManager.GetDevice`.
 - Parameterize values in SQL; dynamic clauses use fixed fragments plus arguments.
 - `message_edits` retains append-only history while the current message updates.
 
@@ -25,6 +27,9 @@ For a contract change, update the domain interface and WhatsApp wrapper together
 - `chatwoot_forward_queue` uniqueness is `(device_id, event_name, wa_message_id)`.
   Device deletion/truncation must clean up related links and retry jobs. Config
   deletion removes its owned links so stale rows cannot route a rebound destination.
+- `DeleteDeviceData` and `TruncateAllChats` delete `scheduled_sends`. Scheduled media
+  under `storages/scheduled/<id>` is removed on completion, failure, or cancel, and
+  by the startup GC.
 - Preserve device registry operations during purge/load changes. Poll definitions
   use `(device_id, chat_jid, poll_message_id)` and must retain that scope.
 

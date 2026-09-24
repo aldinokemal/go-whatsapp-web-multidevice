@@ -1608,20 +1608,19 @@ func scheduledSendScope(filter domainChatStorage.ScheduledSendFilter) (string, [
 	return clause, args
 }
 
-// A limit of zero or less returns every row: the recurrence worker lists a
-// device's whole queue, and only the API pages.
+// A limit of zero or less returns every row; the usecase validates the API's
+// page size before it gets here.
 func (r *SQLiteRepository) ListScheduledSends(filter domainChatStorage.ScheduledSendFilter) ([]*domainChatStorage.ScheduledSend, error) {
 	if strings.TrimSpace(filter.DeviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
 	clause, args := scheduledSendScope(filter)
 	limit, offset := filter.Limit, filter.Offset
-	query := `SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
-		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
-		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		FROM scheduled_sends` + clause
-	query += " ORDER BY next_run_at ASC, created_at DESC"
+	query := `SELECT ` + scheduledSendColumns + ` FROM scheduled_sends` + clause
+	// Upcoming work first by due time, then history newest first.
+	query += ` ORDER BY CASE WHEN status IN ('active', 'running', 'paused') THEN 0 ELSE 1 END,
+		CASE WHEN status IN ('active', 'running', 'paused') THEN next_run_at END ASC,
+		updated_at DESC, id ASC`
 	if limit > 0 {
 		if limit > 1000 {
 			limit = 1000
@@ -1660,11 +1659,7 @@ func (r *SQLiteRepository) CountScheduledSends(filter domainChatStorage.Schedule
 }
 
 func (r *SQLiteRepository) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {
-	row := r.db.QueryRow(`SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
-		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
-		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		FROM scheduled_sends WHERE device_id = ? AND id = ?`, deviceID, id)
+	row := r.db.QueryRow(`SELECT `+scheduledSendColumns+` FROM scheduled_sends WHERE device_id = ? AND id = ?`, deviceID, id)
 	job, err := scanScheduledSend(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -1672,64 +1667,60 @@ func (r *SQLiteRepository) GetScheduledSend(deviceID, id string) (*domainChatSto
 	return job, err
 }
 
-func (r *SQLiteRepository) ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*domainChatStorage.ScheduledSend, error) {
-	if limit <= 0 {
-		limit = 20
+// ClaimNextScheduledSend picks and leases one due job in a single statement, so
+// there is no read-then-write window and a crash strands at most that job.
+func (r *SQLiteRepository) ClaimNextScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	row := r.db.QueryRow(`UPDATE scheduled_sends SET status = 'running', lease_token = ?, lease_until = ?, updated_at = ?
+		WHERE id = (SELECT id FROM scheduled_sends WHERE status = 'active' AND next_run_at <= ? ORDER BY next_run_at ASC, created_at ASC LIMIT 1)
+		RETURNING `+scheduledSendColumns, leaseToken, leaseUntil, now, now)
+	job, err := scanScheduledSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	tx, err := r.db.Begin()
+	return job, err
+}
+
+func (r *SQLiteRepository) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
+	rows, err := r.db.Query(`SELECT `+scheduledSendColumns+` FROM scheduled_sends WHERE status = 'running' AND lease_until <= ?`, now)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-	rows, err := tx.Query(`SELECT id, device_id, message_type, payload_json, assets_json, phone, summary,
-		scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
-		end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-		lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		FROM scheduled_sends
-		WHERE status = 'active' AND next_run_at <= ? AND (lease_until IS NULL OR lease_until <= ?)
-		ORDER BY next_run_at ASC, created_at ASC LIMIT ?`, now, now, limit)
-	if err != nil {
-		return nil, err
-	}
-	jobs := make([]*domainChatStorage.ScheduledSend, 0)
+	defer rows.Close()
+	result := make([]*domainChatStorage.ScheduledSend, 0)
 	for rows.Next() {
-		job, scanErr := scanScheduledSend(rows)
-		if scanErr != nil {
-			rows.Close()
-			return nil, scanErr
+		job, err := scanScheduledSend(rows)
+		if err != nil {
+			return nil, err
 		}
-		if _, updateErr := tx.Exec(`UPDATE scheduled_sends SET status = 'running', lease_token = ?, lease_until = ?, updated_at = ? WHERE id = ? AND status = 'active'`, leaseToken, leaseUntil, now, job.ID); updateErr != nil {
-			rows.Close()
-			return nil, updateErr
-		}
-		job.Status = "running"
-		job.LeaseToken = leaseToken
-		job.LeaseUntil = &leaseUntil
-		jobs = append(jobs, job)
+		result = append(result, job)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return jobs, nil
+	return result, rows.Err()
 }
 
-func (r *SQLiteRepository) FailExpiredScheduledSends(now time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', last_error = 'execution interrupted before completion', lease_token = '', lease_until = NULL, updated_at = ? WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until <= ?`, now, now)
-	return err
+func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
+	rows, err := r.db.Query(`SELECT id FROM scheduled_sends WHERE status IN ('active', 'running', 'paused')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
-func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, nextRunAt time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = attempts + 1, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
+func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
@@ -1738,15 +1729,24 @@ func (r *SQLiteRepository) FailScheduledSend(id, leaseToken, lastError string) e
 	return err
 }
 
-func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id, status string, nextRunAt *time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, next_run_at = COALESCE(?, next_run_at), lease_token = '', lease_until = NULL, updated_at = ? WHERE device_id = ? AND id = ?`, status, nextRunAt, time.Now().UTC(), deviceID, id)
-	return err
+func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id string, from []string, status string, nextRunAt *time.Time) (bool, error) {
+	args := []any{status, nextRunAt, time.Now().UTC(), deviceID, id}
+	for _, source := range from {
+		args = append(args, source)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(from)), ", ")
+	result, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, next_run_at = COALESCE(?, next_run_at), lease_token = '', lease_until = NULL, updated_at = ? WHERE device_id = ? AND id = ? AND status IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected > 0, err
 }
 
-func (r *SQLiteRepository) DeleteScheduledSendsByDevice(deviceID string) error {
-	_, err := r.db.Exec(`DELETE FROM scheduled_sends WHERE device_id = ?`, deviceID)
-	return err
-}
+const scheduledSendColumns = `id, device_id, message_type, payload_json, assets_json, phone, summary,
+	scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
+	end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
+	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at`
 
 func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStorage.ScheduledSend, error) {
 	job := &domainChatStorage.ScheduledSend{}

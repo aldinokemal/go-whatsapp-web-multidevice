@@ -181,7 +181,7 @@ type MessageFilter struct {
 	IsFromMe  *bool
 }
 
-// ChatFilter represents query filters for chats
+// ScheduledSendFilter represents query filters for scheduled sends
 type ScheduledSendFilter struct {
 	DeviceID    string
 	Status      string
@@ -191,6 +191,7 @@ type ScheduledSendFilter struct {
 	Offset      int
 }
 
+// ChatFilter represents query filters for chats
 type ChatFilter struct {
 	DeviceID   string
 	Limit      int

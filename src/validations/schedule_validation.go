@@ -1,12 +1,15 @@
 package validations
 
 import (
-	"fmt"
+	"context"
 	"strings"
 	"time"
+	// Windows release binaries have no system zoneinfo to load timezones from.
+	_ "time/tzdata"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 type ScheduleSpec struct {
@@ -106,18 +109,21 @@ func NextScheduleOccurrence(spec ScheduleSpec, after time.Time) (time.Time, bool
 	var candidate time.Time
 	switch spec.Recurrence {
 	case "daily":
-		candidate = time.Date(local.Year(), local.Month(), local.Day(), startLocal.Hour(), startLocal.Minute(), startLocal.Second(), startLocal.Nanosecond(), spec.Location)
-		if !candidate.After(after) {
-			candidate = candidate.AddDate(0, 0, 1)
+		for offset := 0; offset <= 2; offset++ {
+			candidate = occurrenceOn(local.Year(), local.Month(), local.Day()+offset, startLocal)
+			if candidate.After(after) {
+				break
+			}
+			candidate = time.Time{}
 		}
 	case "weekly":
 		for offset := 0; offset <= 7; offset++ {
-			day := local.AddDate(0, 0, offset)
+			day := time.Date(local.Year(), local.Month(), local.Day()+offset, 12, 0, 0, 0, spec.Location)
 			for _, weekday := range spec.Weekdays {
 				if int(day.Weekday()) != weekday {
 					continue
 				}
-				candidate = time.Date(day.Year(), day.Month(), day.Day(), startLocal.Hour(), startLocal.Minute(), startLocal.Second(), startLocal.Nanosecond(), spec.Location)
+				candidate = occurrenceOn(day.Year(), day.Month(), day.Day(), startLocal)
 				if candidate.After(after) {
 					break
 				}
@@ -129,13 +135,13 @@ func NextScheduleOccurrence(spec ScheduleSpec, after time.Time) (time.Time, bool
 		}
 	case "monthly":
 		for offset := 0; offset <= 24; offset++ {
-			month := time.Date(local.Year(), local.Month(), 1, startLocal.Hour(), startLocal.Minute(), startLocal.Second(), startLocal.Nanosecond(), spec.Location).AddDate(0, offset, 0)
+			month := time.Date(local.Year(), local.Month()+time.Month(offset), 1, 12, 0, 0, 0, spec.Location)
 			lastDay := month.AddDate(0, 1, -1).Day()
 			day := spec.DayOfMonth
 			if day > lastDay {
 				day = lastDay
 			}
-			candidate = time.Date(month.Year(), month.Month(), day, startLocal.Hour(), startLocal.Minute(), startLocal.Second(), startLocal.Nanosecond(), spec.Location)
+			candidate = occurrenceOn(month.Year(), month.Month(), day, startLocal)
 			if candidate.After(after) {
 				break
 			}
@@ -148,9 +154,36 @@ func NextScheduleOccurrence(spec ScheduleSpec, after time.Time) (time.Time, bool
 	return candidate.UTC(), true
 }
 
-func ScheduleValidationError(err error) error {
-	if err == nil {
-		return nil
+// occurrenceOn puts start's wall clock on the given calendar day. time.Date can
+// resolve a wall time inside a DST gap onto the previous day (America/Santiago
+// skips midnight), so such a result is pushed forward onto the intended day;
+// every local day then gets at most one send.
+func occurrenceOn(year int, month time.Month, day int, start time.Time) time.Time {
+	candidate := time.Date(year, month, day, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), start.Location())
+	noon := time.Date(year, month, day, 12, 0, 0, 0, start.Location())
+	for candidate.Before(noon) && candidate.Day() != noon.Day() {
+		candidate = candidate.Add(time.Hour)
 	}
-	return fmt.Errorf("invalid schedule: %w", err)
+	return candidate
+}
+
+// ValidateListSchedules applies the list page defaults and bounds, mirroring
+// ValidateListChats.
+func ValidateListSchedules(ctx context.Context, request *domainSend.ScheduleFilter) error {
+	if request.Limit == 0 {
+		request.Limit = 25
+	}
+
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.Limit, validation.Min(1), validation.Max(100)),
+		validation.Field(&request.Offset, validation.Min(0)),
+		validation.Field(&request.Status, validation.In("active", "running", "paused", "completed", "failed", "cancelled")),
+		validation.Field(&request.MessageType, validation.In("text", "image", "file", "video", "audio", "sticker", "contact", "link", "location", "poll", "forward")),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
 }

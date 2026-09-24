@@ -81,13 +81,19 @@ type IChatStorageRepository interface {
 	ListScheduledSends(filter ScheduledSendFilter) ([]*ScheduledSend, error)
 	CountScheduledSends(filter ScheduledSendFilter) (int, error)
 	GetScheduledSend(deviceID, id string) (*ScheduledSend, error)
-	ClaimDueScheduledSends(now time.Time, limit int, leaseUntil time.Time, leaseToken string) ([]*ScheduledSend, error)
-	FailExpiredScheduledSends(now time.Time) error
-	RetryScheduledSend(id, leaseToken, lastError string, nextRunAt time.Time) error
+	// ClaimNextScheduledSend atomically leases the earliest due active job, or
+	// returns nil when nothing is due.
+	ClaimNextScheduledSend(now, leaseUntil time.Time, leaseToken string) (*ScheduledSend, error)
+	// ListExpiredScheduledSends returns running jobs whose lease has lapsed.
+	ListExpiredScheduledSends(now time.Time) ([]*ScheduledSend, error)
+	// ListScheduledSendIDs returns every job that may still need its media.
+	ListScheduledSendIDs() ([]string, error)
+	RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error
 	CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error
 	FailScheduledSend(id, leaseToken, lastError string) error
-	SetScheduledSendStatus(deviceID, id, status string, nextRunAt *time.Time) error
-	DeleteScheduledSendsByDevice(deviceID string) error
+	// SetScheduledSendStatus moves a job to status only from one of the given
+	// statuses, and reports whether a row changed.
+	SetScheduledSendStatus(deviceID, id string, from []string, status string, nextRunAt *time.Time) (bool, error)
 
 	// Chatwoot per-device configuration (multi-device / multi-inbox routing)
 	SaveChatwootDeviceConfig(cfg *ChatwootDeviceConfig) error

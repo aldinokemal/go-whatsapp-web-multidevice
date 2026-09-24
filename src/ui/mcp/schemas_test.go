@@ -60,6 +60,9 @@ func TestSchemas(t *testing.T) {
 		{"send forward missing id", sendSchema, `{"type":"forward","phone":"628"}`, true},
 		{"send with device_id", sendSchema, `{"type":"text","phone":"628","message":"hi","device_id":"dev2"}`, false},
 		{"send scheduled", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"once"}`, false},
+		{"send weekly integer weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":[1,3]}`, false},
+		{"send weekly string weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":["1"]}`, true},
+		{"send weekday out of range", sendSchema, `{"type":"text","phone":"628","message":"hi","recurrence":"weekly","weekdays":[7]}`, true},
 
 		// ---- whatsapp_schedule ----
 		{"schedule list", scheduleSchema, `{"action":"list"}`, false},

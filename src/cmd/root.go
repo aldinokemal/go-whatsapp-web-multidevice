@@ -52,7 +52,7 @@ var (
 	groupUsecase      domainGroup.IGroupUsecase
 	newsletterUsecase domainNewsletter.INewsletterUsecase
 	deviceUsecase     domainDevice.IDeviceUsecase
-	scheduleCancel    context.CancelFunc
+	scheduleStop      func()
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -715,7 +715,7 @@ func initApp() {
 	callUsecase = usecase.NewCallService()
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	baseSendUsecase := usecase.NewSendService(appUsecase, chatStorageRepo)
-	scheduleService := usecase.NewScheduleService(chatStorageRepo, baseSendUsecase, dm, config.PathSendItems)
+	scheduleService := usecase.NewScheduleService(chatStorageRepo, baseSendUsecase, dm, config.PathStorages)
 	scheduleUsecase = scheduleService
 	sendUsecase = usecase.NewScheduledSendService(baseSendUsecase, scheduleService)
 	userUsecase = usecase.NewUserService(chatStorageRepo)
@@ -723,9 +723,17 @@ func initApp() {
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
 	deviceUsecase = usecase.NewDeviceService(dm, appUsecase)
-	var scheduleCtx context.Context
-	scheduleCtx, scheduleCancel = context.WithCancel(context.Background())
+	scheduleCtx, scheduleCancel := context.WithCancel(context.Background())
 	scheduleService.Start(scheduleCtx)
+	// Stop gives an in-flight scheduled send up to 10s to finish before storage
+	// closes; a send cut off later is recovered as interrupted on next boot.
+	scheduleStop = func() {
+		scheduleCancel()
+		select {
+		case <-scheduleService.Done():
+		case <-time.After(10 * time.Second):
+		}
+	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

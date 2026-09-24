@@ -1,6 +1,7 @@
 package validations
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -61,4 +62,104 @@ func TestNextScheduleOccurrenceClampsShortMonths(t *testing.T) {
 	assertDay := next.In(location)
 	require.Equal(t, 28, assertDay.Day())
 	require.Equal(t, time.February, assertDay.Month())
+}
+
+// Consecutive worker runs feed each send time back in as "after"; across a DST
+// transition every local day must still get exactly one send.
+func TestNextScheduleOccurrenceDailyAcrossDST(t *testing.T) {
+	tests := []struct {
+		name  string
+		zone  string
+		start string
+	}{
+		{name: "santiago gap skips midnight", zone: "America/Santiago", start: "2027-09-02T00:15:00"},
+		{name: "new york spring gap", zone: "America/New_York", start: "2027-03-11T02:30:00"},
+		{name: "new york autumn overlap", zone: "America/New_York", start: "2027-11-05T01:30:00"},
+		{name: "berlin spring gap", zone: "Europe/Berlin", start: "2027-03-25T02:30:00"},
+		{name: "berlin autumn overlap", zone: "Europe/Berlin", start: "2027-10-28T02:30:00"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			location, err := time.LoadLocation(tt.zone)
+			require.NoError(t, err)
+			start, err := time.ParseInLocation("2006-01-02T15:04:05", tt.start, location)
+			require.NoError(t, err)
+			spec := ScheduleSpec{ScheduledAt: start, Location: location, Recurrence: "daily"}
+
+			prev := start
+			// Count calendar days in UTC: AddDate on the local start would itself
+			// fall into the Santiago gap.
+			wantDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+			for i := 0; i < 6; i++ {
+				next, ok := NextScheduleOccurrence(spec, prev)
+				require.True(t, ok)
+				require.True(t, next.After(prev), "run %d: %s is not after %s", i, next, prev)
+				wantDay = wantDay.AddDate(0, 0, 1)
+				local := next.In(location)
+				require.Equal(t, wantDay.Format(time.DateOnly), local.Format(time.DateOnly), "run %d", i)
+				prev = next
+			}
+		})
+	}
+}
+
+func TestNextScheduleOccurrenceSantiagoGapLandsOnIntendedDay(t *testing.T) {
+	location, err := time.LoadLocation("America/Santiago")
+	require.NoError(t, err)
+	spec := ScheduleSpec{ScheduledAt: time.Date(2027, 9, 1, 0, 15, 0, 0, location), Location: location, Recurrence: "daily"}
+
+	next, ok := NextScheduleOccurrence(spec, time.Date(2027, 9, 4, 0, 15, 0, 0, location))
+	require.True(t, ok)
+	require.Equal(t, "2027-09-05 01:15", next.In(location).Format("2006-01-02 15:04"))
+}
+
+func TestNextScheduleOccurrenceWeeklyWraps(t *testing.T) {
+	location, err := time.LoadLocation("Asia/Jakarta")
+	require.NoError(t, err)
+	// 2027-01-04 is a Monday.
+	spec := ScheduleSpec{ScheduledAt: time.Date(2027, 1, 4, 9, 0, 0, 0, location), Location: location, Recurrence: "weekly", Weekdays: []int{1}}
+
+	next, ok := NextScheduleOccurrence(spec, time.Date(2027, 1, 4, 9, 0, 0, 0, location))
+	require.True(t, ok)
+	require.Equal(t, "2027-01-11 09:00", next.In(location).Format("2006-01-02 15:04"))
+}
+
+func TestNextScheduleOccurrenceStopsAtEndAt(t *testing.T) {
+	location, err := time.LoadLocation("UTC")
+	require.NoError(t, err)
+	start := time.Date(2027, 1, 1, 9, 0, 0, 0, location)
+	endAt := time.Date(2027, 1, 2, 8, 0, 0, 0, location)
+	spec := ScheduleSpec{ScheduledAt: start, Location: location, Recurrence: "daily", EndAt: &endAt}
+
+	_, ok := NextScheduleOccurrence(spec, start)
+	require.False(t, ok)
+}
+
+func TestValidateListSchedules(t *testing.T) {
+	tests := []struct {
+		name      string
+		filter    domainSend.ScheduleFilter
+		wantErr   string
+		wantLimit int
+	}{
+		{name: "defaults the limit", filter: domainSend.ScheduleFilter{}, wantLimit: 25},
+		{name: "accepts filters", filter: domainSend.ScheduleFilter{Limit: 100, Status: "paused", MessageType: "forward"}, wantLimit: 100},
+		{name: "rejects a large limit", filter: domainSend.ScheduleFilter{Limit: 101}, wantErr: "limit"},
+		{name: "rejects a negative limit", filter: domainSend.ScheduleFilter{Limit: -1}, wantErr: "limit"},
+		{name: "rejects a negative offset", filter: domainSend.ScheduleFilter{Offset: -1}, wantErr: "offset"},
+		{name: "rejects an unknown status", filter: domainSend.ScheduleFilter{Status: "done"}, wantErr: "status"},
+		{name: "rejects an unknown message type", filter: domainSend.ScheduleFilter{MessageType: "presence"}, wantErr: "message_type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter := tt.filter
+			err := ValidateListSchedules(context.Background(), &filter)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantLimit, filter.Limit)
+		})
+	}
 }

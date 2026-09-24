@@ -228,8 +228,8 @@ func restServer(_ *cobra.Command, _ []string) {
 		}
 	case sig := <-sigCh:
 		logrus.Infof("Received %s — shutting down", sig)
-		if scheduleCancel != nil {
-			scheduleCancel()
+		if scheduleStop != nil {
+			scheduleStop()
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

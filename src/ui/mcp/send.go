@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
@@ -153,22 +152,20 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
+	if res.ScheduleID != "" {
+		return mcpg.NewToolResultStructured(res, fmt.Sprintf("%s scheduled with schedule_id %s, next run %s", msgType, res.ScheduleID, res.NextRunAt)), nil
+	}
 	return mcpg.NewToolResultText(fmt.Sprintf("%s sent successfully with ID %s", msgType, res.MessageID)), nil
 }
 
 func scheduleOptions(request mcpg.CallToolRequest) domainSend.ScheduleOptions {
-	options := domainSend.ScheduleOptions{
+	return domainSend.ScheduleOptions{
 		ScheduledAt:     request.GetString("scheduled_at", ""),
 		Timezone:        request.GetString("timezone", ""),
 		Recurrence:      request.GetString("recurrence", ""),
+		Weekdays:        request.GetIntSlice("weekdays", nil),
 		DayOfMonth:      request.GetInt("day_of_month", 0),
 		EndAt:           request.GetString("end_at", ""),
 		OccurrenceLimit: request.GetInt("occurrence_limit", 0),
 	}
-	for _, raw := range request.GetStringSlice("weekdays", nil) {
-		if day, err := strconv.Atoi(raw); err == nil {
-			options.Weekdays = append(options.Weekdays, day)
-		}
-	}
-	return options
 }

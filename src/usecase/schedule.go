@@ -20,6 +20,7 @@ import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	fiberUtils "github.com/gofiber/utils/v2"
 	"github.com/sirupsen/logrus"
@@ -32,7 +33,13 @@ const (
 	scheduleStatusCompleted = "completed"
 	scheduleStatusFailed    = "failed"
 	scheduleStatusCancelled = "cancelled"
+
+	scheduleMaxAttempts = 10
 )
+
+// errScheduledPayload marks failures in the stored job itself (payload, type,
+// media); retrying cannot fix them.
+var errScheduledPayload = errors.New("invalid scheduled payload")
 
 type scheduledAssetInput struct {
 	Field  string
@@ -52,10 +59,11 @@ type ScheduleService struct {
 	mediaRoot string
 	now       func() time.Time
 	once      sync.Once
+	done      chan struct{}
 }
 
 func NewScheduleService(repo domainChatStorage.IChatStorageRepository, base domainSend.ISendUsecase, manager *whatsapp.DeviceManager, mediaRoot string) *ScheduleService {
-	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }}
+	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }, done: make(chan struct{})}
 }
 
 func (s *ScheduleService) Create(ctx context.Context, messageType, phone, summary string, options domainSend.ScheduleOptions, request any, assets []scheduledAssetInput) (domainSend.GenericResponse, error) {
@@ -67,20 +75,20 @@ func (s *ScheduleService) Create(ctx context.Context, messageType, phone, summar
 	if !spec.ScheduledAt.IsZero() {
 		spec.ScheduledAt = spec.ScheduledAt.UTC()
 	}
-	if err := validateScheduledPayload(ctx, messageType, request); err != nil {
+	if err := s.validateScheduledPayload(ctx, messageType, request); err != nil {
 		return domainSend.GenericResponse{}, err
 	}
 	jobID := fiberUtils.UUIDv4()
-	assetMeta, err := s.persistAssets(jobID, assets)
-	if err != nil {
-		return domainSend.GenericResponse{}, err
-	}
 	cleanupOnError := true
 	defer func() {
 		if cleanupOnError {
 			_ = os.RemoveAll(filepath.Join(s.mediaRoot, "scheduled", jobID))
 		}
 	}()
+	assetMeta, err := s.persistAssets(jobID, assets)
+	if err != nil {
+		return domainSend.GenericResponse{}, err
+	}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return domainSend.GenericResponse{}, fmt.Errorf("serialize scheduled send: %w", err)
@@ -123,7 +131,7 @@ func (s *ScheduleService) Create(ctx context.Context, messageType, phone, summar
 	}, nil
 }
 
-func validateScheduledPayload(ctx context.Context, messageType string, request any) error {
+func (s *ScheduleService) validateScheduledPayload(ctx context.Context, messageType string, request any) error {
 	var err error
 	switch messageType {
 	case "text":
@@ -147,9 +155,28 @@ func validateScheduledPayload(ctx context.Context, messageType string, request a
 	case "poll":
 		err = validations.ValidateSendPoll(ctx, request.(domainSend.PollRequest))
 	case "forward":
-		err = validations.ValidateForwardMessage(ctx, request.(domainSend.ForwardRequest))
+		err = s.validateScheduledForward(ctx, request.(domainSend.ForwardRequest))
 	}
 	return err
+}
+
+// validateScheduledForward runs SendForward's storage checks up front so a
+// forward that can never be sent is rejected now rather than when it is due.
+func (s *ScheduleService) validateScheduledForward(ctx context.Context, request domainSend.ForwardRequest) error {
+	if err := validations.ValidateForwardMessage(ctx, request); err != nil {
+		return err
+	}
+	message, err := s.repo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), request.MessageID)
+	if err != nil {
+		return fmt.Errorf("failed to load message %s: %w", request.MessageID, err)
+	}
+	if message == nil {
+		return pkgError.ValidationError(fmt.Sprintf("message with ID %s not found", request.MessageID))
+	}
+	if !utils.IsForwardableStorageMessage(message) {
+		return pkgError.ValidationError(utils.ErrUnsupportedForwardType)
+	}
+	return nil
 }
 
 func (s *ScheduleService) persistAssets(jobID string, inputs []scheduledAssetInput) (map[string]scheduledAsset, error) {
@@ -185,6 +212,9 @@ func (s *ScheduleService) persistAssets(jobID string, inputs []scheduledAssetInp
 }
 
 func (s *ScheduleService) List(ctx context.Context, filter domainSend.ScheduleFilter) (domainSend.ScheduleListResponse, error) {
+	if err := validations.ValidateListSchedules(ctx, &filter); err != nil {
+		return domainSend.ScheduleListResponse{}, err
+	}
 	scope := domainChatStorage.ScheduledSendFilter{
 		DeviceID:    scheduleDeviceID(ctx),
 		Status:      filter.Status,
@@ -218,12 +248,9 @@ func (s *ScheduleService) List(ctx context.Context, filter domainSend.ScheduleFi
 }
 
 func (s *ScheduleService) Get(ctx context.Context, id string) (*domainSend.Schedule, error) {
-	job, err := s.repo.GetScheduledSend(scheduleDeviceID(ctx), id)
+	job, err := s.scheduledSend(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if job == nil {
-		return nil, fmt.Errorf("scheduled send %s not found", id)
 	}
 	view, err := scheduleView(job)
 	if err != nil {
@@ -233,57 +260,76 @@ func (s *ScheduleService) Get(ctx context.Context, id string) (*domainSend.Sched
 }
 
 func (s *ScheduleService) Pause(ctx context.Context, id string) error {
-	return s.changeStatus(ctx, id, scheduleStatusPaused, nil)
-}
-
-func (s *ScheduleService) Resume(ctx context.Context, id string) error {
-	job, err := s.repo.GetScheduledSend(scheduleDeviceID(ctx), id)
+	job, err := s.scheduledSend(ctx, id)
 	if err != nil {
 		return err
 	}
-	if job == nil {
-		return fmt.Errorf("scheduled send %s not found", id)
-	}
-	if job.Status != scheduleStatusPaused {
-		return fmt.Errorf("scheduled send %s is not paused", id)
+	return s.changeStatus(job, "paused", []string{scheduleStatusActive}, scheduleStatusPaused, nil)
+}
+
+func (s *ScheduleService) Resume(ctx context.Context, id string) error {
+	job, err := s.scheduledSend(ctx, id)
+	if err != nil {
+		return err
 	}
 	next := job.NextRunAt
 	if !next.After(s.now()) {
 		next = s.now()
+		// A recurring job resumes at its next slot instead of sending the
+		// missed one; with no slot left it is finished.
+		if job.Recurrence != "once" {
+			slot, ok := s.nextRun(job, job.OccurrenceCount)
+			if !ok {
+				if err := s.changeStatus(job, "resumed", []string{scheduleStatusPaused}, scheduleStatusCompleted, nil); err != nil {
+					return err
+				}
+				s.cleanupAssets(job)
+				return nil
+			}
+			next = slot
+		}
 	}
-	return s.changeStatus(ctx, id, scheduleStatusActive, &next)
+	return s.changeStatus(job, "resumed", []string{scheduleStatusPaused}, scheduleStatusActive, &next)
 }
 
 func (s *ScheduleService) Cancel(ctx context.Context, id string) error {
-	job, err := s.repo.GetScheduledSend(scheduleDeviceID(ctx), id)
+	job, err := s.scheduledSend(ctx, id)
 	if err != nil {
 		return err
 	}
-	if job == nil {
-		return fmt.Errorf("scheduled send %s not found", id)
-	}
-	if err := s.changeStatus(ctx, id, scheduleStatusCancelled, nil); err != nil {
+	if err := s.changeStatus(job, "cancelled", []string{scheduleStatusActive, scheduleStatusPaused, scheduleStatusFailed}, scheduleStatusCancelled, nil); err != nil {
 		return err
 	}
 	s.cleanupAssets(job)
 	return nil
 }
 
-func (s *ScheduleService) changeStatus(ctx context.Context, id, status string, nextRunAt *time.Time) error {
+func (s *ScheduleService) scheduledSend(ctx context.Context, id string) (*domainChatStorage.ScheduledSend, error) {
 	if strings.TrimSpace(scheduleDeviceID(ctx)) == "" {
-		return fmt.Errorf("device identification required")
+		return nil, fmt.Errorf("device identification required")
 	}
 	job, err := s.repo.GetScheduledSend(scheduleDeviceID(ctx), id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if job == nil {
-		return fmt.Errorf("scheduled send %s not found", id)
+		return nil, pkgError.ErrScheduledSendNotFound
 	}
-	if job.Status == scheduleStatusCompleted || job.Status == scheduleStatusCancelled {
-		return fmt.Errorf("scheduled send %s is already terminal", id)
+	return job, nil
+}
+
+// changeStatus applies the transition only while the job is still in one of
+// the from statuses, so it cannot race the worker (a running job is never a
+// source) into a duplicate send.
+func (s *ScheduleService) changeStatus(job *domainChatStorage.ScheduledSend, action string, from []string, status string, nextRunAt *time.Time) error {
+	changed, err := s.repo.SetScheduledSendStatus(job.DeviceID, job.ID, from, status, nextRunAt)
+	if err != nil {
+		return err
 	}
-	return s.repo.SetScheduledSendStatus(scheduleDeviceID(ctx), id, status, nextRunAt)
+	if !changed {
+		return pkgError.ValidationError(fmt.Sprintf("scheduled send cannot be %s while %s", action, job.Status))
+	}
+	return nil
 }
 
 func scheduleDeviceID(ctx context.Context) string {
@@ -325,6 +371,7 @@ func (s *ScheduleService) Start(ctx context.Context) {
 	s.once.Do(func() {
 		s.garbageCollectAssets()
 		go func() {
+			defer close(s.done)
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
 			for {
@@ -339,24 +386,27 @@ func (s *ScheduleService) Start(ctx context.Context) {
 	})
 }
 
+// Done is closed once the worker started by Start has exited.
+func (s *ScheduleService) Done() <-chan struct{} {
+	return s.done
+}
+
+// garbageCollectAssets removes media directories no live job owns. If the live
+// set cannot be read it deletes nothing.
 func (s *ScheduleService) garbageCollectAssets() {
 	root := filepath.Join(s.mediaRoot, "scheduled")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
 	}
-	known := make(map[string]struct{})
-	records, err := s.repo.ListDeviceRecords()
-	if err == nil {
-		for _, record := range records {
-			jobs, listErr := s.repo.ListScheduledSends(domainChatStorage.ScheduledSendFilter{DeviceID: record.DeviceID})
-			if listErr != nil {
-				continue
-			}
-			for _, job := range jobs {
-				known[job.ID] = struct{}{}
-			}
-		}
+	ids, err := s.repo.ListScheduledSendIDs()
+	if err != nil {
+		logrus.WithError(err).Warn("scheduled send media cleanup skipped")
+		return
+	}
+	known := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		known[id] = struct{}{}
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -369,17 +419,27 @@ func (s *ScheduleService) garbageCollectAssets() {
 }
 
 func (s *ScheduleService) processDue(ctx context.Context) {
-	now := s.now()
-	if err := s.repo.FailExpiredScheduledSends(now); err != nil {
+	expired, err := s.repo.ListExpiredScheduledSends(s.now())
+	if err != nil {
 		logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
 	}
-	token := fiberUtils.UUIDv4()
-	jobs, err := s.repo.ClaimDueScheduledSends(now, 20, now.Add(2*time.Minute), token)
-	if err != nil {
-		logrus.WithError(err).Error("scheduled send worker failed to claim jobs")
-		return
+	// The send may or may not have gone out, so an interrupted occurrence is
+	// never resent.
+	for _, job := range expired {
+		if err := s.skipOccurrence(job, "execution interrupted before completion"); err != nil {
+			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send worker failed to recover interrupted job")
+		}
 	}
-	for _, job := range jobs {
+	for ctx.Err() == nil {
+		now := s.now()
+		job, err := s.repo.ClaimNextScheduledSend(now, now.Add(2*time.Minute), fiberUtils.UUIDv4())
+		if err != nil {
+			logrus.WithError(err).Error("scheduled send worker failed to claim jobs")
+			return
+		}
+		if job == nil {
+			return
+		}
 		if err := s.processJob(ctx, job); err != nil {
 			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send failed")
 		}
@@ -387,22 +447,39 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 }
 
 func (s *ScheduleService) processJob(parent context.Context, job *domainChatStorage.ScheduledSend) error {
-	if s.manager == nil {
-		return s.retry(job, "device manager is unavailable")
+	var instance *whatsapp.DeviceInstance
+	if s.manager != nil {
+		instance, _ = s.manager.GetDevice(job.DeviceID)
 	}
-	instance, ok := s.manager.GetDevice(job.DeviceID)
-	if !ok || instance == nil || instance.GetClient() == nil || !instance.IsConnected() {
-		return s.retry(job, "device is offline")
+	if instance == nil || instance.GetClient() == nil || !instance.IsConnected() || !instance.IsLoggedIn() {
+		// Waiting for the device is not the job's fault, so it costs no attempt.
+		return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, "device is offline", job.Attempts, s.now().Add(30*time.Second))
 	}
-	ctx, cancel := context.WithTimeout(whatsapp.ContextWithDevice(parent, instance), 2*time.Minute)
+	// Detached from the worker context so shutdown does not abort a send
+	// already in flight.
+	ctx, cancel := context.WithTimeout(whatsapp.ContextWithDevice(context.WithoutCancel(parent), instance), 2*time.Minute)
 	defer cancel()
+	return s.deliver(ctx, job)
+}
+
+func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.ScheduledSend) error {
 	response, err := s.dispatch(ctx, job)
 	if err != nil {
-		if errors.Is(err, pkgError.ErrWaCLI) {
-			return s.retry(job, err.Error())
+		var validationErr pkgError.ValidationError
+		if errors.As(err, &validationErr) || errors.Is(err, errScheduledPayload) {
+			_ = s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error())
+			s.cleanupAssets(job)
+			return err
 		}
-		_ = s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error())
-		s.cleanupAssets(job)
+		if job.Attempts+1 >= scheduleMaxAttempts {
+			if skipErr := s.skipOccurrence(job, err.Error()); skipErr != nil {
+				return skipErr
+			}
+			return err
+		}
+		if retryErr := s.retry(job, err.Error()); retryErr != nil {
+			return retryErr
+		}
 		return err
 	}
 	count := job.OccurrenceCount + 1
@@ -429,7 +506,18 @@ func (s *ScheduleService) retry(job *domainChatStorage.ScheduledSend, reason str
 	if delay > 5*time.Minute {
 		delay = 5 * time.Minute
 	}
-	return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, s.now().Add(delay))
+	return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, job.Attempts+1, s.now().Add(delay))
+}
+
+// skipOccurrence gives up on the current occurrence: a recurring job moves on
+// to its next slot with a fresh attempt budget, anything else fails.
+func (s *ScheduleService) skipOccurrence(job *domainChatStorage.ScheduledSend, reason string) error {
+	if next, ok := s.nextRun(job, job.OccurrenceCount); ok {
+		return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, 0, next)
+	}
+	err := s.repo.FailScheduledSend(job.ID, job.LeaseToken, reason)
+	s.cleanupAssets(job)
+	return err
 }
 
 func (s *ScheduleService) nextRun(job *domainChatStorage.ScheduledSend, count int) (time.Time, bool) {
@@ -451,11 +539,18 @@ func (s *ScheduleService) cleanupAssets(job *domainChatStorage.ScheduledSend) {
 	_ = os.RemoveAll(filepath.Join(s.mediaRoot, "scheduled", job.ID))
 }
 
-func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.ScheduledSend) (domainSend.GenericResponse, error) {
+func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.ScheduledSend) (response domainSend.GenericResponse, err error) {
+	// The send usecases panic (utils.MustLogin) when a client drops between the
+	// online check and the send; that is a retryable failure, not a crash.
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("scheduled send panicked: %v", recovered)
+		}
+	}()
 	var assets map[string]scheduledAsset
 	if strings.TrimSpace(job.AssetsJSON) != "" {
 		if err := json.Unmarshal([]byte(job.AssetsJSON), &assets); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 	}
 	cleanup := func() {}
@@ -464,17 +559,17 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "text":
 		var req domainSend.MessageRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		return s.base.SendText(ctx, req)
 	case "image":
 		var req domainSend.ImageRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		form, err := hydrateAsset(assets["image"], "image")
 		if err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		if form != nil {
 			req.Image = form.Header
@@ -484,11 +579,11 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "file":
 		var req domainSend.FileRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		form, err := hydrateAsset(assets["file"], "file")
 		if err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		if form != nil {
 			req.File = form.Header
@@ -498,11 +593,11 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "video":
 		var req domainSend.VideoRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		form, err := hydrateAsset(assets["video"], "video")
 		if err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		if form != nil {
 			req.Video = form.Header
@@ -512,11 +607,11 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "audio":
 		var req domainSend.AudioRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		form, err := hydrateAsset(assets["audio"], "audio")
 		if err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		if form != nil {
 			req.Audio = form.Header
@@ -526,11 +621,11 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "sticker":
 		var req domainSend.StickerRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		form, err := hydrateAsset(assets["sticker"], "sticker")
 		if err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		if form != nil {
 			req.Sticker = form.Header
@@ -540,35 +635,40 @@ func (s *ScheduleService) dispatch(ctx context.Context, job *domainChatStorage.S
 	case "contact":
 		var req domainSend.ContactRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		return s.base.SendContact(ctx, req)
 	case "link":
 		var req domainSend.LinkRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		return s.base.SendLink(ctx, req)
 	case "location":
 		var req domainSend.LocationRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		return s.base.SendLocation(ctx, req)
 	case "poll":
 		var req domainSend.PollRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
-			return domainSend.GenericResponse{}, err
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
 		}
 		return s.base.SendPoll(ctx, req)
 	case "forward":
 		var req domainSend.ForwardRequest
 		if err := json.Unmarshal([]byte(job.PayloadJSON), &req); err != nil {
+			return domainSend.GenericResponse{}, fmt.Errorf("%w: %w", errScheduledPayload, err)
+		}
+		// The source may have been deleted since the job was created; that is
+		// permanent, not worth the transient retry budget.
+		if err := s.validateScheduledForward(ctx, req); err != nil {
 			return domainSend.GenericResponse{}, err
 		}
 		return s.base.SendForward(ctx, req)
 	default:
-		return domainSend.GenericResponse{}, fmt.Errorf("unsupported scheduled message type %q", job.MessageType)
+		return domainSend.GenericResponse{}, fmt.Errorf("%w: unsupported scheduled message type %q", errScheduledPayload, job.MessageType)
 	}
 }
 
@@ -700,6 +800,9 @@ func (s *scheduledSendService) SendPresence(ctx context.Context, req domainSend.
 	return s.base.SendPresence(ctx, req)
 }
 func (s *scheduledSendService) SendChatPresence(ctx context.Context, req domainSend.ChatPresenceRequest) (domainSend.GenericResponse, error) {
+	if req.IsScheduled() {
+		return domainSend.GenericResponse{}, pkgError.ValidationError("chat presence cannot be scheduled")
+	}
 	return s.base.SendChatPresence(ctx, req)
 }
 func (s *scheduledSendService) SendForward(ctx context.Context, req domainSend.ForwardRequest) (domainSend.GenericResponse, error) {
