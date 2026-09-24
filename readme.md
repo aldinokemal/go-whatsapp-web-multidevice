@@ -94,6 +94,11 @@ Download:
   - Use the special keyword `@everyone` to automatically mention all group participants.
 - Post WhatsApp status updates.
 - Mark incoming audio messages and voice notes as played.
+- **Scheduled sends** — Send any message later, once or on a daily, weekly, or monthly repeat.
+  - Add `scheduled_at` (RFC3339) and `timezone` (IANA) to a send request; `recurrence`, `weekdays`, `day_of_month`,
+    `end_at`, and `occurrence_limit` control repeats.
+  - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
+    `/send/schedules`.
 - **Send stickers** — Automatically convert images to WebP sticker format.
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.
@@ -405,16 +410,20 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are five consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are six consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
+| `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
+
+`whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
+`occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
 
 #### Device selection
 
@@ -674,6 +683,11 @@ You may also fork or modify the source code.
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
 | ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
+| ✅       | List Scheduled Sends                   | GET    | /send/schedules                     |
+| ✅       | Get Scheduled Send                     | GET    | /send/schedules/:schedule_id        |
+| ✅       | Pause Scheduled Send                   | POST   | /send/schedules/:schedule_id/pause  |
+| ✅       | Resume Scheduled Send                  | POST   | /send/schedules/:schedule_id/resume |
+| ✅       | Cancel Scheduled Send                  | POST   | /send/schedules/:schedule_id/cancel |
 | ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |
 | ✅       | React Message                          | POST   | /message/:message_id/reaction       |
 | ✅       | Delete Message                         | POST   | /message/:message_id/delete         |

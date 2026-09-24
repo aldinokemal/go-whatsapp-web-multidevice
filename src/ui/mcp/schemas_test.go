@@ -59,6 +59,15 @@ func TestSchemas(t *testing.T) {
 		{"send forward ok", sendSchema, `{"type":"forward","phone":"628","message_id":"M1"}`, false},
 		{"send forward missing id", sendSchema, `{"type":"forward","phone":"628"}`, true},
 		{"send with device_id", sendSchema, `{"type":"text","phone":"628","message":"hi","device_id":"dev2"}`, false},
+		{"send scheduled", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"once"}`, false},
+		{"send weekly integer weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":[1,3]}`, false},
+		{"send weekly string weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":["1"]}`, true},
+		{"send weekday out of range", sendSchema, `{"type":"text","phone":"628","message":"hi","recurrence":"weekly","weekdays":[7]}`, true},
+
+		// ---- whatsapp_schedule ----
+		{"schedule list", scheduleSchema, `{"action":"list"}`, false},
+		{"schedule get", scheduleSchema, `{"action":"get","schedule_id":"s1"}`, false},
+		{"schedule get missing id", scheduleSchema, `{"action":"get"}`, true},
 
 		// ---- whatsapp_message ----
 		{"msg react ok", messageSchema, `{"action":"react","phone":"628","message_id":"M1","emoji":"👍"}`, false},
@@ -122,7 +131,7 @@ func TestSchemas(t *testing.T) {
 
 	// compile each schema once
 	compiled := map[string]*jsonschema.Schema{}
-	for _, raw := range []string{sendSchema, messageSchema, chatSchema, groupSchema, appSchema} {
+	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema} {
 		compiled[raw] = compileSchema(t, raw)
 	}
 
