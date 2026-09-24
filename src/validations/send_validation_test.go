@@ -134,6 +134,30 @@ func TestValidateSendImage(t *testing.T) {
 	}
 }
 
+func TestValidateSendMediaMentions(t *testing.T) {
+	phone := domainSend.BaseRequest{Phone: "6289685028129@s.whatsapp.net"}
+	imageURL, fileURL, videoURL := "https://example.com/a.png", "https://example.com/a.pdf", "https://example.com/a.mp4"
+	invalidErr := pkgError.ValidationError("mention 08123456789: phone number must be in international format")
+
+	tests := []struct {
+		name     string
+		mentions []string
+		err      any
+	}{
+		{name: "no mentions", mentions: nil, err: nil},
+		{name: "valid mentions and @everyone", mentions: []string{"628123456789", "@everyone"}, err: nil},
+		{name: "local-format mention", mentions: []string{"628123456789", "08123456789"}, err: invalidErr},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.err, ValidateSendImage(context.Background(), domainSend.ImageRequest{BaseRequest: phone, ImageURL: &imageURL, Mentions: tt.mentions}))
+			assert.Equal(t, tt.err, ValidateSendFile(context.Background(), domainSend.FileRequest{BaseRequest: phone, FileURL: &fileURL, Mentions: tt.mentions}))
+			assert.Equal(t, tt.err, ValidateSendVideo(context.Background(), domainSend.VideoRequest{BaseRequest: phone, VideoURL: &videoURL, Mentions: tt.mentions}))
+		})
+	}
+}
+
 func TestValidateSendFile(t *testing.T) {
 	file := &multipart.FileHeader{
 		Filename: "sample-image.png",

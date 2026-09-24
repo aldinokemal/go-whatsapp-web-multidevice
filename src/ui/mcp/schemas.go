@@ -14,7 +14,7 @@ const sendSchema = `{
     "is_forwarded": {"type": "boolean", "description": "Mark the message as forwarded (default false)"},
     "message": {"type": "string", "description": "type=text: the text body"},
     "reply_message_id": {"type": "string", "description": "type=text: message ID to reply to"},
-    "mentions": {"type": "array", "items": {"type": "string"}, "description": "type=text: ghost mentions; \"@everyone\" mentions all group participants"},
+    "mentions": {"type": "array", "items": {"type": "string"}, "description": "text/image/video/document: ghost mentions; \"@everyone\" mentions all group participants"},
     "image_url": {"type": "string", "description": "type=image: URL of the image (fetched server-side)"},
     "caption": {"type": "string", "description": "image/video/document/link: caption text"},
     "view_once": {"type": "boolean", "description": "image/video: view-once message (default false)"},

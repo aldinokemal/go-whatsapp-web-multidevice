@@ -125,11 +125,12 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "image", "phone": "628", "image_url": "http://x/a.png",
-			"caption": "c", "view_once": true, "hd": true,
+			"caption": "c", "view_once": true, "hd": true, "mentions": []any{"629", "@everyone"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastImage)
 		assert.Equal(t, "http://x/a.png", *svc.lastImage.ImageURL)
+		assert.Equal(t, []string{"629", "@everyone"}, svc.lastImage.Mentions)
 		assert.True(t, svc.lastImage.ViewOnce)
 		assert.True(t, svc.lastImage.Compress) // image compress defaults true
 		assert.True(t, svc.lastImage.HD)
@@ -140,9 +141,11 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "video", "phone": "628", "video_url": "http://x/a.mp4", "gif_playback": true, "hd": true,
+			"mentions": []any{"629"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastVideo)
+		assert.Equal(t, []string{"629"}, svc.lastVideo.Mentions)
 		assert.True(t, svc.lastVideo.GifPlayback)
 		assert.False(t, svc.lastVideo.Compress) // video compress defaults false
 		assert.True(t, svc.lastVideo.HD)
@@ -163,10 +166,11 @@ func TestHandleSendDispatch(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
-			"type": "document", "phone": "628", "file_url": "http://x/a.pdf",
+			"type": "document", "phone": "628", "file_url": "http://x/a.pdf", "mentions": []any{"629"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastFile)
+		assert.Equal(t, []string{"629"}, svc.lastFile.Mentions)
 	})
 
 	t.Run("sticker", func(t *testing.T) {

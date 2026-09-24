@@ -6,6 +6,7 @@ type VideoRequest struct {
 	BaseRequest
 	Caption        string                `json:"caption" form:"caption"`
 	ReplyMessageID *string               `json:"reply_message_id" form:"reply_message_id"`
+	Mentions       []string              `json:"mentions,omitempty" form:"mentions"` // Phone numbers/JIDs to mention (ghost mentions)
 	Video          *multipart.FileHeader `json:"video" form:"video"`
 	ViewOnce       bool                  `json:"view_once" form:"view_once"`
 	Compress       bool                  `json:"compress"`

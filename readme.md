@@ -86,7 +86,7 @@ Download:
 - **MCP (Model Context Protocol) server support** — Integrate with AI agents and tools using a standardized protocol.
 - **Optional MCP OAuth 2.1** — Connect remote MCP clients that cannot supply a Basic Auth header. See
   [MCP OAuth](./docs/mcp-oauth.md).
-- Mention users:
+- Mention users in message text and image, video, or file captions:
   - `@phoneNumber`
   - Example: `Hello @628974812XXXX, @628974812XXXX`
 - **Ghost mentions (mention all)** — Mention group participants without showing `@phone` in the message text.
