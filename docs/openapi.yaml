@@ -384,6 +384,9 @@ paths:
                       chatwoot_enabled:
                         type: boolean
                         description: Whether Chatwoot integration routes are registered
+                      scheduled_sends:
+                        type: boolean
+                        description: Whether send endpoints accept schedule fields and the /send/schedules routes exist
         '500':
           description: Internal Server Error
           content:
@@ -1220,6 +1223,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1281,6 +1286,8 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1354,6 +1361,8 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1415,6 +1424,8 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1477,6 +1488,8 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1530,6 +1543,8 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1607,6 +1622,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1660,6 +1677,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1713,6 +1732,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1767,6 +1788,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               properties:
                 phone:
                   type: string
@@ -1865,7 +1888,7 @@ paths:
       tags:
         - send
       summary: Send chat presence (typing indicator)
-      description: Send typing indicator to start or stop showing that you are composing a message
+      description: Send typing indicator to start or stop showing that you are composing a message. Presence cannot be scheduled; schedule fields (scheduled_at, timezone, recurrence, ...) are rejected with 400.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
@@ -1900,6 +1923,207 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/schedules:
+    get:
+      operationId: listScheduledSends
+      tags:
+        - send
+      summary: List scheduled sends
+      description: >-
+        Lists the device's scheduled sends. Upcoming schedules come first
+        (soonest next run first), followed by finished ones, newest first.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, running, paused, completed, failed, cancelled]
+          description: Only schedules in this status
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Match the recipient or the message text
+        - name: message_type
+          in: query
+          schema:
+            type: string
+            enum: [text, image, file, video, audio, sticker, contact, link, location, poll, forward]
+          description: Only this kind of scheduled send
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            minimum: 1
+            maximum: 100
+          description: Maximum number of schedules to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: Number of schedules to skip (for pagination)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleListResponse'
+        '400':
+          description: Bad Request (e.g. unknown status or message_type, limit or offset out of range)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/schedules/{schedule_id}:
+    get:
+      operationId: getScheduledSend
+      tags:
+        - send
+      summary: Get a scheduled send
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - $ref: '#/components/parameters/ScheduleIdPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '404':
+          description: Schedule not found for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/schedules/{schedule_id}/pause:
+    post:
+      operationId: pauseScheduledSend
+      tags:
+        - send
+      summary: Pause a scheduled send
+      description: Stops an active schedule from sending until it is resumed. Only an active schedule can be paused.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - $ref: '#/components/parameters/ScheduleIdPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (the schedule is not active)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Schedule not found for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/schedules/{schedule_id}/resume:
+    post:
+      operationId: resumeScheduledSend
+      tags:
+        - send
+      summary: Resume a paused scheduled send
+      description: >-
+        Makes a paused schedule active again. Only a paused schedule can be
+        resumed. A recurring schedule whose next run passed while paused
+        continues at its next slot, or completes if none is left; an overdue
+        one-time schedule sends right away.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - $ref: '#/components/parameters/ScheduleIdPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (the schedule is not paused)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Schedule not found for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /send/schedules/{schedule_id}/cancel:
+    post:
+      operationId: cancelScheduledSend
+      tags:
+        - send
+      summary: Cancel a scheduled send
+      description: >-
+        Cancels an active, paused, or failed schedule so it never sends again.
+        Its stored media is removed.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - $ref: '#/components/parameters/ScheduleIdPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (the schedule is running, completed, or already cancelled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: Schedule not found for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
           content:
@@ -2304,6 +2528,8 @@ paths:
           application/json:
             schema:
               type: object
+              allOf:
+                - $ref: '#/components/schemas/ScheduleOptions'
               required:
                 - phone
               properties:
@@ -4101,6 +4327,13 @@ components:
       schema:
         type: string
         example: 'my-device-id'
+    ScheduleIdPath:
+      name: schedule_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Schedule ID returned as `schedule_id` by a scheduled send
     ChatwootConfigDeviceId:
       name: device_id
       in: path
@@ -4552,9 +4785,195 @@ components:
             message_id:
               type: string
               example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+              description: Omitted for scheduled sends
             status:
               type: string
               example: '<feature> success ....'
+            schedule_id:
+              type: string
+              example: '0b5c3a8e-7f5d-4d6f-9d1e-2f8c1a7b9e10'
+              description: Scheduled sends only. Use it with the /send/schedules routes.
+            scheduled_at:
+              type: string
+              format: date-time
+              example: '2026-10-01T02:00:00Z'
+              description: Scheduled sends only. The first send time.
+            next_run_at:
+              type: string
+              format: date-time
+              example: '2026-10-01T02:00:00Z'
+              description: Scheduled sends only. When the worker sends next.
+    ScheduleOptions:
+      type: object
+      description: |
+        Optional fields that schedule the message instead of sending it now. Set
+        `scheduled_at` to schedule; without it the message is sent immediately.
+        A background worker sends it at the scheduled time, retrying while the
+        device is offline or not logged in. Uploaded media is stored on the
+        server until the schedule finishes.
+        In multipart/form-data bodies, send `weekdays` as a repeated field
+        (`weekdays=1`, `weekdays=3`).
+      properties:
+        scheduled_at:
+          type: string
+          format: date-time
+          example: '2026-10-01T09:00:00+07:00'
+          description: RFC3339 time of the first send. Must be in the future. The first send always happens at this time, even if it falls outside `weekdays` or `day_of_month`; those set the repeats that follow.
+        timezone:
+          type: string
+          example: Asia/Jakarta
+          description: IANA timezone used to compute recurring runs. Required when scheduled_at is set.
+        recurrence:
+          type: string
+          enum: [once, daily, weekly, monthly]
+          default: once
+          description: How often to repeat the send
+        weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+          uniqueItems: true
+          example: [1, 3, 5]
+          description: Days to send on, 0=Sunday through 6=Saturday. Required when recurrence is weekly.
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 31
+          example: 15
+          description: Day of the month to send on, clamped to the month's last day. Required when recurrence is monthly.
+        end_at:
+          type: string
+          format: date-time
+          example: '2026-12-31T23:59:59+07:00'
+          description: Recurring only. No sends happen after this time; must be after scheduled_at.
+        occurrence_limit:
+          type: integer
+          minimum: 1
+          example: 10
+          description: Recurring only. Stop after this many sends.
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '0b5c3a8e-7f5d-4d6f-9d1e-2f8c1a7b9e10'
+        message_type:
+          type: string
+          enum: [text, image, file, video, audio, sticker, contact, link, location, poll, forward]
+          example: text
+        phone:
+          type: string
+          example: '6289685028129@s.whatsapp.net'
+        summary:
+          type: string
+          example: selamat pagi
+          description: Short preview of the message
+        status:
+          type: string
+          enum: [active, running, paused, completed, failed, cancelled]
+          example: active
+          description: |
+            - `active`: waiting for its next run
+            - `running`: claimed by the worker and sending
+            - `paused`: held until resumed
+            - `completed`: no runs left
+            - `failed`: gave up after retries or a validation error
+            - `cancelled`: cancelled by the user
+        scheduled_at:
+          type: string
+          format: date-time
+          example: '2026-10-01T02:00:00Z'
+        next_run_at:
+          type: string
+          format: date-time
+          example: '2026-10-01T02:00:00Z'
+          description: Omitted when no run is left
+        timezone:
+          type: string
+          example: Asia/Jakarta
+        recurrence:
+          type: string
+          enum: [once, daily, weekly, monthly]
+          example: once
+        weekdays:
+          type: array
+          items:
+            type: integer
+          example: [1, 3, 5]
+        day_of_month:
+          type: integer
+          example: 15
+        end_at:
+          type: string
+          format: date-time
+        occurrence_limit:
+          type: integer
+          example: 10
+        occurrence_count:
+          type: integer
+          example: 0
+          description: Number of successful sends so far
+        attempts:
+          type: integer
+          example: 0
+          description: Failed attempts for the current run
+        last_run_at:
+          type: string
+          format: date-time
+        last_message_id:
+          type: string
+          example: '3EB0B430B6F8F1D0E053AC120E0A9E5C'
+        last_error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-09-25T08:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-09-25T08:00:00Z'
+    ScheduleResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Schedule fetched
+        results:
+          $ref: '#/components/schemas/Schedule'
+    ScheduleListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Schedules fetched
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Schedule'
+            pagination:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  example: 25
+                offset:
+                  type: integer
+                  example: 0
+                total:
+                  type: integer
+                  example: 3
     DeviceResponse:
       type: object
       properties:
