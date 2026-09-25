@@ -777,6 +777,30 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
+	if template, ok := data["template"]; ok && template != nil {
+		if summary := formatBusinessMessageSummary("Template message", template); summary != "" {
+			return summary
+		}
+	}
+
+	if buttons, ok := data["buttons"]; ok && buttons != nil {
+		if summary := formatBusinessMessageSummary("Buttons message", buttons); summary != "" {
+			return summary
+		}
+	}
+
+	if product, ok := data["product"]; ok && product != nil {
+		if summary := formatProductSummary(product); summary != "" {
+			return summary
+		}
+	}
+
+	if selection, ok := data["selection"]; ok && selection != nil {
+		if summary := formatSelectionSummary(selection); summary != "" {
+			return summary
+		}
+	}
+
 	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
 		// Pre-rendered by buildOtherMessageTypes at construction time (not
 		// stored as the raw proto) so it survives the JSON round-trip on the
@@ -876,6 +900,15 @@ type nativeFlowButtonParams struct {
 	URL         string `json:"url"`
 	PhoneNumber string `json:"phone_number"`
 	Copy        string `json:"copy_code"`
+	ID          string `json:"id"`
+	Sections    []struct {
+		Title string `json:"title"`
+		Rows  []struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"rows"`
+	} `json:"sections"`
 	// Title is the visible label field used by picker-style buttons (e.g.
 	// single_select's {"title":...,"sections":...}), which don't set
 	// display_text at all.
