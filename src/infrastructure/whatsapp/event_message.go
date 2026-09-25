@@ -209,6 +209,7 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		"body",
 		"image", "audio", "video", "video_note", "document", "sticker",
 		"contact", "contacts_array", "list", "live_location", "location", "order",
+		"template", "buttons", "product", "selection", "interactive",
 	}
 	for _, key := range renderableKeys {
 		if _, ok := payload[key]; ok {
@@ -236,7 +237,14 @@ func hasRecognizedMessageType(msg *waE2E.Message) bool {
 		msg.GetListMessage() != nil,
 		msg.GetLiveLocationMessage() != nil,
 		msg.GetLocationMessage() != nil,
-		msg.GetOrderMessage() != nil:
+		msg.GetOrderMessage() != nil,
+		msg.GetInteractiveMessage() != nil,
+		msg.GetTemplateMessage() != nil,
+		msg.GetButtonsMessage() != nil,
+		msg.GetProductMessage() != nil,
+		msg.GetListResponseMessage() != nil,
+		msg.GetButtonsResponseMessage() != nil,
+		msg.GetTemplateButtonReplyMessage() != nil:
 		return true
 	default:
 		return false
@@ -564,6 +572,20 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 
 	if orderMessage := msg.GetOrderMessage(); orderMessage != nil {
 		payload["order"] = orderMessage
+	}
+
+	// See event_business_message.go.
+	if template := buildTemplatePayload(msg.GetTemplateMessage()); template != nil {
+		payload["template"] = *template
+	}
+	if buttons := buildButtonsPayload(msg.GetButtonsMessage()); buttons != nil {
+		payload["buttons"] = *buttons
+	}
+	if product := buildProductPayload(msg.GetProductMessage()); product != nil {
+		payload["product"] = *product
+	}
+	if selection := buildSelectionPayload(msg); selection != nil {
+		payload["selection"] = *selection
 	}
 
 	if interactiveMessage := msg.GetInteractiveMessage(); interactiveMessage != nil {
