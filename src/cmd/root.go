@@ -93,6 +93,15 @@ func initEnvConfig() {
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
 	}
+	if viper.IsSet("whatsapp_full_history_sync") {
+		config.WhatsappFullHistorySync = viper.GetBool("whatsapp_full_history_sync")
+	}
+	if envDays := viper.GetUint32("whatsapp_full_history_days"); envDays > 0 {
+		config.WhatsappFullHistoryDays = envDays
+	}
+	if envSize := viper.GetUint32("whatsapp_full_history_size_mb"); envSize > 0 {
+		config.WhatsappFullHistorySizeMB = envSize
+	}
 	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
@@ -325,6 +334,18 @@ func initFlags() {
 		"debug", "d",
 		config.AppDebug,
 		"hide or displaying log with --debug <true/false> | example: --debug=true",
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappFullHistorySync,
+		"full-history-sync", "",
+		config.WhatsappFullHistorySync,
+		`pair as Desktop and ask the phone for the FULL message history (new pairings only) --full-history-sync <true/false> | example: --full-history-sync=true`,
+	)
+	rootCmd.PersistentFlags().Uint32VarP(
+		&config.WhatsappFullHistoryDays,
+		"full-history-days", "",
+		config.WhatsappFullHistoryDays,
+		`days of history requested when --full-history-sync is on | example: --full-history-days=3650`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppOs,
