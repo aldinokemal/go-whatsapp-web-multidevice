@@ -1297,6 +1297,15 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                  example: ["628123456789", "@everyone"]
+                  description: |
+                    List of phone numbers to mention (ghost mentions - no @ required in caption).
+                    `@phone` in the caption is also mentioned. Use special keyword "@everyone" to mention all group participants.
+                    Send one `mentions` form field per entry.
                 reply_message_id:
                   type: string
                   example: 3EB089B9D6ADD58153C561
@@ -1435,6 +1444,15 @@ paths:
                   type: string
                   example: selamat malam
                   description: Caption to send
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                  example: ["628123456789", "@everyone"]
+                  description: |
+                    List of phone numbers to mention (ghost mentions - no @ required in caption).
+                    `@phone` in the caption is also mentioned. Use special keyword "@everyone" to mention all group participants.
+                    Send one `mentions` form field per entry.
                 reply_message_id:
                   type: string
                   example: 3EB089B9D6ADD58153C561
@@ -1554,6 +1572,15 @@ paths:
                   type: string
                   example: ini contoh caption video
                   description: Caption to send
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                  example: ["628123456789", "@everyone"]
+                  description: |
+                    List of phone numbers to mention (ghost mentions - no @ required in caption).
+                    `@phone` in the caption is also mentioned. Use special keyword "@everyone" to mention all group participants.
+                    Send one `mentions` form field per entry.
                 reply_message_id:
                   type: string
                   example: 3EB089B9D6ADD58153C561

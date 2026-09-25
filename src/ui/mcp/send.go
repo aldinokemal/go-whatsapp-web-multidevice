@@ -71,6 +71,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			BaseRequest: base,
 			ImageURL:    &imageURL,
 			Caption:     request.GetString("caption", ""),
+			Mentions:    request.GetStringSlice("mentions", nil),
 			ViewOnce:    request.GetBool("view_once", false),
 			Compress:    request.GetBool("compress", true),
 			HD:          request.GetBool("hd", false),
@@ -81,6 +82,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			BaseRequest: base,
 			VideoURL:    &videoURL,
 			Caption:     request.GetString("caption", ""),
+			Mentions:    request.GetStringSlice("mentions", nil),
 			ViewOnce:    request.GetBool("view_once", false),
 			GifPlayback: request.GetBool("gif_playback", false),
 			Compress:    request.GetBool("compress", false),
@@ -99,6 +101,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			BaseRequest: base,
 			FileURL:     &fileURL,
 			Caption:     request.GetString("caption", ""),
+			Mentions:    request.GetStringSlice("mentions", nil),
 		})
 	case "sticker":
 		stickerURL := request.GetString("sticker_url", "")

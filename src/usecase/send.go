@@ -332,19 +332,8 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
 	}
 
-	// Get mentions from text (existing behavior - parses @phone from message text)
-	parsedMentions := service.getMentionFromText(ctx, request.Message)
-
-	// Add explicit mentions from request.Mentions (ghost mentions - no @ required in text)
-	if len(request.Mentions) > 0 {
-		explicitMentions := service.getMentionsFromList(ctx, request.Mentions, dataWaRecipient)
-		parsedMentions = append(parsedMentions, explicitMentions...)
-		// Deduplicate to avoid mentioning the same person twice
-		parsedMentions = utils.UniqueStrings(parsedMentions)
-	}
-
-	if len(parsedMentions) > 0 {
-		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
+	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		msg.ExtendedTextMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 
 	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
@@ -512,6 +501,12 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.ImageMessage.ContextInfo == nil {
+			msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ImageMessage.ContextInfo.MentionedJID = mentionedJIDs
+	}
 	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
 
 	caption := "🖼️ Image"
@@ -603,6 +598,12 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
 		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.DocumentMessage.ContextInfo == nil {
+			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.DocumentMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
 
@@ -1057,6 +1058,12 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 			msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
 		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.VideoMessage.ContextInfo == nil {
+			msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.VideoMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
 
@@ -1632,6 +1639,16 @@ func (service serviceSend) getMentionFromText(ctx context.Context, messages stri
 		if dataWaRecipient, err := utils.ValidateJidWithLogin(client, mention); err == nil {
 			result = append(result, dataWaRecipient.String())
 		}
+	}
+	return result
+}
+
+// resolveMentions combines @phone mentions parsed from text with explicit (ghost)
+// mentions, deduplicated so the same person is not mentioned twice.
+func (service serviceSend) resolveMentions(ctx context.Context, text string, mentions []string, recipientJID types.JID) []string {
+	result := service.getMentionFromText(ctx, text)
+	if len(mentions) > 0 {
+		result = utils.UniqueStrings(append(result, service.getMentionsFromList(ctx, mentions, recipientJID)...))
 	}
 	return result
 }
