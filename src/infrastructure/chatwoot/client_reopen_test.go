@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 )
@@ -245,5 +247,158 @@ func TestFindOrCreateConversation_ReopenToggleFailureStillReturnsLatest(t *testi
 	}
 	if counters.createCalls != 0 {
 		t.Errorf("create calls = %d, want 0 (latest still returned, not created)", counters.createCalls)
+	}
+}
+
+// getConversationStateServer serves a fixed body for GET
+// /conversations/{id}, letting each case control the exact bytes
+// GetConversationState has to decode.
+func getConversationStateServer(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/accounts/1/conversations/55" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestGetConversationState_AcceptsNumericTimestamps(t *testing.T) {
+	// Wrapped shape (payload envelope), epoch-seconds timestamps.
+	server := getConversationStateServer(t, http.StatusOK, `{"payload":{"status":"resolved","last_activity_at":1700000000,"updated_at":1700000100}}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if state.Status != "resolved" {
+		t.Fatalf("Status = %q, want resolved", state.Status)
+	}
+	if want := time.Unix(1700000100, 0); !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want the newer of the two epochs (%v)", state.LastActivityAt, want)
+	}
+}
+
+func TestGetConversationState_AcceptsFlatNumericTimestamps(t *testing.T) {
+	// Flat shape (no payload envelope).
+	server := getConversationStateServer(t, http.StatusOK, `{"status":"open","last_activity_at":1700000200,"updated_at":1700000000}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if state.Status != "open" {
+		t.Fatalf("Status = %q, want open", state.Status)
+	}
+	if want := time.Unix(1700000200, 0); !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want the newer of the two epochs (%v)", state.LastActivityAt, want)
+	}
+}
+
+// Some Chatwoot API versions send last_activity_at/updated_at as RFC-3339
+// strings instead of epoch numbers. A response in that shape must still
+// decode -- the caller only needs status and a comparable time, and getting
+// no state at all from a valid, differently-shaped response would make
+// replayChatwootReopenIntent retry a decode error until the window expires
+// instead of acting on the real status.
+func TestGetConversationState_AcceptsRFC3339StringTimestamps(t *testing.T) {
+	server := getConversationStateServer(t, http.StatusOK, `{"payload":{"status":"resolved","last_activity_at":"2023-11-14T22:13:20Z","updated_at":"2023-11-14T22:15:00Z"}}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if state.Status != "resolved" {
+		t.Fatalf("Status = %q, want resolved", state.Status)
+	}
+	want, _ := time.Parse(time.RFC3339, "2023-11-14T22:15:00Z")
+	if !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want %v", state.LastActivityAt, want)
+	}
+}
+
+// A mix of shapes (one field numeric, the other a string) must decode too:
+// each field is independently tolerant.
+func TestGetConversationState_AcceptsMixedTimestampShapes(t *testing.T) {
+	server := getConversationStateServer(t, http.StatusOK, `{"status":"resolved","last_activity_at":"2023-11-14T22:13:20Z","updated_at":1700000100}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if state.Status != "resolved" {
+		t.Fatalf("Status = %q, want resolved", state.Status)
+	}
+	if want := time.Unix(1700000100, 0); !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want the newer value (%v)", state.LastActivityAt, want)
+	}
+}
+
+// A response with no status is rejected, and — the security-relevant part —
+// its body must never be echoed into the returned error: that error is
+// stored as the queue row's last_error and written to logs, and a
+// conversation-details payload can carry contact/conversation data.
+func TestGetConversationState_MissingStatusRejectsWithoutEchoingBody(t *testing.T) {
+	const secret = "super-secret-contact-email@example.com and a phone number"
+	body := `{"payload":{"last_activity_at":1700000000,"contact":{"email":"` + secret + `"}}}`
+	server := getConversationStateServer(t, http.StatusOK, body)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err == nil {
+		t.Fatal("expected an error for a response with no status")
+	}
+	if state != nil {
+		t.Fatalf("state = %+v, want nil", state)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error echoes response body content: %v", err)
+	}
+	if !strings.Contains(err.Error(), "55") {
+		t.Fatalf("error = %q, want it to name the conversation id", err.Error())
+	}
+}
+
+// Malformed JSON is the other no-status case: still rejected, still without
+// echoing whatever bytes came back.
+func TestGetConversationState_MalformedBodyRejectsWithoutEchoingBody(t *testing.T) {
+	const secret = "not-json-but-still-sensitive-looking-data"
+	server := getConversationStateServer(t, http.StatusOK, secret)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	_, err := c.GetConversationState(55)
+	if err == nil {
+		t.Fatal("expected an error for a malformed response")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error echoes response body content: %v", err)
+	}
+}
+
+func TestGetConversationState_KeepsFractionalEpochSeconds(t *testing.T) {
+	// updated_at is only 0.5s newer than last_activity_at; truncating to whole
+	// seconds would make them equal and hide which one is newer.
+	server := getConversationStateServer(t, http.StatusOK, `{"status":"resolved","last_activity_at":1700000000.25,"updated_at":1700000000.75}`)
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	state, err := c.GetConversationState(55)
+	if err != nil {
+		t.Fatalf("GetConversationState: %v", err)
+	}
+	if want := time.Unix(1700000000, 750000000); !state.LastActivityAt.Equal(want) {
+		t.Fatalf("LastActivityAt = %v, want %v", state.LastActivityAt, want)
 	}
 }
