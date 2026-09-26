@@ -431,8 +431,13 @@ func (service *serviceApp) lockLogin(ctx context.Context, deviceID string) (unlo
 	lock := value.(chan struct{})
 	select {
 	case lock <- struct{}{}:
-		return func() { <-lock }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	// select picks randomly when both cases are ready; don't run a cancelled request.
+	if err := ctx.Err(); err != nil {
+		<-lock
+		return nil, err
+	}
+	return func() { <-lock }, nil
 }

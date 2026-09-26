@@ -29,6 +29,16 @@ func TestLockLogin_SerializesPerDevice(t *testing.T) {
 	}
 
 	unlock()
+
+	// A cancelled request is rejected even when the lock is free, and leaves it free.
+	cancelled, cancelNow := context.WithCancel(context.Background())
+	cancelNow()
+	for range 100 {
+		if _, err := svc.lockLogin(cancelled, "dev1"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected canceled for a cancelled request, got %v", err)
+		}
+	}
+
 	unlockAgain, err := svc.lockLogin(context.Background(), "dev1")
 	if err != nil {
 		t.Fatalf("lock after unlock: %v", err)

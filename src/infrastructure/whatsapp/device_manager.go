@@ -850,8 +850,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
+	// Events outlive ctx, which is usually a login request's context and is
+	// cancelled once that request responds.
 	client.AddEventHandler(func(rawEvt any) {
-		handler(ctx, inst, rawEvt)
+		handler(context.Background(), inst, rawEvt)
 	})
 
 	inst.SetOnLoggedOut(func(deviceID string) {
