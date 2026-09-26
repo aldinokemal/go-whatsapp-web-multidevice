@@ -49,6 +49,16 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	client.Disconnect()
 	instance.ClearPasskeyState()
 
+	// Start every QR login on a fresh client. Disconnect emits no event, so the QR
+	// channel of a previous login stays registered on the client and, once its context
+	// expires, disconnects the next session right after its QR code is shown (#851).
+	if client.Store.ID == nil {
+		instance.SetClient(nil)
+		if instance, client, err = service.ensureClient(ctx, deviceID); err != nil {
+			return response, err
+		}
+	}
+
 	// Use a detached context for the QR channel so the pairing session
 	// survives after the HTTP response is sent. The HTTP request context
 	// has a short timeout (e.g. 45s) which would cancel the QR emitter
@@ -75,7 +85,18 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 	go func() {
 		defer qrCancel()
 		defer close(chImage) // Ensure channel is closed when done
-		for evt := range ch {
+		for {
+			var evt whatsmeow.QRChannelItem
+			select {
+			case item, ok := <-ch:
+				if !ok {
+					return
+				}
+				evt = item
+			case <-qrCtx.Done():
+				// A superseded login's channel is never closed; stop with its QR window.
+				return
+			}
 			response.Code = evt.Code
 			response.Duration = evt.Timeout / time.Second / 2
 			if evt.Event == "code" {
