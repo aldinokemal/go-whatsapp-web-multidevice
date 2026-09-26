@@ -853,6 +853,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	// Events outlive ctx, which is usually a login request's context and is
 	// cancelled once that request responds.
 	client.AddEventHandler(func(rawEvt any) {
+		// A client replaced by a newer login must no longer drive the slot.
+		if inst.GetClient() != client {
+			return
+		}
 		handler(context.Background(), inst, rawEvt)
 	})
 
