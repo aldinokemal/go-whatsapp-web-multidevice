@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -25,6 +26,7 @@ import (
 type serviceApp struct {
 	chatStorageRepo domainChatStorage.IChatStorageRepository
 	deviceManager   *whatsapp.DeviceManager
+	loginLocks      sync.Map // device id -> chan struct{}, see lockLogin
 }
 
 func NewAppService(chatStorageRepo domainChatStorage.IChatStorageRepository, deviceManager *whatsapp.DeviceManager) domainApp.IAppUsecase {
@@ -35,6 +37,12 @@ func NewAppService(chatStorageRepo domainChatStorage.IChatStorageRepository, dev
 }
 
 func (service *serviceApp) Login(ctx context.Context, deviceID string) (response domainApp.LoginResponse, err error) {
+	unlock, err := service.lockLogin(ctx, deviceID)
+	if err != nil {
+		return response, err
+	}
+	defer unlock()
+
 	instance, client, err := service.ensureClient(ctx, deviceID)
 	if err != nil {
 		return response, err
@@ -155,6 +163,12 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 		logrus.Errorf("Error when validate login with code: %s", err.Error())
 		return loginCode, err
 	}
+
+	unlock, err := service.lockLogin(ctx, deviceID)
+	if err != nil {
+		return loginCode, err
+	}
+	defer unlock()
 
 	instance, client, err := service.ensureClient(ctx, deviceID)
 	if err != nil {
@@ -408,4 +422,17 @@ func (service *serviceApp) ensureClient(ctx context.Context, deviceID string) (*
 	}
 
 	return instance, client, nil
+}
+
+// lockLogin serializes login flows per device. Login swaps an unpaired device's
+// client, which must not happen while an overlapping login is still using it.
+func (service *serviceApp) lockLogin(ctx context.Context, deviceID string) (unlock func(), err error) {
+	value, _ := service.loginLocks.LoadOrStore(deviceID, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
