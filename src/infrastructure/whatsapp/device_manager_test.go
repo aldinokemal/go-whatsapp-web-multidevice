@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 func TestApplyKeyCacheStorePreservesPrivacyTokens(t *testing.T) {
@@ -221,6 +223,47 @@ func TestEnsureClientReusesPersistedADStoreDeviceFromNonADID(t *testing.T) {
 	}
 	if got := instance.JID(); got != nonADJID {
 		t.Fatalf("expected instance JID %s, got %q", nonADJID, got)
+	}
+}
+
+func TestEnsureClientIgnoresEventsFromReplacedClient(t *testing.T) {
+	ctx := context.Background()
+	manager := NewDeviceManager(newTestSQLStore(t), nil, nil)
+	instance, err := manager.EnsureClient(ctx, "dev1")
+	if err != nil {
+		t.Fatalf("ensure client: %v", err)
+	}
+	replaced := instance.GetClient()
+
+	// Login replaces an unpaired client like this.
+	instance.SetClient(nil)
+	if _, err := manager.EnsureClient(ctx, "dev1"); err != nil {
+		t.Fatalf("rebuild client: %v", err)
+	}
+
+	dispatched := make(chan struct{})
+	go func() {
+		replaced.DangerousInternals().DispatchEvent(&events.PairPasskeyConfirmation{Code: "OLD"})
+		close(dispatched)
+	}()
+	select {
+	case <-dispatched:
+	case msg := <-websocket.Broadcast:
+		t.Fatalf("replaced client's event reached the device: broadcast %s", msg.Code)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out dispatching the replaced client's event")
+	}
+	if _, code, _ := instance.PasskeyState(); code != "" {
+		t.Fatalf("replaced client's event changed passkey state: code %q", code)
+	}
+
+	// The current client still drives the device.
+	go instance.GetClient().DangerousInternals().DispatchEvent(&events.PairPasskeyConfirmation{Code: "NEW"})
+	if msg := recvBroadcast(t); msg.Code != "PASSKEY_CONFIRMATION" {
+		t.Fatalf("broadcast code = %s, want PASSKEY_CONFIRMATION", msg.Code)
+	}
+	if _, code, _ := instance.PasskeyState(); code != "NEW" {
+		t.Fatalf("passkey code = %q, want NEW", code)
 	}
 }
 
