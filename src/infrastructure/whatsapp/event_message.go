@@ -244,7 +244,8 @@ func hasRecognizedMessageType(msg *waE2E.Message) bool {
 		msg.GetProductMessage() != nil,
 		msg.GetListResponseMessage() != nil,
 		msg.GetButtonsResponseMessage() != nil,
-		msg.GetTemplateButtonReplyMessage() != nil:
+		msg.GetTemplateButtonReplyMessage() != nil,
+		msg.GetInteractiveResponseMessage() != nil:
 		return true
 	default:
 		return false

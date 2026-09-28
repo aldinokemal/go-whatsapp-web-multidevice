@@ -1317,7 +1317,7 @@ Prices are in WhatsApp's unit (amount × 1000). `body` is `Product: <title> (<cu
 
 ### List / Button Reply
 
-A tap on a list row, a button or a template quick reply. `selected_id` matches the list row's `rowID` or the button `id`:
+A tap on a list row, a button, a template quick reply or a native-flow button. `selected_id` matches the list row's `rowID` or the button `id`:
 
 ```json
 "selection": {
@@ -1328,8 +1328,8 @@ A tap on a list row, a button or a template quick reply. `selected_id` matches t
 }
 ```
 
-- `kind` is `list`, `buttons` or `template`.
-- `body` is the selected text, falling back to `description`. Recent clients often send list replies with only the row id; `body` is then `Selected option <selected_id>`.
+- `kind` is `list`, `buttons`, `template` or `interactive` (native-flow replies, whose `selected_id` comes from the reply's `id` param).
+- `body` is the selected text, falling back to `description`. Recent clients often send replies with only the id; `body` is then `Selected option <selected_id>`, or `Selection message` when there is nothing at all.
 
 ### Location Message
 

@@ -86,6 +86,7 @@ func TestBusinessMessagesAreRecognized(t *testing.T) {
 		"list reply":     {ListResponseMessage: &waE2E.ListResponseMessage{}},
 		"buttons reply":  {ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{}},
 		"template reply": {TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{}},
+		"native reply":   {InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{}},
 	} {
 		if !hasRecognizedMessageType(msg) {
 			t.Errorf("%s should be a recognized message type", name)

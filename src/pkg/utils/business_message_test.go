@@ -54,6 +54,17 @@ func interactiveTemplateWithHydratedFallback() *waE2E.Message {
 	}}
 }
 
+// A native-flow tap can carry its choice only in paramsJSON.
+func nativeFlowReplyWithoutBody() *waE2E.Message {
+	return &waE2E.Message{InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+		InteractiveResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage_{
+			NativeFlowResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage{
+				Name: proto.String("quick_reply"), ParamsJSON: proto.String(`{"id":"book_2"}`),
+			},
+		},
+	}}
+}
+
 func listReplyWithoutTitle() *waE2E.Message {
 	return &waE2E.Message{ListResponseMessage: &waE2E.ListResponseMessage{
 		ListType:          waE2E.ListResponseMessage_SINGLE_SELECT.Enum(),
@@ -152,6 +163,16 @@ func TestExtractMessageTextFromProtoBusinessMessages(t *testing.T) {
 				Body: &waE2E.InteractiveResponseMessage_Body{Text: proto.String("Track my order")},
 			}},
 			want: "Track my order",
+		},
+		{
+			name: "NativeFlowReplyWithOnlyAnID",
+			msg:  nativeFlowReplyWithoutBody(),
+			want: "Selected option book_2",
+		},
+		{
+			name: "EmptySelectionReplyGetsPlaceholder",
+			msg:  &waE2E.Message{ListResponseMessage: &waE2E.ListResponseMessage{}},
+			want: "Selection message",
 		},
 		{
 			name: "ButtonsMessage",
@@ -402,6 +423,13 @@ func TestBuildSelectionPayloadListReplyWithoutTitle(t *testing.T) {
 	selection := BuildSelectionPayload(listReplyWithoutTitle())
 	if selection == nil || selection.Kind != "list" || selection.SelectedID != "row-void-pnr" {
 		t.Fatalf("selected row not kept: %+v", selection)
+	}
+}
+
+func TestBuildSelectionPayloadNativeFlowReply(t *testing.T) {
+	selection := BuildSelectionPayload(nativeFlowReplyWithoutBody())
+	if selection == nil || selection.Kind != "interactive" || selection.SelectedID != "book_2" {
+		t.Fatalf("native-flow reply not kept: %+v", selection)
 	}
 }
 

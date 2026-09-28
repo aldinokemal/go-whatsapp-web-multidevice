@@ -61,10 +61,11 @@ type BusinessProduct struct {
 	BusinessOwnerJID    string `json:"business_owner_jid,omitempty"`
 }
 
-// BusinessSelection is a tap on a list row, button or template quick reply.
-// SelectedID matches the row or button id of the original message.
+// BusinessSelection is a tap on a list row, button, template quick reply or
+// native-flow button. SelectedID matches the row or button id of the original
+// message.
 type BusinessSelection struct {
-	Kind        string `json:"kind"` // list, buttons, template
+	Kind        string `json:"kind"` // list, buttons, template, interactive
 	Text        string `json:"text,omitempty"`
 	Description string `json:"description,omitempty"`
 	SelectedID  string `json:"selected_id,omitempty"`
@@ -258,8 +259,8 @@ func BuildProductPayload(msg *waE2E.Message) *BusinessProduct {
 	}
 }
 
-// BuildSelectionPayload returns the list, buttons or template reply in msg,
-// or nil.
+// BuildSelectionPayload returns the list, buttons, template or native-flow
+// reply in msg, or nil.
 func BuildSelectionPayload(msg *waE2E.Message) *BusinessSelection {
 	switch {
 	case msg.GetListResponseMessage() != nil:
@@ -276,6 +277,11 @@ func BuildSelectionPayload(msg *waE2E.Message) *BusinessSelection {
 	case msg.GetTemplateButtonReplyMessage() != nil:
 		reply := msg.GetTemplateButtonReplyMessage()
 		return &BusinessSelection{Kind: "template", Text: reply.GetSelectedDisplayText(), SelectedID: reply.GetSelectedID()}
+	case msg.GetInteractiveResponseMessage() != nil:
+		reply := msg.GetInteractiveResponseMessage()
+		var params nativeFlowButtonParams
+		_ = json.Unmarshal([]byte(reply.GetNativeFlowResponseMessage().GetParamsJSON()), &params)
+		return &BusinessSelection{Kind: "interactive", Text: reply.GetBody().GetText(), SelectedID: params.ID}
 	}
 	return nil
 }
@@ -328,13 +334,13 @@ func extractBusinessMessageText(msg *waE2E.Message) string {
 	}
 	if selection := BuildSelectionPayload(msg); selection != nil {
 		text := cmp.Or(selection.Text, selection.Description)
-		// Recent clients send list replies with only the row id.
+		// Recent clients send list and native-flow replies with only the id.
 		if text == "" && selection.SelectedID != "" {
 			text = "Selected option " + selection.SelectedID
 		}
-		return text
+		return cmp.Or(text, "Selection message")
 	}
-	return msg.GetInteractiveResponseMessage().GetBody().GetText()
+	return ""
 }
 
 // businessMessageLines renders the rows, then one line per button: the same
