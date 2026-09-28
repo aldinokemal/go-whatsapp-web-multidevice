@@ -132,15 +132,11 @@ func WhatsAppToChatwootMarkdown(s string) string {
 }
 
 // replaceWhatsAppPairs swaps the delimiters of every re match for marker. It
-// repeats because adjacent pairs ("*a* *b*") share the boundary character
-// between them, which a single pass consumes. Each pass removes delimiters,
-// so the loop ends.
+// runs twice because adjacent pairs ("*a* *b*") share the boundary character
+// between them, which a single pass consumes. It must not loop until stable:
+// each extra pass unwraps another nesting level, so crafted input would cost
+// one pass per level.
 func replaceWhatsAppPairs(re *regexp.Regexp, s, marker string) string {
-	for {
-		next := re.ReplaceAllString(s, "${1}"+marker+"${2}"+marker+"${3}")
-		if next == s {
-			return s
-		}
-		s = next
-	}
+	repl := "${1}" + marker + "${2}" + marker + "${3}"
+	return re.ReplaceAllString(re.ReplaceAllString(s, repl), repl)
 }

@@ -386,6 +386,13 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 			want: "**a** **b** *c* *d* ~~e~~ ~~f~~",
 		},
 		{
+			// Passes are capped at two: an unbounded loop unwraps one nesting
+			// level per pass, so a crafted 64KB message burned ~50s of CPU.
+			name: "NestingBeyondTwoPassesStops",
+			in:   "*a *b *c* d* e*",
+			want: "*a **b **c** d** e*",
+		},
+		{
 			// A doubled delimiter is not a WhatsApp pair; leave it as typed.
 			name: "DoubledDelimitersUnchanged",
 			in:   "**x** ~~y~~ __init__",
