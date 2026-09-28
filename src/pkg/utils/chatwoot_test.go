@@ -362,6 +362,40 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 			in:   "\x01*bold*\x02",
 			want: "**bold**",
 		},
+		{
+			// WhatsApp only formats at word boundaries, so URL query params
+			// and snake_case ids must come through as typed.
+			name: "URLWithUnderscoresUnchanged",
+			in:   "🔗 Track: https://acme.example/t?utm_source=wa&utm_medium=tpl",
+			want: "🔗 Track: https://acme.example/t?utm_source=wa&utm_medium=tpl",
+		},
+		{
+			name: "SnakeCaseUnchanged",
+			in:   "Selected option opt_book_now [review_and_pay]",
+			want: "Selected option opt_book_now [review_and_pay]",
+		},
+		{
+			name: "MidWordDelimitersUnchanged",
+			in:   "2*3*4 and a~b~c",
+			want: "2*3*4 and a~b~c",
+		},
+		{
+			// Adjacent pairs share the boundary character between them.
+			name: "AdjacentPairs",
+			in:   "*a* *b* _c_ _d_ ~e~ ~f~",
+			want: "**a** **b** *c* *d* ~~e~~ ~~f~~",
+		},
+		{
+			// A doubled delimiter is not a WhatsApp pair; leave it as typed.
+			name: "DoubledDelimitersUnchanged",
+			in:   "**x** ~~y~~ __init__",
+			want: "**x** ~~y~~ __init__",
+		},
+		{
+			name: "PunctuationBoundaries",
+			in:   "(*Order #42*), _today_!",
+			want: "(**Order #42**), *today*!",
+		},
 	}
 
 	for _, tt := range tests {

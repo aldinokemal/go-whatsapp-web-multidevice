@@ -63,8 +63,10 @@ func IsNewsletterJID(jid string) bool {
 //
 // The transforms use paired, non-greedy delimiters, so a lone unmatched
 // delimiter (e.g. "2 * 3") is left alone — exactly the inputs WhatsApp and
-// Chatwoot themselves decline to format. Sentinel runes guard the bold pass
-// from being re-matched by the italic pass.
+// Chatwoot themselves decline to format. Like WhatsApp, the WhatsApp-side
+// pairs only count at word boundaries, so URLs (?utm_source=a&utm_medium=b)
+// and snake_case ids pass through untouched. Sentinel runes guard the bold
+// pass from being re-matched by the italic pass.
 
 const (
 	mdBoldSentinel   = "\x01"
@@ -75,9 +77,9 @@ var (
 	reCwBold   = regexp.MustCompile(`\*\*(.+?)\*\*`)
 	reCwStrike = regexp.MustCompile(`~~(.+?)~~`)
 	reCwItalic = regexp.MustCompile(`\*(.+?)\*`)
-	reWaBold   = regexp.MustCompile(`\*(.+?)\*`)
-	reWaItalic = regexp.MustCompile(`_(.+?)_`)
-	reWaStrike = regexp.MustCompile(`~(.+?)~`)
+	reWaBold   = regexp.MustCompile(`(^|[^\p{L}\p{N}*])\*([^\s*](?:[^*\n]*[^\s*])?)\*($|[^\p{L}\p{N}*])`)
+	reWaItalic = regexp.MustCompile(`(^|[^\p{L}\p{N}_])_([^\s_](?:[^_\n]*[^\s_])?)_($|[^\p{L}\p{N}_])`)
+	reWaStrike = regexp.MustCompile(`(^|[^\p{L}\p{N}~])~([^\s~](?:[^~\n]*[^\s~])?)~($|[^\p{L}\p{N}~])`)
 )
 
 // stripMarkdownSentinels removes any pre-existing guard runes from input so
@@ -121,9 +123,24 @@ func WhatsAppToChatwootMarkdown(s string) string {
 	// asterisks, then expand the sentinel to a double asterisk. Doing it in
 	// this order keeps the freshly-created italic asterisks from being seen
 	// as bold.
-	s = reWaBold.ReplaceAllString(s, mdBoldSentinel+"$1"+mdBoldSentinel)
-	s = reWaItalic.ReplaceAllString(s, "*$1*")
-	s = reWaStrike.ReplaceAllString(s, "~~$1~~")
+	s = replaceWhatsAppPairs(reWaBold, s, mdBoldSentinel)
+	s = replaceWhatsAppPairs(reWaItalic, s, "*")
+	s = replaceWhatsAppPairs(reWaStrike, s, mdStrikeSentinel)
 	s = strings.ReplaceAll(s, mdBoldSentinel, "**")
+	s = strings.ReplaceAll(s, mdStrikeSentinel, "~~")
 	return s
+}
+
+// replaceWhatsAppPairs swaps the delimiters of every re match for marker. It
+// repeats because adjacent pairs ("*a* *b*") share the boundary character
+// between them, which a single pass consumes. Each pass removes delimiters,
+// so the loop ends.
+func replaceWhatsAppPairs(re *regexp.Regexp, s, marker string) string {
+	for {
+		next := re.ReplaceAllString(s, "${1}"+marker+"${2}"+marker+"${3}")
+		if next == s {
+			return s
+		}
+		s = next
+	}
 }
