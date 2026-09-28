@@ -519,6 +519,8 @@ Text formatting is translated in both directions so emphasis survives the bridge
 | `_italic_` | `*italic*` |
 | `~strike~` | `~~strike~~` |
 
+As in WhatsApp, a WhatsApp-side pair only counts at word boundaries and never inside links, so URLs such as `/_docs_/` or `?utm_source=wa&utm_medium=cta` and `snake_case` ids reach Chatwoot unchanged.
+
 ### Edits & deletions
 
 - **Edits**: when a WhatsApp user edits a message, the new text is mirrored into Chatwoot as a threaded `✏️ **Edited:** …` note (controlled by `CHATWOOT_FORWARD_EDITS`, default on).

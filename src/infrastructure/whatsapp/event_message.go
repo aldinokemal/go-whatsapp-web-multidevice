@@ -181,8 +181,8 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 
 	if payloadHasNoRenderableContent(payload) && !hasRecognizedMessageType(msg) {
 		// Neither a recognized message type nor any renderable payload field:
-		// this is genuinely an unhandled kind (e.g. templates, interactive/
-		// native-flow messages, polls, group invites, payment requests).
+		// this is genuinely an unhandled kind (e.g. group invites, payment
+		// requests).
 		// Downstream (Chatwoot) will render it as "(Unsupported message
 		// type)" with no way to tell which WhatsApp message kind caused it.
 		// Log which proto field is populated — never its value, since that
@@ -209,6 +209,7 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		"body",
 		"image", "audio", "video", "video_note", "document", "sticker",
 		"contact", "contacts_array", "list", "live_location", "location", "order",
+		"template", "buttons", "product", "selection", "interactive",
 	}
 	for _, key := range renderableKeys {
 		if _, ok := payload[key]; ok {
@@ -236,7 +237,15 @@ func hasRecognizedMessageType(msg *waE2E.Message) bool {
 		msg.GetListMessage() != nil,
 		msg.GetLiveLocationMessage() != nil,
 		msg.GetLocationMessage() != nil,
-		msg.GetOrderMessage() != nil:
+		msg.GetOrderMessage() != nil,
+		msg.GetInteractiveMessage() != nil,
+		msg.GetTemplateMessage() != nil,
+		msg.GetButtonsMessage() != nil,
+		msg.GetProductMessage() != nil,
+		msg.GetListResponseMessage() != nil,
+		msg.GetButtonsResponseMessage() != nil,
+		msg.GetTemplateButtonReplyMessage() != nil,
+		msg.GetInteractiveResponseMessage() != nil:
 		return true
 	default:
 		return false
@@ -566,20 +575,31 @@ func buildOtherMessageTypes(msg *waE2E.Message, payload map[string]any) {
 		payload["order"] = orderMessage
 	}
 
+	if template := utils.BuildTemplatePayload(msg); template != nil {
+		payload["template"] = *template
+	}
+	if buttons := utils.BuildButtonsPayload(msg); buttons != nil {
+		payload["buttons"] = *buttons
+	}
+	if product := utils.BuildProductPayload(msg); product != nil {
+		payload["product"] = *product
+	}
+	if selection := utils.BuildSelectionPayload(msg); selection != nil {
+		payload["selection"] = *selection
+	}
+
 	if interactiveMessage := msg.GetInteractiveMessage(); interactiveMessage != nil {
 		// Business/Cloud API messages with native buttons (cta_url "visit
 		// website", cta_call, single/multi-select, etc.) arrive as this type
-		// instead of Conversation/ExtendedTextMessage, so they carried no
-		// body text and rendered as "(Unsupported message type)" in Chatwoot.
+		// instead of Conversation/ExtendedTextMessage. body carries the same
+		// summary, but buildChatwootMessageContent forwards this copy without
+		// its markdown pass.
 		//
 		// Rendered to a string here, not stored as the raw proto: a failed
 		// live forward gets re-marshaled through JSON for the retry queue
 		// (see enqueueChatwootForwardRetry/replayChatwootForwardEvent), which
-		// turns *waE2E.InteractiveMessage into a generic map[string]any —
-		// the type assertion in extractStructuredMessageContent would then
-		// miss on retry and silently downgrade to the generic sentinel,
-		// losing the CTA label/URL/phone/code the live path just extracted.
-		payload["interactive"] = formatInteractiveMessageSummary(interactiveMessage)
+		// turns *waE2E.InteractiveMessage into a generic map[string]any.
+		payload["interactive"] = utils.FormatInteractiveMessageSummary(interactiveMessage)
 	}
 }
 

@@ -1246,6 +1246,91 @@ When a user shares multiple contacts at once (via WhatsApp's multi-contact share
 
 > **Note:** WhatsApp uses `ContactMessage` (field 4) for a single contact and `ContactsArrayMessage` (field 13) for multiple contacts. A single contact produces `"contact"`, while multiple contacts produce `"contacts_array"`.
 
+### Business Template Message
+
+Sent by WhatsApp Business / Cloud API senders (order confirmations, OTPs, booking updates):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0A1B2C3D4E5F60718",
+    "chat_id": "628123456789@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "Acme Store",
+    "timestamp": "2026-09-25T10:00:00Z",
+    "body": "Order confirmed\nHi John, your order #1234 has shipped.\nAcme Store\n🔗 Track order: https://acme.example/track/1234\n📞 Call us: +15550100\n[Stop updates]",
+    "template": {
+      "title": "Order confirmed",
+      "body": "Hi John, your order #1234 has shipped.",
+      "footer": "Acme Store",
+      "template_id": "order_confirmed",
+      "buttons": [
+        { "type": "url", "text": "Track order", "url": "https://acme.example/track/1234" },
+        { "type": "call", "text": "Call us", "phone_number": "+15550100" },
+        { "type": "quick_reply", "text": "Stop updates", "id": "stop" }
+      ]
+    }
+  }
+}
+```
+
+- `body` is the whole message as plain text: title, body and footer, then one line per button. Chat storage keeps the same text, and Chatwoot receives it with its usual WhatsApp-to-Markdown conversion. A template with no text gets `Template message`.
+- `buttons[].type` is `url`, `call`, `quick_reply` or `copy` (`code` holds the value to copy). Other native-flow buttons keep their name as the type.
+- A `single_select` button lists its options in `rows` (`id`, `title`, `description`).
+- `header_type` is set when the header is media: `image`, `video`, `document`, `location` or `product`. The header media itself is not included.
+- Templates wrapping an interactive message use the same shape, plus `subtitle`, and `cards` for carousels. Their `body` is rendered like an interactive message (`[quick_reply] Stop updates`, `Card 1: …`, and `Interactive message` when empty).
+- Interactive, list and order messages keep their `interactive` (the same text as `body`), `list` and `order` (raw WhatsApp message fields) keys, and get a plain-text `body` too: `List: <title>` or `Order: <title>` first, then the remaining text and list rows.
+
+### Buttons Message
+
+Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text):
+
+```json
+"buttons": {
+  "title": "Support",
+  "body": "Please choose the service",
+  "footer": "Reply with a button",
+  "buttons": [
+    { "type": "quick_reply", "text": "Sales", "id": "sales" },
+    { "type": "quick_reply", "text": "Support", "id": "support" }
+  ]
+}
+```
+
+### Product Message
+
+Prices are in WhatsApp's unit (amount × 1000). `body` is `Product: <title> (<currency> <price>)` with the price in major units, e.g. `Product: Weekend package (IDR 3500.00)`, using the sale price when set, followed by the message body and footer:
+
+```json
+"product": {
+  "product_id": "p-77",
+  "title": "Weekend package",
+  "description": "2 nights, breakfast included",
+  "currency_code": "IDR",
+  "price_amount_1000": 3500000,
+  "catalog_title": "Packages",
+  "business_owner_jid": "628111222333@s.whatsapp.net"
+}
+```
+
+### List / Button Reply
+
+A tap on a list row, a button, a template quick reply or a native-flow button. `selected_id` matches the list row's `rowID` or the button `id`:
+
+```json
+"selection": {
+  "kind": "list",
+  "text": "Void PNR",
+  "description": "Cancel the booking",
+  "selected_id": "row-void-pnr"
+}
+```
+
+- `kind` is `list`, `buttons`, `template` or `interactive` (native-flow replies, whose `selected_id` comes from the reply's `id` param).
+- `body` is the selected text, falling back to `description`. Recent clients often send replies with only the id; `body` is then `Selected option <selected_id>`, or `Selection message` when there is nothing at all.
+
 ### Location Message
 
 ```json

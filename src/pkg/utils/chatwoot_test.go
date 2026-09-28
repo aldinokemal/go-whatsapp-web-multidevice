@@ -362,6 +362,76 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 			in:   "\x01*bold*\x02",
 			want: "**bold**",
 		},
+		{
+			// WhatsApp only formats at word boundaries, so URL query params
+			// and snake_case ids must come through as typed.
+			name: "URLWithUnderscoresUnchanged",
+			in:   "🔗 Track: https://acme.example/t?utm_source=wa&utm_medium=tpl",
+			want: "🔗 Track: https://acme.example/t?utm_source=wa&utm_medium=tpl",
+		},
+		{
+			// Links are never formatted, even where a path segment is
+			// wrapped in delimiters.
+			name: "LinkPathsUnchanged",
+			in:   "Docs: https://acme.example/_docs_/ and www.acme.example/~john/~doc~",
+			want: "Docs: https://acme.example/_docs_/ and www.acme.example/~john/~doc~",
+		},
+		{
+			name: "FormattingAroundLinks",
+			in:   "*https://acme.example* _see https://x.example/a_b_c now_",
+			want: "**https://acme.example** *see https://x.example/a_b_c now*",
+		},
+		{
+			// Punctuation after the closing delimiter is not part of the link.
+			name: "FormattedLinkBeforePunctuation",
+			in:   "Kunjungi *https://acme.id/promo*! (_www.acme.id/faq_), ~https://old.acme.id~;",
+			want: "Kunjungi **https://acme.id/promo**! (*www.acme.id/faq*), ~~https://old.acme.id~~;",
+		},
+		{
+			// A link starts with a letter, so it is no boundary for a pair.
+			name: "PairTouchingLinkUnchanged",
+			in:   "*Link:*https://acme.id _note_www.acme.id",
+			want: "*Link:*https://acme.id _note_www.acme.id",
+		},
+		{
+			name: "CapitalizedLinkPathsUnchanged",
+			in:   "Www.toko.id/_toko_ HTTPS://ACME.ID/_PROMO_",
+			want: "Www.toko.id/_toko_ HTTPS://ACME.ID/_PROMO_",
+		},
+		{
+			name: "SnakeCaseUnchanged",
+			in:   "Selected option opt_book_now [review_and_pay]",
+			want: "Selected option opt_book_now [review_and_pay]",
+		},
+		{
+			name: "MidWordDelimitersUnchanged",
+			in:   "2*3*4 and a~b~c",
+			want: "2*3*4 and a~b~c",
+		},
+		{
+			// Adjacent pairs share the boundary character between them.
+			name: "AdjacentPairs",
+			in:   "*a* *b* _c_ _d_ ~e~ ~f~",
+			want: "**a** **b** *c* *d* ~~e~~ ~~f~~",
+		},
+		{
+			// Passes are capped at two: an unbounded loop unwraps one nesting
+			// level per pass, so a crafted 64KB message burned ~50s of CPU.
+			name: "NestingBeyondTwoPassesStops",
+			in:   "*a *b *c* d* e*",
+			want: "*a **b **c** d** e*",
+		},
+		{
+			// A doubled delimiter is not a WhatsApp pair; leave it as typed.
+			name: "DoubledDelimitersUnchanged",
+			in:   "**x** ~~y~~ __init__",
+			want: "**x** ~~y~~ __init__",
+		},
+		{
+			name: "PunctuationBoundaries",
+			in:   "(*Order #42*), _today_!",
+			want: "(**Order #42**), *today*!",
+		},
 	}
 
 	for _, tt := range tests {

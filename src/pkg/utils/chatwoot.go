@@ -63,21 +63,29 @@ func IsNewsletterJID(jid string) bool {
 //
 // The transforms use paired, non-greedy delimiters, so a lone unmatched
 // delimiter (e.g. "2 * 3") is left alone — exactly the inputs WhatsApp and
-// Chatwoot themselves decline to format. Sentinel runes guard the bold pass
-// from being re-matched by the italic pass.
+// Chatwoot themselves decline to format. Like WhatsApp, the WhatsApp-side
+// pairs only count at word boundaries and never inside links, so URLs
+// (/_docs_/, ?utm_source=a&utm_medium=b) and snake_case ids pass through
+// untouched. Sentinel runes guard the bold pass from being re-matched by the
+// italic pass.
 
 const (
 	mdBoldSentinel   = "\x01"
 	mdStrikeSentinel = "\x02"
+	mdLinkSentinel   = "\x03"
 )
 
 var (
 	reCwBold   = regexp.MustCompile(`\*\*(.+?)\*\*`)
 	reCwStrike = regexp.MustCompile(`~~(.+?)~~`)
 	reCwItalic = regexp.MustCompile(`\*(.+?)\*`)
-	reWaBold   = regexp.MustCompile(`\*(.+?)\*`)
-	reWaItalic = regexp.MustCompile(`_(.+?)_`)
-	reWaStrike = regexp.MustCompile(`~(.+?)~`)
+	// The link sentinel counts as a word character: a link starts with one.
+	reWaBold   = regexp.MustCompile(`(^|[^\p{L}\p{N}*\x03])\*([^\s*](?:[^*\n]*[^\s*])?)\*($|[^\p{L}\p{N}*\x03])`)
+	reWaItalic = regexp.MustCompile(`(^|[^\p{L}\p{N}_\x03])_([^\s_](?:[^_\n]*[^\s_])?)_($|[^\p{L}\p{N}_\x03])`)
+	reWaStrike = regexp.MustCompile(`(^|[^\p{L}\p{N}~\x03])~([^\s~](?:[^~\n]*[^\s~])?)~($|[^\p{L}\p{N}~\x03])`)
+	// A trailing delimiter or punctuation stays outside the link, so
+	// "*https://x.com*!" still pairs.
+	reWaLink = regexp.MustCompile(`(?i:https?://|www\.)\S*[^\s*_~.,;:!?)\]'"]`)
 )
 
 // stripMarkdownSentinels removes any pre-existing guard runes from input so
@@ -85,10 +93,10 @@ var (
 // into markdown. Real WhatsApp/Chatwoot message text never contains these
 // control runes, so this is purely defensive.
 func stripMarkdownSentinels(s string) string {
-	if !strings.ContainsAny(s, mdBoldSentinel+mdStrikeSentinel) {
+	if !strings.ContainsAny(s, mdBoldSentinel+mdStrikeSentinel+mdLinkSentinel) {
 		return s
 	}
-	return strings.NewReplacer(mdBoldSentinel, "", mdStrikeSentinel, "").Replace(s)
+	return strings.NewReplacer(mdBoldSentinel, "", mdStrikeSentinel, "", mdLinkSentinel, "").Replace(s)
 }
 
 // ChatwootToWhatsAppMarkdown rewrites Chatwoot/GFM markdown to WhatsApp's
@@ -117,13 +125,37 @@ func WhatsAppToChatwootMarkdown(s string) string {
 		return s
 	}
 	s = stripMarkdownSentinels(s)
+	// Hide links behind a sentinel so their delimiters are never paired.
+	links := reWaLink.FindAllString(s, -1)
+	s = reWaLink.ReplaceAllLiteralString(s, mdLinkSentinel)
 	// Hide bold asterisks behind a sentinel, convert italic underscores to
 	// asterisks, then expand the sentinel to a double asterisk. Doing it in
 	// this order keeps the freshly-created italic asterisks from being seen
 	// as bold.
-	s = reWaBold.ReplaceAllString(s, mdBoldSentinel+"$1"+mdBoldSentinel)
-	s = reWaItalic.ReplaceAllString(s, "*$1*")
-	s = reWaStrike.ReplaceAllString(s, "~~$1~~")
+	s = replaceWhatsAppPairs(reWaBold, s, mdBoldSentinel)
+	s = replaceWhatsAppPairs(reWaItalic, s, "*")
+	s = replaceWhatsAppPairs(reWaStrike, s, mdStrikeSentinel)
 	s = strings.ReplaceAll(s, mdBoldSentinel, "**")
-	return s
+	s = strings.ReplaceAll(s, mdStrikeSentinel, "~~")
+	if len(links) == 0 {
+		return s
+	}
+	var b strings.Builder
+	for i, part := range strings.Split(s, mdLinkSentinel) {
+		b.WriteString(part)
+		if i < len(links) {
+			b.WriteString(links[i])
+		}
+	}
+	return b.String()
+}
+
+// replaceWhatsAppPairs swaps the delimiters of every re match for marker. It
+// runs twice because adjacent pairs ("*a* *b*") share the boundary character
+// between them, which a single pass consumes. It must not loop until stable:
+// each extra pass unwraps another nesting level, so crafted input would cost
+// one pass per level.
+func replaceWhatsAppPairs(re *regexp.Regexp, s, marker string) string {
+	repl := "${1}" + marker + "${2}" + marker + "${3}"
+	return re.ReplaceAllString(re.ReplaceAllString(s, repl), repl)
 }

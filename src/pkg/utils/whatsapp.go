@@ -178,6 +178,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return ""
 	}
 
+	// History sync passes raw messages, still inside the ephemeral/view-once
+	// wrappers that whatsmeow strips from live events.
+	msg = UnwrapMessage(msg)
+
 	// Check for regular text message
 	if text := msg.GetConversation(); text != "" {
 		return text
@@ -210,19 +214,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return doc.GetCaption()
 	}
 
-	// Check for buttons response message
-	if buttonsResponse := msg.GetButtonsResponseMessage(); buttonsResponse != nil {
-		return buttonsResponse.GetSelectedDisplayText()
-	}
-
-	// Check for list response message
-	if listResponse := msg.GetListResponseMessage(); listResponse != nil {
-		return listResponse.GetTitle()
-	}
-
-	// Check for template button reply
-	if templateButtonReply := msg.GetTemplateButtonReplyMessage(); templateButtonReply != nil {
-		return templateButtonReply.GetSelectedDisplayText()
+	// Check for business messages (template, interactive, buttons, list,
+	// product, order) and the button/list replies to them
+	if text := extractBusinessMessageText(msg); text != "" {
+		return text
 	}
 
 	// Check for shared contact card
@@ -305,6 +300,10 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, me
 	if msg == nil {
 		return "", "", "", "", nil, nil, nil, 0
 	}
+
+	// Unwrap like ExtractMessageTextFromProto, so a wrapped captioned media
+	// message is never stored as caption-only text.
+	msg = UnwrapMessage(msg)
 
 	// Check for image message
 	if img := msg.GetImageMessage(); img != nil {
@@ -1140,6 +1139,10 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			}
 			return message
 		}
+	}
+
+	if message.Text == "" {
+		message.Text = extractBusinessMessageText(msg)
 	}
 
 	if ci := ExtractContextInfo(msg); ci != nil {

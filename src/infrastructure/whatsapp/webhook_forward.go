@@ -15,7 +15,6 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -559,7 +558,11 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
 
-	if body, ok := data["body"].(string); ok && body != "" {
+	// Interactive messages carry the same summary as body, but it has always
+	// been forwarded without the markdown pass below.
+	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+		content = interactive
+	} else if body, ok := data["body"].(string); ok && body != "" {
 		// Translate WhatsApp formatting (*bold*, _italic_, ~strike~) into the
 		// GitHub-flavored markdown Chatwoot renders so emphasis survives the hop.
 		content = utils.WhatsAppToChatwootMarkdown(body)
@@ -777,155 +780,7 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
-	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
-		// Pre-rendered by buildOtherMessageTypes at construction time (not
-		// stored as the raw proto) so it survives the JSON round-trip on the
-		// Chatwoot forward retry path; see the comment at that call site.
-		return interactive
-	}
-
 	return ""
-}
-
-// formatInteractiveMessageSummary renders an InteractiveMessage (business/
-// Cloud API messages with native buttons: cta_url, cta_call, single/multi
-// select, etc.) as plain text, since Chatwoot has no native concept of a
-// WhatsApp interactive button. Buttons are described in buttonParamsJSON as
-// a per-button-type JSON blob (undocumented, reverse-engineered from
-// traffic), so only the fields relevant to rendering are decoded and
-// anything unrecognized still shows the button's raw name.
-func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
-	var parts []string
-
-	if header := im.GetHeader(); header != nil {
-		if title := header.GetTitle(); title != "" {
-			parts = append(parts, title)
-		}
-		if subtitle := header.GetSubtitle(); subtitle != "" {
-			parts = append(parts, subtitle)
-		}
-		// Media captions on interactive headers never reach payload["body"]
-		// (ExtractMediaCaption only handles top-level Get*Message() cases,
-		// not InteractiveMessage.Header) — surface them here instead of
-		// silently dropping them, since collectInteractiveMedia forwards the
-		// file itself but nothing else carries the caption text.
-		if caption := interactiveHeaderMediaCaption(header); caption != "" {
-			parts = append(parts, caption)
-		}
-	}
-	if body := im.GetBody(); body != nil {
-		if text := body.GetText(); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	if footer := im.GetFooter(); footer != nil {
-		if text := footer.GetText(); text != "" {
-			parts = append(parts, text)
-		}
-	}
-
-	for _, button := range im.GetNativeFlowMessage().GetButtons() {
-		if line := formatNativeFlowButton(button); line != "" {
-			parts = append(parts, line)
-		}
-	}
-
-	// Carousels put their CTA/quick-reply buttons on each card rather than on
-	// the top-level NativeFlowMessage, so the loop above sees none of them —
-	// summarize each card (itself a full InteractiveMessage) separately.
-	if carousel := im.GetCarouselMessage(); carousel != nil {
-		for i, card := range carousel.GetCards() {
-			if cardSummary := formatInteractiveMessageSummary(card); cardSummary != "" && cardSummary != "Interactive message" {
-				parts = append(parts, fmt.Sprintf("Card %d: %s", i+1, cardSummary))
-			}
-		}
-	}
-
-	if len(parts) == 0 {
-		return "Interactive message"
-	}
-	return strings.Join(parts, "\n")
-}
-
-// interactiveHeaderMediaCaption returns the caption on whichever media type
-// (if any) an InteractiveMessage header carries. Mirrors utils.ExtractMediaCaption's
-// per-type checks, scoped to the Header oneof instead of top-level Get*Message().
-func interactiveHeaderMediaCaption(header *waE2E.InteractiveMessage_Header) string {
-	if header == nil {
-		return ""
-	}
-	if img := header.GetImageMessage(); img != nil {
-		return img.GetCaption()
-	}
-	if vid := header.GetVideoMessage(); vid != nil {
-		return vid.GetCaption()
-	}
-	if doc := header.GetDocumentMessage(); doc != nil {
-		return doc.GetCaption()
-	}
-	return ""
-}
-
-// nativeFlowButtonParams covers the fields used by the button types this
-// forwarder renders specially (cta_url, cta_call, cta_copy). Other button
-// names (e.g. single_select, review_and_pay) fall through to displaying the
-// raw button name, since their params carry structured picker/payment data
-// that doesn't reduce to a single line of text.
-type nativeFlowButtonParams struct {
-	DisplayText string `json:"display_text"`
-	URL         string `json:"url"`
-	PhoneNumber string `json:"phone_number"`
-	Copy        string `json:"copy_code"`
-	// Title is the visible label field used by picker-style buttons (e.g.
-	// single_select's {"title":...,"sections":...}), which don't set
-	// display_text at all.
-	Title string `json:"title"`
-}
-
-func formatNativeFlowButton(button *waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton) string {
-	if button == nil {
-		return ""
-	}
-	name := button.GetName()
-
-	var params nativeFlowButtonParams
-	_ = json.Unmarshal([]byte(button.GetButtonParamsJSON()), &params)
-
-	switch name {
-	case "cta_url":
-		label := params.DisplayText
-		if label == "" {
-			label = "Link"
-		}
-		if params.URL != "" {
-			return fmt.Sprintf("🔗 %s: %s", label, params.URL)
-		}
-	case "cta_call":
-		label := params.DisplayText
-		if label == "" {
-			label = "Call"
-		}
-		if params.PhoneNumber != "" {
-			return fmt.Sprintf("📞 %s: %s", label, params.PhoneNumber)
-		}
-	case "cta_copy":
-		label := params.DisplayText
-		if label == "" {
-			label = "Copy code"
-		}
-		if params.Copy != "" {
-			return fmt.Sprintf("📋 %s: %s", label, params.Copy)
-		}
-	}
-
-	label := params.DisplayText
-	if label == "" {
-		label = params.Title
-	}
-	if label != "" {
-		return fmt.Sprintf("[%s] %s", name, label)
-	}
-	return fmt.Sprintf("[%s]", name)
 }
 
 func extractContactDetails(contact any) (name string, phone string, ok bool) {
