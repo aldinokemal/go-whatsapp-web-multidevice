@@ -962,6 +962,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '403':
+          description: 'AVATAR_HIDDEN: the contact hides the picture from this account (says nothing about whether one exists)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+        '404':
+          description: 'AVATAR_NOT_SET: the contact has no profile picture'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
         '500':
           description: Internal Server Error
           content:

@@ -167,10 +167,10 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 				if avatarCtx2.Err() == context.DeadlineExceeded {
 					return response, pkgError.ContextError("Error timeout get avatar!")
 				}
-				return response, err
+				return response, avatarError(err)
 			}
 		} else {
-			return response, err
+			return response, avatarError(err)
 		}
 	}
 
@@ -455,4 +455,20 @@ func (service serviceUser) BusinessProfile(ctx context.Context, request domainUs
 	}
 
 	return response, nil
+}
+
+// avatarError types the two whatsmeow outcomes that clients must tell apart.
+// Both used to surface as the same 500, and a client that cached avatars could
+// only guess from the message text whether the picture was gone or merely
+// hidden from this account. The messages are kept verbatim so that clients
+// matching on text keep working.
+func avatarError(err error) error {
+	switch {
+	case errors.Is(err, whatsmeow.ErrProfilePictureNotSet):
+		return pkgError.AvatarNotSetError(err.Error())
+	case errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized):
+		return pkgError.AvatarHiddenError(err.Error())
+	default:
+		return err
+	}
 }
