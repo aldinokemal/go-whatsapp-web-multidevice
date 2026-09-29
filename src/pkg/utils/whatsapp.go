@@ -94,13 +94,29 @@ func ExtractPhoneFromVCard(vcard string) string {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
-			}
+		if !isVCardTelProperty(line) {
+			continue
+		}
+		if idx := strings.LastIndex(line, ":"); idx >= 0 {
+			return strings.TrimSpace(line[idx+1:])
 		}
 	}
 	return ""
+}
+
+// isVCardTelProperty reports whether a vCard content line is a TEL property.
+// vCard allows any property name to carry a group prefix, and iOS exports every
+// phone that way ("item1.TEL;waid=...:+55 11 99999-0006"), so the group is
+// dropped before comparing the name.
+func isVCardTelProperty(line string) bool {
+	name := line
+	if idx := strings.IndexAny(name, ";:"); idx >= 0 {
+		name = name[:idx]
+	}
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return strings.EqualFold(strings.TrimSpace(name), "TEL")
 }
 
 // FormatLocationSummary builds a one-liner for an incoming location or live-location pin.
