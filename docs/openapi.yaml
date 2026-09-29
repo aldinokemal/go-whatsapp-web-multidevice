@@ -967,7 +967,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorInternalServer'
+                $ref: '#/components/schemas/ErrorForbidden'
               example:
                 code: AVATAR_HIDDEN
                 message: the user has hidden their profile picture from you
@@ -5400,6 +5400,20 @@ components:
         results:
           type: object
           example: null
+          description: 'additional data'
+    ErrorForbidden:
+      type: object
+      properties:
+        code:
+          type: string
+          example: AVATAR_HIDDEN
+          description: 'SYSTEM_CODE_ERROR'
+        message:
+          type: string
+          example: the user has hidden their profile picture from you
+          description: 'Detail error message'
+        results:
+          type: object
           description: 'additional data'
     ErrorNotFound:
       type: object
