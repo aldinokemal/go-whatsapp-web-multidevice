@@ -174,6 +174,10 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 		}
 	}
 
+	// A nil picture without an error means "unchanged" (status 304 for a known
+	// ExistingID), not "no picture": that one arrives as ErrProfilePictureNotSet
+	// and is typed by avatarError. Keep it out of AvatarNotSetError so that
+	// caching clients never drop a valid picture.
 	if pic == nil {
 		return response, errors.New("no avatar found")
 	}
