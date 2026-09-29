@@ -86,6 +86,29 @@ func TestExtractPhoneFromVCard(t *testing.T) {
 			want:  "+5511998913283",
 		},
 		{
+			// iOS exports every phone with a group prefix and an Apple label line.
+			name:  "GroupedTelFromIOS",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nN:;Dave;;;\nFN:Dave\nitem1.TEL;type=CELL;type=VOICE;type=pref;waid=5511999990006:+55 11 99999-0006\nitem1.X-ABLabel:Mobile\nEND:VCARD",
+			want:  "+55 11 99999-0006",
+		},
+		{
+			name:  "GroupedTelLowercase",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Erin\r\nitem2.tel;type=CELL:+1 555 0101\r\nEND:VCARD",
+			want:  "+1 555 0101",
+		},
+		{
+			name:  "GroupedTelFolded",
+			vcard: "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Frank\r\nitem1.TEL;type=CELL;waid=5511998913283:\r\n +5511998913283\r\nEND:VCARD",
+			want:  "+5511998913283",
+		},
+		{
+			// Only the property name counts: a group or a value that merely
+			// contains "TEL" is not a phone.
+			name:  "OnlyTelPropertyName",
+			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Grace\nTELEX:12345\nitem3.URL:https://example.com/TEL\nitem4.TEL:+1 555 0102\nEND:VCARD",
+			want:  "+1 555 0102",
+		},
+		{
 			name:  "NoTelLine",
 			vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Carol\nEND:VCARD",
 			want:  "",
