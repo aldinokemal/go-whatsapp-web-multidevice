@@ -968,12 +968,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+              example:
+                code: AVATAR_HIDDEN
+                message: the user has hidden their profile picture from you
         '404':
-          description: 'AVATAR_NOT_SET: the contact has no profile picture'
+          description: 'The contact has no profile picture (AVATAR_NOT_SET) or the device is unknown (DEVICE_NOT_FOUND). Check `code`, not only the status.'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
+              examples:
+                avatarNotSet:
+                  summary: The contact has no profile picture
+                  value:
+                    code: AVATAR_NOT_SET
+                    message: that user or group does not have a profile picture
+                deviceNotFound:
+                  summary: Unknown device
+                  value:
+                    code: DEVICE_NOT_FOUND
+                    message: device not found; create a device first from /api/devices or provide a valid X-Device-Id
+                    results:
+                      device_id: my-device
         '500':
           description: Internal Server Error
           content:
