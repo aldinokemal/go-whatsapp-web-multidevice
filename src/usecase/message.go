@@ -477,10 +477,10 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
+	text := request.Message
+	msg := &waE2E.Message{Conversation: proto.String(text)}
 	if link := strings.TrimSpace(request.Link); link != "" {
-		text := request.Message
-		if !strings.Contains(text, link) {
+		if !containsLinkToken(text, link) {
 			text = buildLinkMessageText(text, link)
 		}
 		msg, err = buildLinkPreviewMessage(ctx, client, dataWaRecipient, text, link)
@@ -493,13 +493,25 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), request.Message, ts.ID, ts.Timestamp); err != nil {
+	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
 		return response, err
 	}
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
+}
+
+// containsLinkToken reports whether link appears in text as a whole
+// whitespace-separated token, so a longer URL that merely starts with link
+// (https://example.com vs https://example.com.evil) does not count as present.
+func containsLinkToken(text, link string) bool {
+	for _, field := range strings.Fields(text) {
+		if field == link {
+			return true
+		}
+	}
+	return false
 }
 
 // StarMessage implements message.IMessageService.
