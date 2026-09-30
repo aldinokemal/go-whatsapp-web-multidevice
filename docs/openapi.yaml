@@ -2324,6 +2324,10 @@ paths:
                   type: string
                   example: 'Hello World'
                   description: New message to send
+                link:
+                  type: string
+                  example: 'https://example.com/page'
+                  description: Optional URL. When set, the edit is sent with a rich link preview (title, description, thumbnail) like /send/link. Appended to the message if not already present.
               required:
                 - phone
                 - message

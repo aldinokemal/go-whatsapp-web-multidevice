@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -477,6 +478,16 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 	}
 
 	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
+	if link := strings.TrimSpace(request.Link); link != "" {
+		text := request.Message
+		if !strings.Contains(text, link) {
+			text = buildLinkMessageText(text, link)
+		}
+		msg, err = buildLinkPreviewMessage(ctx, client, dataWaRecipient, text, link)
+		if err != nil {
+			return response, err
+		}
+	}
 	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
