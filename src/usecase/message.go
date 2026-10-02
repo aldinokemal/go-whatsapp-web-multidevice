@@ -505,10 +505,13 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 }
 
 // containsLinkToken reports whether link already appears in text as a complete
-// URL. The match may be wrapped in opening brackets or quotes and trailing
-// punctuation, but that wrapping must itself sit at the start or end of text or
-// next to whitespace, so a match nested inside another URL token
-// (https://evil.test/(https://example.com)) does not count. This accepts prose such as "Visit (https://example.com)." while a
+// URL. The match must start at the beginning of text, after whitespace, or after
+// an opening bracket or quote that does not continue another URL token, and must
+// end at the end of text, at whitespace, or at trailing punctuation followed by
+// the end of text or whitespace. Prose and markdown such as
+// "Visit (https://example.com)." or "[label](https://example.com)" count as
+// present; https://example.com.evil and https://evil.test/(https://example.com)
+// do not. This accepts prose such as "Visit (https://example.com)." while a
 // longer URL that merely starts with link (https://example.com.evil) does not
 // count as present.
 func containsLinkToken(text, link string) bool {
@@ -530,12 +533,32 @@ func containsLinkToken(text, link string) bool {
 }
 
 func linkStartsAtBoundary(text string, start int) bool {
-	before := strings.TrimRight(text[:start], "([{<\"'")
-	if before == "" {
+	prefix := text[:start]
+	if prefix == "" {
 		return true
 	}
-	r, _ := utf8.DecodeLastRuneInString(before)
-	return unicode.IsSpace(r)
+	r, _ := utf8.DecodeLastRuneInString(prefix)
+	if unicode.IsSpace(r) {
+		return true
+	}
+	before := strings.TrimRight(prefix, "([{<\"'")
+	if before == prefix {
+		// Directly attached to other text (e.g. "?u=" in a query string).
+		return false
+	}
+	// Wrapped in an opening bracket or quote: accept prose and markdown such as
+	// "See(link)" or "[label](link)", but not a wrapper that continues another
+	// URL token such as "https://evil.test/(link)".
+	fields := strings.Fields(before)
+	if len(fields) == 0 || unicode.IsSpace(lastRune(before)) {
+		return true
+	}
+	return !strings.Contains(fields[len(fields)-1], "://")
+}
+
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
 }
 
 func linkEndsAtBoundary(text string, end int) bool {
