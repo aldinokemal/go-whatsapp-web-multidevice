@@ -114,3 +114,49 @@ func TestUpdateMessageWithoutLinkStaysPlainText(t *testing.T) {
 	assert.Equal(t, "plain edit", edited().GetConversation())
 	assert.Nil(t, edited().GetExtendedTextMessage())
 }
+
+func TestContainsLinkToken(t *testing.T) {
+	const link = "https://example.com"
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"bare", link, true},
+		{"after words", "see " + link, true},
+		{"trailing period", "See " + link + ".", true},
+		{"trailing comma", link + ", then", true},
+		{"parentheses", "Visit (" + link + ")", true},
+		{"parentheses and period", "Visit (" + link + ").", true},
+		{"angle brackets", "<" + link + ">", true},
+		{"quotes", "\"" + link + "\"", true},
+		{"own line", "09:59\n" + link, true},
+		{"longer host", link + ".evil", false},
+		{"longer host in parentheses", "(" + link + ".evil)", false},
+		{"path continuation", link + "/page", false},
+		{"embedded in another url", "https://evil.test/?u=" + link, false},
+		{"absent", "no link here", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, containsLinkToken(tt.text, link))
+		})
+	}
+}
+
+func TestUpdateMessageWithLinkDoesNotDuplicatePunctuatedLink(t *testing.T) {
+	link := newLinkPreviewPage(t)
+	service, edited, ctx, stored := editLinkTestService(t)
+
+	text := "Visit (" + link + ")."
+	_, err := service.UpdateMessage(ctx, domainMessage.UpdateMessageRequest{
+		MessageID: "message-1",
+		Phone:     "628123456789@s.whatsapp.net",
+		Message:   text,
+		Link:      link,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, text, edited().GetExtendedTextMessage().GetText())
+	assert.Equal(t, text, stored("message-1"))
+}

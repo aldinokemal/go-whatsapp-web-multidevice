@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -502,16 +504,46 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 	return response, nil
 }
 
-// containsLinkToken reports whether link appears in text as a whole
-// whitespace-separated token, so a longer URL that merely starts with link
-// (https://example.com vs https://example.com.evil) does not count as present.
+// containsLinkToken reports whether link already appears in text as a complete
+// URL. The match must start at the beginning of text, after whitespace, or after
+// an opening bracket or quote, and must end at the end of text, at whitespace, or
+// at trailing punctuation that is itself followed by the end of text or
+// whitespace. This accepts prose such as "Visit (https://example.com)." while a
+// longer URL that merely starts with link (https://example.com.evil) does not
+// count as present.
 func containsLinkToken(text, link string) bool {
-	for _, field := range strings.Fields(text) {
-		if field == link {
+	if link == "" {
+		return false
+	}
+	for offset := 0; ; {
+		idx := strings.Index(text[offset:], link)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(link)
+		if linkStartsAtBoundary(text, start) && linkEndsAtBoundary(text, end) {
 			return true
 		}
+		offset = start + 1
 	}
-	return false
+}
+
+func linkStartsAtBoundary(text string, start int) bool {
+	if start == 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(text[:start])
+	return unicode.IsSpace(r) || strings.ContainsRune("([{<\"'", r)
+}
+
+func linkEndsAtBoundary(text string, end int) bool {
+	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'")
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r)
 }
 
 // StarMessage implements message.IMessageService.
