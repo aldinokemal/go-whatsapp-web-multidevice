@@ -135,6 +135,8 @@ func TestContainsLinkToken(t *testing.T) {
 		{"longer host in parentheses", "(" + link + ".evil)", false},
 		{"path continuation", link + "/page", false},
 		{"embedded in another url", "https://evil.test/?u=" + link, false},
+		{"parenthesized inside another url", "https://evil.test/(" + link + ")", false},
+		{"bracketed after another url", "https://evil.test/[" + link + "]", false},
 		{"absent", "no link here", false},
 	}
 	for _, tt := range tests {

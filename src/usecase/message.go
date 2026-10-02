@@ -505,10 +505,10 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 }
 
 // containsLinkToken reports whether link already appears in text as a complete
-// URL. The match must start at the beginning of text, after whitespace, or after
-// an opening bracket or quote, and must end at the end of text, at whitespace, or
-// at trailing punctuation that is itself followed by the end of text or
-// whitespace. This accepts prose such as "Visit (https://example.com)." while a
+// URL. The match may be wrapped in opening brackets or quotes and trailing
+// punctuation, but that wrapping must itself sit at the start or end of text or
+// next to whitespace, so a match nested inside another URL token
+// (https://evil.test/(https://example.com)) does not count. This accepts prose such as "Visit (https://example.com)." while a
 // longer URL that merely starts with link (https://example.com.evil) does not
 // count as present.
 func containsLinkToken(text, link string) bool {
@@ -530,11 +530,12 @@ func containsLinkToken(text, link string) bool {
 }
 
 func linkStartsAtBoundary(text string, start int) bool {
-	if start == 0 {
+	before := strings.TrimRight(text[:start], "([{<\"'")
+	if before == "" {
 		return true
 	}
-	r, _ := utf8.DecodeLastRuneInString(text[:start])
-	return unicode.IsSpace(r) || strings.ContainsRune("([{<\"'", r)
+	r, _ := utf8.DecodeLastRuneInString(before)
+	return unicode.IsSpace(r)
 }
 
 func linkEndsAtBoundary(text string, end int) bool {
