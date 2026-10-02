@@ -541,7 +541,7 @@ func linkStartsAtBoundary(text string, start int) bool {
 	if unicode.IsSpace(r) {
 		return true
 	}
-	before := strings.TrimRight(prefix, "([{<\"'")
+	before := strings.TrimRight(prefix, "([{<\"'“‘")
 	if before == prefix {
 		// Directly attached to other text (e.g. "?u=" in a query string).
 		return false
@@ -562,7 +562,7 @@ func lastRune(s string) rune {
 }
 
 func linkEndsAtBoundary(text string, end int) bool {
-	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'")
+	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'”’")
 	if rest == "" {
 		return true
 	}
