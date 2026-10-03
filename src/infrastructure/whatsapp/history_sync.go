@@ -268,21 +268,22 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 			// Create message object and add to batch
 			message := &domainChatStorage.Message{
-				ID:            messageID,
-				ChatJID:       chatJID,
-				DeviceID:      deviceID,
-				Sender:        sender,
-				Content:       content,
-				Timestamp:     timestamp,
-				IsFromMe:      isFromMe,
-				MediaType:     mediaType,
-				Filename:      filename,
-				URL:           mediaURL,
-				DirectPath:    directPath,
-				MediaKey:      mediaKey,
-				FileSHA256:    fileSHA256,
-				FileEncSHA256: fileEncSHA256,
-				FileLength:    fileLength,
+				ID:              messageID,
+				ChatJID:         chatJID,
+				DeviceID:        deviceID,
+				Sender:          sender,
+				Content:         content,
+				Timestamp:       timestamp,
+				IsFromMe:        isFromMe,
+				MediaType:       mediaType,
+				Filename:        filename,
+				URL:             mediaURL,
+				DirectPath:      directPath,
+				MediaKey:        mediaKey,
+				FileSHA256:      fileSHA256,
+				FileEncSHA256:   fileEncSHA256,
+				FileLength:      fileLength,
+				ContextMetadata: utils.ExtractContextMetadata(msg.GetMessage()),
 			}
 
 			messageBatch = append(messageBatch, message)

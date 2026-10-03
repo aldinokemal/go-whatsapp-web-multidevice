@@ -90,7 +90,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ?
 		LIMIT 1
@@ -110,7 +110,7 @@ func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domain
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ? AND device_id = ?
 		LIMIT 1
@@ -309,7 +309,8 @@ func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
 	return tx.Commit()
 }
 
-// StoreMessage creates or updates a message
+// StoreMessage creates or updates a message. Empty ContextMetadata means context
+// was not supplied, so partial replays preserve any stored reply relationship.
 func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) error {
 	now := time.Now()
 	message.CreatedAt = now
@@ -324,11 +325,12 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 	result, err := r.db.Exec(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
 			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
-			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?,
+			context_metadata = COALESCE(NULLIF(?, ''), context_metadata, ''), updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`, message.Sender, message.Content, message.Timestamp, message.IsFromMe,
 		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath, message.MediaKey, message.FileSHA256,
-		message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
+		message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.UpdatedAt,
 		message.ID, message.ChatJID, message.DeviceID)
 	if err != nil {
 		return err
@@ -340,12 +342,12 @@ func (r *SQLiteRepository) StoreMessage(message *domainChatStorage.Message) erro
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 			message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 			message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-			message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
+			message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.CreatedAt, message.UpdatedAt)
 	}
 	return err
 }
@@ -380,14 +382,15 @@ func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatSt
 			) THEN content ELSE ? END,
 			timestamp = ?, is_from_me = ?,
 			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
-			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?,
+			context_metadata = COALESCE(NULLIF(?, ''), context_metadata, ''), updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`
 	updateArgs := []any{
 		message.Sender, message.Content, message.Timestamp, message.IsFromMe,
 		message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath,
 		message.MediaKey, message.FileSHA256, message.FileEncSHA256, message.FileLength,
-		message.ReferralMetadata, message.UpdatedAt,
+		message.ReferralMetadata, message.ContextMetadata, message.UpdatedAt,
 		message.ID, message.ChatJID, message.DeviceID,
 	}
 
@@ -403,12 +406,12 @@ func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatSt
 		INSERT INTO messages (
 			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 		message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 		message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-		message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt)
+		message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.CreatedAt, message.UpdatedAt)
 	if insertErr == nil {
 		return nil
 	}
@@ -442,7 +445,8 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 	updateStmt, err := tx.Prepare(`
 		UPDATE messages SET sender = ?, content = ?, timestamp = ?, is_from_me = ?,
 			media_type = ?, call_metadata = ?, filename = ?, url = ?, direct_path = ?, media_key = ?, file_sha256 = ?,
-			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?, updated_at = ?
+			file_enc_sha256 = ?, file_length = ?, referral_metadata = ?,
+			context_metadata = COALESCE(NULLIF(?, ''), context_metadata, ''), updated_at = ?
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 	`)
 	if err != nil {
@@ -454,8 +458,8 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		INSERT INTO messages (
 			id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
@@ -474,7 +478,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 		result, err := updateStmt.Exec(
 			message.Sender, message.Content, message.Timestamp, message.IsFromMe,
 			message.MediaType, message.CallMetadata, message.Filename, message.URL, message.DirectPath, message.MediaKey, message.FileSHA256,
-			message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.UpdatedAt,
+			message.FileEncSHA256, message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.UpdatedAt,
 			message.ID, message.ChatJID, message.DeviceID,
 		)
 		if err != nil {
@@ -487,7 +491,7 @@ func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Mess
 				message.ID, message.ChatJID, message.DeviceID, message.Sender, message.Content,
 				message.Timestamp, message.IsFromMe, message.MediaType, message.CallMetadata, message.Filename,
 				message.URL, message.DirectPath, message.MediaKey, message.FileSHA256, message.FileEncSHA256,
-				message.FileLength, message.ReferralMetadata, message.CreatedAt, message.UpdatedAt,
+				message.FileLength, message.ReferralMetadata, message.ContextMetadata, message.CreatedAt, message.UpdatedAt,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert message %s: %w", message.ID, err)
@@ -591,7 +595,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -664,7 +668,7 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
@@ -1245,12 +1249,14 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 // scanMessage is a private helper for scanning message rows
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
 	message := &domainChatStorage.Message{}
+	var contextMetadata sql.NullString
 	err := scanner.Scan(
 		&message.ID, &message.ChatJID, &message.DeviceID, &message.Sender, &message.Content,
 		&message.Timestamp, &message.IsFromMe, &message.MediaType, &message.CallMetadata, &message.Filename,
 		&message.URL, &message.DirectPath, &message.MediaKey, &message.FileSHA256, &message.FileEncSHA256,
-		&message.FileLength, &message.ReferralMetadata, &message.CreatedAt, &message.UpdatedAt,
+		&message.FileLength, &message.ReferralMetadata, &contextMetadata, &message.CreatedAt, &message.UpdatedAt,
 	)
+	message.ContextMetadata = contextMetadata.String
 	return message, err
 }
 
@@ -2301,6 +2307,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 		FileEncSHA256:    fileEncSHA256,
 		FileLength:       fileLength,
 		ReferralMetadata: referralMetadata,
+		ContextMetadata:  utils.ExtractContextMetadata(evt.Message),
 	}
 
 	// Store the message
@@ -2381,6 +2388,8 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		previousContent = currentMessage.Content
 	}
 
+	currentMessage.ContextMetadata = utils.ExtractContextMetadata(editedMessage)
+
 	edit := &domainChatStorage.MessageEdit{
 		OriginalMessageID: originalMessageID,
 		EditEventID:       evt.Info.ID,
@@ -2401,9 +2410,10 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 
 	if messageExists {
 		if _, err := tx.Exec(`
-			UPDATE messages SET content = ?, updated_at = ?
+			UPDATE messages SET content = ?,
+				context_metadata = COALESCE(NULLIF(?, ''), context_metadata, ''), updated_at = ?
 			WHERE id = ? AND chat_jid = ? AND device_id = ?
-		`, newContent, now, originalMessageID, chatJID, deviceID); err != nil {
+		`, newContent, currentMessage.ContextMetadata, now, originalMessageID, chatJID, deviceID); err != nil {
 			return fmt.Errorf("failed to update original message %s: %w", originalMessageID, err)
 		}
 	} else {
@@ -2411,12 +2421,12 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 			INSERT INTO messages (
 				id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 				media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-				file_enc_sha256, file_length, referral_metadata, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, currentMessage.ID, currentMessage.ChatJID, currentMessage.DeviceID, currentMessage.Sender, currentMessage.Content,
 			currentMessage.Timestamp, currentMessage.IsFromMe, currentMessage.MediaType, currentMessage.CallMetadata, currentMessage.Filename,
 			currentMessage.URL, currentMessage.DirectPath, currentMessage.MediaKey, currentMessage.FileSHA256, currentMessage.FileEncSHA256,
-			currentMessage.FileLength, currentMessage.ReferralMetadata, now, now); err != nil {
+			currentMessage.FileLength, currentMessage.ReferralMetadata, currentMessage.ContextMetadata, now, now); err != nil {
 			return fmt.Errorf("failed to insert edited message %s: %w", originalMessageID, err)
 		}
 	}
@@ -2432,7 +2442,7 @@ func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, cha
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
@@ -2752,21 +2762,22 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 	// itself was missing. Losing only the chat bump is invisible instead —
 	// the next stored message repairs it.
 	message := &domainChatStorage.Message{
-		ID:            messageID,
-		ChatJID:       chatJID,
-		DeviceID:      deviceID,
-		Sender:        senderJID,
-		Content:       content,
-		Timestamp:     timestamp,
-		IsFromMe:      true,
-		MediaType:     mediaType,
-		Filename:      filename,
-		URL:           mediaURL,
-		DirectPath:    directPath,
-		MediaKey:      mediaKey,
-		FileSHA256:    fileSHA256,
-		FileEncSHA256: fileEncSHA256,
-		FileLength:    fileLength,
+		ID:              messageID,
+		ChatJID:         chatJID,
+		DeviceID:        deviceID,
+		Sender:          senderJID,
+		Content:         content,
+		Timestamp:       timestamp,
+		IsFromMe:        true,
+		MediaType:       mediaType,
+		Filename:        filename,
+		URL:             mediaURL,
+		DirectPath:      directPath,
+		MediaKey:        mediaKey,
+		FileSHA256:      fileSHA256,
+		FileEncSHA256:   fileEncSHA256,
+		FileLength:      fileLength,
+		ContextMetadata: utils.ExtractContextMetadata(msg),
 	}
 	// wrapSendMessage persists asynchronously, so an edit sent moments later can
 	// reach storage BEFORE this does. StoreMessage's existing-row path updates
@@ -3153,5 +3164,8 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 48: Device-scoped schedule listing and cleanup
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_sends_device ON scheduled_sends(device_id, status, next_run_at)`,
+
+		// Migration 49: Persist reply context for live, sent, and history messages.
+		`ALTER TABLE messages ADD COLUMN context_metadata TEXT DEFAULT ''`,
 	}
 }
