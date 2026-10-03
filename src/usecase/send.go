@@ -1151,28 +1151,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
-	metadata, err := utils.GetMetaDataFromURL(request.Link)
+	messageText := buildLinkMessageText(request.Caption, request.Link)
+
+	msg, err := buildLinkPreviewMessage(ctx, client, dataWaRecipient, messageText, request.Link)
 	if err != nil {
 		return response, err
 	}
-
-	// Log image dimensions if available, otherwise note it's a square image or dimensions not available
-	if metadata.Width != nil && metadata.Height != nil {
-		logrus.Debugf("Image dimensions: %dx%d", *metadata.Width, *metadata.Height)
-	} else {
-		logrus.Debugf("Image dimensions: Square image or dimensions not available")
-	}
-
-	messageText := buildLinkMessageText(request.Caption, request.Link)
-
-	// Create the message
-	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:          proto.String(messageText),
-		Title:         proto.String(metadata.Title),
-		MatchedText:   proto.String(request.Link),
-		Description:   proto.String(metadata.Description),
-		JPEGThumbnail: metadata.JPEGThumb,
-	}}
 
 	if request.BaseRequest.IsForwarded {
 		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
@@ -1188,11 +1172,42 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, messageText)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
+	return response, nil
+}
+
+// buildLinkPreviewMessage builds an ExtendedTextMessage carrying a rich preview for link.
+// It is shared by SendLink and link-aware message edits.
+func buildLinkPreviewMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, text, link string) (*waE2E.Message, error) {
+	metadata, err := utils.GetMetaDataFromURL(link)
+	if err != nil {
+		return nil, err
+	}
+
+	if metadata.Width != nil && metadata.Height != nil {
+		logrus.Debugf("Image dimensions: %dx%d", *metadata.Width, *metadata.Height)
+	} else {
+		logrus.Debugf("Image dimensions: Square image or dimensions not available")
+	}
+
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		Text:          proto.String(text),
+		Title:         proto.String(metadata.Title),
+		MatchedText:   proto.String(link),
+		Description:   proto.String(metadata.Description),
+		JPEGThumbnail: metadata.JPEGThumb,
+	}}
+
 	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 {
-		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
+		uploadedThumb, err := uploadMediaForRecipient(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, recipient)
 		if err == nil {
-			// Update the message with the uploaded thumbnail information
 			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
@@ -1209,14 +1224,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		}
 	}
 
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, messageText)
-	if err != nil {
-		return response, err
-	}
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
-	return response, nil
+	return msg, nil
 }
 
 func buildLinkMessageText(caption, link string) string {
@@ -2003,6 +2011,10 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 }
 
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
+}
+
+func uploadMediaForRecipient(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if recipient.Server == types.NewsletterServer {
 		uploaded, err = client.UploadNewsletter(ctx, media, mediaType)
 	} else {

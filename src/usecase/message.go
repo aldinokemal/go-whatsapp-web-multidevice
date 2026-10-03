@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -476,19 +479,95 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
+	text := request.Message
+	msg := &waE2E.Message{Conversation: proto.String(text)}
+	if link := strings.TrimSpace(request.Link); link != "" {
+		if !containsLinkToken(text, link) {
+			text = buildLinkMessageText(text, link)
+		}
+		msg, err = buildLinkPreviewMessage(ctx, client, dataWaRecipient, text, link)
+		if err != nil {
+			return response, err
+		}
+	}
 	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), request.Message, ts.ID, ts.Timestamp); err != nil {
+	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
 		return response, err
 	}
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
+}
+
+// containsLinkToken reports whether link already appears in text as a complete
+// URL. The match must start at the beginning of text, after whitespace, or after
+// an opening bracket or quote that does not continue another URL token, and must
+// end at the end of text, at whitespace, or at trailing punctuation followed by
+// the end of text or whitespace. Prose and markdown such as
+// "Visit (https://example.com)." or "[label](https://example.com)" count as
+// present; https://example.com.evil and https://evil.test/(https://example.com)
+// do not. This accepts prose such as "Visit (https://example.com)." while a
+// longer URL that merely starts with link (https://example.com.evil) does not
+// count as present.
+func containsLinkToken(text, link string) bool {
+	if link == "" {
+		return false
+	}
+	for offset := 0; ; {
+		idx := strings.Index(text[offset:], link)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(link)
+		if linkStartsAtBoundary(text, start) && linkEndsAtBoundary(text, end) {
+			return true
+		}
+		offset = start + 1
+	}
+}
+
+func linkStartsAtBoundary(text string, start int) bool {
+	prefix := text[:start]
+	if prefix == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(prefix)
+	if unicode.IsSpace(r) {
+		return true
+	}
+	before := strings.TrimRight(prefix, "([{<\"'“‘")
+	if before == prefix {
+		// Directly attached to other text (e.g. "?u=" in a query string).
+		return false
+	}
+	// Wrapped in an opening bracket or quote: accept prose and markdown such as
+	// "See(link)" or "[label](link)", but not a wrapper that continues another
+	// URL token such as "https://evil.test/(link)".
+	fields := strings.Fields(before)
+	if len(fields) == 0 || unicode.IsSpace(lastRune(before)) {
+		return true
+	}
+	return !strings.Contains(fields[len(fields)-1], "://")
+}
+
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
+}
+
+func linkEndsAtBoundary(text string, end int) bool {
+	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'”’")
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r)
 }
 
 // StarMessage implements message.IMessageService.

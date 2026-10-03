@@ -67,6 +67,7 @@ func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToo
 	case "edit":
 		resp, err := h.messageService.UpdateMessage(ctx, domainMessage.UpdateMessageRequest{
 			MessageID: messageID, Phone: phone, Message: request.GetString("message", ""),
+			Link: request.GetString("link", ""),
 		})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
