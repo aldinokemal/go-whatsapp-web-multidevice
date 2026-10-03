@@ -14,7 +14,7 @@ func (r *SQLiteRepository) GetMessageByIDChatAndDevice(deviceID, chatJID, id str
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
@@ -41,7 +41,7 @@ func (r *SQLiteRepository) GetOldestMessageByDevice(deviceID, chatJID string) (*
 	query := `
 		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, created_at, updated_at
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
 		FROM messages
 		WHERE chat_jid = ? AND device_id = ? AND (media_type IS NULL OR media_type != 'call')
 		ORDER BY timestamp ASC, id ASC

@@ -66,7 +66,9 @@ type MessageInfo struct {
 	MediaType         string         `json:"media_type"`
 	Reactions         []ReactionInfo `json:"reactions,omitempty"`
 	// CallMetadata is JSON when media_type is "call" (incoming call log).
-	CallMetadata     string `json:"call_metadata,omitempty"`
+	CallMetadata string `json:"call_metadata,omitempty"`
+	// ContextMetadata is a JSON string containing replied_to_id when this message is a reply.
+	ContextMetadata  string `json:"context_metadata,omitempty"`
 	ReferralMetadata string `json:"referral_metadata,omitempty"`
 	Filename         string `json:"filename"`
 	URL              string `json:"url"`
