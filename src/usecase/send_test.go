@@ -613,3 +613,17 @@ func TestMergeReplyContextPassesThroughAnUnparseableSender(t *testing.T) {
 		t.Fatalf("expected the raw sender to survive, got %q", got.GetParticipant())
 	}
 }
+
+func TestWithAllowReshare(t *testing.T) {
+	assert.Nil(t, withAllowReshare(nil, false))
+
+	got := withAllowReshare(nil, true)
+	require.NotNil(t, got)
+	assert.True(t, got.GetFeatureEligibilities().GetCanBeReshared())
+
+	existing := &waE2E.ContextInfo{MentionedJID: []string{"628123456789@s.whatsapp.net"}}
+	got = withAllowReshare(existing, true)
+	assert.Same(t, existing, got)
+	assert.Equal(t, []string{"628123456789@s.whatsapp.net"}, got.GetMentionedJID())
+	assert.True(t, got.GetFeatureEligibilities().GetCanBeReshared())
+}

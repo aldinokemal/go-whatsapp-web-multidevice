@@ -52,6 +52,28 @@ func TestValidateSendMessage(t *testing.T) {
 			}},
 			err: pkgError.ValidationError("message: cannot be blank."),
 		},
+		{
+			name: "should success with allow_reshare on status",
+			args: args{request: domainSend.MessageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "status@broadcast",
+				},
+				Message:      "Hello this is testing",
+				AllowReshare: true,
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with allow_reshare outside status",
+			args: args{request: domainSend.MessageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Message:      "Hello this is testing",
+				AllowReshare: true,
+			}},
+			err: pkgError.ValidationError("allow_reshare is only supported when phone is status@broadcast"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -89,6 +111,17 @@ func TestValidateSendImage(t *testing.T) {
 				Image:          image,
 			}},
 			err: nil,
+		},
+		{
+			name: "should error with allow_reshare outside status",
+			args: args{request: domainSend.ImageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Image:        image,
+				AllowReshare: true,
+			}},
+			err: pkgError.ValidationError("allow_reshare is only supported when phone is status@broadcast"),
 		},
 		{
 			name: "should error with empty phone",
@@ -244,6 +277,17 @@ func TestValidateSendVideo(t *testing.T) {
 				Compress:       false,
 			}},
 			err: nil,
+		},
+		{
+			name: "should error with allow_reshare outside status",
+			args: args{request: domainSend.VideoRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Video:        file,
+				AllowReshare: true,
+			}},
+			err: pkgError.ValidationError("allow_reshare is only supported when phone is status@broadcast"),
 		},
 		{
 			name: "should error with empty phone",

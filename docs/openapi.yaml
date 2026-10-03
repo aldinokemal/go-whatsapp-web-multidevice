@@ -1254,6 +1254,10 @@ paths:
                   description: |
                     List of phone numbers to mention (ghost mentions - no @ required in message text).
                     Use special keyword "@everyone" to mention all group participants.
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
@@ -1338,6 +1342,10 @@ paths:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
@@ -1617,6 +1625,10 @@ paths:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
