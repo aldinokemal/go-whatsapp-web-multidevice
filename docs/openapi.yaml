@@ -962,6 +962,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '403':
+          description: 'AVATAR_HIDDEN: the contact hides the picture from this account (says nothing about whether one exists)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorForbidden'
+              example:
+                code: AVATAR_HIDDEN
+                message: the user has hidden their profile picture from you
+        '404':
+          description: 'The contact has no profile picture (AVATAR_NOT_SET) or the device is unknown (DEVICE_NOT_FOUND). Check `code`, not only the status.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+              examples:
+                avatarNotSet:
+                  summary: The contact has no profile picture
+                  value:
+                    code: AVATAR_NOT_SET
+                    message: that user or group does not have a profile picture
+                deviceNotFound:
+                  summary: Unknown device
+                  value:
+                    code: DEVICE_NOT_FOUND
+                    message: device not found; create a device first from /api/devices or provide a valid X-Device-Id
+                    results:
+                      device_id: my-device
         '500':
           description: Internal Server Error
           content:
@@ -5376,6 +5404,20 @@ components:
         results:
           type: object
           example: null
+          description: 'additional data'
+    ErrorForbidden:
+      type: object
+      properties:
+        code:
+          type: string
+          example: AVATAR_HIDDEN
+          description: 'SYSTEM_CODE_ERROR'
+        message:
+          type: string
+          example: the user has hidden their profile picture from you
+          description: 'Detail error message'
+        results:
+          type: object
           description: 'additional data'
     ErrorNotFound:
       type: object
