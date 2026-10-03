@@ -13,4 +13,5 @@ type VideoRequest struct {
 	HD             bool                  `json:"hd" form:"hd"`
 	GifPlayback    bool                  `json:"gif_playback" form:"gif_playback"`
 	VideoURL       *string               `json:"video_url" form:"video_url"`
+	AllowReshare   bool                  `json:"allow_reshare,omitempty" form:"allow_reshare"` // status@broadcast only: let viewers reshare the status
 }
