@@ -25,6 +25,8 @@ type UpdateMessageRequest struct {
 	MessageID string `json:"message_id" uri:"message_id"`
 	Message   string `json:"message" form:"message"`
 	Phone     string `json:"phone" form:"phone"`
+	// Link, when set, sends the edit with a rich link preview built from this URL.
+	Link string `json:"link,omitempty" form:"link"`
 }
 
 type MarkAsReadRequest struct {

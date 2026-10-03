@@ -490,6 +490,26 @@ func TestValidateUpdateMessage(t *testing.T) {
 			}},
 			err: pkgError.ValidationError("message: cannot be blank."),
 		},
+		{
+			name: "should success with valid link",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update message",
+				Phone:     "1728937129312@s.whatsapp.net",
+				Link:      "https://example.com",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with invalid link",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update message",
+				Phone:     "1728937129312@s.whatsapp.net",
+				Link:      "not a url",
+			}},
+			err: pkgError.ValidationError("link: must be a valid URL."),
+		},
 	}
 
 	for _, tt := range tests {

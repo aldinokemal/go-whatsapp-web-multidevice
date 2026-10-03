@@ -73,6 +73,8 @@ func TestSchemas(t *testing.T) {
 		{"msg react ok", messageSchema, `{"action":"react","phone":"628","message_id":"M1","emoji":"👍"}`, false},
 		{"msg react no emoji ok (removes reaction)", messageSchema, `{"action":"react","phone":"628","message_id":"M1"}`, false},
 		{"msg edit ok", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new"}`, false},
+		{"msg edit with link ok", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new","link":"https://example.com"}`, false},
+		{"msg edit link not string", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new","link":1}`, true},
 		{"msg edit missing message", messageSchema, `{"action":"edit","phone":"628","message_id":"M1"}`, true},
 		{"msg revoke ok", messageSchema, `{"action":"revoke","phone":"628","message_id":"M1"}`, false},
 		{"msg delete ok", messageSchema, `{"action":"delete","phone":"628","message_id":"M1"}`, false},

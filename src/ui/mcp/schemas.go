@@ -87,7 +87,8 @@ const messageSchema = `{
     "message_id": {"type": "string", "description": "The WhatsApp message ID"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "emoji": {"type": "string", "description": "action=react: emoji to react with; empty string removes the reaction"},
-    "message": {"type": "string", "description": "action=edit: replacement text (works ~15 minutes after send)"}
+    "message": {"type": "string", "description": "action=edit: replacement text (works ~15 minutes after send)"},
+    "link": {"type": "string", "description": "action=edit: optional URL; the edit is sent with a rich link preview for it, like send link (appended to message if absent)"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["message"]}}
