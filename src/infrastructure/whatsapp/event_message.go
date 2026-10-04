@@ -107,6 +107,7 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	if pushname := evt.Info.PushName; pushname != "" {
 		payload["from_name"] = pushname
 	}
+	buildBusinessFields(evt, payload)
 
 	// Modern WhatsApp clients (LID-migrated accounts on recent app builds) wrap
 	// message edits in a SecretEncryptedMessage with encType=MESSAGE_EDIT instead
@@ -274,6 +275,18 @@ func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.
 
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+}
+
+// buildBusinessFields marks messages received from a WhatsApp Business sender
+// and exposes the verified business name carried by the message, if any.
+func buildBusinessFields(evt *events.Message, payload map[string]any) {
+	if evt.Info.IsFromMe || evt.Info.VerifiedName == nil {
+		return
+	}
+	payload["is_business"] = true
+	if name := evt.Info.VerifiedName.Details.GetVerifiedName(); name != "" {
+		payload["verified_name"] = name
+	}
 }
 
 func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) error {

@@ -208,6 +208,8 @@ Fields commonly found inside the `payload` object:
 | `from_name` | string   | Legacy message-event push name of the sender. It remains available for compatibility and is not replaced by `sender_display_name`. |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
 | `is_from_me` | boolean | Whether the message was sent by the current user                              |
+| `is_business` | boolean | `true` when an incoming message carries the sender's WhatsApp Business verified-name certificate. Omitted otherwise. |
+| `verified_name` | string | Verified business name of the sender. Present only with `is_business` and when the name is non-empty. |
 
 ### Sender Display Name Resolution
 
