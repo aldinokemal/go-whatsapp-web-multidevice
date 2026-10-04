@@ -80,21 +80,33 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs.
 //
-// IMPORTANT: We only forward receipts from the primary device (Device == 0).
-// WhatsApp sends separate receipt events for each linked device (phone, web, desktop, etc.)
-// of a user. For example, if a user has 3 devices, you would receive 3 "delivered" receipts
-// for the same message. To avoid duplicate webhooks and simplify downstream processing,
-// we only send the receipt from the primary device (Device == 0).
-//
-// If you need receipts from all devices in the future, remove the Device == 0 check below.
+// Receipts are filtered by shouldForwardReceipt; see that function for the
+// per-device rules.
 func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) error {
-	// Only forward receipts from the primary device to avoid duplicates.
-	// See function comment above for detailed explanation.
-	if evt.Sender.Device != 0 {
-		logrus.Debugf("Skipping receipt webhook for linked device %d (only primary device receipts are forwarded)", evt.Sender.Device)
+	if !shouldForwardReceipt(evt) {
+		logrus.Debugf("Skipping %s receipt webhook from linked device %d of %s", evt.Type, evt.Sender.Device, evt.Sender.ToNonAD())
 		return nil
 	}
 
 	payload := createReceiptPayload(ctx, evt, deviceID, client)
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
+}
+
+// shouldForwardReceipt reports whether a receipt event should be forwarded.
+//
+// WhatsApp sends separate receipt events for each linked device (phone, web,
+// desktop, etc.) of a contact. For example, if a contact has 3 devices, you
+// would receive 3 "delivered" receipts for the same message. To avoid duplicate
+// webhooks we only forward the receipt from the primary device (Device == 0).
+//
+// The exception is a read receipt sent by one of the current account's own
+// devices (IsFromMe). It means the account owner read the chat on that device
+// (WhatsApp Web, Desktop or another companion), and only the device where the
+// chat was opened sends it, so it is not duplicated per device. Dropping it
+// would hide reads that did not happen on the phone.
+func shouldForwardReceipt(evt *events.Receipt) bool {
+	if evt.Sender.Device == 0 {
+		return true
+	}
+	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
 }
