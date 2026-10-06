@@ -573,8 +573,19 @@ Triggered when a user starts typing in a group chat.
 
 Presence events are triggered when a subscribed contact goes online or offline. Unlike chat presence
 (typing), these require an explicit per-user subscription: call `POST /user/presence/subscribe` with
-the contact's phone number first. WhatsApp only delivers these updates while your device is marked
-as online (GOWA does this automatically on connection by default).
+the contact's phone number first.
+
+**Requirement — the device must be marked available (online).** WhatsApp only delivers presence
+updates while your device is marked as available. The default `WHATSAPP_PRESENCE_ON_CONNECT` is
+`unavailable`, so enable it explicitly:
+
+```env
+WHATSAPP_PRESENCE_ON_CONNECT=available
+```
+
+Note: marking the device as available tells WhatsApp someone is actively using WhatsApp on the
+linked device, which suppresses push notifications on your phone while the server runs. If phone
+notifications matter, run the tracker on a secondary account or accept the trade-off.
 
 ```json
 {
