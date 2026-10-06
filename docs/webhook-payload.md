@@ -21,6 +21,7 @@ The following events can be received via webhook:
 | `message.ack`        | Delivery and read receipts                              |
 | `message.deleted`    | Messages deleted for the user                           |
 | `chat_presence`      | Typing and recording indicators from contacts           |
+| `presence`           | Online/offline status of subscribed contacts            |
 | `group.participants` | Group member join/leave/promote/demote events           |
 | `group.joined`       | You were added to a group                               |
 | `label.edit`         | WhatsApp label metadata changed                         |
@@ -189,7 +190,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**    | **Type** | **Description**                                                                                                     |
 |--------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `group.participants`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `group.participants`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
 | `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
 | `payload`    | object   | Event-specific payload data                                                                                         |
@@ -567,6 +568,53 @@ Triggered when a user starts typing in a group chat.
 | `payload.state`    | string   | Typing state: `"composing"` (typing) or `"paused"` (stopped)      |
 | `payload.media`    | string   | Media type: `""` (text message) or `"audio"` (voice recording)    |
 | `payload.is_group` | boolean  | Whether this is a group chat                                       |
+
+## Presence Events
+
+Presence events are triggered when a subscribed contact goes online or offline. Unlike chat presence
+(typing), these require an explicit per-user subscription: call `POST /user/presence/subscribe` with
+the contact's phone number first. WhatsApp only delivers these updates while your device is marked
+as online (GOWA does this automatically on connection by default).
+
+```json
+{
+  "event": "presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:05:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "state": "unavailable",
+    "last_seen": "2026-01-22T12:04:35Z"
+  }
+}
+```
+
+```json
+{
+  "event": "presence",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:10:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "state": "available"
+  }
+}
+```
+
+### Presence Event Fields
+
+| **Field**          | **Type** | **Description**                                                     |
+|--------------------|----------|---------------------------------------------------------------------|
+| `event`            | string   | Always `"presence"` for online/offline events                       |
+| `device_id`        | string   | JID of the device that received this event                          |
+| `timestamp`        | string   | RFC3339 formatted timestamp when the event was processed            |
+| `payload.from`     | string   | JID of the user whose presence changed (e.g., `628987654321@s.whatsapp.net`) |
+| `payload.from_lid` | string   | LID of the user (if applicable)                                     |
+| `payload.state`    | string   | Presence state: `"available"` (online) or `"unavailable"` (offline) |
+| `payload.last_seen`| string   | RFC3339 last-seen timestamp; omitted when the user hides last seen  |
+
+**Note:** `payload.last_seen` reflects the contact's own last-seen privacy setting. When it is
+hidden from you, the field is omitted on offline events.
 
 ## Label Events
 

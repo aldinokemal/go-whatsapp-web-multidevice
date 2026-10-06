@@ -400,6 +400,30 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 	return response, nil
 }
 
+func (service serviceUser) SubscribePresence(ctx context.Context, request domainUser.SubscribePresenceRequest) (response domainUser.SubscribePresenceResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	utils.SanitizePhone(&request.Phone)
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	if err = client.SubscribePresence(ctx, dataWaRecipient); err != nil {
+		return response, err
+	}
+
+	response.Subscribed = true
+	response.JID = dataWaRecipient.ToNonAD().String()
+
+	return response, nil
+}
+
 func (service serviceUser) BusinessProfile(ctx context.Context, request domainUser.BusinessProfileRequest) (response domainUser.BusinessProfileResponse, err error) {
 	err = validations.ValidateBusinessProfile(ctx, request)
 	if err != nil {
