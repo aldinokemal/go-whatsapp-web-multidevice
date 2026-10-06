@@ -278,7 +278,13 @@ func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.
 }
 
 // buildBusinessFields marks messages received from a WhatsApp Business sender
-// and exposes the verified business name carried by the message, if any.
+// and exposes the business name and verification level carried by the message.
+//
+// Every business account (Business app or Business Platform, with or without
+// the official badge) holds a verified-name certificate: "verified" means the
+// name is signed by WhatsApp. The badge itself is reported by verified_level.
+// WhatsApp does not attach the certificate to every message, so its absence
+// does not mean the sender is not a business.
 func buildBusinessFields(evt *events.Message, payload map[string]any) {
 	if evt.Info.IsFromMe || evt.Info.VerifiedName == nil {
 		return
@@ -286,6 +292,9 @@ func buildBusinessFields(evt *events.Message, payload map[string]any) {
 	payload["is_business"] = true
 	if name := evt.Info.VerifiedName.Details.GetVerifiedName(); name != "" {
 		payload["verified_name"] = name
+	}
+	if level := evt.Info.VerifiedName.VerifiedLevel; level != "" {
+		payload["verified_level"] = level
 	}
 }
 

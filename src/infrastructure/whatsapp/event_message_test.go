@@ -66,16 +66,22 @@ func TestBuildEventPayloadBusinessFields(t *testing.T) {
 	withName := &types.VerifiedName{
 		Details: &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
 	}
+	official := &types.VerifiedName{
+		Details:       &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
+		VerifiedLevel: "high",
+	}
 
 	tests := []struct {
 		name         string
 		evt          *events.Message
 		wantBusiness bool
 		wantName     string
+		wantLevel    string
 	}{
 		{name: "regular sender", evt: newEvent(false, nil)},
 		{name: "business sender", evt: newEvent(false, withName), wantBusiness: true, wantName: businessName},
 		{name: "business sender without details", evt: newEvent(false, &types.VerifiedName{}), wantBusiness: true},
+		{name: "officially verified business", evt: newEvent(false, official), wantBusiness: true, wantName: businessName, wantLevel: "high"},
 		{name: "own message", evt: newEvent(true, withName)},
 	}
 
@@ -94,6 +100,12 @@ func TestBuildEventPayloadBusinessFields(t *testing.T) {
 			assert.Equal(t, tt.wantName != "", ok)
 			if tt.wantName != "" {
 				assert.Equal(t, tt.wantName, name)
+			}
+
+			level, ok := payload["verified_level"]
+			assert.Equal(t, tt.wantLevel != "", ok)
+			if tt.wantLevel != "" {
+				assert.Equal(t, tt.wantLevel, level)
 			}
 		})
 	}
