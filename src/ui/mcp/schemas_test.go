@@ -84,7 +84,10 @@ func TestSchemas(t *testing.T) {
 		{"msg unstar ok", messageSchema, `{"action":"unstar","phone":"628","message_id":"M1"}`, false},
 		{"msg download_media ok", messageSchema, `{"action":"download_media","phone":"628","message_id":"M1"}`, false},
 		{"msg missing message_id", messageSchema, `{"action":"react","phone":"628"}`, true},
-		{"msg bad action", messageSchema, `{"action":"pin","phone":"628","message_id":"M1"}`, true},
+		{"msg pin ok", messageSchema, `{"action":"pin","phone":"628","message_id":"M1","duration":86400}`, false},
+		{"msg pin bad duration", messageSchema, `{"action":"pin","phone":"628","message_id":"M1","duration":60}`, true},
+		{"msg unpin ok", messageSchema, `{"action":"unpin","phone":"628","message_id":"M1"}`, false},
+		{"msg bad action", messageSchema, `{"action":"bogus","phone":"628","message_id":"M1"}`, true},
 
 		// ---- whatsapp_chat ----
 		{"chat list_chats ok", chatSchema, `{"action":"list_chats","limit":10,"search":"bob"}`, false},

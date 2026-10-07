@@ -92,6 +92,24 @@ func ValidateStarMessage(ctx context.Context, request domainMessage.StarRequest)
 	return nil
 }
 
+func ValidatePinMessage(ctx context.Context, request domainMessage.PinRequest) error {
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+		validation.Field(&request.MessageID, validation.Required),
+		validation.Field(&request.Duration, validation.When(request.IsPinned,
+			validation.Required,
+			validation.In(domainMessage.PinDuration24Hours, domainMessage.PinDuration7Days, domainMessage.PinDuration30Days).
+				Error("duration must be 86400 (24h), 604800 (7d) or 2592000 (30d)"),
+		)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
 func ValidateDownloadMedia(ctx context.Context, request domainMessage.DownloadMediaRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
