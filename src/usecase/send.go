@@ -1850,6 +1850,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 		}
 
+		msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
+
 		content := "🎨 Animated Sticker"
 
 		// Send the animated sticker message
@@ -2013,6 +2015,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		}
 		msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+
+	msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
 
 	content := "🎨 Sticker"
 
