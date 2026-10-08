@@ -13,6 +13,7 @@ import (
 	"github.com/dustin/go-humanize"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/go-ozzo/ozzo-validation/v4/is"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // ValidDurationValues contains WhatsApp's allowed disappearing message durations in seconds.
@@ -37,6 +38,15 @@ func validateDuration(dur *int) error {
 	return pkgError.ValidationError(
 		"duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)",
 	)
+}
+
+// validateAllowReshare rejects allow_reshare outside a status post: the
+// reshare eligibility flag only has meaning on status@broadcast.
+func validateAllowReshare(allow bool, phone string) error {
+	if allow && strings.TrimSpace(phone) != types.StatusBroadcastJID.String() {
+		return pkgError.ValidationError("allow_reshare is only supported when phone is status@broadcast")
+	}
+	return nil
 }
 
 // validatePhoneNumber validates that the phone number is in international format (not starting with 0)
@@ -79,6 +89,10 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 
 	// Custom validation for optional Duration
 	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
 		return err
 	}
 
@@ -141,6 +155,10 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 
 	// Validate duration
 	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
 		return err
 	}
 
@@ -295,6 +313,10 @@ func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) err
 	}
 
 	if err := validateDuration(request.Duration); err != nil {
+		return err
+	}
+
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
 		return err
 	}
 

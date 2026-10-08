@@ -22,6 +22,7 @@ const sendSchema = `{
     "hd": {"type": "boolean", "description": "image/video: send HD without upscaling (image: 2560px max edge; video: H.264 8-bit YUV 4:2:0 at CRF 23, capped at 1280x1280); overrides compress when true (default false)"},
     "video_url": {"type": "string", "description": "type=video: URL of the video (mp4/mkv/avi, fetched server-side)"},
     "gif_playback": {"type": "boolean", "description": "type=video: play as looping GIF (default false)"},
+    "allow_reshare": {"type": "boolean", "description": "text/image/video: let viewers reshare the status; requires phone status@broadcast (default false)"},
     "audio_url": {"type": "string", "description": "type=audio: URL of the audio file (fetched server-side)"},
     "ptt": {"type": "boolean", "description": "type=audio: send as voice note (requires ffmpeg server-side, default false)"},
     "file_url": {"type": "string", "description": "type=document: URL of the file; MIME type and filename derived server-side"},

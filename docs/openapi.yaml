@@ -1282,6 +1282,10 @@ paths:
                   description: |
                     List of phone numbers to mention (ghost mentions - no @ required in message text).
                     Use special keyword "@everyone" to mention all group participants.
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
@@ -1366,6 +1370,10 @@ paths:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
@@ -1645,6 +1653,10 @@ paths:
                   type: boolean
                   example: false
                   description: Whether this is a forwarded message
+                allow_reshare:
+                  type: boolean
+                  example: false
+                  description: Show the reshare button to status viewers. Requires `phone` to be `status@broadcast`; GOWA rejects the field for any other recipient.
       responses:
         '200':
           description: OK
@@ -5931,6 +5943,10 @@ components:
           type: string
           example: '{"ctwa_clid":"clid_123","source_app":"whatsapp"}'
           description: JSON string with Meta Ads referral/attribution details when the message originated from a Click-to-WhatsApp ad. Omitted when not applicable (matches Go json omitempty).
+        context_metadata:
+          type: string
+          example: '{"replied_to_id":"AC625C65EA7143E71D784176C4A90A93"}'
+          description: JSON string containing the replied-to message ID when reply context is known. Captured from live, sent, and history-sync messages. Omitted when no reply context is available, including older stored rows until they are reingested with context.
         filename:
           type: string
           example: 'photo.jpg'

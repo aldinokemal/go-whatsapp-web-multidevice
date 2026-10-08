@@ -285,6 +285,20 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 	return contextInfo
 }
 
+// withAllowReshare marks a status post as reshareable. Without
+// FeatureEligibilities.CanBeReshared, viewers get no reshare button, even when
+// the poster's status privacy allows resharing.
+func withAllowReshare(contextInfo *waE2E.ContextInfo, allowReshare bool) *waE2E.ContextInfo {
+	if !allowReshare {
+		return contextInfo
+	}
+	if contextInfo == nil {
+		contextInfo = &waE2E.ContextInfo{}
+	}
+	contextInfo.FeatureEligibilities = &waE2E.ContextInfo_FeatureEligibilities{CanBeReshared: proto.Bool(true)}
+	return contextInfo
+}
+
 func normalizeSendError(err error) error {
 	if err == nil {
 		return nil
@@ -337,6 +351,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
+	msg.ExtendedTextMessage.ContextInfo = withAllowReshare(msg.ExtendedTextMessage.ContextInfo, request.AllowReshare)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
@@ -508,6 +523,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		msg.ImageMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
+	msg.ImageMessage.ContextInfo = withAllowReshare(msg.ImageMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
@@ -1066,6 +1082,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		msg.VideoMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
+	msg.VideoMessage.ContextInfo = withAllowReshare(msg.VideoMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🎥 Video"
 	if request.Caption != "" {
