@@ -85,6 +85,15 @@ type CheckResponse struct {
 	IsOnWhatsApp bool `json:"is_on_whatsapp"`
 }
 
+type SubscribePresenceRequest struct {
+	Phone string `json:"phone" query:"phone"`
+}
+
+type SubscribePresenceResponse struct {
+	Subscribed bool   `json:"subscribed"`
+	JID        string `json:"jid"`
+}
+
 type BusinessProfileRequest struct {
 	Phone string `json:"phone" query:"phone"`
 }
