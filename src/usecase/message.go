@@ -599,6 +599,75 @@ func (service serviceMessage) StarMessage(ctx context.Context, request domainMes
 	return nil
 }
 
+// PinMessage pins or unpins a message for everyone in the chat.
+func (service serviceMessage) PinMessage(ctx context.Context, request domainMessage.PinRequest) (response domainMessage.GenericResponse, err error) {
+	if request.IsPinned && request.Duration == 0 {
+		request.Duration = domainMessage.PinDuration7Days
+	}
+	if err = validations.ValidatePinMessage(ctx, request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Like reactions, the key of the pinned message needs its original sender (Participant in groups);
+	// an empty JID means the message was sent by us.
+	senderJID := types.EmptyJID
+	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	if err != nil {
+		logrus.Warnf("Failed to lookup message %s for pin: %v, assuming sent by me", request.MessageID, err)
+	} else if message != nil && !message.IsFromMe && message.Sender != "" {
+		if parsed, parseErr := utils.ParseJID(message.Sender); parseErr == nil {
+			senderJID = parsed
+		} else {
+			logrus.Warnf("Failed to parse sender JID '%s' for pin: %v", message.Sender, parseErr)
+		}
+	}
+
+	msg := buildPinMessage(client.BuildMessageKey(dataWaRecipient, senderJID, request.MessageID), request.IsPinned, request.Duration, time.Now())
+	ts, err := client.SendMessage(ctx, dataWaRecipient, msg)
+	if err != nil {
+		return response, err
+	}
+
+	action := "Unpinned"
+	if request.IsPinned {
+		action = "Pinned"
+	}
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("%s message %s in %s (server timestamp: %s)", action, request.MessageID, request.Phone, ts.Timestamp)
+	return response, nil
+}
+
+func buildPinMessage(key *waCommon.MessageKey, pinned bool, duration int, now time.Time) *waE2E.Message {
+	pinType := waE2E.PinInChatMessage_UNPIN_FOR_ALL
+	if pinned {
+		pinType = waE2E.PinInChatMessage_PIN_FOR_ALL
+	}
+
+	msg := &waE2E.Message{
+		PinInChatMessage: &waE2E.PinInChatMessage{
+			Key:               key,
+			Type:              pinType.Enum(),
+			SenderTimestampMS: proto.Int64(now.UnixMilli()),
+		},
+	}
+	if pinned {
+		msg.MessageContextInfo = &waE2E.MessageContextInfo{
+			MessageAddOnDurationInSecs: proto.Uint32(uint32(duration)),
+		}
+	}
+	return msg
+}
+
 // DownloadMedia implements message.IMessageService.
 func (service serviceMessage) DownloadMedia(ctx context.Context, request domainMessage.DownloadMediaRequest) (response domainMessage.DownloadMediaResponse, err error) {
 	if err = validations.ValidateDownloadMedia(ctx, request); err != nil {

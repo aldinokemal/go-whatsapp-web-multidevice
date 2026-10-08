@@ -417,7 +417,7 @@ operation:
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
 | `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
-| `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
+| `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `pin`, `unpin`, `download_media`                                           |
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
@@ -696,6 +696,8 @@ You may also fork or modify the source code.
 | ✅       | Mark Audio Message as Played           | POST   | /message/:message_id/played         |
 | ✅       | Star Message                           | POST   | /message/:message_id/star           |
 | ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
+| ✅       | Pin Message                            | POST   | /message/:message_id/pin            |
+| ✅       | Unpin Message                          | POST   | /message/:message_id/unpin          |
 | ✅       | Forward Message                        | POST   | /message/:message_id/forward        |
 | ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Reject Call                            | POST   | /call/reject                        |
