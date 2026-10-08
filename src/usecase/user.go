@@ -23,13 +23,29 @@ import (
 )
 
 type serviceUser struct {
-	chatStorageRepo domainChatStorage.IChatStorageRepository
+	chatStorageRepo         domainChatStorage.IChatStorageRepository
+	validateJIDFn           func(client *whatsmeow.Client, phone string) (types.JID, error)
+	getProfilePictureInfoFn func(ctx context.Context, client *whatsmeow.Client, jid types.JID, params *whatsmeow.GetProfilePictureParams) (*types.ProfilePictureInfo, error)
 }
 
 func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
 	return &serviceUser{
 		chatStorageRepo: chatStorageRepo,
 	}
+}
+
+func (service serviceUser) validateJID(client *whatsmeow.Client, phone string) (types.JID, error) {
+	if service.validateJIDFn != nil {
+		return service.validateJIDFn(client, phone)
+	}
+	return utils.ValidateJidWithLogin(client, phone)
+}
+
+func (service serviceUser) getProfilePictureInfo(ctx context.Context, client *whatsmeow.Client, jid types.JID, params *whatsmeow.GetProfilePictureParams) (*types.ProfilePictureInfo, error) {
+	if service.getProfilePictureInfoFn != nil {
+		return service.getProfilePictureInfoFn(ctx, client, jid, params)
+	}
+	return client.GetProfilePictureInfo(ctx, jid, params)
 }
 
 func (service serviceUser) Info(ctx context.Context, request domainUser.InfoRequest) (response domainUser.InfoResponse, err error) {
@@ -131,7 +147,7 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 		return response, err
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -146,7 +162,7 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 	avatarCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	pic, err := client.GetProfilePictureInfo(avatarCtx, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
+	pic, err := service.getProfilePictureInfo(avatarCtx, client, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
 		Preview:     request.IsPreview,
 		IsCommunity: isCommunity,
 	})
@@ -159,21 +175,40 @@ func (service serviceUser) Avatar(ctx context.Context, request domainUser.Avatar
 			avatarCtx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel2()
 
-			pic, err = client.GetProfilePictureInfo(avatarCtx2, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
+			fallbackPic, fallbackErr := service.getProfilePictureInfo(avatarCtx2, client, dataWaRecipient, &whatsmeow.GetProfilePictureParams{
 				Preview:     request.IsPreview,
 				IsCommunity: false,
 			})
-			if err != nil {
+			if fallbackErr != nil {
 				if avatarCtx2.Err() == context.DeadlineExceeded {
 					return response, pkgError.ContextError("Error timeout get avatar!")
 				}
-				return response, err
+				// In whatsmeow, GetProfilePictureInfo notes that community photos should use
+				// IsCommunity: true, and that querying them with IsCommunity: false may return
+				// 401 (ErrProfilePictureUnauthorized). Passing that fallback error directly
+				// through avatarError would expose false-positive 403 AVATAR_HIDDEN signals.
+				//
+				// To keep AVATAR_HIDDEN and AVATAR_NOT_SET authoritative for caching clients,
+				// only classify when both attempts agree on the sentinel. Otherwise, return
+				// the fallback error unclassified.
+				if errors.Is(err, whatsmeow.ErrProfilePictureNotSet) && errors.Is(fallbackErr, whatsmeow.ErrProfilePictureNotSet) {
+					return response, avatarError(fallbackErr)
+				}
+				if errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized) && errors.Is(fallbackErr, whatsmeow.ErrProfilePictureUnauthorized) {
+					return response, avatarError(fallbackErr)
+				}
+				return response, fallbackErr
 			}
+			pic = fallbackPic
 		} else {
-			return response, err
+			return response, avatarError(err)
 		}
 	}
 
+	// A nil picture without an error means "unchanged" (status 304 for a known
+	// ExistingID), not "no picture": that one arrives as ErrProfilePictureNotSet
+	// and is typed by avatarError. Keep it out of AvatarNotSetError so that
+	// caching clients never drop a valid picture.
 	if pic == nil {
 		return response, errors.New("no avatar found")
 	}
@@ -455,4 +490,20 @@ func (service serviceUser) BusinessProfile(ctx context.Context, request domainUs
 	}
 
 	return response, nil
+}
+
+// avatarError types the two whatsmeow outcomes that clients must tell apart.
+// Both used to surface as the same 500, and a client that cached avatars could
+// only guess from the message text whether the picture was gone or merely
+// hidden from this account. The messages are kept verbatim so that clients
+// matching on text keep working.
+func avatarError(err error) error {
+	switch {
+	case errors.Is(err, whatsmeow.ErrProfilePictureNotSet):
+		return pkgError.AvatarNotSetError(err.Error())
+	case errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized):
+		return pkgError.AvatarHiddenError(err.Error())
+	default:
+		return err
+	}
 }
