@@ -208,6 +208,9 @@ Fields commonly found inside the `payload` object:
 | `from_name` | string   | Legacy message-event push name of the sender. It remains available for compatibility and is not replaced by `sender_display_name`. |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
 | `is_from_me` | boolean | Whether the message was sent by the current user                              |
+| `is_business` | boolean | `true` when an incoming message carries the sender's business certificate. Every WhatsApp Business account has one (Business app or Business Platform, with or without the official badge). WhatsApp does not attach it to every message, so a missing field does not mean the sender is not a business; use `GET /user/info` for a definitive answer. Omitted otherwise. |
+| `verified_name` | string | Business name signed by WhatsApp for the sender. Present only with `is_business` and when the name is non-empty. |
+| `verified_level` | string | Verification level reported with the certificate, as sent by WhatsApp (e.g. `unknown`, `low`, `high`; `high` is the official verified badge). Present only with `is_business` and when WhatsApp sends it. |
 
 ### Sender Display Name Resolution
 

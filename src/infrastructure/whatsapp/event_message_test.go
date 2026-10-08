@@ -10,6 +10,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waVnameCert"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -42,6 +43,71 @@ func TestBuildEventPayloadIncludesIsFromMe(t *testing.T) {
 		t.Fatalf("expected is_from_me in payload")
 	} else if isFromMe, ok := value.(bool); !ok || !isFromMe {
 		t.Fatalf("expected is_from_me=true, got %v", value)
+	}
+}
+
+func TestBuildEventPayloadBusinessFields(t *testing.T) {
+	businessName := "Acme Store"
+	newEvent := func(isFromMe bool, verified *types.VerifiedName) *events.Message {
+		return &events.Message{
+			Info: types.MessageInfo{
+				MessageSource: types.MessageSource{
+					Chat:     types.NewJID("123", types.DefaultUserServer),
+					Sender:   types.NewJID("123", types.DefaultUserServer),
+					IsFromMe: isFromMe,
+				},
+				ID:           "MSG123",
+				Timestamp:    time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+				VerifiedName: verified,
+			},
+			Message: &waE2E.Message{Conversation: protoString("hello")},
+		}
+	}
+	withName := &types.VerifiedName{
+		Details: &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
+	}
+	official := &types.VerifiedName{
+		Details:       &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
+		VerifiedLevel: "high",
+	}
+
+	tests := []struct {
+		name         string
+		evt          *events.Message
+		wantBusiness bool
+		wantName     string
+		wantLevel    string
+	}{
+		{name: "regular sender", evt: newEvent(false, nil)},
+		{name: "business sender", evt: newEvent(false, withName), wantBusiness: true, wantName: businessName},
+		{name: "business sender without details", evt: newEvent(false, &types.VerifiedName{}), wantBusiness: true},
+		{name: "officially verified business", evt: newEvent(false, official), wantBusiness: true, wantName: businessName, wantLevel: "high"},
+		{name: "own message", evt: newEvent(true, withName)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, payload, err := buildEventPayload(context.Background(), nil, tt.evt)
+			assert.NoError(t, err)
+
+			isBusiness, ok := payload["is_business"]
+			assert.Equal(t, tt.wantBusiness, ok)
+			if tt.wantBusiness {
+				assert.Equal(t, true, isBusiness)
+			}
+
+			name, ok := payload["verified_name"]
+			assert.Equal(t, tt.wantName != "", ok)
+			if tt.wantName != "" {
+				assert.Equal(t, tt.wantName, name)
+			}
+
+			level, ok := payload["verified_level"]
+			assert.Equal(t, tt.wantLevel != "", ok)
+			if tt.wantLevel != "" {
+				assert.Equal(t, tt.wantLevel, level)
+			}
+		})
 	}
 }
 
