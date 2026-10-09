@@ -257,7 +257,11 @@ func normalizeStoredSender(ctx context.Context, sender string) string {
 	return whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).ToNonAD().String()
 }
 
-func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
+// mergeReplyContext quotes a stored message. When that message lives in a group
+// and the reply goes to another chat ("reply privately" in WhatsApp), the quote
+// also carries the group as RemoteJID, so the recipient's client labels it with
+// the group and tapping it opens the original message there.
+func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string, recipient types.JID) *waE2E.ContextInfo {
 	if replyMessageID == nil || *replyMessageID == "" {
 		return contextInfo
 	}
@@ -282,7 +286,25 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 	contextInfo.QuotedMessage = &waE2E.Message{
 		Conversation: proto.String(message.Content),
 	}
+	if remote := privateReplyRemoteJID(message.ChatJID, recipient); remote != "" {
+		contextInfo.RemoteJID = proto.String(remote)
+	}
 	return contextInfo
+}
+
+// privateReplyRemoteJID returns the group JID of a quoted group message when
+// the reply is sent to a different chat. Replies inside the same chat, and
+// quotes from 1:1 chats (stored under either the phone or the LID JID), keep
+// RemoteJID empty as before.
+func privateReplyRemoteJID(quotedChatJID string, recipient types.JID) string {
+	quoted, err := types.ParseJID(quotedChatJID)
+	if err != nil || quoted.Server != types.GroupServer {
+		return ""
+	}
+	if quoted.ToNonAD() == recipient.ToNonAD() {
+		return ""
+	}
+	return quoted.ToNonAD().String()
 }
 
 // withAllowReshare marks a status post as reshareable. Without
@@ -350,7 +372,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 
-	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
+	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.ExtendedTextMessage.ContextInfo = withAllowReshare(msg.ExtendedTextMessage.ContextInfo, request.AllowReshare)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
@@ -522,7 +544,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
+	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.ImageMessage.ContextInfo = withAllowReshare(msg.ImageMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🖼️ Image"
@@ -621,7 +643,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		}
 		msg.DocumentMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
+	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 
 	caption := "📄 Document"
 	if fileName != "" {
@@ -1081,7 +1103,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 		msg.VideoMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
+	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.VideoMessage.ContextInfo = withAllowReshare(msg.VideoMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🎥 Video"
@@ -1500,7 +1522,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		}
 		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID)
+	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 
 	content := "🎵 Audio"
 
