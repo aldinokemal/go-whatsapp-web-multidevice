@@ -2112,11 +2112,13 @@ func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string
 	var name string
 
 	switch jid.Server {
-	case "g.us", "newsletter":
-		// Group or newsletter/channel. Start with the "Group <id>" / "Newsletter <id>"
-		// placeholder; callers with a client replace it through
-		// whatsapp.ResolvePlaceholderChatName.
-		name = whatsapp.PlaceholderChatName(jid)
+	case "g.us":
+		// This is a group chat
+		// For now, use a generic name - this can be enhanced later with group info
+		name = fmt.Sprintf("Group %s", jid.User)
+	case "newsletter":
+		// This is a newsletter/channel
+		name = fmt.Sprintf("Newsletter %s", jid.User)
 	default:
 		// This is an individual contact
 		// Priority: pushName > senderUser > JID user
@@ -2153,11 +2155,13 @@ func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid 
 	var name string
 
 	switch jid.Server {
-	case "g.us", "newsletter":
-		// Group or newsletter/channel. Start with the "Group <id>" / "Newsletter <id>"
-		// placeholder; callers with a client replace it through
-		// whatsapp.ResolvePlaceholderChatName.
-		name = whatsapp.PlaceholderChatName(jid)
+	case "g.us":
+		// This is a group chat
+		// For now, use a generic name - this can be enhanced later with group info
+		name = fmt.Sprintf("Group %s", jid.User)
+	case "newsletter":
+		// This is a newsletter/channel
+		name = fmt.Sprintf("Newsletter %s", jid.User)
 	default:
 		// This is an individual contact
 		// Priority: pushName > senderUser > JID user
@@ -2214,8 +2218,6 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, chatNameSenderUser, chatNamePushName)
-	// Groups and newsletters stored from a live message start with a placeholder name
-	chatName = whatsapp.ResolvePlaceholderChatName(ctx, client, normalizedChatJID, chatName)
 
 	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -2606,7 +2608,6 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 	}
 
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedCreator.User, "")
-	chatName = whatsapp.ResolvePlaceholderChatName(ctx, client, normalizedChat, chatName)
 
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
@@ -2799,7 +2800,6 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
-	chatName = whatsapp.ResolvePlaceholderChatName(ctx, client, normalizedJID, chatName)
 
 	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)

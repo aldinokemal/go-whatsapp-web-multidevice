@@ -3,7 +3,10 @@ package whatsapp
 import (
 	"context"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -28,6 +31,30 @@ type ChatDisplayNameResolver struct {
 	allContacts   map[types.JID]types.ContactInfo
 	pointLookups  int
 	bulkAttempted bool
+
+	// Group subjects and newsletter names replace the "Group <id>" /
+	// "Newsletter <id>" placeholders. Each list is fetched at most once per
+	// resolver, lazily on the first placeholder, and shared per device through
+	// a short-lived cache.
+	groups            joinedGroupsGetter
+	newsletters       subscribedNewslettersGetter
+	nameCacheKey      string
+	groupNameCache    *chatNameCache
+	newsletterCache   *chatNameCache
+	groupNames        map[types.JID]string
+	newsletterNames   map[types.JID]string
+	groupsLoaded      bool
+	newslettersLoaded bool
+}
+
+// joinedGroupsGetter and subscribedNewslettersGetter are implemented by
+// *whatsmeow.Client.
+type joinedGroupsGetter interface {
+	GetJoinedGroups(context.Context) ([]*types.GroupInfo, error)
+}
+
+type subscribedNewslettersGetter interface {
+	GetSubscribedNewsletters(context.Context) ([]*types.NewsletterMetadata, error)
 }
 
 // NewChatDisplayNameResolver builds a resolver scoped to one response. Contact
@@ -38,14 +65,26 @@ func NewChatDisplayNameResolver(_ context.Context, client *whatsmeow.Client) *Ch
 	if client != nil && client.Store != nil {
 		contacts = client.Store.Contacts
 	}
-	return newChatDisplayNameResolver(contacts, client)
+	resolver := newChatDisplayNameResolver(contacts, client)
+	// Group and newsletter lists need a live session; offline or test clients
+	// keep the placeholder.
+	if client != nil && client.IsLoggedIn() {
+		resolver.groups = client
+		resolver.newsletters = client
+		if client.Store != nil && client.Store.ID != nil {
+			resolver.nameCacheKey = client.Store.ID.ToNonAD().String()
+		}
+	}
+	return resolver
 }
 
 func newChatDisplayNameResolver(contacts chatContactInfoGetter, client *whatsmeow.Client) *ChatDisplayNameResolver {
 	return &ChatDisplayNameResolver{
-		client:       client,
-		contacts:     contacts,
-		contactCache: make(map[types.JID]types.ContactInfo),
+		client:          client,
+		contacts:        contacts,
+		contactCache:    make(map[types.JID]types.ContactInfo),
+		groupNameCache:  sharedGroupNameCache,
+		newsletterCache: sharedNewsletterNameCache,
 	}
 }
 
@@ -56,9 +95,12 @@ func newChatDisplayNameResolver(contacts chatContactInfoGetter, client *whatsmeo
 //   - then synced PushName and BusinessName,
 //   - finally use the JID-derived label.
 //
-// status@broadcast, groups, and newsletters retain their existing GOWA fallback
-// semantics. LID identifiers are normalized through the active device mapping
-// before contact lookup when possible.
+// status@broadcast keeps its fixed label. A group or newsletter whose stored
+// name is empty or the "Group <id>" / "Newsletter <id>" placeholder shows the
+// subject from the joined-groups / subscribed-newsletters list instead, as
+// "Group <subject>" / "Newsletter <name>", falling back to the placeholder.
+// LID identifiers are normalized through the active device mapping before
+// contact lookup when possible.
 func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedName string) string {
 	if rawJID == "status@broadcast" {
 		return "Status"
@@ -69,15 +111,23 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 	if validJID {
 		switch jid.Server {
 		case types.GroupServer:
-			if hasDisplayName(storedName) {
+			placeholder := "Group " + jid.User
+			if hasDisplayName(storedName) && strings.TrimSpace(storedName) != placeholder {
 				return storedName
 			}
-			return PlaceholderChatName(jid)
+			if name := r.groupName(ctx, jid); name != "" {
+				return "Group " + name
+			}
+			return placeholder
 		case types.NewsletterServer:
-			if hasDisplayName(storedName) {
+			placeholder := "Newsletter " + jid.User
+			if hasDisplayName(storedName) && strings.TrimSpace(storedName) != placeholder {
 				return storedName
 			}
-			return PlaceholderChatName(jid)
+			if name := r.newsletterName(ctx, jid); name != "" {
+				return "Newsletter " + name
+			}
+			return placeholder
 		}
 	}
 
@@ -184,4 +234,117 @@ func isJIDFallbackName(rawJID string, originalJID types.JID, originalValid bool,
 		return true
 	}
 	return false
+}
+
+const (
+	chatNameCacheTTL     = 5 * time.Minute
+	chatNameFetchTimeout = 10 * time.Second
+)
+
+func (r *ChatDisplayNameResolver) groupName(ctx context.Context, jid types.JID) string {
+	if r == nil || r.groups == nil {
+		return ""
+	}
+	if !r.groupsLoaded {
+		r.groupsLoaded = true
+		r.groupNames = loadChatNames(ctx, r.groupNameCache, r.nameCacheKey, func(ctx context.Context) (map[types.JID]string, error) {
+			groups, err := r.groups.GetJoinedGroups(ctx)
+			if err != nil {
+				return nil, err
+			}
+			names := make(map[types.JID]string, len(groups))
+			for _, group := range groups {
+				if group != nil && hasDisplayName(group.Name) {
+					names[group.JID.ToNonAD()] = strings.TrimSpace(group.Name)
+				}
+			}
+			return names, nil
+		})
+	}
+	return r.groupNames[jid.ToNonAD()]
+}
+
+func (r *ChatDisplayNameResolver) newsletterName(ctx context.Context, jid types.JID) string {
+	if r == nil || r.newsletters == nil {
+		return ""
+	}
+	if !r.newslettersLoaded {
+		r.newslettersLoaded = true
+		r.newsletterNames = loadChatNames(ctx, r.newsletterCache, r.nameCacheKey, func(ctx context.Context) (map[types.JID]string, error) {
+			newsletters, err := r.newsletters.GetSubscribedNewsletters(ctx)
+			if err != nil {
+				return nil, err
+			}
+			names := make(map[types.JID]string, len(newsletters))
+			for _, newsletter := range newsletters {
+				if newsletter != nil && hasDisplayName(newsletter.ThreadMeta.Name.Text) {
+					names[newsletter.ID.ToNonAD()] = strings.TrimSpace(newsletter.ThreadMeta.Name.Text)
+				}
+			}
+			return names, nil
+		})
+	}
+	return r.newsletterNames[jid.ToNonAD()]
+}
+
+// loadChatNames serves names from the per-device cache, or fetches and caches
+// them. Failures are not cached and leave the placeholder in place.
+func loadChatNames(ctx context.Context, cache *chatNameCache, key string, fetch func(context.Context) (map[types.JID]string, error)) map[types.JID]string {
+	if names, ok := cache.get(key); ok {
+		return names
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, chatNameFetchTimeout)
+	defer cancel()
+	names, err := fetch(fetchCtx)
+	if err != nil {
+		logrus.Debugf("Could not load group/newsletter names for chat display: %v", err)
+		return nil
+	}
+	cache.set(key, names)
+	return names
+}
+
+// chatNameCache keeps group or newsletter names per device for a few minutes,
+// so chat list requests do not query WhatsApp every time.
+type chatNameCache struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	now     func() time.Time
+	entries map[string]chatNameCacheEntry
+}
+
+type chatNameCacheEntry struct {
+	names   map[types.JID]string
+	expires time.Time
+}
+
+var (
+	sharedGroupNameCache      = newChatNameCache(chatNameCacheTTL, time.Now)
+	sharedNewsletterNameCache = newChatNameCache(chatNameCacheTTL, time.Now)
+)
+
+func newChatNameCache(ttl time.Duration, now func() time.Time) *chatNameCache {
+	return &chatNameCache{ttl: ttl, now: now, entries: make(map[string]chatNameCacheEntry)}
+}
+
+func (c *chatNameCache) get(key string) (map[types.JID]string, bool) {
+	if c == nil || key == "" {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok || !c.now().Before(entry.expires) {
+		return nil, false
+	}
+	return entry.names, true
+}
+
+func (c *chatNameCache) set(key string, names map[types.JID]string) {
+	if c == nil || key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = chatNameCacheEntry{names: names, expires: c.now().Add(c.ttl)}
 }

@@ -126,13 +126,6 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 		// Get or create chat
 		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
-		// Groups and newsletters carry their real name in DisplayName. Store it with
-		// the same prefix used for live messages instead of the placeholder.
-		if IsPlaceholderChatName(jid, chatName) {
-			if formatted := FormatChatName(jid, displayName); formatted != "" {
-				chatName = formatted
-			}
-		}
 
 		// Extract ephemeral expiration from conversation
 		ephemeralExpiration := conv.GetEphemeralExpiration()
