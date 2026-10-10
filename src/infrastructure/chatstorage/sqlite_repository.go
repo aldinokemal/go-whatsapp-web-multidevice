@@ -2177,6 +2177,62 @@ func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid 
 	return name
 }
 
+// chatSubjectLookup is the part of *whatsmeow.Client used to name group and
+// newsletter chats.
+type chatSubjectLookup interface {
+	IsLoggedIn() bool
+	GetGroupInfo(ctx context.Context, jid types.JID) (*types.GroupInfo, error)
+	GetNewsletterInfo(ctx context.Context, jid types.JID) (*types.NewsletterMetadata, error)
+}
+
+const chatSubjectLookupTimeout = 5 * time.Second
+
+// chatSubjectLookupFromContext returns the client used to resolve chat name
+// placeholders. It is a variable so tests can supply a fake client.
+var chatSubjectLookupFromContext = func(ctx context.Context) chatSubjectLookup {
+	if client := whatsapp.ClientFromContext(ctx); client != nil {
+		return client
+	}
+	return nil
+}
+
+// resolvePlaceholderChatName replaces the "Group <id>" / "Newsletter <id>"
+// placeholder with "Group <subject>" / "Newsletter <name>" when the logged-in
+// client can look the name up. Any other name is returned unchanged, so the
+// lookup only runs while the stored name is still the placeholder. On failure
+// the placeholder is kept and the lookup is tried again on the next message.
+func resolvePlaceholderChatName(ctx context.Context, client chatSubjectLookup, jid types.JID, name string) string {
+	var prefix string
+	switch jid.Server {
+	case types.GroupServer:
+		prefix = "Group "
+	case types.NewsletterServer:
+		prefix = "Newsletter "
+	default:
+		return name
+	}
+	// IsLoggedIn is nil-safe on *whatsmeow.Client.
+	if name != prefix+jid.User || client == nil || !client.IsLoggedIn() {
+		return name
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, chatSubjectLookupTimeout)
+	defer cancel()
+
+	var subject string
+	if jid.Server == types.GroupServer {
+		if info, err := client.GetGroupInfo(lookupCtx, jid); err == nil && info != nil {
+			subject = info.Name
+		}
+	} else if meta, err := client.GetNewsletterInfo(lookupCtx, jid); err == nil && meta != nil {
+		subject = meta.ThreadMeta.Name.Text
+	}
+	if subject = strings.TrimSpace(subject); subject == "" {
+		return name
+	}
+	return prefix + subject
+}
+
 func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Message) error {
 	if evt == nil || evt.Message == nil {
 		return nil
@@ -2218,6 +2274,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, chatNameSenderUser, chatNamePushName)
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedChatJID, chatName)
 
 	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -2608,6 +2665,7 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 	}
 
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedCreator.User, "")
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedChat, chatName)
 
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
@@ -2800,6 +2858,11 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedJID, chatName)
+	// The lookup can outlast the deadline; skip the chat bump in that case too.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
