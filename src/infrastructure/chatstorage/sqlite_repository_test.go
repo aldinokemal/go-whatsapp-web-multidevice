@@ -178,14 +178,22 @@ func TestCreateMessageGroupChatName(t *testing.T) {
 		name       string
 		storedName string
 		want       string
+		lookup     *fakeChatSubjectLookup
 	}{
 		{name: "new group without client keeps placeholder", want: "Group 120363012345678901"},
 		{name: "stored real name is kept", storedName: "Family", want: "Family"},
+		{name: "new group with logged-in client stores subject", lookup: &fakeChatSubjectLookup{loggedIn: true, groupName: "Family"}, want: "Group Family"},
+		{name: "placeholder is replaced by subject", storedName: "Group 120363012345678901", lookup: &fakeChatSubjectLookup{loggedIn: true, groupName: "Family"}, want: "Group Family"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newTestSQLiteRepository(t)
+			if tt.lookup != nil {
+				original := chatSubjectLookupFromContext
+				chatSubjectLookupFromContext = func(context.Context) chatSubjectLookup { return tt.lookup }
+				t.Cleanup(func() { chatSubjectLookupFromContext = original })
+			}
 			if tt.storedName != "" {
 				if err := repo.StoreChat(&domainChatStorage.Chat{
 					DeviceID:        accountJID.String(),

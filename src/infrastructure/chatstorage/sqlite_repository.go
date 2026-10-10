@@ -2187,6 +2187,15 @@ type chatSubjectLookup interface {
 
 const chatSubjectLookupTimeout = 5 * time.Second
 
+// chatSubjectLookupFromContext returns the client used to resolve chat name
+// placeholders. It is a variable so tests can supply a fake client.
+var chatSubjectLookupFromContext = func(ctx context.Context) chatSubjectLookup {
+	if client := whatsapp.ClientFromContext(ctx); client != nil {
+		return client
+	}
+	return nil
+}
+
 // resolvePlaceholderChatName replaces the "Group <id>" / "Newsletter <id>"
 // placeholder with "Group <subject>" / "Newsletter <name>" when the logged-in
 // client can look the name up. Any other name is returned unchanged, so the
@@ -2265,7 +2274,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, chatNameSenderUser, chatNamePushName)
-	chatName = resolvePlaceholderChatName(ctx, client, normalizedChatJID, chatName)
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedChatJID, chatName)
 
 	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -2656,7 +2665,7 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 	}
 
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedCreator.User, "")
-	chatName = resolvePlaceholderChatName(ctx, client, normalizedChat, chatName)
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedChat, chatName)
 
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
@@ -2849,7 +2858,11 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
-	chatName = resolvePlaceholderChatName(ctx, client, normalizedJID, chatName)
+	chatName = resolvePlaceholderChatName(ctx, chatSubjectLookupFromContext(ctx), normalizedJID, chatName)
+	// The lookup can outlast the deadline; skip the chat bump in that case too.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
