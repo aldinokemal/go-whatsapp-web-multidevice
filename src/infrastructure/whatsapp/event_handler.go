@@ -68,7 +68,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.AppState:
 		handleAppState(ctx, evt, instance.JID(), client)
 	case *events.GroupInfo:
-		handleGroupInfo(ctx, evt, instance.JID(), client)
+		handleGroupInfo(ctx, evt, chatStorageRepo, instance.JID(), client)
 	case *events.JoinedGroup:
 		handleJoinedGroup(ctx, evt, instance.JID(), client)
 	case *events.NewsletterJoin:
@@ -357,13 +357,18 @@ func handleAppState(ctx context.Context, evt *events.AppState, deviceID string, 
 	}
 }
 
-func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string, client *whatsmeow.Client) {
+func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	// Only process events that have actual changes
 	hasChanges := len(evt.Join) > 0 || len(evt.Leave) > 0 || len(evt.Promote) > 0 || len(evt.Demote) > 0 ||
 		evt.Name != nil || evt.Topic != nil || evt.Locked != nil || evt.Announce != nil
 
 	if !hasChanges {
 		return
+	}
+
+	// Keep the stored chat name in sync when the group subject changes
+	if evt.Name != nil && chatStorageRepo != nil {
+		updateGroupChatName(chatStorageRepo, chatStorageDeviceID(deviceID, client), evt.JID, evt.Name.Name)
 	}
 
 	// Log group events for debugging

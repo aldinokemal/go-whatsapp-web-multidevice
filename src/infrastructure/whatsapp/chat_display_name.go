@@ -72,12 +72,12 @@ func (r *ChatDisplayNameResolver) Resolve(ctx context.Context, rawJID, storedNam
 			if hasDisplayName(storedName) {
 				return storedName
 			}
-			return "Group " + jid.User
+			return PlaceholderChatName(jid)
 		case types.NewsletterServer:
 			if hasDisplayName(storedName) {
 				return storedName
 			}
-			return "Newsletter " + jid.User
+			return PlaceholderChatName(jid)
 		}
 	}
 

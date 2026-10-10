@@ -5789,7 +5789,7 @@ components:
         name:
           type: string
           example: 'John Doe'
-          description: Chat display name
+          description: 'Chat display name. Groups and newsletters are stored as "Group: <subject>" / "Newsletter: <name>" once their real name is resolved, and show "Group <id>" / "Newsletter <id>" until then.'
         last_message_time:
           type: string
           format: date-time

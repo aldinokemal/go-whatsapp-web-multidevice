@@ -352,3 +352,57 @@ func (r *historyReactionRepoSpy) GetChatNameWithPushName(jid types.JID, _ string
 	}
 	return jid.String()
 }
+
+// historyGroupNameRepoSpy mimics the repository naming a new group or newsletter
+// with its "Group <id>" / "Newsletter <id>" placeholder.
+type historyGroupNameRepoSpy struct {
+	historyMessageBatchRepoSpy
+}
+
+func (r *historyGroupNameRepoSpy) GetChatNameWithPushName(jid types.JID, _ string, _ string, pushName string) string {
+	if placeholder := PlaceholderChatName(jid); placeholder != "" {
+		return placeholder
+	}
+	return pushName
+}
+
+func TestProcessConversationMessagesStoresPrefixedGroupName(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	deviceID := "device-a@s.whatsapp.net"
+	groupJID := "120363012345678901@g.us"
+	repo := &historyGroupNameRepoSpy{}
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance(deviceID, nil, nil))
+	syncType := waHistorySync.HistorySync_RECENT
+	timestamp := uint64(time.Date(2026, time.October, 10, 8, 0, 0, 0, time.UTC).Unix())
+	data := &waHistorySync.HistorySync{
+		SyncType: &syncType,
+		Conversations: []*waHistorySync.Conversation{{
+			ID:          proto.String(groupJID),
+			DisplayName: proto.String("Family Group"),
+			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
+				Key: &waCommon.MessageKey{
+					RemoteJID:   proto.String(groupJID),
+					FromMe:      proto.Bool(false),
+					ID:          proto.String("group-msg-1"),
+					Participant: proto.String("628123456789@s.whatsapp.net"),
+				},
+				Message:          &waE2E.Message{Conversation: proto.String("hello group")},
+				MessageTimestamp: &timestamp,
+			}}},
+		}},
+	}
+
+	if err := processConversationMessages(ctx, data, repo, nil); err != nil {
+		t.Fatalf("processConversationMessages: %v", err)
+	}
+
+	if repo.lastStoredChat == nil {
+		t.Fatal("expected group chat to be stored")
+	}
+	if repo.lastStoredChat.Name != "Group: Family Group" {
+		t.Fatalf("stored group name = %q, want %q", repo.lastStoredChat.Name, "Group: Family Group")
+	}
+}
