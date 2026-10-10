@@ -99,6 +99,137 @@ func TestCreateMessageFromMeKeepsPeerChatName(t *testing.T) {
 	}
 }
 
+type fakeChatSubjectLookup struct {
+	loggedIn   bool
+	groupName  string
+	letterName string
+	err        error
+	calls      int
+}
+
+func (f *fakeChatSubjectLookup) IsLoggedIn() bool { return f.loggedIn }
+
+func (f *fakeChatSubjectLookup) GetGroupInfo(_ context.Context, jid types.JID) (*types.GroupInfo, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	info := &types.GroupInfo{JID: jid}
+	info.Name = f.groupName
+	return info, nil
+}
+
+func (f *fakeChatSubjectLookup) GetNewsletterInfo(_ context.Context, jid types.JID) (*types.NewsletterMetadata, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	meta := &types.NewsletterMetadata{ID: jid}
+	meta.ThreadMeta.Name.Text = f.letterName
+	return meta, nil
+}
+
+func TestResolvePlaceholderChatName(t *testing.T) {
+	groupJID := types.NewJID("120363012345678901", types.GroupServer)
+	newsletterJID := types.NewJID("120363111111111111", types.NewsletterServer)
+	contactJID := types.NewJID("15550102000", types.DefaultUserServer)
+
+	tests := []struct {
+		name      string
+		lookup    *fakeChatSubjectLookup
+		jid       types.JID
+		stored    string
+		want      string
+		wantCalls int
+	}{
+		{"group placeholder", &fakeChatSubjectLookup{loggedIn: true, groupName: " Family "}, groupJID, "Group 120363012345678901", "Group Family", 1},
+		{"newsletter placeholder", &fakeChatSubjectLookup{loggedIn: true, letterName: "Tech Channel"}, newsletterJID, "Newsletter 120363111111111111", "Newsletter Tech Channel", 1},
+		{"stored real name is kept without lookup", &fakeChatSubjectLookup{loggedIn: true, groupName: "Family"}, groupJID, "Old Name", "Old Name", 0},
+		{"lookup failure keeps placeholder", &fakeChatSubjectLookup{loggedIn: true, err: errors.New("not in group")}, groupJID, "Group 120363012345678901", "Group 120363012345678901", 1},
+		{"blank subject keeps placeholder", &fakeChatSubjectLookup{loggedIn: true, groupName: "  "}, groupJID, "Group 120363012345678901", "Group 120363012345678901", 1},
+		{"not logged in keeps placeholder", &fakeChatSubjectLookup{groupName: "Family"}, groupJID, "Group 120363012345678901", "Group 120363012345678901", 0},
+		{"contacts are untouched", &fakeChatSubjectLookup{loggedIn: true, groupName: "Family"}, contactJID, "15550102000", "15550102000", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolvePlaceholderChatName(context.Background(), tt.lookup, tt.jid, tt.stored)
+			if got != tt.want {
+				t.Fatalf("resolvePlaceholderChatName() = %q, want %q", got, tt.want)
+			}
+			if tt.lookup.calls != tt.wantCalls {
+				t.Fatalf("lookups = %d, want %d", tt.lookup.calls, tt.wantCalls)
+			}
+		})
+	}
+
+	placeholder := "Group 120363012345678901"
+	if got := resolvePlaceholderChatName(context.Background(), nil, groupJID, placeholder); got != placeholder {
+		t.Fatalf("nil client changed placeholder to %q", got)
+	}
+}
+
+func TestCreateMessageGroupChatName(t *testing.T) {
+	accountJID := types.NewJID("15550101000", types.DefaultUserServer)
+	senderJID := types.NewJID("15550102000", types.DefaultUserServer)
+	groupJID := types.NewJID("120363012345678901", types.GroupServer)
+	timestamp := time.Date(2026, time.October, 10, 9, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name       string
+		storedName string
+		want       string
+	}{
+		{name: "new group without client keeps placeholder", want: "Group 120363012345678901"},
+		{name: "stored real name is kept", storedName: "Family", want: "Family"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			if tt.storedName != "" {
+				if err := repo.StoreChat(&domainChatStorage.Chat{
+					DeviceID:        accountJID.String(),
+					JID:             groupJID.String(),
+					Name:            tt.storedName,
+					LastMessageTime: timestamp.Add(-time.Minute),
+				}); err != nil {
+					t.Fatalf("store group chat: %v", err)
+				}
+			}
+
+			ctx := whatsapp.ContextWithDevice(
+				context.Background(),
+				whatsapp.NewDeviceInstance(accountJID.String(), nil, repo),
+			)
+			event := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:    groupJID,
+						Sender:  senderJID,
+						IsGroup: true,
+					},
+					ID:        "group-message-1",
+					PushName:  "Bob",
+					Timestamp: timestamp,
+				},
+				Message: &waE2E.Message{Conversation: proto.String("Hello group")},
+			}
+
+			if err := repo.CreateMessage(ctx, event); err != nil {
+				t.Fatalf("create group message: %v", err)
+			}
+
+			chat, err := repo.GetChatByDevice(accountJID.String(), groupJID.String())
+			if err != nil {
+				t.Fatalf("get group chat: %v", err)
+			}
+			if chat == nil || chat.Name != tt.want {
+				t.Fatalf("group chat = %+v, want name %q", chat, tt.want)
+			}
+		})
+	}
+}
+
 func TestSQLiteRepositoryGetsDeviceWebhookConfigByJID(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 
