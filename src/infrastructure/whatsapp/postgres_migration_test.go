@@ -12,6 +12,7 @@ import (
 	_ "github.com/lib/pq"
 	"go.mau.fi/util/random"
 	"go.mau.fi/whatsmeow/proto/waAdv"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -70,6 +71,16 @@ func TestMigrateSQLiteSessionsToPostgres(t *testing.T) {
 	if err := device.Identities.PutIdentity(ctx, "5511911111111.0:0", identity); err != nil {
 		t.Fatal(err)
 	}
+	// App state rows: mutation MACs reference their version row, and "mutation_macs"
+	// sorts before "version" — the order that broke on real data.
+	var hash [128]byte
+	if err := device.AppState.PutAppStateVersion(ctx, "regular", 7, hash); err != nil {
+		t.Fatal(err)
+	}
+	indexMAC, valueMAC := random.Bytes(32), random.Bytes(32)
+	if err := device.AppState.PutAppStateMutationMACs(ctx, "regular", 7, []store.AppStateMutationMAC{{IndexMAC: indexMAC, ValueMAC: valueMAC}}); err != nil {
+		t.Fatal(err)
+	}
 	_ = legacy.Close()
 
 	// The Postgres store as InitWaDB leaves it: schema upgraded, no device.
@@ -99,6 +110,10 @@ func TestMigrateSQLiteSessionsToPostgres(t *testing.T) {
 	trusted, err := got[0].Identities.IsTrustedIdentity(ctx, "5511911111111.0:0", identity)
 	if err != nil || !trusted {
 		t.Fatalf("identity key not carried over (trusted=%v, err=%v)", trusted, err)
+	}
+
+	if got, err := got[0].AppState.GetAppStateMutationMAC(ctx, "regular", indexMAC); err != nil || !bytes.Equal(got, valueMAC) {
+		t.Fatalf("app state mutation MAC not carried over (err %v)", err)
 	}
 
 	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {

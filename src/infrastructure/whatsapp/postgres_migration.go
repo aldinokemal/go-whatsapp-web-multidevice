@@ -67,6 +67,10 @@ func MigrateSQLiteSessionsToPostgres(ctx context.Context, sqlitePath string, pg 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if tables, err = referencedFirst(ctx, tx, tables); err != nil {
+		return 0, err
+	}
+
 	devices := 0
 	for _, table := range tables {
 		n, err := copyTable(ctx, src, tx, table)
@@ -92,8 +96,7 @@ func MigrateSQLiteSessionsToPostgres(ctx context.Context, sqlitePath string, pg 
 	return devices, nil
 }
 
-// legacyTables lists the whatsmeow tables of the SQLite store, devices first: every
-// other table references whatsmeow_device.
+// legacyTables lists the whatsmeow tables of the SQLite store.
 func legacyTables(ctx context.Context, src *sql.DB) ([]string, error) {
 	rows, err := src.QueryContext(ctx, `SELECT name FROM sqlite_master
 		WHERE type = 'table' AND name LIKE 'whatsmeow_%' AND name <> 'whatsmeow_version' ORDER BY name`)
@@ -101,17 +104,77 @@ func legacyTables(ctx context.Context, src *sql.DB) ([]string, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	tables := []string{"whatsmeow_device"}
+	var tables []string
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
-		if name != "whatsmeow_device" {
-			tables = append(tables, name)
-		}
+		tables = append(tables, name)
 	}
 	return tables, rows.Err()
+}
+
+// referencedFirst orders tables so every table comes after the tables its foreign keys
+// point to, as Postgres declares them (whatsmeow_device first, app state versions
+// before their mutation MACs, and so on). Alphabetical order broke on real data.
+func referencedFirst(ctx context.Context, tx *sql.Tx, tables []string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT child.relname, parent.relname
+		FROM pg_constraint fk
+		JOIN pg_class child ON child.oid = fk.conrelid
+		JOIN pg_class parent ON parent.oid = fk.confrelid
+		JOIN pg_namespace ns ON ns.oid = child.relnamespace
+		WHERE fk.contype = 'f' AND ns.nspname = current_schema()`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	dependsOn := map[string][]string{}
+	for rows.Next() {
+		var child, parent string
+		if err := rows.Scan(&child, &parent); err != nil {
+			return nil, err
+		}
+		if child != parent {
+			dependsOn[child] = append(dependsOn[child], parent)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	wanted := map[string]bool{}
+	for _, table := range tables {
+		wanted[table] = true
+	}
+	state := map[string]int{} // 1 visiting, 2 done
+	var ordered []string
+	var visit func(string) error
+	visit = func(table string) error {
+		switch state[table] {
+		case 1:
+			return fmt.Errorf("foreign key cycle through %s", table)
+		case 2:
+			return nil
+		}
+		state[table] = 1
+		for _, parent := range dependsOn[table] {
+			if wanted[parent] {
+				if err := visit(parent); err != nil {
+					return err
+				}
+			}
+		}
+		state[table] = 2
+		ordered = append(ordered, table)
+		return nil
+	}
+	for _, table := range tables {
+		if err := visit(table); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
 }
 
 func copyTable(ctx context.Context, src *sql.DB, dst *sql.Tx, table string) (int, error) {
