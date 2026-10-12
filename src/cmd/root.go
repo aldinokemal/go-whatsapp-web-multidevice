@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
@@ -702,6 +704,10 @@ func initApp() {
 		keysDB = whatsapp.InitWaDB(ctx, config.DBKeysURI)
 	}
 
+	if strings.HasPrefix(strings.Trim(config.DBURI, "\"'"), "postgres:") {
+		chatStorageRepo = usePostgresRegistry(ctx, chatStorageRepo)
+	}
+
 	whatsappCli = whatsapp.InitWaCLI(ctx, whatsappDB, keysDB, chatStorageRepo)
 
 	// Initialize device manager and usecase for multi-device support
@@ -734,6 +740,33 @@ func initApp() {
 		case <-time.After(10 * time.Second):
 		}
 	}
+}
+
+// usePostgresRegistry keeps the device registry next to the Postgres sessions, so the
+// whole set of paired devices (sessions, custom ids, names, webhooks) moves with the
+// database. On the first boot after switching --db-uri from SQLite it also brings the
+// legacy sessions and registry along, so no phone has to scan the QR code again.
+// Any failure stops the boot: starting on an empty store would strand the old sessions.
+func usePostgresRegistry(ctx context.Context, base domainChatStorage.IChatStorageRepository) domainChatStorage.IChatStorageRepository {
+	pgDB, err := sql.Open("postgres", strings.Trim(config.DBURI, "\"'"))
+	if err != nil {
+		logrus.Fatalf("failed to open postgres for the device registry: %v", err)
+	}
+	legacy := filepath.Join(config.PathStorages, "whatsapp.db")
+	dbLog := waLog.Stdout("Database", config.WhatsappLogLevel, true)
+	if _, err := whatsapp.MigrateSQLiteSessionsToPostgres(ctx, legacy, pgDB, dbLog); err != nil {
+		logrus.Fatalf("failed to move the sqlite sessions to postgres: %v", err)
+	}
+	registry, err := chatstorage.NewPostgresDeviceRegistry(base, pgDB)
+	if err != nil {
+		logrus.Fatalf("failed to prepare the postgres device registry: %v", err)
+	}
+	if n, err := registry.ImportFrom(base); err != nil {
+		logrus.Fatalf("failed to move the device registry to postgres: %v", err)
+	} else if n > 0 {
+		logrus.Infof("[DB_MIGRATION] %d device record(s) moved to postgres", n)
+	}
+	return registry
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
