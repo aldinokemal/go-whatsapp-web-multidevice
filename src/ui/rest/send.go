@@ -14,6 +14,7 @@ type Send struct {
 func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	rest := Send{Service: service}
 	app.Post("/send/message", rest.SendText)
+	app.Post("/send/button-reply", rest.SendButtonReply)
 	app.Post("/send/image", rest.SendImage)
 	app.Post("/send/file", rest.SendFile)
 	app.Post("/send/video", rest.SendVideo)
@@ -36,6 +37,26 @@ func (controller *Send) SendText(c fiber.Ctx) error {
 	utils.SanitizePhone(&request.Phone)
 
 	response, err := controller.Service.SendText(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
+// SendButtonReply answers a buttons, template, list or native-flow message as if the
+// button had been tapped on the phone.
+func (controller *Send) SendButtonReply(c fiber.Ctx) error {
+	var request domainSend.ButtonReplyRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.SendButtonReply(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
