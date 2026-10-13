@@ -158,16 +158,17 @@ func (r *historyIgnoreRepo) GetMessages(f *domainChatStorage.MessageFilter) ([]*
 	return r.messages[f.ChatJID], nil
 }
 
-// fakeChatwoot is a minimal Chatwoot REST API: every contact search finds a
-// contact, every contact has one open conversation, and each created message
-// is recorded by its source_id.
-type fakeChatwoot struct {
+// ignoreFakeChatwoot is a minimal Chatwoot REST API: every contact lookup
+// finds a contact, every contact has one open conversation, and each created
+// message is recorded by its source_id. Reads it has no answer for find
+// nothing; an unknown write fails the test.
+type ignoreFakeChatwoot struct {
 	mu        sync.Mutex
 	contacts  []string
 	sourceIDs []string
 }
 
-func (f *fakeChatwoot) handler(t *testing.T) http.Handler {
+func (f *ignoreFakeChatwoot) handler(t *testing.T) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -179,10 +180,39 @@ func (f *fakeChatwoot) handler(t *testing.T) http.Handler {
 			_ = json.NewEncoder(w).Encode(map[string]any{"payload": []map[string]any{
 				{"id": 7, "name": "x", "identifier": q, "phone_number": q},
 			}})
+		case strings.HasSuffix(r.URL.Path, "/inboxes"):
+			// The inbox list, for code that looks up the inbox identifier.
+			_, _ = w.Write([]byte(`{"payload":[{"id":2,"channel_type":"Channel::Api","inbox_identifier":"ignore-test-inbox"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/contacts/filter"):
+			// The exact-match contact filter finds the contact too; the values
+			// asked for count as lookups, like a search term.
+			var filter struct {
+				Payload []struct {
+					AttributeKey string   `json:"attribute_key"`
+					Values       []string `json:"values"`
+				} `json:"payload"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&filter)
+			contact := map[string]any{"id": 7, "name": "x"}
+			f.mu.Lock()
+			for _, condition := range filter.Payload {
+				if len(condition.Values) == 0 {
+					continue
+				}
+				f.contacts = append(f.contacts, condition.Values[0])
+				if _, set := contact[condition.AttributeKey]; !set {
+					contact[condition.AttributeKey] = condition.Values[0]
+				}
+			}
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"count": 1}, "payload": []map[string]any{contact}})
 		case strings.HasSuffix(r.URL.Path, "/contacts/7"):
 			_, _ = w.Write([]byte(`{}`)) // contact rename
 		case strings.HasSuffix(r.URL.Path, "/contacts/7/conversations"):
 			_, _ = w.Write([]byte(`{"payload":[{"id":42,"inbox_id":2,"status":"open"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/conversations/42/messages") && r.Method == http.MethodGet:
+			// What the conversation already holds: nothing.
+			_, _ = w.Write([]byte(`{"payload":[]}`))
 		case strings.HasSuffix(r.URL.Path, "/conversations/42/messages"):
 			body, _ := io.ReadAll(r.Body)
 			var msg struct {
@@ -194,6 +224,10 @@ func (f *fakeChatwoot) handler(t *testing.T) http.Handler {
 			id := 100 + len(f.sourceIDs)
 			f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": id})
+		case r.Method == http.MethodGet:
+			// Any other read finds nothing. Only writes the fake does not know
+			// are a failure: they would change what the test counts.
+			_, _ = w.Write([]byte(`{"payload":[]}`))
 		default:
 			t.Errorf("unexpected Chatwoot request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -201,7 +235,7 @@ func (f *fakeChatwoot) handler(t *testing.T) http.Handler {
 	})
 }
 
-func (f *fakeChatwoot) uploaded() []string {
+func (f *ignoreFakeChatwoot) uploaded() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := append([]string(nil), f.sourceIDs...)
@@ -209,7 +243,7 @@ func (f *fakeChatwoot) uploaded() []string {
 	return out
 }
 
-func (f *fakeChatwoot) searched() string {
+func (f *ignoreFakeChatwoot) searched() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return strings.Join(f.contacts, ",")
@@ -224,9 +258,9 @@ func historyMsg(id, chat, sender string) *domainChatStorage.Message {
 
 // runHistoryIgnoreSync imports the repo's history into a fake Chatwoot and
 // returns the WAID source ids that were actually uploaded.
-func runHistoryIgnoreSync(t *testing.T, repo *historyIgnoreRepo, waClient *whatsmeow.Client, deviceIgnore []string) (*fakeChatwoot, *SyncProgress) {
+func runHistoryIgnoreSync(t *testing.T, repo *historyIgnoreRepo, waClient *whatsmeow.Client, deviceIgnore []string) (*ignoreFakeChatwoot, *SyncProgress) {
 	t.Helper()
-	fake := &fakeChatwoot{}
+	fake := &ignoreFakeChatwoot{}
 	srv := httptest.NewServer(fake.handler(t))
 	t.Cleanup(srv.Close)
 
