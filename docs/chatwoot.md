@@ -537,6 +537,8 @@ Chatwoot hands an API-channel inbox the agent's reply as stored Markdown, and Wh
 
 - A delimiter only formats when it touches the text on its inner side, as in Markdown itself: `** spaced **` and arithmetic such as `2 * 3 * 4` are delivered as written. A single `*` additionally needs a word boundary on its outer side, because WhatsApp does not format inside a word: `30*40*50` stays as typed instead of becoming `30_40_50`.
 - URLs are never formatted: `*`, `_` and `~` inside a link (query strings, `snake_case` paths) are delivered as written, also when the link sits inside bold or italic text.
+  The markers that close bold, italic or strikethrough end the link when punctuation follows them, so `**https://example.com**!Thanks` is delivered as `*https://example.com*!Thanks`.
+- A link label counts as the URL only when it is the same address: scheme and host are compared without regard to case, the rest exactly. `[https://example.com/Invoice_A](https://example.com/invoicea)` keeps its label and is delivered as `https://example.com/Invoice_A: https://example.com/invoicea`.
 - An escaped delimiter (`\*`, `\~`) is delivered as the plain character and does not start formatting.
 - Inline code and fenced code blocks are delivered unchanged; WhatsApp renders both.
 - Lists (`- item`, `1. item`), line breaks, emoji and right-to-left text are delivered as written.

@@ -135,7 +135,16 @@ var (
 	reCwBoldItalic    = regexp.MustCompile(`\*\*\*([^\s*](?:[^*\n]*[^\s*])?)\*\*\*`)
 	reCwHidden        = regexp.MustCompile(`\x03(\d+)\x03`)
 	reCwLinkScheme    = regexp.MustCompile(`(?i)^(?:mailto|tel):`)
-	reCwLinkPrefix    = regexp.MustCompile(`^(?:https?://|mailto:|tel:)`)
+	reCwLinkPrefix    = regexp.MustCompile(`(?i)^(?:https?://|mailto:|tel:)`)
+	// Where a bare link starts; cwBareLinks finds where it ends.
+	reCwBareLinkStart = regexp.MustCompile(`(?i)https?://|www\.`)
+)
+
+// Characters that never end a bare link (the last class of reWaLink), and the
+// punctuation among them.
+const (
+	cwLinkTrailing    = "*_~.,;:!?)]'\""
+	cwLinkPunctuation = ".,;:!?)]'\""
 )
 
 // stripMarkdownSentinels removes any pre-existing guard runes from input so
@@ -204,7 +213,7 @@ func convertChatwootMarkdown(s string) string {
 		groups := reCwInlineLink.FindStringSubmatch(m)
 		label, target := strings.TrimSpace(groups[1]), hidden.expand(groups[2])
 		url := hidden.hide(reCwLinkScheme.ReplaceAllString(target, ""))
-		if label == "" || comparableLinkText(hidden.expand(label)) == comparableLinkText(target) {
+		if label == "" || linkLabelRepeatsTarget(label, target, hidden) {
 			return url
 		}
 		return label + ": " + url
@@ -227,18 +236,145 @@ func convertChatwootMarkdown(s string) string {
 	return hidden.expand(s)
 }
 
-// comparableLinkText reduces a link label or target to what a reader sees, to
-// tell "[**https://x/**](https://x/)" (label repeats the target) from a real
-// label: emphasis markers, case, the scheme and a trailing slash are ignored.
+// linkLabelRepeatsTarget reports whether a link's label shows the address the
+// link points to, as in "[**https://x/**](https://x/)", so that the address is
+// emitted once. label is still unexpanded: its escaped characters are hidden,
+// which is what tells the emphasis around a label from a literal "_", "*" or
+// "~" inside it.
+func linkLabelRepeatsTarget(label, target string, hidden *cwHidden) bool {
+	// Emphasis wraps the label in matching markers; anything else is text.
+	for len(label) >= 2 && strings.IndexByte("*_~", label[0]) >= 0 && label[len(label)-1] == label[0] {
+		label = label[1 : len(label)-1]
+	}
+	text := hidden.expand(label)
+	// A label that is one code span shows its content.
+	if reCwHidden.FindString(label) == label && len(text) >= 2 && text[0] == '`' {
+		text = strings.Trim(text, "`")
+	}
+	return comparableLinkText(text) == comparableLinkText(target)
+}
+
+// comparableLinkText reduces an address to what decides where it leads, for
+// comparing a link's label with its target. The scheme is dropped and the host
+// lowercased, because neither changes the destination a reader sees; so is the
+// lone slash after a host. Path, query and fragment are case-sensitive and may
+// hold any character, so they are compared as written.
 func comparableLinkText(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if strings.ContainsRune("*_~`", r) {
-			return -1
+	s = strings.TrimSpace(s)
+	s = s[len(reCwLinkPrefix.FindString(s)):]
+	host, rest := s, ""
+	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+		host, rest = s[:i], s[i:]
+	}
+	if rest == "/" {
+		rest = ""
+	}
+	return strings.ToLower(host) + rest
+}
+
+// cwBareLinks walks the plain URLs of a Chatwoot message from left to right.
+// It finds the same links as reWaLink, except that a link also ends at the
+// markers closing an emphasis that was opened before it, when punctuation
+// follows them: "**https://x.example**!Thanks" is a bold link and "!Thanks",
+// not one address. Without an open emphasis, or with more of the address after
+// the markers ("/a**b"), they stay part of the link.
+type cwBareLinks struct {
+	s   string
+	pos int
+	// open holds the emphasis runs seen an odd number of times in the text
+	// before pos on its line, indexed by emphasisRun. Emphasis does not span
+	// lines.
+	open [4]bool
+}
+
+// emphasisRun indexes the marker runs Chatwoot reads as emphasis.
+func emphasisRun(run string) int {
+	switch run {
+	case "*":
+		return 0
+	case "**":
+		return 1
+	case "***":
+		return 2
+	case "~~":
+		return 3
+	}
+	return -1
+}
+
+// next returns the bounds of the next link and moves past it. Every byte is
+// read a bounded number of times, however the links are laid out.
+func (l *cwBareLinks) next() (start, end int, ok bool) {
+	for l.pos < len(l.s) {
+		loc := reCwBareLinkStart.FindStringIndex(l.s[l.pos:])
+		if loc == nil {
+			l.pos = len(l.s)
+			break
 		}
-		return r
-	}, s)
-	s = strings.ToLower(strings.TrimSpace(s))
-	return strings.TrimRight(reCwLinkPrefix.ReplaceAllString(s, ""), "/")
+		start = l.pos + loc[0]
+		body := l.pos + loc[1]
+		l.note(l.s[l.pos:start])
+		l.pos = body
+		if end = l.end(body); end > body {
+			l.pos = end
+			return start, end, true
+		}
+		// Only punctuation follows the scheme: not a link.
+	}
+	return 0, 0, false
+}
+
+// note records the emphasis runs of text that lies between two links.
+func (l *cwBareLinks) note(text string) {
+	for i := 0; i < len(text); {
+		c := text[i]
+		if c == '\n' {
+			l.open = [4]bool{}
+		}
+		if c != '*' && c != '~' {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(text) && text[j] == c {
+			j++
+		}
+		if k := emphasisRun(text[i:j]); k >= 0 {
+			l.open[k] = !l.open[k]
+		}
+		i = j
+	}
+}
+
+// end returns where the link whose address starts at body ends, or body when
+// it has no address.
+func (l *cwBareLinks) end(body int) int {
+	s := l.s
+	i := body
+	for i < len(s) && !isRegexpSpace(s[i]) {
+		c := s[i]
+		if c != '*' && c != '~' {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && s[j] == c {
+			j++
+		}
+		if k := emphasisRun(s[i:j]); k >= 0 && l.open[k] &&
+			j < len(s) && strings.IndexByte(cwLinkPunctuation, s[j]) >= 0 {
+			if end := body + len(strings.TrimRight(s[body:i], cwLinkTrailing)); end > body {
+				return end
+			}
+		}
+		i = j
+	}
+	return body + len(strings.TrimRight(s[body:i], cwLinkTrailing))
+}
+
+// isRegexpSpace reports what \s matches in a Go regular expression.
+func isRegexpSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
 }
 
 // hideChatwootBareLinks sets every plain URL aside so its asterisks,
@@ -246,27 +382,28 @@ func comparableLinkText(s string) string {
 // and the same URL again is Chatwoot's reply box having flattened a link whose
 // label was the URL ("**https://x/**: https://x/"); it is emitted once.
 func hideChatwootBareLinks(s string, hidden *cwHidden) string {
-	locs := reWaLink.FindAllStringIndex(s, -1)
-	if len(locs) == 0 {
+	links := cwBareLinks{s: s}
+	start, end, ok := links.next()
+	if !ok {
 		return s
 	}
 	var b strings.Builder
 	last := 0
-	for i := 0; i < len(locs); i++ {
-		start, end := locs[i][0], locs[i][1]
+	for ok {
 		url := hidden.expand(s[start:end])
-		if i+1 < len(locs) {
-			next := locs[i+1]
-			marker, ok := duplicatedLinkMarker(s[last:start], s[end:next[0]])
-			if ok && hidden.expand(s[next[0]:next[1]]) == url {
+		nextStart, nextEnd, nextOK := links.next()
+		if nextOK {
+			marker, dup := duplicatedLinkMarker(s[last:start], s[end:nextStart])
+			if dup && hidden.expand(s[nextStart:nextEnd]) == url {
 				start -= len(marker)
-				end = next[1]
-				i++
+				end = nextEnd
+				nextStart, nextEnd, nextOK = links.next()
 			}
 		}
 		b.WriteString(s[last:start])
 		b.WriteString(hidden.hide(url))
 		last = end
+		start, end, ok = nextStart, nextEnd, nextOK
 	}
 	b.WriteString(s[last:])
 	return b.String()

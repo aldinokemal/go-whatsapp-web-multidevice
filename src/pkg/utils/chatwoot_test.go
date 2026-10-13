@@ -704,6 +704,99 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			in:   "\x030\x03 **a** \x03 https://x.example/",
 			want: "0 *a*  https://x.example/",
 		},
+		{
+			// A label that differs from the target only by a literal "_" and
+			// by path case names another address; it is kept.
+			name: "LinkLabelDifferingByUnderscoreAndPathCaseKept",
+			in:   "[https://x.example/Invoice_A](https://x.example/invoicea)",
+			want: "https://x.example/Invoice_A: https://x.example/invoicea",
+		},
+		{
+			// Paths are case-sensitive.
+			name: "LinkLabelDifferingByPathCaseKept",
+			in:   "[https://x.example/Invoice](https://x.example/invoice)",
+			want: "https://x.example/Invoice: https://x.example/invoice",
+		},
+		{
+			// So are queries and fragments.
+			name: "LinkLabelDifferingByQueryOrFragmentCaseKept",
+			in:   "[https://x.example/a?Id=1](https://x.example/a?id=1) [https://x.example/a#Top](https://x.example/a#top)",
+			want: "https://x.example/a?Id=1: https://x.example/a?id=1 https://x.example/a#Top: https://x.example/a#top",
+		},
+		{
+			// "_", "*" and "~" inside an address are part of it.
+			name: "LinkLabelDifferingByLiteralFormattingCharactersKept",
+			in:   "[https://x.example/a_b](https://x.example/ab) [https://x.example/a\\*b](https://x.example/ab) [https://x.example/~u](https://x.example/u)",
+			want: "https://x.example/a_b: https://x.example/ab https://x.example/a*b: https://x.example/ab https://x.example/~u: https://x.example/u",
+		},
+		{
+			// A trailing "_" that has no opening partner is not formatting.
+			name: "LinkLabelDifferingByTrailingUnderscoreKept",
+			in:   "[https://x.example/a_](https://x.example/a)",
+			want: "https://x.example/a_: https://x.example/a",
+		},
+		{
+			// Only a slash after the host is ignored, not one that ends a path.
+			name: "LinkLabelDifferingByPathTrailingSlashKept",
+			in:   "[https://x.example/a](https://x.example/a/)",
+			want: "https://x.example/a: https://x.example/a/",
+		},
+		{
+			// Scheme and host are case-insensitive, and the formatting around
+			// the label is not part of it: same address, emitted once.
+			name: "LinkLabelSameAddressDifferentHostCaseCollapsed",
+			in:   "[**HTTPS://X.Example/Invoice_A**](https://x.example/Invoice_A) [*~~https://X.EXAMPLE~~*](https://x.example/)",
+			want: "https://x.example/Invoice_A https://x.example/",
+		},
+		{
+			// The label may repeat the address with its "_" escaped or as code.
+			name: "LinkLabelEscapedOrCodeSameAddressCollapsed",
+			in:   "[https://x.example/a\\_b](https://x.example/a_b) [`https://x.example/c_d`](https://x.example/c_d)",
+			want: "https://x.example/a_b https://x.example/c_d",
+		},
+		{
+			// The closing markers end the link even when text follows them
+			// without a space.
+			name: "BoldBareURLFollowedByPunctuationAndText",
+			in:   "**https://x.example**!Thanks",
+			want: "*https://x.example*!Thanks",
+		},
+		{
+			name: "EmphasisedBareURLsFollowedByPunctuationAndText",
+			in:   "*https://x.example/a_b*,ok ~~https://x.example/c~~.gone ***https://x.example/d***;e",
+			want: "_https://x.example/a_b_,ok ~https://x.example/c~.gone *_https://x.example/d_*;e",
+		},
+		{
+			// The emphasis may open before the link.
+			name: "BoldSentenceEndingInURLFollowedByPunctuationAndText",
+			in:   "**see https://x.example/a**!Thanks",
+			want: "*see https://x.example/a*!Thanks",
+		},
+		{
+			name: "AdjacentBoldURLsWithoutSpaces",
+			in:   "**https://a.example**,**https://b.example**!x",
+			want: "*https://a.example*,*https://b.example*!x",
+		},
+		{
+			// With no emphasis open, the same characters belong to the address.
+			name: "URLWithLiteralAsterisksAndNoOpenEmphasis",
+			in:   "https://x.example/a**!b and **bold** https://x.example/c**!d",
+			want: "https://x.example/a**!b and *bold* https://x.example/c**!d",
+		},
+		{
+			// Inside emphasis, a marker followed by more of the address stays
+			// in the address.
+			name: "URLWithLiteralAsterisksInsideEmphasis",
+			in:   "**see https://x.example/a**b/c now**",
+			want: "*see https://x.example/a**b/c now*",
+		},
+		{
+			// Emphasis does not span lines, so an unclosed opener on an
+			// earlier line does not cut an address.
+			name: "UnclosedEmphasisOnEarlierLineDoesNotCutURL",
+			in:   "**open\nhttps://x.example/a**!b",
+			want: "**open\nhttps://x.example/a**!b",
+		},
 	}
 
 	for _, tt := range tests {
@@ -909,6 +1002,9 @@ func TestChatwootToWhatsAppMarkdownHostileInput(t *testing.T) {
 		"OpenEmailAutolinks": repeat("<a@b"),
 		"URLStarts":          repeat("http://"),
 		"DuplicateLinks":     repeat("https://x.example/a: "),
+		"ClosedBoldURLs":     repeat("**https://x.example/a**!"),
+		"ReopenedBoldURLs":   "**" + repeat("https://x.example/a**!x**"),
+		"OpenBoldURLRun":     "**" + repeat("https://x.example/a**"),
 		"DashLines":          repeat("--\n"),
 	}
 	for name, in := range inputs {
