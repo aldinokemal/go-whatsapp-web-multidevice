@@ -1174,7 +1174,17 @@ func TestCreateMessage_AttachmentMissingIDReturnsZero(t *testing.T) {
 
 // --- Echo dedup map (MarkMessageAsSent / IsMessageSentByUs) ----------------
 
+// resetEchoDedup empties the package-global echo-dedup map for the duration of
+// a test and again when it ends, so a test neither sees ids left by an earlier
+// test (or an earlier -count iteration) nor leaves its own behind.
+func resetEchoDedup(t *testing.T) {
+	t.Helper()
+	sentMessageIDs.Clear()
+	t.Cleanup(sentMessageIDs.Clear)
+}
+
 func TestEchoDedup_MapBehavior(t *testing.T) {
+	resetEchoDedup(t)
 	const acc = 1
 	// MarkMessageAsSent(_, 0) is a no-op and IsMessageSentByUs(_, 0) is always
 	// false: id 0 is the "no id" sentinel returned by CreateMessage and must
@@ -1184,9 +1194,7 @@ func TestEchoDedup_MapBehavior(t *testing.T) {
 		t.Error("IsMessageSentByUs(acc, 0) = true, want false")
 	}
 
-	// A real id, once marked, is recognized as ours. We use a large, fixed
-	// id unlikely to collide with anything (the map is package-global and
-	// shared, but this exact value is only touched here). IsMessageSentByUs
+	// A real id, once marked, is recognized as ours. IsMessageSentByUs
 	// does not delete on read, so it stays true on a second check — Chatwoot
 	// fires multiple webhook events for one message.
 	const id = 987654321
@@ -1212,6 +1220,7 @@ func TestEchoDedup_MapBehavior(t *testing.T) {
 // message we sent in account A would suppress a genuine agent reply with the
 // same id in account B (dropped reply).
 func TestEchoDedup_AccountPartitioned(t *testing.T) {
+	resetEchoDedup(t)
 	const id = 555111222
 	const accA, accB = 11, 22
 
