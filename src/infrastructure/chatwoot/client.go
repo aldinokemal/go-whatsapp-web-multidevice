@@ -94,10 +94,17 @@ func (c *Client) resolveInboxIdentifier() (string, error) {
 	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
 }
 // apiTokenHeader carries the Chatwoot API access token. Chatwoot documents it
-// as "api_access_token", but reverse proxies such as nginx (by default) and
-// Caddy drop request headers whose names contain underscores, which turns
-// every call into a 401. The hyphenated spelling reaches Rails as the same
-// HTTP_API_ACCESS_TOKEN and survives those proxies.
+// as "api_access_token". Rails exposes a request header to the application as
+// HTTP_<NAME> with hyphens turned into underscores, so "api-access-token"
+// reaches Chatwoot as the same HTTP_API_ACCESS_TOKEN and is equivalent.
+//
+// The hyphenated spelling is used because some reverse proxies discard header
+// names that contain an underscore. nginx does so by default:
+// "underscores_in_headers" defaults to "off", which marks such a header as
+// invalid, and "ignore_invalid_headers" defaults to "on", which drops it
+// (https://nginx.org/en/docs/http/ngx_http_core_module.html#underscores_in_headers).
+// Behind such a proxy every call would fail with a 401. Proxies that forward
+// headers unchanged (Caddy, for example) work with either spelling.
 const apiTokenHeader = "api-access-token"
 
 // HTTPStatusError is returned by every Client method that hits Chatwoot's
