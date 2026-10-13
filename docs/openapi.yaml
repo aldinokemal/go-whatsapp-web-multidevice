@@ -4161,8 +4161,10 @@ paths:
         routed to: that device config's `webhook_secret` when it has one (the
         global secret is then not accepted for it), CHATWOOT_WEBHOOK_SECRET
         otherwise and when no device resolves. A Chatwoot-signed request that
-        was already handled inside the tolerance window is acknowledged with
-        200 and not acted on again.
+        was already accepted (answered 2xx) inside the tolerance window is
+        acknowledged with 200 and not acted on again. One that was answered
+        with any other status is not remembered, so sending the identical
+        request again is handled.
       parameters:
         - name: X-Chatwoot-Signature
           in: header
@@ -4191,7 +4193,7 @@ paths:
         '401':
           description: Secret or signature missing or invalid for the device the request is routed to, or the signature timestamp is outside the tolerance window
         '503':
-          description: Device not available
+          description: Device not available, the routed device's config could not be read, or an identical signed request is still being handled
           content:
             application/json:
               schema:
@@ -4233,7 +4235,7 @@ paths:
         '401':
           description: Invalid secret or signature, or payload account/inbox does not match the device's config
         '503':
-          description: The device's config could not be read, so the request could not be authenticated
+          description: The device's config could not be read, so the request could not be authenticated, or an identical signed request is still being handled
 
   /chatwoot/configs:
     get:

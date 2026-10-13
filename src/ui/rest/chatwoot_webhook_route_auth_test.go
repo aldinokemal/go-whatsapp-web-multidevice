@@ -30,9 +30,23 @@ type routeAuthRepo struct {
 	// message id (delete path).
 	links  []*domainChatStorage.ChatwootMessageLink
 	stored []*domainChatStorage.ChatwootMessageLink
+	// lookupErr, when set, fails device config lookups by identifier.
+	lookupErr error
+}
+
+func (r *routeAuthRepo) failLookups(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lookupErr = err
 }
 
 func (r *routeAuthRepo) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	r.mu.Lock()
+	err := r.lookupErr
+	r.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	for _, cfg := range r.configs {
 		if identifier != "" && (identifier == cfg.DeviceID || identifier == cfg.DeviceJID) {
 			return cfg, nil
@@ -172,6 +186,7 @@ func newRouteAuthFixture(t *testing.T, globalSecret string) *routeAuthFixture {
 	f := &routeAuthFixture{repo: repo, send: &routeAuthSend{}, message: &routeAuthMessage{}}
 	handler := &ChatwootHandler{SendUsecase: f.send, MessageUsecase: f.message, DeviceManager: dm, ChatStorageRepo: repo}
 	f.app = fiber.New()
+	f.app.Use("/chatwoot/webhook", ChatwootWebhookReplayGuard())
 	f.app.Post("/chatwoot/webhook", handler.HandleWebhook)
 	f.app.Post("/chatwoot/webhook/:device_id", handler.HandleDeviceWebhook)
 	return f
@@ -439,88 +454,6 @@ func TestChatwootSignedWebhookReplayIsNotDeliveredTwice(t *testing.T) {
 	}
 }
 
-func TestChatwootReplayGuard(t *testing.T) {
-	const tolerance = 5 * time.Minute
-	now := time.Unix(1700000000, 0)
-	signature := func(n int) string { return chatwootSign("secret", "1700000000", fmt.Sprintf("body-%d", n)) }
-
-	t.Run("remembers a pair until the timestamp check rejects it", func(t *testing.T) {
-		g := &chatwootReplayGuard{max: 8}
-		if g.seenBefore("1700000000", signature(1), now, tolerance) {
-			t.Fatal("first sighting reported as a replay")
-		}
-		if !g.seenBefore(" 1700000000 ", " "+signature(1)+" ", now.Add(tolerance), tolerance) {
-			t.Fatal("second sighting inside the window not reported as a replay")
-		}
-		if g.seenBefore("1700000001", signature(1), now, tolerance) {
-			t.Fatal("same signature with another timestamp reported as a replay")
-		}
-		// A timestamp tolerance ahead of this clock is accepted until
-		// 2*tolerance from now; the entry must live that long.
-		if !g.seenBefore("1700000000", signature(1), now.Add(2*tolerance-time.Second), tolerance) {
-			t.Fatal("entry forgotten while its timestamp could still be accepted")
-		}
-		if g.seenBefore("1700000000", signature(1), now.Add(2*tolerance), tolerance) {
-			t.Fatal("expired entry reported as a replay")
-		}
-		if len(g.seen) != 1 || len(g.order) != 1 {
-			t.Fatalf("expired entries kept: seen=%d order=%d, want 1 each", len(g.seen), len(g.order))
-		}
-	})
-
-	t.Run("is bounded and forgets the oldest first", func(t *testing.T) {
-		g := &chatwootReplayGuard{max: 3}
-		for n := 1; n <= 5; n++ {
-			if g.seenBefore("1700000000", signature(n), now, tolerance) {
-				t.Fatalf("signature %d reported as a replay on first sighting", n)
-			}
-			if len(g.seen) > 3 || len(g.order) > 3 {
-				t.Fatalf("guard grew to seen=%d order=%d, want at most 3", len(g.seen), len(g.order))
-			}
-		}
-		if !g.seenBefore("1700000000", signature(5), now, tolerance) {
-			t.Fatal("newest entry was forgotten")
-		}
-		if g.seenBefore("1700000000", signature(1), now, tolerance) {
-			t.Fatal("oldest entry survived past the bound")
-		}
-	})
-
-	t.Run("ignores what cannot have verified", func(t *testing.T) {
-		g := &chatwootReplayGuard{max: 3}
-		for _, pair := range [][2]string{{"yesterday", signature(1)}, {"1700000000", "sha256=zz"}, {"1700000000", "sha256=00"}} {
-			if g.seenBefore(pair[0], pair[1], now, tolerance) || g.seenBefore(pair[0], pair[1], now, tolerance) {
-				t.Fatalf("malformed pair %v reported as a replay", pair)
-			}
-		}
-		if len(g.seen) != 0 {
-			t.Fatalf("malformed pairs were remembered: %d", len(g.seen))
-		}
-	})
-
-	t.Run("concurrent sightings yield exactly one first", func(t *testing.T) {
-		g := &chatwootReplayGuard{max: 64}
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		firsts := 0
-		for i := 0; i < 32; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if !g.seenBefore("1700000000", signature(1), now, tolerance) {
-					mu.Lock()
-					firsts++
-					mu.Unlock()
-				}
-			}()
-		}
-		wg.Wait()
-		if firsts != 1 {
-			t.Fatalf("%d goroutines saw the pair first, want exactly 1", firsts)
-		}
-	})
-}
-
 // routeAuthFailingRepo cannot read device configs.
 type routeAuthFailingRepo struct {
 	*routeAuthRepo
@@ -550,5 +483,45 @@ func TestChatwootSharedWebhookFailsClosedOnStorageError(t *testing.T) {
 	}
 	if sends := f.send.taken(); len(sends) != 0 {
 		t.Fatalf("sent %v, want nothing sent", sends)
+	}
+}
+
+// TestChatwootSignedWebhookRedeliveryAfterFailureIsProcessed: a signed request
+// answered 503 (here the routed device's config could not be read) was not
+// handled, so the identical request sent again must be processed, not
+// acknowledged as a repeat. Once it has been accepted, a further copy is one.
+func TestChatwootSignedWebhookRedeliveryAfterFailureIsProcessed(t *testing.T) {
+	const global = "global-secret"
+	f := newRouteAuthFixture(t, global)
+	// A linked conversation routes without the registry, which would itself
+	// need the failing lookup.
+	f.repo.links = []*domainChatStorage.ChatwootMessageLink{{
+		DeviceID: routeAuthOpenJID, WhatsAppChatJID: "628999999999@s.whatsapp.net",
+		ChatwootConversationID: 9, ChatwootAccountID: 1, ChatwootConfigID: 3,
+	}}
+	body := agentReplyBody(4, 9)
+	request := webhookAuthRequest{body: body, headers: chatwootSigned(global, body)}
+
+	f.repo.failLookups(fmt.Errorf("database is locked"))
+	if got := postChatwootWebhook(t, f.app, request); got != fiber.StatusServiceUnavailable {
+		t.Fatalf("while storage fails: status = %d, want 503", got)
+	}
+	if sends := f.send.taken(); len(sends) != 0 {
+		t.Fatalf("while storage fails: sent %v, want nothing sent", sends)
+	}
+
+	f.repo.failLookups(nil)
+	if got := postChatwootWebhook(t, f.app, request); got != fiber.StatusOK {
+		t.Fatalf("redelivery: status = %d, want 200", got)
+	}
+	if sends := f.send.taken(); len(sends) != 1 {
+		t.Fatalf("redelivery of a request answered 503 sent %v, want one send", sends)
+	}
+
+	if got := postChatwootWebhook(t, f.app, request); got != fiber.StatusOK {
+		t.Fatalf("repeat: status = %d, want 200", got)
+	}
+	if sends := f.send.taken(); len(sends) != 0 {
+		t.Fatalf("a copy of an accepted request sent %v, want nothing sent", sends)
 	}
 }

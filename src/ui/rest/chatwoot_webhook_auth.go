@@ -130,9 +130,7 @@ func chatwootWebhookVerify(c fiber.Ctx, secret string) (bool, error) {
 	timestamp, signature := c.Get(chatwootTimestampHeader), c.Get(chatwootSignatureHeader)
 	nativeErr := verifyChatwootSignature(secret, timestamp, signature, c.BodyRaw(), now, config.ChatwootWebhookSignatureTolerance)
 	if nativeErr == nil {
-		if chatwootReplays.seenBefore(timestamp, signature, now, config.ChatwootWebhookSignatureTolerance) {
-			c.Locals(chatwootReplayedKey{}, true)
-		}
+		chatwootReplayAdmit(c, secret, timestamp, signature)
 		c.Locals(chatwootVerifiedSecretKey{}, secret)
 		return true, nil
 	}
@@ -251,8 +249,10 @@ func (h *ChatwootHandler) anyChatwootDeviceWebhookSecret() (bool, error) {
 // some device has its own secret. Then it is answered like a wrong secret, so
 // the status does not tell a caller which account/inbox pairs are protected.
 //
-// A Chatwoot-signed request seen before inside the tolerance window is
-// authentic but already handled: it is acknowledged (200) and not acted on.
+// A Chatwoot-signed request that was already accepted inside the tolerance
+// window is authentic but handled: it is acknowledged (200) and not acted on.
+// One whose identical copy is still being handled, and stays so for
+// chatwootReplayInFlightWait, is answered 503 and not acted on either.
 func (h *ChatwootHandler) chatwootWebhookRouteGate(c fiber.Ctx, route chatwootWebhookRoute) int {
 	secret, err := h.chatwootRouteWebhookSecret(route)
 	if err != nil {
@@ -276,92 +276,13 @@ func (h *ChatwootHandler) chatwootWebhookRouteGate(c fiber.Ctx, route chatwootWe
 		logrus.Warn("Chatwoot Webhook: Rejected request not signed with the routed device's webhook secret")
 		return fiber.StatusUnauthorized
 	}
-	if replayed, _ := c.Locals(chatwootReplayedKey{}).(bool); replayed {
-		logrus.Warnf("Chatwoot Webhook: Ignoring repeated delivery of a signed request (%s seen before)", chatwootSignatureHeader)
+	switch outcome, _ := c.Locals(chatwootReplayOutcomeKey{}).(chatwootReplayState); outcome {
+	case chatwootReplayAccepted:
+		logrus.Warnf("Chatwoot Webhook: Ignoring repeated delivery of a signed request (%s already accepted)", chatwootSignatureHeader)
 		return fiber.StatusOK
+	case chatwootReplayInFlight:
+		logrus.Warnf("Chatwoot Webhook: Refusing a signed request whose identical copy is still being handled (%s)", chatwootSignatureHeader)
+		return fiber.StatusServiceUnavailable
 	}
 	return 0
-}
-
-// chatwootReplayedKey is the request-local flag set when the request's
-// Chatwoot signature was already seen inside the tolerance window.
-type chatwootReplayedKey struct{}
-
-// chatwootReplayGuardMaxEntries bounds the memory of the replay guard. Only
-// signatures that verified are remembered, so it cannot be filled by a caller
-// without a secret; past the bound the oldest entries are forgotten first.
-const chatwootReplayGuardMaxEntries = 1 << 16
-
-type chatwootReplayKey struct {
-	timestamp int64
-	digest    [sha256.Size]byte
-}
-
-type chatwootReplayEntry struct {
-	key     chatwootReplayKey
-	expires time.Time
-}
-
-// chatwootReplayGuard remembers the (timestamp, signature) pairs of verified
-// Chatwoot-signed requests for as long as the timestamp check would still
-// accept them, so a captured request cannot be delivered a second time.
-// It is in-process memory: it does not survive a restart and is not shared
-// between instances.
-type chatwootReplayGuard struct {
-	mu    sync.Mutex
-	max   int
-	seen  map[chatwootReplayKey]struct{}
-	order []chatwootReplayEntry // insertion order, which is also expiry order
-}
-
-var chatwootReplays = &chatwootReplayGuard{max: chatwootReplayGuardMaxEntries}
-
-// seenBefore records a verified signature and reports whether it was already
-// recorded. The pair must have passed verifyChatwootSignature.
-func (g *chatwootReplayGuard) seenBefore(timestamp, signature string, now time.Time, tolerance time.Duration) bool {
-	var key chatwootReplayKey
-	seconds, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
-	if err != nil {
-		return false
-	}
-	digest, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(signature), "sha256="))
-	if err != nil || len(digest) != len(key.digest) {
-		return false
-	}
-	key.timestamp = seconds
-	copy(key.digest[:], digest)
-
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.seen == nil {
-		g.seen = make(map[chatwootReplayKey]struct{})
-	}
-	// Forget what the timestamp check now rejects by itself.
-	drop := 0
-	for drop < len(g.order) && !g.order[drop].expires.After(now) {
-		delete(g.seen, g.order[drop].key)
-		drop++
-	}
-	g.order = g.order[drop:]
-
-	if _, ok := g.seen[key]; ok {
-		return true
-	}
-	for len(g.order) > 0 && len(g.order) >= g.max {
-		delete(g.seen, g.order[0].key)
-		g.order = g.order[1:]
-	}
-	g.seen[key] = struct{}{}
-	// A timestamp may be up to tolerance ahead of this clock and is then
-	// accepted until tolerance past it, so twice the tolerance from now covers
-	// every accepted timestamp and keeps expiry in insertion order.
-	g.order = append(g.order, chatwootReplayEntry{key: key, expires: now.Add(2 * tolerance)})
-	return false
-}
-
-func (g *chatwootReplayGuard) reset() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.seen = nil
-	g.order = nil
 }

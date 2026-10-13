@@ -246,7 +246,9 @@ When `CHATWOOT_WEBHOOK_SECRET` is empty and at least one device has its own secr
 
 What a captured, valid request can do depends on how it was authenticated:
 
-- **Chatwoot signature:** GOWA remembers the timestamp and signature of every verified request for the tolerance window. A second copy of the same request is acknowledged with `200` and not acted on, and after the window the timestamp check rejects it. This memory is held in the GOWA process: it is lost on a restart, so a captured request can be delivered once more if GOWA restarts while the request is still inside the window, and it is not shared between several GOWA instances behind one URL. It holds up to 65,536 requests; beyond that the oldest are forgotten first.
+- **Chatwoot signature:** GOWA remembers the timestamp and signature of every verified request it accepted (answered `2xx`) for the tolerance window. A second copy of such a request is acknowledged with `200` and not acted on, and after the window the timestamp check rejects it. A request that was not accepted, for example one answered `503` while storage was unavailable, is not remembered, so the identical request sent again is handled. A copy that arrives while the first is still being handled waits for it: it is acknowledged as a repeat when the first is accepted, handled in its place when the first fails, and answered `503` without being acted on if the first is still not finished after 30 seconds.
+
+  This memory is held in the GOWA process: it is lost on a restart, so a captured request can be delivered once more if GOWA restarts while the request is still inside the window, and it is not shared between several GOWA instances behind one URL. It holds up to 65,536 accepted requests. Beyond that GOWA keeps accepting webhooks and forgets the oldest request of whichever secret has the most remembered, so a forgotten request could be replayed inside its window. Only verified requests are remembered, so reaching the limit takes a valid secret, and a flood signed with one device's secret pushes out that device's own entries: each other secret keeps at least its newest 65,536 / (number of secrets in use) requests.
 - **`X-Hub-Signature-256`, secret header, `?secret=`:** nothing in the request identifies one delivery, so a captured request can be sent again for as long as the secret is unchanged. The secret header and query string also hand the secret itself to whoever captures the request.
 
 GOWA does not otherwise deduplicate agent replies: if Chatwoot delivers the same message twice in two separately signed requests, it is sent to WhatsApp twice.
@@ -842,7 +844,7 @@ Expected response: `200 OK` with `status` such as `idle`, `running`, or `complet
 **Response Codes:**
 - `200 OK` - Message processed (or skipped, including a repeated copy of an already handled signed request)
 - `401 Unauthorized` - Webhook secret or signature is missing/invalid for the device the request is routed to, or the signature's timestamp is outside the tolerance window
-- `503 Service Unavailable` - No device available, or the routed device's config could not be read to authenticate the request
+- `503 Service Unavailable` - No device available, or the routed device's config could not be read to authenticate the request, or an identical signed request is still being handled
 
 ### Related Endpoints
 
