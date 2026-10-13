@@ -94,6 +94,12 @@ func (c *Client) resolveInboxIdentifier() (string, error) {
 	}
 	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
 }
+// apiTokenHeader carries the Chatwoot API access token. Chatwoot documents it
+// as "api_access_token", but reverse proxies such as nginx (by default) and
+// Caddy drop request headers whose names contain underscores, which turns
+// every call into a 401. The hyphenated spelling reaches Rails as the same
+// HTTP_API_ACCESS_TOKEN and survives those proxies.
+const apiTokenHeader = "api-access-token"
 
 // HTTPStatusError is returned by every Client method that hits Chatwoot's
 // REST API when the response status is outside 2xx. It carries the HTTP
@@ -389,7 +395,7 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	q := req.URL.Query()
 	q.Add("q", searchTerm)
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -462,7 +468,7 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -562,7 +568,7 @@ func (c *Client) UpdateContactName(contactID int, name string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -593,7 +599,7 @@ func (c *Client) listContactConversations(contactID int) ([]conversationListItem
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -654,7 +660,7 @@ func (c *Client) ToggleConversationStatus(conversationID int, status string) err
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -706,7 +712,7 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -794,7 +800,7 @@ func (c *Client) ListInboxes() ([]Inbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -836,7 +842,7 @@ func (c *Client) CreateInbox(name, webhookURL string) (*Inbox, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -902,7 +908,7 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -932,7 +938,7 @@ func (c *Client) DeleteMessage(conversationID, messageID int) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -967,7 +973,7 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -1094,7 +1100,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
