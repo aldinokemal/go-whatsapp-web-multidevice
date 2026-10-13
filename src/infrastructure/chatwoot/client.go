@@ -578,11 +578,22 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 // land in. sourceID is the WhatsApp chat JID, forwarded to CreateConversation
 // when a fresh thread is opened. The contact's conversation list is fetched
 // once and scanned in-process for both the open-conversation and reopen cases.
+// A conversation is created only when that list was read; when it cannot be
+// read the error is returned and nothing is created.
 func (c *Client) FindOrCreateConversation(contactID int, sourceID string) (*Conversation, error) {
 	items, err := c.listContactConversations(contactID)
 	if err != nil {
-		// A list failure is logged and we fall through to creation rather than
-		// dropping the message.
+		var statusErr *HTTPStatusError
+		if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusNotFound {
+			// Not knowing the contact's conversations is not the same as the
+			// contact having none. Creating one now would open a second thread
+			// next to the customer's open conversation, and every later
+			// message would follow it there. The error is returned instead: a
+			// transient one (network, 429, 5xx) is retried by the caller.
+			return nil, fmt.Errorf("failed to list the conversations of contact %d: %w", contactID, err)
+		}
+		// 404: Chatwoot does not know the contact. Creating the conversation
+		// below fails the same way and reports it.
 		logrus.Errorf("Error finding conversation: %v", err)
 	}
 
