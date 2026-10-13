@@ -7,7 +7,6 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 )
 
 // ErrClientRegistryUnavailable is returned when a Chatwoot forward is attempted
@@ -25,8 +24,8 @@ var ErrClientRegistryUnavailable = errors.New("chatwoot: client registry not ini
 //
 // IgnoreJids, SignMsg and SignDelimiter carry the device's optional behaviour
 // settings (see ChatwootDeviceConfig) so the per-message paths need no extra
-// storage lookup. Read them through IgnoresJID, SignMsgEnabled and
-// SignDelimiterValue, which apply the global CHATWOOT_* fallback and accept a
+// storage lookup. Read them through EffectiveIgnoreJids (matched with
+// ShouldIgnoreMessage), SignMsgEnabled and SignDelimiterValue, which apply the global CHATWOOT_* fallback and accept a
 // nil receiver.
 type ResolvedConfig struct {
 	ConfigID int64
@@ -48,16 +47,6 @@ func newResolvedConfig(cfg *domainChatStorage.ChatwootDeviceConfig) *ResolvedCon
 		SignMsg:       cfg.SignMsg,
 		SignDelimiter: cfg.SignDelimiter,
 	}
-}
-
-// IgnoresJID reports whether jid must not be mirrored to Chatwoot for this
-// device: it matches the global CHATWOOT_IGNORE_JIDS list or the device's own
-// ignore_jids, which is added to the global list rather than replacing it.
-func (rc *ResolvedConfig) IgnoresJID(jid string) bool {
-	if utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) {
-		return true
-	}
-	return rc != nil && utils.MatchesIgnoredJID(jid, rc.IgnoreJids)
 }
 
 // SignMsgEnabled reports whether agent replies sent from this device are

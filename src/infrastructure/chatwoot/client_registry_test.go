@@ -227,10 +227,10 @@ func TestClientRegistryCarriesPerDeviceBehaviourSettings(t *testing.T) {
 		t.Fatalf("resolve a: rc=%v err=%v", a, err)
 	}
 	// The device list is added to the global one, not a replacement for it.
-	if !a.IgnoresJID("120363000000000001@g.us") || !a.IgnoresJID("628999@s.whatsapp.net") {
+	if !ignoresChat(a, "120363000000000001@g.us") || !ignoresChat(a, "628999@s.whatsapp.net") {
 		t.Fatal("device a must ignore both its own and the global JIDs")
 	}
-	if a.IgnoresJID("120363000000000002@g.us") {
+	if ignoresChat(a, "120363000000000002@g.us") {
 		t.Fatal("device a must not ignore an unlisted group")
 	}
 	if a.SignMsgEnabled() || a.SignDelimiterValue() != " - " {
@@ -241,22 +241,27 @@ func TestClientRegistryCarriesPerDeviceBehaviourSettings(t *testing.T) {
 	if err != nil || b == nil {
 		t.Fatalf("resolve b: rc=%v err=%v", b, err)
 	}
-	if b.IgnoresJID("120363000000000001@g.us") {
+	if ignoresChat(b, "120363000000000001@g.us") {
 		t.Fatal("device a's ignore list must not leak to device b")
 	}
-	if !b.IgnoresJID("628999@s.whatsapp.net") || !b.SignMsgEnabled() || b.SignDelimiterValue() != "\n\n" {
+	if !ignoresChat(b, "628999@s.whatsapp.net") || !b.SignMsgEnabled() || b.SignDelimiterValue() != "\n\n" {
 		t.Fatal("device b must inherit the global settings")
 	}
 
 	// The reverse (inbox) lookup carries the same settings.
 	byInbox, err := reg.ResolveByInbox(1, 1)
-	if err != nil || byInbox == nil || byInbox.SignMsgEnabled() || !byInbox.IgnoresJID("120363000000000001@g.us") {
+	if err != nil || byInbox == nil || byInbox.SignMsgEnabled() || !ignoresChat(byInbox, "120363000000000001@g.us") {
 		t.Fatalf("ResolveByInbox lost the device settings: rc=%+v err=%v", byInbox, err)
 	}
 
 	// A nil resolution (legacy callers, disabled device) falls back to globals.
 	var none *ResolvedConfig
-	if !none.SignMsgEnabled() || none.SignDelimiterValue() != "\n\n" || !none.IgnoresJID("628999@s.whatsapp.net") || none.IgnoresJID("120363000000000001@g.us") {
+	if !none.SignMsgEnabled() || none.SignDelimiterValue() != "\n\n" || !ignoresChat(none, "628999@s.whatsapp.net") || ignoresChat(none, "120363000000000001@g.us") {
 		t.Fatal("nil ResolvedConfig must use the global settings")
 	}
+}
+
+// ignoresChat reports whether rc's effective ignore list drops a chat JID.
+func ignoresChat(rc *ResolvedConfig, jid string) bool {
+	return ShouldIgnoreMessage(MessageIdentity{ChatJID: jid}, rc.EffectiveIgnoreJids())
 }

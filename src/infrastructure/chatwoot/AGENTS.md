@@ -17,6 +17,11 @@ Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
 - Persistent links support idempotency, replies, read/delete sync, and reverse
   routing. Preserve device/account/config scope; separate servers can reuse numeric
   IDs. Per-device webhook URLs disambiguate otherwise ambiguous agent-initiated sends.
+- Every path that mirrors a WhatsApp message to Chatwoot (live forward, retry queue,
+  history sync, any catch-up) decides ignoring through `ShouldIgnoreMessage` in
+  `ignore.go`, with the chat and sender in both phone-JID and LID form and the list
+  from `EffectiveIgnoreJids`. Do not add a second matcher. Read receipts and hard
+  deletes of already linked messages deliberately run before that check.
 - Install the client registry before starting the persistent forward-retry worker
   in `../whatsapp/webhook_forward.go`.
 - Private contacts use normalized phone lookup; groups and unresolved `@lid`

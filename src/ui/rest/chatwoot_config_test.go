@@ -316,7 +316,7 @@ func TestChatwootConfigBehaviourOverrides(t *testing.T) {
 	if err != nil || rc == nil {
 		t.Fatalf("resolve: rc=%+v err=%v", rc, err)
 	}
-	if !rc.IgnoresJID("120363000000000001@g.us") || rc.SignMsgEnabled() || rc.SignDelimiterValue() != " - " {
+	if !chatwoot.ShouldIgnoreMessage(chatwoot.MessageIdentity{ChatJID: "120363000000000001@g.us"}, rc.EffectiveIgnoreJids()) || rc.SignMsgEnabled() || rc.SignDelimiterValue() != " - " {
 		t.Fatalf("registry did not pick up the overrides: %+v", rc)
 	}
 

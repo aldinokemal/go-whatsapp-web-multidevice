@@ -354,8 +354,10 @@ A per-device config can carry its own values in three optional fields:
 
 The ignore list is additive: a device ignores the always-ignored system JIDs, the global list and
 its own list. It cannot un-ignore a JID that the global list ignores. The list applies to live
-forwarding and to history sync; the signature settings apply to agent replies sent through that
-device.
+forwarding and to history sync, with the matching rules described under
+[Ignoring chats](#ignoring-chats); the signature settings apply to agent replies sent through that
+device. If a device's settings cannot be read when a reply is sent (a storage error), the reply
+goes out without a signature rather than with the global setting.
 
 A typical use is a WhatsApp group that contains several of your own numbers: ignore the group on
 every device except the one whose inbox should receive it.
@@ -664,6 +666,24 @@ CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
 
 With per-device configs, each device can add its own entries through the `ignore_jids` field; see [Per-device ignore list and agent signature](#per-device-ignore-list-and-agent-signature).
+
+#### What an entry matches
+
+An entry is compared with both the **chat** a message belongs to and the **sender** of the message, so listing a contact's JID also keeps that contact's messages out of every group that is otherwise mirrored.
+
+WhatsApp addresses the same account in two forms: the phone-number JID (`628123456789@s.whatsapp.net`) and a LID (`251556368777322@lid`). Each entry is compared with both forms of the chat and of the sender whenever both are known, so `251556368777322@lid` matches that contact even when GOWA resolved the LID to a phone number, and the phone-number JID matches a message that arrived under the LID. The `@lid` wildcard therefore matches every chat or sender whose LID is known, not only contacts that could not be resolved to a phone number.
+
+Live forwarding, the forward-retry queue and history sync use the same rule. History sync reads stored messages, which keep one form per chat and sender; the other form comes from the device's LID mapping table and is unknown when the device is not connected or WhatsApp never supplied the mapping. In that case only the stored form is compared.
+
+#### Ignoring a chat that is already in Chatwoot
+
+Adding a chat or contact to an ignore list after its conversation exists in Chatwoot stops new content and leaves the existing conversation in place:
+
+- **Not sent to Chatwoot any more:** new messages (incoming and outgoing), edits, reactions and the "message deleted" note. No contact, conversation or message is created for an ignored chat or sender, and history sync skips it.
+- **Still applied:** a read receipt or a delete-for-everyone for a message that Chatwoot already holds (when `CHATWOOT_MESSAGE_READ` / `CHATWOOT_MESSAGE_DELETE` are on). These only update or remove content that was mirrored earlier, so the existing conversation does not keep showing a message the sender deleted or an unread state that is no longer true.
+- **Unchanged:** the conversation itself and its earlier messages stay in Chatwoot; nothing is deleted when you add the entry. An agent reply written in that conversation is still delivered to WhatsApp. The ignore lists only filter the WhatsApp → Chatwoot direction.
+
+Removing the entry resumes mirroring from the next message. Messages that arrived while the chat was ignored are not sent afterwards unless you run a history sync.
 
 ## Supported Features
 
