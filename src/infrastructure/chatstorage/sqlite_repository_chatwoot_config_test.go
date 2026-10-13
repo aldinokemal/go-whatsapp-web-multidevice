@@ -1,9 +1,14 @@
 package chatstorage
 
 import (
+	"database/sql"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 )
 
 func TestSQLiteRepositoryChatwootDeviceConfigCRUD(t *testing.T) {
@@ -372,5 +377,99 @@ func TestSQLiteRepositoryChatwootDeviceConfigWebhookSecret(t *testing.T) {
 	got, err := repo.GetChatwootDeviceConfig("other")
 	if err != nil || got == nil || got.WebhookSecret != "" {
 		t.Fatalf("plain config: %v (%+v)", err, got)
+	}
+}
+
+// TestSQLiteRepositoryWebhookSecretMigrationKeepsExistingConfigs upgrades a
+// database that already held device configs before the webhook_secret column
+// existed: the schema is built up to the migration before it, rows are written
+// with that older schema, and only then is the rest migrated.
+func TestSQLiteRepositoryWebhookSecretMigrationKeepsExistingConfigs(t *testing.T) {
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chatstorage.db"))
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &SQLiteRepository{db: db}
+
+	// Locate the migration by what it does, so migrations added around it do
+	// not invalidate the test.
+	migrations := repo.getMigrations()
+	secretMigration := -1
+	for i, migration := range migrations {
+		if strings.Contains(migration, "chatwoot_device_configs ADD COLUMN webhook_secret") {
+			secretMigration = i
+		}
+	}
+	if secretMigration < 0 {
+		t.Fatal("webhook_secret migration not found")
+	}
+	if _, err := repo.getSchemaVersion(); err != nil {
+		t.Fatalf("create schema_info: %v", err)
+	}
+	for i := 0; i < secretMigration; i++ {
+		if err := repo.runMigration(migrations[i], i+1); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+
+	var columns int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('chatwoot_device_configs') WHERE name = 'webhook_secret'`).Scan(&columns); err != nil || columns != 0 {
+		t.Fatalf("pre-change schema already has webhook_secret (count=%d err=%v)", columns, err)
+	}
+
+	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	for _, row := range []struct {
+		deviceID, deviceJID string
+		inboxID             int
+		enabled             bool
+	}{
+		{"busine", "628111111111@s.whatsapp.net", 5, true},
+		{"unpaired", "", 6, false},
+	} {
+		if _, err := db.Exec(`
+			INSERT INTO chatwoot_device_configs (
+				device_id, device_jid, chatwoot_url, account_id, inbox_id,
+				api_token, enabled, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, row.deviceID, row.deviceJID, "https://chat.example.com", 1, row.inboxID, "tok-"+row.deviceID, row.enabled, created, created); err != nil {
+			t.Fatalf("insert pre-change row %s: %v", row.deviceID, err)
+		}
+	}
+
+	// The upgrade: the same call the application makes at startup.
+	if err := repo.InitializeSchema(); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if version, err := repo.getSchemaVersion(); err != nil || version != len(migrations) {
+		t.Fatalf("schema version = %d err=%v, want %d", version, err, len(migrations))
+	}
+
+	all, err := repo.ListChatwootDeviceConfigs()
+	if err != nil || len(all) != 2 {
+		t.Fatalf("list after upgrade: %v (%d rows, want 2)", err, len(all))
+	}
+	busine, err := repo.GetChatwootDeviceConfigByIdentifier("628111111111@s.whatsapp.net")
+	if err != nil || busine == nil {
+		t.Fatalf("get upgraded row: %v (%+v)", err, busine)
+	}
+	if busine.DeviceID != "busine" || busine.InboxID != 5 || busine.APIToken != "tok-busine" || !busine.Enabled ||
+		!busine.CreatedAt.Equal(created) || busine.WebhookSecret != "" {
+		t.Fatalf("upgraded row changed or has a non-empty secret: %+v", busine)
+	}
+	unpaired, err := repo.GetChatwootDeviceConfig("unpaired")
+	if err != nil || unpaired == nil || unpaired.Enabled || unpaired.WebhookSecret != "" {
+		t.Fatalf("second upgraded row: %v (%+v)", err, unpaired)
+	}
+
+	// An upgraded row accepts a secret like a new one.
+	busine.WebhookSecret = "channel-secret"
+	if err := repo.SaveChatwootDeviceConfig(busine); err != nil {
+		t.Fatalf("save secret on upgraded row: %v", err)
+	}
+	got, err := repo.GetChatwootDeviceConfig("busine")
+	if err != nil || got == nil || got.WebhookSecret != "channel-secret" || got.ID != busine.ID {
+		t.Fatalf("secret on upgraded row: %v (%+v)", err, got)
 	}
 }
