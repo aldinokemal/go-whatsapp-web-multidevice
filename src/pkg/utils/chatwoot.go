@@ -70,6 +70,13 @@ func IsNewsletterJID(jid string) bool {
 // untouched. Sentinel runes guard the bold pass from being re-matched by the
 // italic pass.
 //
+// On the Chatwoot side a delimiter only counts when it hugs the text it
+// formats, as in CommonMark: an opening run is not followed by whitespace and
+// a closing run is not preceded by it, so "2 * 3 * 4", "* a bullet" and
+// "Price* ... *Terms" stay as written. A single "*" must also sit at a word
+// boundary: WhatsApp would not render "30_40_50" as italic, so "30*40*50" is
+// better left alone than rewritten.
+//
 // Chatwoot -> WhatsApp additionally flattens the Markdown that WhatsApp has
 // no syntax for, because an API-channel inbox hands over the agent's message
 // as stored Markdown and the customer would otherwise read it raw:
@@ -92,9 +99,20 @@ const (
 )
 
 var (
-	reCwBold   = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reCwStrike = regexp.MustCompile(`~~(.+?)~~`)
-	reCwItalic = regexp.MustCompile(`\*(.+?)\*`)
+	// Chatwoot-side emphasis. The text between a pair starts and ends with a
+	// character that is neither whitespace nor the delimiter, which is what
+	// keeps "2 * 3 * 4" and a masked "******" from pairing. The inner part is
+	// lazy ("??") so the pair closes at the first run that can close it.
+	//
+	// Bold may hold a nested italic at either end, where the runs touch:
+	// "**a *b***" (first alternative: the text ends with a whole "*b*") and
+	// "***a* b**" (second alternative: the text starts with "*"). The italic
+	// pass pairs the inner asterisks afterwards.
+	reCwBold   = regexp.MustCompile(`\*\*((?:[^\s*][^*\n]*)?\*[^\s*](?:[^*\n]*[^\s*])?\*|(?:\*[^\s*]|[^\s*])(?:.*?[^\s*])??)\*\*`)
+	reCwStrike = regexp.MustCompile(`~~([^\s~](?:.*?[^\s~])??)~~`)
+	// Italic also needs a word boundary on both outer sides, captured as
+	// groups 1 and 3 because RE2 has no lookaround (see replaceWhatsAppPairs).
+	reCwItalic = regexp.MustCompile(`(^|[^\p{L}\p{N}*])\*([^\s*](?:.*?[^\s*])??)\*($|[^\p{L}\p{N}*])`)
 	// The link sentinel counts as a word character: a link starts with one.
 	reWaBold   = regexp.MustCompile(`(^|[^\p{L}\p{N}*\x03])\*([^\s*](?:[^*\n]*[^\s*])?)\*($|[^\p{L}\p{N}*\x03])`)
 	reWaItalic = regexp.MustCompile(`(^|[^\p{L}\p{N}_\x03])_([^\s_](?:[^_\n]*[^\s_])?)_($|[^\p{L}\p{N}_\x03])`)
@@ -111,7 +129,7 @@ var (
 	// by reCwLiteral, so neither class needs to know about backslashes. The
 	// target may hold one level of balanced parentheses (Wikipedia-style).
 	reCwInlineLink = regexp.MustCompile(`(?i)!?\[([^\[\]\n]*)\]\(\s*<?((?:https?://|mailto:|tel:)(?:[^()\s<>]|\([^()\s<>]*\))*)>?(?:\s+"[^"\n]*")?\s*\)`)
-	reCwAutolink   = regexp.MustCompile(`(?i)<((?:https?://|mailto:)[^<>\s]+)>`)
+	reCwAutolink   = regexp.MustCompile(`(?i)<((?:https?://|mailto:|tel:)[^<>\s]+)>`)
 	// The link sentinel is allowed in the local part: an escaped "_" is hidden.
 	reCwEmailAutolink = regexp.MustCompile(`<([A-Za-z0-9._%+\x03-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>`)
 	reCwBoldItalic    = regexp.MustCompile(`\*\*\*([^\s*](?:[^*\n]*[^\s*])?)\*\*\*`)
@@ -203,10 +221,7 @@ func convertChatwootMarkdown(s string) string {
 	s = reCwBoldItalic.ReplaceAllString(s, mdBoldSentinel+"_${1}_"+mdBoldSentinel)
 	s = reCwBold.ReplaceAllString(s, mdBoldSentinel+"$1"+mdBoldSentinel)
 	s = reCwStrike.ReplaceAllString(s, mdStrikeSentinel+"$1"+mdStrikeSentinel)
-	// "${1}" (braced) is required: a bare "$1_" parses as the named group "1_"
-	// (underscore is a legal $name char), which would drop the capture and
-	// collapse *italic* to a lone "_".
-	s = reCwItalic.ReplaceAllString(s, "_${1}_")
+	s = replaceWhatsAppPairs(reCwItalic, s, "_")
 	s = strings.ReplaceAll(s, mdBoldSentinel, "*")
 	s = strings.ReplaceAll(s, mdStrikeSentinel, "~")
 	return hidden.expand(s)
@@ -317,11 +332,15 @@ func WhatsAppToChatwootMarkdown(s string) string {
 	return b.String()
 }
 
-// replaceWhatsAppPairs swaps the delimiters of every re match for marker. It
-// runs twice because adjacent pairs ("*a* *b*") share the boundary character
+// replaceWhatsAppPairs swaps the delimiters of every re match for marker. re
+// captures the boundary before the pair, its text and the boundary after it.
+// It runs twice because adjacent pairs ("*a* *b*") share the boundary character
 // between them, which a single pass consumes. It must not loop until stable:
 // each extra pass unwraps another nesting level, so crafted input would cost
 // one pass per level.
+//
+// The braced "${2}" matters: a bare "$2_" would be read as the group named
+// "2_" and drop the text.
 func replaceWhatsAppPairs(re *regexp.Regexp, s, marker string) string {
 	repl := "${1}" + marker + "${2}" + marker + "${3}"
 	return re.ReplaceAllString(re.ReplaceAllString(s, repl), repl)

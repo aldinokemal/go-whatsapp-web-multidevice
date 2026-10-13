@@ -528,12 +528,14 @@ Chatwoot hands an API-channel inbox the agent's reply as stored Markdown, and Wh
 | `[Our site](https://example.com/)` | `Our site: https://example.com/` |
 | `[**https://example.com/**](https://example.com/)` (the label is the URL) | `https://example.com/` |
 | `**https://example.com/**: https://example.com/` (how the reply box stores a canned reply holding such a link) | `https://example.com/` |
-| `<https://example.com/>`, `<info@example.com>` | `https://example.com/`, `info@example.com` |
+| `<https://example.com/>`, `<info@example.com>`, `<tel:+15550100>` | `https://example.com/`, `info@example.com`, `+15550100` |
 | `[Write us](mailto:info@example.com)`, `[Call](tel:+15550100)` | `Write us: info@example.com`, `Call: +15550100` |
 | `R\&D`, `snake\_case`, `1\.`, `https://example.com/?a=1\&b=2` | `R&D`, `snake_case`, `1.`, `https://example.com/?a=1&b=2` |
 | `***bold italic***` | `*_bold italic_*` |
+| `2 * 3 * 4`, `30*40*50 cm`, `* a bullet`, `Price* ... *Terms`, `****1234` | unchanged |
 | a last line holding only `--` | removed |
 
+- A delimiter only formats when it touches the text on its inner side, as in Markdown itself: `** spaced **` and arithmetic such as `2 * 3 * 4` are delivered as written. A single `*` additionally needs a word boundary on its outer side, because WhatsApp does not format inside a word: `30*40*50` stays as typed instead of becoming `30_40_50`.
 - URLs are never formatted: `*`, `_` and `~` inside a link (query strings, `snake_case` paths) are delivered as written, also when the link sits inside bold or italic text.
 - An escaped delimiter (`\*`, `\~`) is delivered as the plain character and does not start formatting.
 - Inline code and fenced code blocks are delivered unchanged; WhatsApp renders both.

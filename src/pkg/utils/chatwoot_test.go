@@ -208,15 +208,15 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			want: "",
 		},
 		{
-			// Plain text with no * or ~ takes the ContainsAny fast path and is
-			// returned byte-for-byte unchanged.
+			// Plain text with nothing that could be Markdown skips the
+			// conversion and is returned byte-for-byte unchanged.
 			name: "PlainTextNoMarkersFastPath",
 			in:   "hello world",
 			want: "hello world",
 		},
 		{
 			// Underscores alone are not a Chatwoot marker here, so the fast path
-			// returns them untouched (no * or ~ present).
+			// returns them untouched.
 			name: "UnderscoresUntouchedFastPath",
 			in:   "a_b_c",
 			want: "a_b_c",
@@ -235,9 +235,9 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			want: "*x*",
 		},
 		{
-			// *italic* -> _italic_. The braced "${1}" template terminates the
-			// group reference before the trailing underscore, so the capture is
-			// preserved (a bare "$1_" would parse "1_" as a named group and drop it).
+			// *italic* -> _italic_. The replacement template braces its group
+			// reference: a bare "$2_" would be read as the group named "2_" and
+			// drop the text.
 			name: "ItalicAlone",
 			in:   "*italic*",
 			want: "_italic_",
@@ -323,8 +323,8 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			// A canned reply whose link label is the URL: one URL, not
 			// "url: url" and not the raw brackets.
 			name: "InlineLinkLabelIsBoldURL",
-			in:   "form: [**https://x.example/panama/registration/**](https://x.example/panama/registration/)",
-			want: "form: https://x.example/panama/registration/",
+			in:   "form: [**https://x.example/events/registration/**](https://x.example/events/registration/)",
+			want: "form: https://x.example/events/registration/",
 		},
 		{
 			name: "InlineLinkLabelIsURLAfterEmoji",
@@ -441,8 +441,8 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 		{
 			// The two asterisks in the URL used to pair as italic.
 			name: "BareURLWithAsterisksUnchanged",
-			in:   "https://x.example/search?q=*kosher*&sort=~price~ and www.x.example/*a*/~b~",
-			want: "https://x.example/search?q=*kosher*&sort=~price~ and www.x.example/*a*/~b~",
+			in:   "https://x.example/search?q=*summer*&sort=~price~ and www.x.example/*a*/~b~",
+			want: "https://x.example/search?q=*summer*&sort=~price~ and www.x.example/*a*/~b~",
 		},
 		{
 			name: "BareURLWithUnderscoresNextToItalic",
@@ -463,8 +463,8 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			// What Chatwoot's reply box stores when a canned reply holding
 			// [**url**](url) is inserted.
 			name: "DuplicatedLinkFromCannedReply",
-			in:   "form: **https://x.example/panama/registration/**: https://x.example/panama/registration/\n\nTo help",
-			want: "form: https://x.example/panama/registration/\n\nTo help",
+			in:   "form: **https://x.example/events/registration/**: https://x.example/events/registration/\n\nTo help",
+			want: "form: https://x.example/events/registration/\n\nTo help",
 		},
 		{
 			name: "DuplicatedLinkWithoutEmphasis",
@@ -551,6 +551,152 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			name: "TrailingWhitespaceKept",
 			in:   "hello  \n",
 			want: "hello  \n",
+		},
+		{
+			// Arithmetic is not emphasis: a delimiter has to hug the text.
+			name: "SpacedAsterisksUnchanged",
+			in:   "2 * 3 * 4 = 24 and 10 * 20",
+			want: "2 * 3 * 4 = 24 and 10 * 20",
+		},
+		{
+			// Dimensions: WhatsApp would show "30_40_50" literally, so a
+			// mid-word asterisk pair is left as typed.
+			name: "MidWordAsterisksUnchanged",
+			in:   "Box 30*40*50 cm, un*believ*able",
+			want: "Box 30*40*50 cm, un*believ*able",
+		},
+		{
+			name: "FootnoteAsterisksUnchanged",
+			in:   "Price* includes tax, rated 5* and 4*.\n*Subject to change",
+			want: "Price* includes tax, rated 5* and 4*.\n*Subject to change",
+		},
+		{
+			// A "*" bullet used to pair with the emphasis on its own line.
+			name: "AsteriskBulletsWithEmphasis",
+			in:   "* cabin with *balcony*\n* **inside** cabin\n* plain",
+			want: "* cabin with _balcony_\n* *inside* cabin\n* plain",
+		},
+		{
+			name: "MaskedDigitsUnchanged",
+			in:   "Card ending ****1234, PIN ******, code ~~~~",
+			want: "Card ending ****1234, PIN ******, code ~~~~",
+		},
+		{
+			name: "SpacedPairsUnchanged",
+			in:   "~~ a ~~ and ** b ** and * c * and *** d ***",
+			want: "~~ a ~~ and ** b ** and * c * and *** d ***",
+		},
+		{
+			// A closing run preceded by a space cannot close; the next one can.
+			name: "CloserMustHugText",
+			in:   "**a ** b** and *c * d* and ~~e ~~ f~~",
+			want: "*a ** b* and _c * d_ and ~e ~~ f~",
+		},
+		{
+			name: "AdjacentPairs",
+			in:   "*a* *b* *c*, **d** **e**, ~~f~~ ~~g~~, *h*,*i*,*j*",
+			want: "_a_ _b_ _c_, *d* *e*, ~f~ ~g~, _h_,_i_,_j_",
+		},
+		{
+			name: "ItalicNextToPunctuation",
+			in:   "(*a*) \"*b*\" *c*, *d*. *e*! *f*? [*g*] *h*:",
+			want: "(_a_) \"_b_\" _c_, _d_. _e_! _f_? [_g_] _h_:",
+		},
+		{
+			// Italic at either end of bold, as the reply editor writes it.
+			name: "ItalicNestedInBold",
+			in:   "***it* bold** and **bold *it*** and **a *b* c**",
+			want: "*_it_ bold* and *bold _it_* and *a _b_ c*",
+		},
+		{
+			name: "BoldNestedInItalic",
+			in:   "*it **bold*** and *a **b** c*",
+			want: "_it *bold*_ and _a *b* c_",
+		},
+		{
+			name: "BoldThenItalicWithoutSpace",
+			in:   "**a***b* and **a****b**",
+			want: "*a*_b_ and *a**b*",
+		},
+		{
+			name: "PricesTimesAndPhones",
+			in:   "$1,200 - $1,500 per person (10:30 - 11:45), call +1 (555) 010-9999 or +972-50-123-4567 ~ 5 min",
+			want: "$1,200 - $1,500 per person (10:30 - 11:45), call +1 (555) 010-9999 or +972-50-123-4567 ~ 5 min",
+		},
+		{
+			name: "PriceInBold",
+			in:   "Total: **$1,200 - $1,500**/person* (~10% off)",
+			want: "Total: *$1,200 - $1,500*/person* (~10% off)",
+		},
+		{
+			name: "EmailAddresses",
+			in:   "write info@x.example, a_b@x.example or **sales@x.example**",
+			want: "write info@x.example, a_b@x.example or *sales@x.example*",
+		},
+		{
+			name: "FileNamesWithUnderscores",
+			in:   "see report_final_v2.pdf, my\\_file\\_name.pdf and *price_list_2027.xlsx*",
+			want: "see report_final_v2.pdf, my_file_name.pdf and _price_list_2027.xlsx_",
+		},
+		{
+			name: "HebrewNextToURL",
+			in:   "**ראו:** https://x.example/דף?a_b=1 *תודה* (<https://x.example/he_il>)",
+			want: "*ראו:* https://x.example/דף?a_b=1 _תודה_ (https://x.example/he_il)",
+		},
+		{
+			name: "ArabicNextToURL",
+			in:   "مرحبا **بكم** في [موقعنا](https://x.example/ar_page) و https://x.example/a*b*.",
+			want: "مرحبا *بكم* في موقعنا: https://x.example/ar_page و https://x.example/a*b*.",
+		},
+		{
+			name: "SeveralLinksInOneMessage",
+			in:   "[a](https://a.example/x_y) and [b](https://b.example/*z*), also https://c.example/~w~! <https://d.example/>",
+			want: "a: https://a.example/x_y and b: https://b.example/*z*, also https://c.example/~w~! https://d.example/",
+		},
+		{
+			name: "NumberedAndBulletedLists",
+			in:   "1. **First**\n2. *Second*\n3. ~~Third~~\n- a\n+ b\n* c\n\n1) d\n10\\. e",
+			want: "1. *First*\n2. _Second_\n3. ~Third~\n- a\n+ b\n* c\n\n1) d\n10. e",
+		},
+		{
+			name: "URLInParentheses",
+			in:   "our site (https://x.example/a_b) and (see *https://x.example/c_d*).",
+			want: "our site (https://x.example/a_b) and (see _https://x.example/c_d_).",
+		},
+		{
+			name: "URLFollowedByPeriod",
+			in:   "Visit https://x.example/a_b. Or [here](https://x.example/c_d). Thanks",
+			want: "Visit https://x.example/a_b. Or here: https://x.example/c_d. Thanks",
+		},
+		{
+			name: "URLWithParentheses",
+			in:   "https://x.example/wiki/Foo_(bar) and [w](https://x.example/wiki/Foo_(bar))",
+			want: "https://x.example/wiki/Foo_(bar) and w: https://x.example/wiki/Foo_(bar)",
+		},
+		{
+			name: "ImageLink",
+			in:   "![logo](https://x.example/logo_small.png)",
+			want: "logo: https://x.example/logo_small.png",
+		},
+		{
+			name: "AutolinkTel",
+			in:   "call <tel:+15550100>",
+			want: "call +15550100",
+		},
+		{
+			name: "AngleBracketsThatAreNotLinks",
+			in:   "a < b and c > d, <3, <b>x</b>, <not a link>",
+			want: "a < b and c > d, <3, <b>x</b>, <not a link>",
+		},
+		{
+			name: "BracketsThatAreNotLinks",
+			in:   "[x] (https://x.example/a) and [x](not a link) and [1] and [a\nb](https://x.example/b)",
+			want: "[x] (https://x.example/a) and [x](not a link) and [1] and [a\nb](https://x.example/b)",
+		},
+		{
+			name: "BackslashesInPaths",
+			in:   "C:\\Users\\name and C:\\\\temp\\\\x, 50\\% off \\#1",
+			want: "C:\\Users\\name and C:\\temp\\x, 50% off #1",
 		},
 		{
 			// A link sentinel in the input must not be read as a placeholder.
@@ -726,21 +872,44 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 }
 
 // TestChatwootToWhatsAppMarkdownHostileInput feeds the converter large inputs
-// built to make a careless implementation backtrack or re-scan. Every pass is
-// a single linear sweep, so each of these must finish almost instantly; the
-// bound is loose enough for a loaded CI runner.
+// built to make a careless implementation backtrack or re-scan. Go's regexp
+// never backtracks, but ReplaceAll starts a new search after every match, so
+// an opener that stays alive across many short matches would still cost one
+// scan per match; the inputs below try exactly that for every pattern. Each
+// must finish almost instantly; the bound is loose enough for a loaded CI
+// runner under the race detector.
 func TestChatwootToWhatsAppMarkdownHostileInput(t *testing.T) {
-	const size = 64 * 1024
+	// Chatwoot caps a message at 150,000 characters.
+	const size = 150 * 1024
+	repeat := func(unit string) string { return strings.Repeat(unit, size/len(unit)) }
 	inputs := map[string]string{
-		"OpenBrackets":   strings.Repeat("[", size),
-		"UnclosedLinks":  strings.Repeat("[a](https://x.example/(", size/24),
-		"Escapes":        strings.Repeat("\\*", size/2),
-		"Asterisks":      strings.Repeat("*", size),
-		"TripleNesting":  strings.Repeat("***a ", size/5),
-		"Backticks":      strings.Repeat("`a", size/2),
-		"AngleBrackets":  strings.Repeat("<https://", size/9),
-		"DuplicateLinks": strings.Repeat("https://x.example/a: ", size/21),
-		"DashLines":      strings.Repeat("--\n", size/3),
+		"OpenBrackets":       repeat("["),
+		"CloseBrackets":      repeat("]("),
+		"OpenParentheses":    repeat("("),
+		"NestedBrackets":     repeat("[") + repeat("]"),
+		"UnclosedLinks":      repeat("[a](https://x.example/("),
+		"LinkInsideOpenLink": repeat("[x](https://a[y](https://b)"),
+		"LinkInsideTitle":    repeat("[x](https://a \"[y](https://b)"),
+		"LinkThenSpaces":     repeat("[x](   "),
+		"ValidLinks":         repeat("[a](https://x.example/) "),
+		"Backslashes":        repeat("\\"),
+		"Escapes":            repeat("\\*"),
+		"OpenFenceEscapes":   "```" + repeat("\\*"),
+		"OpenCodeLines":      repeat("`" + strings.Repeat("\\*", 50) + "\n"),
+		"Backticks":          repeat("`a"),
+		"Asterisks":          repeat("*"),
+		"Tildes":             repeat("~"),
+		"TripleNesting":      repeat("***a "),
+		"BoldOpeners":        repeat("**a "),
+		"ItalicOpeners":      repeat(" *a"),
+		"ItalicPairs":        repeat("*a*"),
+		"MixedEmphasis":      repeat("*a **b* ~~c "),
+		"AngleBrackets":      repeat("<"),
+		"OpenAutolinks":      repeat("<https://"),
+		"OpenEmailAutolinks": repeat("<a@b"),
+		"URLStarts":          repeat("http://"),
+		"DuplicateLinks":     repeat("https://x.example/a: "),
+		"DashLines":          repeat("--\n"),
 	}
 	for name, in := range inputs {
 		t.Run(name, func(t *testing.T) {

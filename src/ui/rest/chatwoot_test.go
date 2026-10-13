@@ -207,7 +207,7 @@ func TestComposeOutgoingText(t *testing.T) {
 		},
 		{
 			// Plain text with no markdown delimiters is passed through unchanged
-			// (the markdown translator short-circuits when no * ~ are present).
+			// (the markdown translator skips text that holds no Markdown).
 			name:      "plain text no markdown unchanged",
 			signMsg:   false,
 			delimiter: "\n\n",
