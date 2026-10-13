@@ -360,8 +360,8 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 		},
 		{
 			name: "InlineLinkBalancedParentheses",
-			in:   "[wiki](https://x.example/wiki/Panama_(city)) ok",
-			want: "wiki: https://x.example/wiki/Panama_(city) ok",
+			in:   "[wiki](https://x.example/wiki/Mercury_(planet)) ok",
+			want: "wiki: https://x.example/wiki/Mercury_(planet) ok",
 		},
 		{
 			name: "InlineLinkEmptyLabel",
