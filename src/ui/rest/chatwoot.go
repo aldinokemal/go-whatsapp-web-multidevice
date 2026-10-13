@@ -95,35 +95,6 @@ func chatwootSecretMatches(expected, candidate string) bool {
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(candidate)) == 1
 }
 
-func chatwootWebhookAuthorized(c fiber.Ctx) bool {
-	secret := strings.TrimSpace(config.ChatwootWebhookSecret)
-	if secret == "" {
-		return true
-	}
-
-	for _, candidate := range []string{
-		c.Get("X-Chatwoot-Webhook-Secret"),
-		c.Get("X-Gowa-Chatwoot-Secret"),
-		c.Query("secret"),
-	} {
-		if chatwootSecretMatches(secret, candidate) {
-			return true
-		}
-	}
-
-	signature := strings.TrimSpace(c.Get("X-Hub-Signature-256"))
-	if signature == "" {
-		return false
-	}
-
-	digest, err := utils.GetMessageDigestOrSignature(c.Body(), []byte(secret))
-	if err != nil {
-		logrus.Errorf("Chatwoot Webhook: Failed to compute webhook signature: %v", err)
-		return false
-	}
-	return chatwootSecretMatches("sha256="+digest, signature)
-}
-
 func chatwootLinkChatJID(destination string) string {
 	clean := utils.CleanPhoneForWhatsApp(destination)
 	if clean == "" {
@@ -355,7 +326,14 @@ func (h *ChatwootHandler) HandleWebhook(c fiber.Ctx) error {
 // account and inbox match the device's configured account and inbox, so a
 // webhook for one device cannot be delivered through another device's path.
 func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
-	if !chatwootWebhookAuthorized(c) {
+	secret, err := h.deviceWebhookSecret(c)
+	if err != nil {
+		// Fail closed: without the device's config it is unknown whether the
+		// device has its own secret, and the global one may be empty.
+		logrus.Errorf("Chatwoot Webhook: cannot authenticate per-device request: %v", err)
+		return c.SendStatus(fiber.StatusServiceUnavailable)
+	}
+	if !chatwootWebhookAuthorizedWith(c, secret) {
 		logrus.Warn("Chatwoot Webhook: Rejected per-device request with invalid secret")
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
@@ -407,6 +385,35 @@ func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
 		InboxID:   rc.Client.InboxID,
 	}
 	return h.processChatwootWebhook(c, payload, forced)
+}
+
+// deviceWebhookSecret returns the secret that authenticates the per-device
+// endpoint for the device named in the path: the device config's own
+// webhook_secret when it has one (each Chatwoot API channel has its own
+// secret), otherwise the global CHATWOOT_WEBHOOK_SECRET. An unknown device
+// uses the global secret, so it is authenticated exactly as before per-device
+// secrets existed. A storage error is returned so the caller can refuse the
+// request instead of guessing.
+func (h *ChatwootHandler) deviceWebhookSecret(c fiber.Ctx) (string, error) {
+	if h == nil || h.ChatStorageRepo == nil {
+		return config.ChatwootWebhookSecret, nil
+	}
+	deviceID := pathDeviceID(c)
+	if h.DeviceManager != nil {
+		resolved, ok := h.resolveConfigDeviceID(c)
+		if !ok {
+			return config.ChatwootWebhookSecret, nil
+		}
+		deviceID = resolved
+	}
+	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(deviceID)
+	if err != nil {
+		return "", fmt.Errorf("load device config: %w", err)
+	}
+	if cfg != nil && strings.TrimSpace(cfg.WebhookSecret) != "" {
+		return cfg.WebhookSecret, nil
+	}
+	return config.ChatwootWebhookSecret, nil
 }
 
 // processChatwootWebhook performs the event gating shared by both webhook

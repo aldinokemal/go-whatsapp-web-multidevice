@@ -315,3 +315,62 @@ func TestSQLiteRepositoryDeleteChatwootMessageLinksByConfig(t *testing.T) {
 		t.Fatal("legacy link must survive")
 	}
 }
+
+// TestSQLiteRepositoryChatwootDeviceConfigWebhookSecret covers the per-device
+// webhook secret through insert, update and every lookup that reads a config.
+func TestSQLiteRepositoryChatwootDeviceConfigWebhookSecret(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	cfg := &domainChatStorage.ChatwootDeviceConfig{
+		DeviceID:      "busine",
+		DeviceJID:     "628111111111@s.whatsapp.net",
+		ChatwootURL:   "https://chat.example.com",
+		AccountID:     1,
+		InboxID:       5,
+		APIToken:      "tok-a",
+		Enabled:       true,
+		WebhookSecret: "channel-secret",
+	}
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	byDevice, err := repo.GetChatwootDeviceConfig("busine")
+	if err != nil || byDevice == nil || byDevice.WebhookSecret != "channel-secret" {
+		t.Fatalf("get by device: %v (%+v)", err, byDevice)
+	}
+	byJID, err := repo.GetChatwootDeviceConfigByIdentifier("628111111111@s.whatsapp.net")
+	if err != nil || byJID == nil || byJID.WebhookSecret != "channel-secret" {
+		t.Fatalf("get by identifier: %v (%+v)", err, byJID)
+	}
+	byInbox, err := repo.GetChatwootDeviceConfigByInbox(1, 5)
+	if err != nil || byInbox == nil || byInbox.WebhookSecret != "channel-secret" {
+		t.Fatalf("get by inbox: %v (%+v)", err, byInbox)
+	}
+	all, err := repo.ListChatwootDeviceConfigs()
+	if err != nil || len(all) != 1 || all[0].WebhookSecret != "channel-secret" {
+		t.Fatalf("list: %v (%+v)", err, all)
+	}
+
+	cfg.WebhookSecret = ""
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+	cleared, err := repo.GetChatwootDeviceConfig("busine")
+	if err != nil || cleared == nil || cleared.WebhookSecret != "" {
+		t.Fatalf("after clearing: %v (%+v)", err, cleared)
+	}
+
+	// A config saved without a secret (every existing row after the migration)
+	// reads back empty, which means "use the global secret".
+	plain := &domainChatStorage.ChatwootDeviceConfig{
+		DeviceID: "other", ChatwootURL: "https://chat.example.com", AccountID: 1, InboxID: 6, APIToken: "tok-b", Enabled: true,
+	}
+	if err := repo.SaveChatwootDeviceConfig(plain); err != nil {
+		t.Fatalf("save plain config: %v", err)
+	}
+	got, err := repo.GetChatwootDeviceConfig("other")
+	if err != nil || got == nil || got.WebhookSecret != "" {
+		t.Fatalf("plain config: %v (%+v)", err, got)
+	}
+}
