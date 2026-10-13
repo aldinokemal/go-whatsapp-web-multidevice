@@ -5,7 +5,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 )
 
 // ErrClientRegistryUnavailable is returned when a Chatwoot forward is attempted
@@ -20,10 +22,62 @@ var ErrClientRegistryUnavailable = errors.New("chatwoot: client registry not ini
 // ResolvedConfig is the outcome of resolving a device (or inbox) to a Chatwoot
 // destination. ConfigID is the chatwoot_device_configs row id, or 0 for the
 // legacy/env config used when no per-device config rows exist.
+//
+// IgnoreJids, SignMsg and SignDelimiter carry the device's optional behaviour
+// settings (see ChatwootDeviceConfig) so the per-message paths need no extra
+// storage lookup. Read them through IgnoresJID, SignMsgEnabled and
+// SignDelimiterValue, which apply the global CHATWOOT_* fallback and accept a
+// nil receiver.
 type ResolvedConfig struct {
 	ConfigID int64
 	DeviceID string
 	Client   *Client
+
+	IgnoreJids    []string
+	SignMsg       *bool
+	SignDelimiter *string
+}
+
+// newResolvedConfig builds the resolved view of a stored per-device config.
+func newResolvedConfig(cfg *domainChatStorage.ChatwootDeviceConfig) *ResolvedConfig {
+	return &ResolvedConfig{
+		ConfigID:      cfg.ID,
+		DeviceID:      cfg.DeviceID,
+		Client:        NewClientFromConfig(cfg.ChatwootURL, cfg.APIToken, cfg.AccountID, cfg.InboxID),
+		IgnoreJids:    cfg.IgnoreJids,
+		SignMsg:       cfg.SignMsg,
+		SignDelimiter: cfg.SignDelimiter,
+	}
+}
+
+// IgnoresJID reports whether jid must not be mirrored to Chatwoot for this
+// device: it matches the global CHATWOOT_IGNORE_JIDS list or the device's own
+// ignore_jids, which is added to the global list rather than replacing it.
+func (rc *ResolvedConfig) IgnoresJID(jid string) bool {
+	if utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) {
+		return true
+	}
+	return rc != nil && utils.MatchesIgnoredJID(jid, rc.IgnoreJids)
+}
+
+// SignMsgEnabled reports whether agent replies sent from this device are
+// prefixed with the agent's name: the device's sign_msg when set, else
+// CHATWOOT_SIGN_MSG.
+func (rc *ResolvedConfig) SignMsgEnabled() bool {
+	if rc != nil && rc.SignMsg != nil {
+		return *rc.SignMsg
+	}
+	return config.ChatwootSignMsg
+}
+
+// SignDelimiterValue returns the raw delimiter placed between the agent
+// signature and the reply body: the device's sign_delimiter when set, else
+// CHATWOOT_SIGN_DELIMITER.
+func (rc *ResolvedConfig) SignDelimiterValue() string {
+	if rc != nil && rc.SignDelimiter != nil {
+		return *rc.SignDelimiter
+	}
+	return config.ChatwootSignDelimiter
 }
 
 // ClientRegistry resolves a per-device Chatwoot *Client (plus its scope) from
@@ -77,11 +131,7 @@ func (r *ClientRegistry) Resolve(identifier string) (*ResolvedConfig, error) {
 			// Explicitly disabled for this device: do not forward, do not fall back.
 			return nil, nil
 		}
-		rc := &ResolvedConfig{
-			ConfigID: cfg.ID,
-			DeviceID: cfg.DeviceID,
-			Client:   NewClientFromConfig(cfg.ChatwootURL, cfg.APIToken, cfg.AccountID, cfg.InboxID),
-		}
+		rc := newResolvedConfig(cfg)
 		r.store(identifier, rc)
 		return rc, nil
 	}
@@ -114,11 +164,7 @@ func (r *ClientRegistry) ResolveByInbox(accountID, inboxID int) (*ResolvedConfig
 	if cfg == nil || !cfg.Enabled {
 		return nil, nil
 	}
-	return &ResolvedConfig{
-		ConfigID: cfg.ID,
-		DeviceID: cfg.DeviceID,
-		Client:   NewClientFromConfig(cfg.ChatwootURL, cfg.APIToken, cfg.AccountID, cfg.InboxID),
-	}, nil
+	return newResolvedConfig(cfg), nil
 }
 
 // Invalidate drops every cached entry for a device so the next Resolve rebuilds

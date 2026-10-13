@@ -341,6 +341,46 @@ webhook path lets agent replies route deterministically back to the right device
 against the device's configured account/inbox, so a webhook for one device cannot be delivered
 through another's path.
 
+### Per-device ignore list and agent signature
+
+`CHATWOOT_IGNORE_JIDS`, `CHATWOOT_SIGN_MSG` and `CHATWOOT_SIGN_DELIMITER` apply to every device.
+A per-device config can carry its own values in three optional fields:
+
+| Field | Type | Effect when set | When unset |
+|-------|------|-----------------|------------|
+| `ignore_jids` | array of strings | These JIDs are never mirrored to Chatwoot for this device, **in addition to** `CHATWOOT_IGNORE_JIDS`. Same syntax: exact JIDs or the wildcards `@g.us`, `@s.whatsapp.net`, `@lid`. | Only `CHATWOOT_IGNORE_JIDS` applies. |
+| `sign_msg` | boolean or `null` | Replaces `CHATWOOT_SIGN_MSG` for this device (`false` switches the signature off even when the global setting is on). | `CHATWOOT_SIGN_MSG` applies. |
+| `sign_delimiter` | string or `null` | Replaces `CHATWOOT_SIGN_DELIMITER` for this device (a literal `\n` is expanded). | `CHATWOOT_SIGN_DELIMITER` applies. |
+
+The ignore list is additive: a device ignores the always-ignored system JIDs, the global list and
+its own list. It cannot un-ignore a JID that the global list ignores. The list applies to live
+forwarding and to history sync; the signature settings apply to agent replies sent through that
+device.
+
+A typical use is a WhatsApp group that contains several of your own numbers: ignore the group on
+every device except the one whose inbox should receive it.
+
+```bash
+# Ignore two groups on this device and switch the agent signature off for it
+curl -X PUT http://your-api:3000/devices/<device_id>/chatwoot/config \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chatwoot_url": "https://app.chatwoot.com",
+    "account_id": 12345,
+    "inbox_id": 67890,
+    "ignore_jids": ["120363000000000001@g.us", "120363000000000002@g.us"],
+    "sign_msg": false
+  }'
+```
+
+The PUT body always needs `chatwoot_url`, `account_id` and `inbox_id`. For the three fields above,
+like `api_token` and `enabled`, leaving a key out of an update keeps the stored value, so rotating
+a token does not reset them. Send `null` (or `[]` for `ignore_jids`) to clear a field and go back
+to the global setting. Responses always include all three: `ignore_jids` as a list (empty when
+none), `sign_msg` and `sign_delimiter` as `null` while the global value applies. An entry that is
+neither a JID nor a wildcard is rejected with `400 INVALID_REQUEST`. Changes take effect on the
+next message; a history sync that is already running keeps the list it started with.
+
 ### Behavior & safety notes
 
 - **api_token** is stored as-is in the local database and is masked (last 4 chars) in all API
@@ -560,7 +600,7 @@ With `CHATWOOT_CONVERSATION_PENDING=true`, newly-created conversations land in `
 
 ### Agent signature
 
-With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline).
+With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline). With per-device configs, `sign_msg` and `sign_delimiter` set either one per device; see [Per-device ignore list and agent signature](#per-device-ignore-list-and-agent-signature).
 
 ### Formatting translation
 
@@ -622,6 +662,8 @@ Inbound replies and reactions are threaded onto the message they reference (agai
 # Ignore all groups and one specific contact
 CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
+
+With per-device configs, each device can add its own entries through the `ignore_jids` field; see [Per-device ignore list and agent signature](#per-device-ignore-list-and-agent-signature).
 
 ## Supported Features
 

@@ -43,6 +43,9 @@ type SyncOptions struct {
 	MaxMessagesPerChat  int           // Limit messages per chat to prevent huge syncs
 	BatchSize           int           // Messages per batch (for rate limiting)
 	DelayBetweenBatches time.Duration // Delay between batches
+	// IgnoreJids is the device's own ignore list (per-device config
+	// ignore_jids), skipped in addition to the global CHATWOOT_IGNORE_JIDS.
+	IgnoreJids []string
 }
 
 // SyncRequest is the API request for triggering a sync

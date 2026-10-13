@@ -270,6 +270,112 @@ func TestChatwootConfigMaskedTokenRoundTrip(t *testing.T) {
 	}
 }
 
+// TestChatwootConfigBehaviourOverrides covers the per-device ignore_jids /
+// sign_msg / sign_delimiter fields end to end: create, read back, keep on an
+// update that omits them, clear with null, and reach the client registry.
+func TestChatwootConfigBehaviourOverrides(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+	const base = `"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5`
+
+	// Create without the fields: nothing is overridden.
+	resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,"api_token":"t"}`)
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("create status = %d body=%s", resp.StatusCode, body)
+	}
+	for _, want := range []string{`"ignore_jids":[]`, `"sign_msg":null`, `"sign_delimiter":null`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("unset overrides should render as %s, got %s", want, body)
+		}
+	}
+
+	// Set them; the list is trimmed, de-duplicated and blank entries dropped.
+	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{`+base+`,"ignore_jids":[" 120363000000000001@g.us ","@lid","","@lid"],"sign_msg":false,"sign_delimiter":" - "}`)
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("set status = %d body=%s", resp.StatusCode, body)
+	}
+	stored := store.configs["dev"]
+	if len(stored.IgnoreJids) != 2 || stored.IgnoreJids[0] != "120363000000000001@g.us" || stored.IgnoreJids[1] != "@lid" {
+		t.Fatalf("ignore_jids not normalized: %q", stored.IgnoreJids)
+	}
+	if stored.SignMsg == nil || *stored.SignMsg || stored.SignDelimiter == nil || *stored.SignDelimiter != " - " {
+		t.Fatalf("sign overrides not stored: %+v", stored)
+	}
+
+	// GET returns them.
+	_, body = doJSON(t, app, http.MethodGet, "/devices/dev/chatwoot/config", "")
+	for _, want := range []string{`"ignore_jids":["120363000000000001@g.us","@lid"]`, `"sign_msg":false`, `"sign_delimiter":" - "`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("GET missing %s: %s", want, body)
+		}
+	}
+
+	// The write invalidated the registry, so the forward path sees them.
+	rc, err := chatwoot.GetClientRegistry().Resolve("dev")
+	if err != nil || rc == nil {
+		t.Fatalf("resolve: rc=%+v err=%v", rc, err)
+	}
+	if !rc.IgnoresJID("120363000000000001@g.us") || rc.SignMsgEnabled() || rc.SignDelimiterValue() != " - " {
+		t.Fatalf("registry did not pick up the overrides: %+v", rc)
+	}
+
+	// An update that omits the fields (e.g. a token rotation) keeps them.
+	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,"api_token":"rotated"}`)
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("rotation status = %d body=%s", resp.StatusCode, body)
+	}
+	stored = store.configs["dev"]
+	if len(stored.IgnoreJids) != 2 || stored.SignMsg == nil || stored.SignDelimiter == nil {
+		t.Fatalf("omitted fields must keep the stored overrides: %+v", stored)
+	}
+
+	// Changing one field leaves the others alone.
+	doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,"sign_msg":true}`)
+	stored = store.configs["dev"]
+	if stored.SignMsg == nil || !*stored.SignMsg || len(stored.IgnoreJids) != 2 || stored.SignDelimiter == nil {
+		t.Fatalf("single-field update touched other overrides: %+v", stored)
+	}
+
+	// Explicit null (or an empty list) clears back to the global setting.
+	resp, body = doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config",
+		`{`+base+`,"ignore_jids":[],"sign_msg":null,"sign_delimiter":null}`)
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("clear status = %d body=%s", resp.StatusCode, body)
+	}
+	stored = store.configs["dev"]
+	if len(stored.IgnoreJids) != 0 || stored.SignMsg != nil || stored.SignDelimiter != nil {
+		t.Fatalf("null must clear the overrides: %+v", stored)
+	}
+}
+
+func TestChatwootConfigRejectsInvalidIgnoreJids(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+	const base = `"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"t"`
+
+	for _, entry := range []string{"628123456789", "628123456789@", "a@b@c", "628 123@s.whatsapp.net", "@g.us,@lid"} {
+		resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,"ignore_jids":["`+entry+`"]}`)
+		if resp.StatusCode != fiber.StatusBadRequest || !strings.Contains(body, "INVALID_REQUEST") {
+			t.Errorf("ignore_jids entry %q: status = %d body=%s, want 400 INVALID_REQUEST", entry, resp.StatusCode, body)
+		}
+	}
+	if _, ok := store.configs["dev"]; ok {
+		t.Fatal("an invalid ignore_jids entry must not save the config")
+	}
+
+	// Wrong JSON types are rejected rather than coerced.
+	for _, field := range []string{`"ignore_jids":"@g.us"`, `"sign_msg":"yes"`, `"sign_delimiter":5`} {
+		resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,`+field+`}`)
+		if resp.StatusCode == fiber.StatusOK {
+			t.Errorf("%s should be rejected, got 200: %s", field, body)
+		}
+	}
+	if _, ok := store.configs["dev"]; ok {
+		t.Fatal("a wrongly typed field must not save the config")
+	}
+}
+
 func TestChatwootConfigRejectsSSRFURL(t *testing.T) {
 	store := newFakeConfigStore()
 	app := newConfigTestApp(t, store)

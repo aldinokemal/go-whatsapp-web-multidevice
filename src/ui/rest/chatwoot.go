@@ -50,11 +50,12 @@ func NewChatwootHandler(
 // with literal "\n" escapes expanded). Returns "" when the reply has no text
 // body, which includes a message holding only Chatwoot's "--" signature
 // separator; callers must not send an empty text.
-func composeOutgoingText(payload chatwoot.WebhookPayload) string {
+// rc supplies the sending device's signature settings; nil inherits globals.
+func composeOutgoingText(payload chatwoot.WebhookPayload, rc *chatwoot.ResolvedConfig) string {
 	text := utils.ChatwootToWhatsAppMarkdown(payload.Content)
-	if config.ChatwootSignMsg && text != "" {
+	if rc.SignMsgEnabled() && text != "" {
 		if agent := strings.TrimSpace(payload.Sender.Name); agent != "" {
-			delimiter := strings.ReplaceAll(config.ChatwootSignDelimiter, "\\n", "\n")
+			delimiter := strings.ReplaceAll(rc.SignDelimiterValue(), "\\n", "\n")
 			text = "*" + agent + "*" + delimiter + text
 		}
 	}
@@ -543,8 +544,8 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 	// Translate Chatwoot markdown to WhatsApp formatting and apply the optional
 	// agent signature once, so both the attachment caption and the text path use
-	// the same composed body.
-	outgoingText := composeOutgoingText(payload)
+	// the same composed body. The signature follows the sending device's config.
+	outgoingText := composeOutgoingText(payload, h.resolveChatwootForDevice(resolvedID))
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
@@ -899,6 +900,7 @@ func (h *ChatwootHandler) SyncHistory(c fiber.Ctx) error {
 	// Build sync options
 	opts := chatwoot.DefaultSyncOptions()
 	opts.DaysLimit = req.DaysLimit
+	opts.IgnoreJids = resolved.IgnoreJids
 	if req.IncludeMedia != nil {
 		opts.IncludeMedia = *req.IncludeMedia
 	} else if c.Query("media") != "" {

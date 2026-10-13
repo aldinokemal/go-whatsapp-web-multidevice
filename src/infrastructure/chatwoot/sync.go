@@ -221,11 +221,12 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 
 		// status@broadcast, 0@s.whatsapp.net and @newsletter channels carry no
 		// actionable conversation for an agent, and operators can ignore
-		// additional JIDs (or whole address spaces) via CHATWOOT_IGNORE_JIDS.
+		// additional JIDs (or whole address spaces) via CHATWOOT_IGNORE_JIDS
+		// and, per device, the config's ignore_jids (opts.IgnoreJids).
 		// Skipping at the chat level (rather than per-message) keeps the
 		// totals honest in the progress tracker — the chat is excluded
 		// entirely instead of counted as "synced 0".
-		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) || utils.MatchesIgnoredJID(chat.JID, config.ChatwootIgnoreJids) {
+		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) || utils.MatchesIgnoredJID(chat.JID, config.ChatwootIgnoreJids) || utils.MatchesIgnoredJID(chat.JID, opts.IgnoreJids) {
 			logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s", chat.JID)
 			continue
 		}
@@ -921,6 +922,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 	go func() {
 		opts := DefaultSyncOptions()
 		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
+		opts.IgnoreJids = rc.IgnoreJids
 
 		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
 

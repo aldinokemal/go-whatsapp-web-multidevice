@@ -1302,16 +1302,50 @@ func (r *SQLiteRepository) DeleteChatwootMessageLinksByConfig(configID int64) er
 	return err
 }
 
-const chatwootDeviceConfigColumns = `id, device_id, device_jid, chatwoot_url, account_id, inbox_id, api_token, enabled, created_at, updated_at, webhook_secret`
+const chatwootDeviceConfigColumns = `id, device_id, device_jid, chatwoot_url, account_id, inbox_id, api_token, enabled, ignore_jids, sign_msg, sign_delimiter, created_at, updated_at, webhook_secret`
 
 func (r *SQLiteRepository) scanChatwootDeviceConfig(scanner interface{ Scan(...any) error }) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	cfg := &domainChatStorage.ChatwootDeviceConfig{}
+	var (
+		ignoreJids    sql.NullString
+		signMsg       sql.NullBool
+		signDelimiter sql.NullString
+	)
 	err := scanner.Scan(
 		&cfg.ID, &cfg.DeviceID, &cfg.DeviceJID, &cfg.ChatwootURL,
 		&cfg.AccountID, &cfg.InboxID, &cfg.APIToken, &cfg.Enabled,
+		&ignoreJids, &signMsg, &signDelimiter,
 		&cfg.CreatedAt, &cfg.UpdatedAt, &cfg.WebhookSecret,
 	)
-	return cfg, err
+	if err != nil {
+		return cfg, err
+	}
+	if ignoreJids.String != "" {
+		if err := json.Unmarshal([]byte(ignoreJids.String), &cfg.IgnoreJids); err != nil {
+			return cfg, fmt.Errorf("failed to decode chatwoot device config ignore_jids: %w", err)
+		}
+	}
+	if signMsg.Valid {
+		cfg.SignMsg = &signMsg.Bool
+	}
+	if signDelimiter.Valid {
+		cfg.SignDelimiter = &signDelimiter.String
+	}
+	return cfg, nil
+}
+
+// encodeChatwootIgnoreJids serializes a per-device ignore list for the
+// ignore_jids column: a JSON array, or an empty string when the device has
+// no list.
+func encodeChatwootIgnoreJids(jids []string) (string, error) {
+	if len(jids) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(jids)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode chatwoot device config ignore_jids: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // SaveChatwootDeviceConfig upserts a per-device Chatwoot configuration keyed by
@@ -1329,13 +1363,20 @@ func (r *SQLiteRepository) SaveChatwootDeviceConfig(cfg *domainChatStorage.Chatw
 	}
 	cfg.UpdatedAt = now
 
+	ignoreJids, err := encodeChatwootIgnoreJids(cfg.IgnoreJids)
+	if err != nil {
+		return err
+	}
+	// database/sql stores a nil *bool / *string as NULL (inherit the global value).
 	result, err := r.db.Exec(`
 		UPDATE chatwoot_device_configs
 		SET device_jid = ?, chatwoot_url = ?, account_id = ?, inbox_id = ?,
-		    api_token = ?, enabled = ?, webhook_secret = ?, updated_at = ?
+		    api_token = ?, enabled = ?, ignore_jids = ?, sign_msg = ?,
+		    sign_delimiter = ?, webhook_secret = ?, updated_at = ?
 		WHERE device_id = ?
 	`, cfg.DeviceJID, cfg.ChatwootURL, cfg.AccountID, cfg.InboxID,
-		cfg.APIToken, cfg.Enabled, cfg.WebhookSecret, cfg.UpdatedAt, cfg.DeviceID)
+		cfg.APIToken, cfg.Enabled, ignoreJids, cfg.SignMsg,
+		cfg.SignDelimiter, cfg.WebhookSecret, cfg.UpdatedAt, cfg.DeviceID)
 	if err != nil {
 		return err
 	}
@@ -1345,11 +1386,13 @@ func (r *SQLiteRepository) SaveChatwootDeviceConfig(cfg *domainChatStorage.Chatw
 		res, err := r.db.Exec(`
 			INSERT INTO chatwoot_device_configs (
 				device_id, device_jid, chatwoot_url, account_id, inbox_id,
-				api_token, enabled, webhook_secret, created_at, updated_at
+				api_token, enabled, ignore_jids, sign_msg, sign_delimiter,
+				created_at, updated_at, webhook_secret
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, cfg.DeviceID, cfg.DeviceJID, cfg.ChatwootURL, cfg.AccountID, cfg.InboxID,
-			cfg.APIToken, cfg.Enabled, cfg.WebhookSecret, cfg.CreatedAt, cfg.UpdatedAt)
+			cfg.APIToken, cfg.Enabled, ignoreJids, cfg.SignMsg, cfg.SignDelimiter,
+			cfg.CreatedAt, cfg.UpdatedAt, cfg.WebhookSecret)
 		if err != nil {
 			return err
 		}
@@ -3170,5 +3213,13 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 50: Per-device secret for Chatwoot's signed webhooks (each API channel has its own)
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
+
+		// Migration 51: Per-device Chatwoot ignore list (JSON array, '' = none),
+		// added to the global CHATWOOT_IGNORE_JIDS
+		`ALTER TABLE chatwoot_device_configs ADD COLUMN ignore_jids TEXT DEFAULT ''`,
+		// Migration 52: Per-device CHATWOOT_SIGN_MSG override (NULL = inherit global)
+		`ALTER TABLE chatwoot_device_configs ADD COLUMN sign_msg BOOLEAN DEFAULT NULL`,
+		// Migration 53: Per-device CHATWOOT_SIGN_DELIMITER override (NULL = inherit global)
+		`ALTER TABLE chatwoot_device_configs ADD COLUMN sign_delimiter TEXT DEFAULT NULL`,
 	}
 }

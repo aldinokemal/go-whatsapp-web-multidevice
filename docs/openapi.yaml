@@ -4309,6 +4309,10 @@ paths:
         keeps the stored token. Changing the routing identity (url/account/inbox) is
         rejected with 409 once the config has linked conversations; delete and
         recreate the config to rebind.
+        `ignore_jids`, `sign_msg` and `sign_delimiter` are optional per-device
+        behaviour settings. On update an omitted key keeps its stored value; an
+        explicit `null` (or an empty `ignore_jids` list) clears it, so the device
+        uses the global CHATWOOT_* setting again.
       parameters:
         - $ref: '#/components/parameters/ChatwootConfigDeviceId'
       requestBody:
@@ -4345,6 +4349,31 @@ paths:
                 enabled:
                   type: boolean
                   default: true
+                ignore_jids:
+                  type: array
+                  nullable: true
+                  items:
+                    type: string
+                  description: |
+                    WhatsApp JIDs this device never mirrors to Chatwoot, in addition to the
+                    global CHATWOOT_IGNORE_JIDS list. Each entry is an exact JID or one of the
+                    wildcards `@g.us`, `@s.whatsapp.net`, `@lid`. Applies to live forwarding
+                    and history sync. Omit to keep the stored list; `null` or `[]` clears it.
+                  example: ['120363000000000001@g.us', '628123456789@s.whatsapp.net']
+                sign_msg:
+                  type: boolean
+                  nullable: true
+                  description: |
+                    Per-device CHATWOOT_SIGN_MSG: prefix this device's agent replies with the
+                    agent name. Omit to keep the stored value; `null` uses the global setting.
+                  example: true
+                sign_delimiter:
+                  type: string
+                  nullable: true
+                  description: |
+                    Per-device CHATWOOT_SIGN_DELIMITER (a literal `\n` is expanded to a newline).
+                    Omit to keep the stored value; `null` uses the global setting.
+                  example: '\n\n'
       responses:
         '200':
           description: Config saved
@@ -4486,6 +4515,22 @@ components:
         updated_at:
           type: string
           format: date-time
+        ignore_jids:
+          type: array
+          items:
+            type: string
+          description: JIDs or wildcards this device never mirrors to Chatwoot, added to the global CHATWOOT_IGNORE_JIDS list (empty when none)
+          example: ['120363000000000001@g.us']
+        sign_msg:
+          type: boolean
+          nullable: true
+          description: Per-device CHATWOOT_SIGN_MSG override; null while the global setting applies
+          example: null
+        sign_delimiter:
+          type: string
+          nullable: true
+          description: Per-device CHATWOOT_SIGN_DELIMITER override; null while the global setting applies
+          example: null
     CreateGroupResponse:
       type: object
       properties:

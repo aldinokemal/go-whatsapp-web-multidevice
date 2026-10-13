@@ -454,6 +454,14 @@ type chatwootSyncResult struct {
 	InboxID        int
 }
 
+// chatwootPayloadJIDs returns the chat and sender JIDs of a message payload,
+// the two identities matched against the Chatwoot ignore lists.
+func chatwootPayloadJIDs(data map[string]any) (chatID, from string) {
+	chatID, _ = data["chat_id"].(string)
+	from, _ = data["from"].(string)
+	return chatID, from
+}
+
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
 // For groups, uses the group JID as identifier and tries to fetch group name.
 // For private chats, uses the sender's phone number.
@@ -1226,6 +1234,14 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		if !config.ChatwootForwardDeletes {
 			return nil
 		}
+	}
+
+	// Per-device ignore list (the device config's ignore_jids). Checked before
+	// contact extraction so an ignored group costs no group-info lookup; the
+	// global CHATWOOT_IGNORE_JIDS list is applied inside the extraction below.
+	if chatID, from := chatwootPayloadJIDs(data); resolved.IgnoresJID(chatID) || resolved.IgnoresJID(from) {
+		logrus.Debugf("Chatwoot: Skipping message: ignored JID chat=%s from=%s for device %s", chatID, from, deviceID)
+		return nil
 	}
 
 	// Extract contact information

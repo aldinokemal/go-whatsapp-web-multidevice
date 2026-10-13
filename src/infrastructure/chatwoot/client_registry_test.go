@@ -198,3 +198,65 @@ func TestClientRegistryResolveByInbox(t *testing.T) {
 		t.Fatalf("unknown inbox must resolve nil, got %+v", rc)
 	}
 }
+
+func TestClientRegistryCarriesPerDeviceBehaviourSettings(t *testing.T) {
+	prevIgnore, prevSign, prevDelim := config.ChatwootIgnoreJids, config.ChatwootSignMsg, config.ChatwootSignDelimiter
+	t.Cleanup(func() {
+		config.ChatwootIgnoreJids, config.ChatwootSignMsg, config.ChatwootSignDelimiter = prevIgnore, prevSign, prevDelim
+	})
+	config.ChatwootIgnoreJids = []string{"628999@s.whatsapp.net"}
+	config.ChatwootSignMsg = true
+	config.ChatwootSignDelimiter = "\n\n"
+
+	signOff, delimiter := false, " - "
+	overridden := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 1, DeviceID: "a", ChatwootURL: "https://a.example.com", AccountID: 1, InboxID: 1, APIToken: "t", Enabled: true,
+		IgnoreJids: []string{"120363000000000001@g.us"}, SignMsg: &signOff, SignDelimiter: &delimiter,
+	}
+	inheriting := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 2, DeviceID: "b", ChatwootURL: "https://a.example.com", AccountID: 1, InboxID: 2, APIToken: "t", Enabled: true,
+	}
+	reg := NewClientRegistry(&fakeConfigRepo{
+		byIdentifier: map[string]*domainChatStorage.ChatwootDeviceConfig{"a": overridden, "b": inheriting},
+		byInbox:      map[[2]int]*domainChatStorage.ChatwootDeviceConfig{{1, 1}: overridden},
+		count:        2,
+	})
+
+	a, err := reg.Resolve("a")
+	if err != nil || a == nil {
+		t.Fatalf("resolve a: rc=%v err=%v", a, err)
+	}
+	// The device list is added to the global one, not a replacement for it.
+	if !a.IgnoresJID("120363000000000001@g.us") || !a.IgnoresJID("628999@s.whatsapp.net") {
+		t.Fatal("device a must ignore both its own and the global JIDs")
+	}
+	if a.IgnoresJID("120363000000000002@g.us") {
+		t.Fatal("device a must not ignore an unlisted group")
+	}
+	if a.SignMsgEnabled() || a.SignDelimiterValue() != " - " {
+		t.Fatalf("device a overrides not applied: sign=%v delimiter=%q", a.SignMsgEnabled(), a.SignDelimiterValue())
+	}
+
+	b, err := reg.Resolve("b")
+	if err != nil || b == nil {
+		t.Fatalf("resolve b: rc=%v err=%v", b, err)
+	}
+	if b.IgnoresJID("120363000000000001@g.us") {
+		t.Fatal("device a's ignore list must not leak to device b")
+	}
+	if !b.IgnoresJID("628999@s.whatsapp.net") || !b.SignMsgEnabled() || b.SignDelimiterValue() != "\n\n" {
+		t.Fatal("device b must inherit the global settings")
+	}
+
+	// The reverse (inbox) lookup carries the same settings.
+	byInbox, err := reg.ResolveByInbox(1, 1)
+	if err != nil || byInbox == nil || byInbox.SignMsgEnabled() || !byInbox.IgnoresJID("120363000000000001@g.us") {
+		t.Fatalf("ResolveByInbox lost the device settings: rc=%+v err=%v", byInbox, err)
+	}
+
+	// A nil resolution (legacy callers, disabled device) falls back to globals.
+	var none *ResolvedConfig
+	if !none.SignMsgEnabled() || none.SignDelimiterValue() != "\n\n" || !none.IgnoresJID("628999@s.whatsapp.net") || none.IgnoresJID("120363000000000001@g.us") {
+		t.Fatal("nil ResolvedConfig must use the global settings")
+	}
+}

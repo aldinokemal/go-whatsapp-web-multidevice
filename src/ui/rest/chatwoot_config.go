@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -16,16 +18,69 @@ import (
 // chatwootConfigRequest is the PUT body for a per-device Chatwoot config. An
 // empty api_token on update keeps the stored token (so other fields can be
 // changed without re-sending the secret). enabled defaults to true on create.
+//
+// ignore_jids, sign_msg and sign_delimiter are optional per-device behaviour
+// settings. Like enabled, an omitted key keeps the stored value on update; an
+// explicit null (or an empty ignore_jids list) clears it, so the device goes
+// back to the global CHATWOOT_* setting.
 type chatwootConfigRequest struct {
 	ChatwootURL string `json:"chatwoot_url"`
 	AccountID   int    `json:"account_id"`
 	InboxID     int    `json:"inbox_id"`
 	APIToken    string `json:"api_token"`
 	Enabled     *bool  `json:"enabled"`
-	// WebhookSecret is the secret Chatwoot signs this inbox's webhooks with.
-	// Omitted keeps the stored value; an empty string clears it (the global
-	// CHATWOOT_WEBHOOK_SECRET then applies).
+	// Omitted preserves the secret; empty clears it and uses the global secret.
 	WebhookSecret *string `json:"webhook_secret"`
+
+	IgnoreJids    optionalField[[]string] `json:"ignore_jids"`
+	SignMsg       optionalField[bool]     `json:"sign_msg"`
+	SignDelimiter optionalField[string]   `json:"sign_delimiter"`
+}
+
+// optionalField decodes a JSON key while keeping "absent" (Set false) apart
+// from an explicit null (Set true, Value nil) and a value (Set true, Value set).
+type optionalField[T any] struct {
+	Set   bool
+	Value *T
+}
+
+func (o *optionalField[T]) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	o.Value = nil
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	var value T
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = &value
+	return nil
+}
+
+// normalizeChatwootIgnoreJids trims, de-duplicates and validates a per-device
+// ignore list. Entries follow CHATWOOT_IGNORE_JIDS: an exact JID
+// ("user@server") or an address-space wildcard ("@g.us", "@s.whatsapp.net",
+// "@lid"). Blank entries are dropped.
+func normalizeChatwootIgnoreJids(jids []string) ([]string, error) {
+	out := make([]string, 0, len(jids))
+	seen := make(map[string]struct{}, len(jids))
+	for _, jid := range jids {
+		jid = strings.TrimSpace(jid)
+		if jid == "" {
+			continue
+		}
+		at := strings.Index(jid, "@")
+		if at < 0 || at == len(jid)-1 || strings.Count(jid, "@") != 1 || strings.ContainsAny(jid, " \t\r\n,") {
+			return nil, fmt.Errorf("invalid ignore_jids entry %q: expected a JID such as 628123456789@s.whatsapp.net or 120363000000000000@g.us, or a wildcard such as @g.us", jid)
+		}
+		if _, dup := seen[jid]; dup {
+			continue
+		}
+		seen[jid] = struct{}{}
+		out = append(out, jid)
+	}
+	return out, nil
 }
 
 // maskAPIToken redacts a stored token for read responses, revealing only the
@@ -56,18 +111,22 @@ func perDeviceWebhookURL(deviceID string) string {
 
 func chatwootConfigView(cfg *domainChatStorage.ChatwootDeviceConfig) map[string]any {
 	return map[string]any{
-		"device_id":    cfg.DeviceID,
-		"device_jid":   cfg.DeviceJID,
-		"chatwoot_url": cfg.ChatwootURL,
-		"account_id":   cfg.AccountID,
-		"inbox_id":     cfg.InboxID,
-		"api_token":    maskAPIToken(cfg.APIToken),
-		"enabled":      cfg.Enabled,
-		"webhook_url":  perDeviceWebhookURL(cfg.DeviceID),
-		// The secret itself is never returned, only whether one is set.
+		"device_id":          cfg.DeviceID,
+		"device_jid":         cfg.DeviceJID,
+		"chatwoot_url":       cfg.ChatwootURL,
+		"account_id":         cfg.AccountID,
+		"inbox_id":           cfg.InboxID,
+		"api_token":          maskAPIToken(cfg.APIToken),
+		"enabled":            cfg.Enabled,
+		"webhook_url":        perDeviceWebhookURL(cfg.DeviceID),
 		"webhook_secret_set": strings.TrimSpace(cfg.WebhookSecret) != "",
 		"created_at":         cfg.CreatedAt,
 		"updated_at":         cfg.UpdatedAt,
+		// Per-device behaviour settings: ignore_jids is always a list (empty when
+		// none); sign_msg / sign_delimiter are null while the global value applies.
+		"ignore_jids":    append([]string{}, cfg.IgnoreJids...),
+		"sign_msg":       cfg.SignMsg,
+		"sign_delimiter": cfg.SignDelimiter,
 	}
 }
 
@@ -193,6 +252,26 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c fiber.Ctx) error {
 	if existing != nil {
 		cfg.ID = existing.ID
 		cfg.CreatedAt = existing.CreatedAt
+		// Omitted behaviour settings keep their stored values.
+		cfg.IgnoreJids = existing.IgnoreJids
+		cfg.SignMsg = existing.SignMsg
+		cfg.SignDelimiter = existing.SignDelimiter
+	}
+	if req.IgnoreJids.Set {
+		cfg.IgnoreJids = nil
+		if req.IgnoreJids.Value != nil {
+			ignoreJids, vErr := normalizeChatwootIgnoreJids(*req.IgnoreJids.Value)
+			if vErr != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{Status: fiber.StatusBadRequest, Code: "INVALID_REQUEST", Message: vErr.Error()})
+			}
+			cfg.IgnoreJids = ignoreJids
+		}
+	}
+	if req.SignMsg.Set {
+		cfg.SignMsg = req.SignMsg.Value
+	}
+	if req.SignDelimiter.Set {
+		cfg.SignDelimiter = req.SignDelimiter.Value
 	}
 
 	if err := h.ChatStorageRepo.SaveChatwootDeviceConfig(cfg); err != nil {

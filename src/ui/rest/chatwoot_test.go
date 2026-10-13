@@ -229,8 +229,41 @@ func TestComposeOutgoingText(t *testing.T) {
 				Sender:  chatwoot.Contact{Name: tt.sender},
 			}
 
-			got := composeOutgoingText(payload)
+			got := composeOutgoingText(payload, nil)
 			if got != tt.want {
+				t.Errorf("composeOutgoingText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestComposeOutgoingTextPerDeviceOverride covers the per-device sign_msg /
+// sign_delimiter settings: a set field replaces the global one for that device,
+// an unset field inherits it.
+func TestComposeOutgoingTextPerDeviceOverride(t *testing.T) {
+	on, off := true, false
+	dash, escaped := " - ", ":\\n"
+	payload := chatwoot.WebhookPayload{Content: "Hello", Sender: chatwoot.Contact{Name: "Jane"}}
+
+	tests := []struct {
+		name       string
+		globalSign bool
+		rc         *chatwoot.ResolvedConfig
+		want       string
+	}{
+		{name: "device off beats global on", globalSign: true, rc: &chatwoot.ResolvedConfig{SignMsg: &off}, want: "Hello"},
+		{name: "device on beats global off", globalSign: false, rc: &chatwoot.ResolvedConfig{SignMsg: &on}, want: "*Jane*\n\nHello"},
+		{name: "unset inherits global on", globalSign: true, rc: &chatwoot.ResolvedConfig{}, want: "*Jane*\n\nHello"},
+		{name: "unset inherits global off", globalSign: false, rc: &chatwoot.ResolvedConfig{}, want: "Hello"},
+		{name: "device delimiter with global sign", globalSign: true, rc: &chatwoot.ResolvedConfig{SignDelimiter: &dash}, want: "*Jane* - Hello"},
+		{name: "device delimiter expands escapes", globalSign: false, rc: &chatwoot.ResolvedConfig{SignMsg: &on, SignDelimiter: &escaped}, want: "*Jane*:\nHello"},
+		{name: "device delimiter unused when signing is off", globalSign: true, rc: &chatwoot.ResolvedConfig{SignMsg: &off, SignDelimiter: &dash}, want: "Hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withSignConfig(t, tt.globalSign, "\n\n")
+			if got := composeOutgoingText(payload, tt.rc); got != tt.want {
 				t.Errorf("composeOutgoingText() = %q, want %q", got, tt.want)
 			}
 		})
