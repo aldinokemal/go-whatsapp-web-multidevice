@@ -1236,9 +1236,9 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 
-	// Per-device ignore list (the device config's ignore_jids). Checked before
-	// contact extraction so an ignored group costs no group-info lookup; the
-	// global CHATWOOT_IGNORE_JIDS list is applied inside the extraction below.
+	// Ignore lists: the global CHATWOOT_IGNORE_JIDS plus the device config's
+	// ignore_jids. Checked before contact extraction so an ignored chat costs
+	// no group-info or address-book lookup.
 	if chatID, from := chatwootPayloadJIDs(data); resolved.IgnoresJID(chatID) || resolved.IgnoresJID(from) {
 		logrus.Debugf("Chatwoot: Skipping message: ignored JID chat=%s from=%s for device %s", chatID, from, deviceID)
 		return nil

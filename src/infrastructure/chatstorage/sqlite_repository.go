@@ -1335,17 +1335,16 @@ func (r *SQLiteRepository) scanChatwootDeviceConfig(scanner interface{ Scan(...a
 }
 
 // encodeChatwootIgnoreJids serializes a per-device ignore list for the
-// ignore_jids column: a JSON array, or an empty string when the device has
-// no list.
-func encodeChatwootIgnoreJids(jids []string) (string, error) {
+// ignore_jids column: a JSON array, or NULL when the device has no list.
+func encodeChatwootIgnoreJids(jids []string) (sql.NullString, error) {
 	if len(jids) == 0 {
-		return "", nil
+		return sql.NullString{}, nil
 	}
 	encoded, err := json.Marshal(jids)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode chatwoot device config ignore_jids: %w", err)
+		return sql.NullString{}, fmt.Errorf("failed to encode chatwoot device config ignore_jids: %w", err)
 	}
-	return string(encoded), nil
+	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
 // SaveChatwootDeviceConfig upserts a per-device Chatwoot configuration keyed by
@@ -3211,15 +3210,15 @@ func (r *SQLiteRepository) getMigrations() []string {
 		// Migration 49: Persist reply context for live, sent, and history messages.
 		`ALTER TABLE messages ADD COLUMN context_metadata TEXT DEFAULT ''`,
 
-		// Migration 50: Per-device secret for Chatwoot's signed webhooks (each API channel has its own)
+		// Migration 50: Per-device secret for Chatwoot's signed webhooks.
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
 
-		// Migration 51: Per-device Chatwoot ignore list (JSON array, '' = none),
-		// added to the global CHATWOOT_IGNORE_JIDS
-		`ALTER TABLE chatwoot_device_configs ADD COLUMN ignore_jids TEXT DEFAULT ''`,
-		// Migration 52: Per-device CHATWOOT_SIGN_MSG override (NULL = inherit global)
+		// Migrations 51-53: Nullable per-device behaviour overrides.
+		// Migration 51: Ignore list, added to CHATWOOT_IGNORE_JIDS (NULL = none).
+		`ALTER TABLE chatwoot_device_configs ADD COLUMN ignore_jids TEXT DEFAULT NULL`,
+		// Migration 52: Per-device CHATWOOT_SIGN_MSG (NULL = inherit).
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN sign_msg BOOLEAN DEFAULT NULL`,
-		// Migration 53: Per-device CHATWOOT_SIGN_DELIMITER override (NULL = inherit global)
+		// Migration 53: Per-device CHATWOOT_SIGN_DELIMITER (NULL = inherit).
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN sign_delimiter TEXT DEFAULT NULL`,
 	}
 }
