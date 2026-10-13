@@ -11,7 +11,9 @@ usecases. REST and MCP share the `rest` process and device manager.
   outside it. Pass `whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))`
   to device-bound usecases. Browser websockets select a device with `?device_id=`.
 - Route/auth order lives in `../cmd/rest.go`. Chatwoot webhooks are mounted before
-  Basic Auth but enforce `CHATWOOT_WEBHOOK_SECRET` when configured. Keep manual
+  Basic Auth but enforce `CHATWOOT_WEBHOOK_SECRET` when configured. A device config's own
+  `webhook_secret` replaces it for that device on both endpoints: call
+  `chatwootWebhookRouteGate` with the final route before acting on a webhook. Keep manual
   sync/config routes authenticated and preserve webhook device routing and echo guards.
   New public routes need an explicit public contract, such as a health check or webhook.
 

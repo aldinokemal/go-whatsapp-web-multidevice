@@ -228,7 +228,28 @@ Notes:
 
 GOWA recomputes the HMAC over the timestamp and the raw request body, compares it in constant time, and rejects timestamps more than the tolerance away from its own clock in either direction. Keep both hosts' clocks synchronized (NTP); a `401` with `timestamp outside the tolerance window` in the GOWA log means they have drifted apart.
 
-With [per-device configs](#per-device--multi-inbox-routing), each inbox is a different API channel with its own secret. Store it on the device config as `webhook_secret`; it then authenticates that device's `/chatwoot/webhook/<device_id>` endpoint instead of the global secret.
+With [per-device configs](#per-device--multi-inbox-routing), each inbox is a different API channel with its own secret. Store it on the device config as `webhook_secret`; it then protects that device instead of the global secret.
+
+### Which secret protects a delivery
+
+The secret that applies is the secret of the device the webhook is routed to, on both endpoints:
+
+- The device has its own `webhook_secret`: the request must prove that secret. The global secret is not accepted for it, and neither is another device's secret.
+- The device has no `webhook_secret`: the global `CHATWOOT_WEBHOOK_SECRET` applies; when that is empty too, the device accepts unauthenticated webhooks.
+- No device resolves (unknown inbox, or an event GOWA ignores such as `conversation_updated`): the global secret applies. Nothing is sent for such a request either way.
+
+This holds for the shared `/chatwoot/webhook` endpoint as well, which picks the device from the payload: nothing is sent, revoked, marked as read, or written before the request has been verified against the routed device's secret. A request signed with a device's secret is accepted there for that device's inbox, so several inboxes with different secrets can share the one URL. Events GOWA ignores are still checked against the global secret only, so prefer the per-device URL when devices have their own secrets and a global secret is also set.
+
+When `CHATWOOT_WEBHOOK_SECRET` is empty and at least one device has its own secret, an agent reply that resolves to no device is answered `401`, the same as a wrong secret, so the response does not show which account/inbox pairs are mapped to a protected device. Without any device secret such a request is acknowledged with `200` and dropped, as before.
+
+### Replayed requests
+
+What a captured, valid request can do depends on how it was authenticated:
+
+- **Chatwoot signature:** GOWA remembers the timestamp and signature of every verified request for the tolerance window. A second copy of the same request is acknowledged with `200` and not acted on, and after the window the timestamp check rejects it. This memory is held in the GOWA process: it is lost on a restart, so a captured request can be delivered once more if GOWA restarts while the request is still inside the window, and it is not shared between several GOWA instances behind one URL. It holds up to 65,536 requests; beyond that the oldest are forgotten first.
+- **`X-Hub-Signature-256`, secret header, `?secret=`:** nothing in the request identifies one delivery, so a captured request can be sent again for as long as the secret is unchanged. The secret header and query string also hand the secret itself to whoever captures the request.
+
+GOWA does not otherwise deduplicate agent replies: if Chatwoot delivers the same message twice in two separately signed requests, it is sent to WhatsApp twice.
 
 ### Query-string secret
 
@@ -323,11 +344,11 @@ through another's path.
 - **api_token** is stored as-is in the local database and is masked (last 4 chars) in all API
   reads. Treat the GOWA database as a secret store.
 - **webhook_secret** (optional) is the webhook secret of this inbox's API channel. When set, it
-  authenticates this device's `/chatwoot/webhook/<device_id>` endpoint in place of the global
-  `CHATWOOT_WEBHOOK_SECRET`, with the same accepted methods (see [Webhook Secret](#webhook-secret)).
+  protects every webhook routed to this device, on `/chatwoot/webhook/<device_id>` and on the
+  shared `/chatwoot/webhook`, in place of the global `CHATWOOT_WEBHOOK_SECRET` and with the same
+  accepted methods (see [Which secret protects a delivery](#which-secret-protects-a-delivery)).
   It is never returned: reads only report `webhook_secret_set`. Omit the field on update to keep
-  the stored value; send an empty string to remove it. The shared `/chatwoot/webhook` endpoint
-  always uses the global secret.
+  the stored value; send an empty string to remove it.
 - **`chatwoot_url`** is validated: only `http`/`https`, no embedded credentials, and hosts that
   resolve to private/loopback/link-local/metadata addresses are rejected (SSRF hardening). Set
   `CHATWOOT_ALLOWED_HOSTS` to a comma-separated allowlist to restrict it further.
@@ -819,9 +840,9 @@ Expected response: `200 OK` with `status` such as `idle`, `running`, or `complet
 **Request Body:** Standard Chatwoot webhook payload
 
 **Response Codes:**
-- `200 OK` - Message processed (or skipped)
-- `401 Unauthorized` - Webhook secret or signature is missing/invalid, or the signature's timestamp is outside the tolerance window
-- `503 Service Unavailable` - No device available
+- `200 OK` - Message processed (or skipped, including a repeated copy of an already handled signed request)
+- `401 Unauthorized` - Webhook secret or signature is missing/invalid for the device the request is routed to, or the signature's timestamp is outside the tolerance window
+- `503 Service Unavailable` - No device available, or the routed device's config could not be read to authenticate the request
 
 ### Related Endpoints
 

@@ -4156,6 +4156,13 @@ paths:
         (HMAC-SHA256 of the raw body), the secret in `X-Chatwoot-Webhook-Secret`
         or `X-Gowa-Chatwoot-Secret`, or the `secret` query parameter (discouraged:
         the secret then appears in URLs and logs).
+
+        The secret that applies is the secret of the device the payload is
+        routed to: that device config's `webhook_secret` when it has one (the
+        global secret is then not accepted for it), CHATWOOT_WEBHOOK_SECRET
+        otherwise and when no device resolves. A Chatwoot-signed request that
+        was already handled inside the tolerance window is acknowledged with
+        200 and not acted on again.
       parameters:
         - name: X-Chatwoot-Signature
           in: header
@@ -4182,7 +4189,7 @@ paths:
         '200':
           description: Webhook processed
         '401':
-          description: Secret or signature missing or invalid, or the signature timestamp is outside the tolerance window
+          description: Secret or signature missing or invalid for the device the request is routed to, or the signature timestamp is outside the tolerance window
         '503':
           description: Device not available
           content:
@@ -4328,8 +4335,9 @@ paths:
                 webhook_secret:
                   type: string
                   description: |
-                    Webhook secret of this inbox's API channel. When set it authenticates
-                    this device's `/chatwoot/webhook/{device_id}` endpoint instead of
+                    Webhook secret of this inbox's API channel. When set it protects every
+                    webhook routed to this device (on `/chatwoot/webhook/{device_id}` and on
+                    the shared `/chatwoot/webhook`) instead of
                     CHATWOOT_WEBHOOK_SECRET. Omit to keep the stored value; send an empty
                     string to remove it. Never returned by the API.
                 enabled:
