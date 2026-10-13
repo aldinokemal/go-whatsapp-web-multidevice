@@ -15,6 +15,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -52,6 +53,14 @@ const mutexShardCount = 64
 // This approach prevents memory leaks that would occur with a sync.Map that grows indefinitely.
 var contactMutexShards [mutexShardCount]sync.Mutex
 
+// groupNameCacheKey identifies a cached group name. A subject belongs to the
+// account that read it: another account may not be in the group at all, so a
+// name is never shared between devices.
+type groupNameCacheKey struct {
+	deviceID string
+	groupJID string
+}
+
 // groupNameCacheEntry holds cached group name with expiration time
 type groupNameCacheEntry struct {
 	name      string
@@ -62,28 +71,60 @@ var (
 	// groupNameCache provides TTL-based caching for group names to reduce WhatsApp API calls
 	groupNameCache    sync.Map
 	groupNameCacheTTL = 5 * time.Minute
+
+	// fetchGroupInfoFn asks WhatsApp for a group's info as the given client. It
+	// is a seam so tests can answer per device without a live connection.
+	fetchGroupInfoFn = func(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		return client.GetGroupInfo(ctx, jid)
+	}
 )
 
-// getCachedGroupName retrieves group name from cache if not expired.
-// Returns empty string and false if not cached or expired.
-func getCachedGroupName(groupJID string) (string, bool) {
-	if entry, ok := groupNameCache.Load(groupJID); ok {
+// groupNameCacheDeviceID returns the identity a client's group names are cached
+// under: its own account JID, the same identity chat storage files rows under.
+// A client that is not logged in has none and never uses the cache.
+func groupNameCacheDeviceID(client *whatsmeow.Client) string {
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return ""
+	}
+	return client.Store.ID.ToNonAD().String()
+}
+
+// getCachedGroupName retrieves the name one device cached for a group, if not
+// expired. Returns empty string and false if not cached or expired.
+func getCachedGroupName(deviceID, groupJID string) (string, bool) {
+	if deviceID == "" {
+		return "", false
+	}
+	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
+	if entry, ok := groupNameCache.Load(key); ok {
 		cached := entry.(groupNameCacheEntry)
 		if time.Now().Before(cached.expiresAt) {
 			return cached.name, true
 		}
 		// Entry expired, delete it
-		groupNameCache.Delete(groupJID)
+		groupNameCache.Delete(key)
 	}
 	return "", false
 }
 
-// setCachedGroupName stores group name in cache with TTL.
-func setCachedGroupName(groupJID, name string) {
-	groupNameCache.Store(groupJID, groupNameCacheEntry{
+// setCachedGroupName stores a group name for one device with TTL.
+func setCachedGroupName(deviceID, groupJID, name string) {
+	if deviceID == "" {
+		return
+	}
+	groupNameCache.Store(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}, groupNameCacheEntry{
 		name:      name,
 		expiresAt: time.Now().Add(groupNameCacheTTL),
 	})
+}
+
+// invalidateCachedGroupName drops the name one device cached for a group, so
+// the next lookup by that device reads the current subject.
+func invalidateCachedGroupName(deviceID, groupJID string) {
+	if deviceID == "" {
+		return
+	}
+	groupNameCache.Delete(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID})
 }
 
 // getContactMutex returns a mutex for the given phone number to serialize contact operations.
@@ -1347,14 +1388,8 @@ func isEventWhitelisted(eventName string) bool {
 }
 
 // getGroupName fetches the group name from WhatsApp using the group JID.
-// Uses a TTL cache to avoid repeated API calls for the same group.
+// Uses a per-device TTL cache to avoid repeated API calls for the same group.
 func getGroupName(ctx context.Context, groupJID string) string {
-	// Check cache first
-	if name, ok := getCachedGroupName(groupJID); ok {
-		logrus.Debugf("Chatwoot: Using cached group name for %s: %s", groupJID, name)
-		return name
-	}
-
 	client := ClientFromContext(ctx)
 	if client == nil {
 		logrus.Debug("Chatwoot: ClientFromContext returned nil, trying GetClient()")
@@ -1363,6 +1398,14 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	if client == nil {
 		logrus.Warn("Chatwoot: No WhatsApp client available to fetch group name")
 		return ""
+	}
+
+	// Check this device's cache first. The name is only ever served to the
+	// device that fetched it.
+	deviceID := groupNameCacheDeviceID(client)
+	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
+		logrus.Debugf("Chatwoot: Using cached group name for %s: %s", groupJID, name)
+		return name
 	}
 
 	jid, err := types.ParseJID(groupJID)
@@ -1377,7 +1420,7 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	defer cancel()
 
 	logrus.Debugf("Chatwoot: Fetching group info for %s", groupJID)
-	groupInfo, err := client.GetGroupInfo(freshCtx, jid)
+	groupInfo, err := fetchGroupInfoFn(freshCtx, client, jid)
 	if err != nil {
 		logrus.Warnf("Chatwoot: Failed to get group info for %s: %v", groupJID, err)
 		return ""
@@ -1386,7 +1429,7 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	if groupInfo != nil && groupInfo.Name != "" {
 		logrus.Infof("Chatwoot: Got group name: %s", groupInfo.Name)
 		// Cache the result
-		setCachedGroupName(groupJID, groupInfo.Name)
+		setCachedGroupName(deviceID, groupJID, groupInfo.Name)
 		return groupInfo.Name
 	}
 

@@ -382,6 +382,11 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 		return
 	}
 
+	// A new subject makes this device's cached group name stale.
+	if evt.Name != nil {
+		invalidateCachedGroupName(groupNameCacheDeviceID(client), evt.JID.ToNonAD().String())
+	}
+
 	// Log group events for debugging
 	if len(evt.Join) > 0 {
 		log.Infof("Group %s: %d users joined at %s", evt.JID, len(evt.Join), evt.Timestamp)
