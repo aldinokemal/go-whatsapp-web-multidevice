@@ -305,6 +305,26 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 	return rc
 }
 
+// signConfigForDevice returns the config whose sign_msg / sign_delimiter apply
+// to an agent reply sent from deviceID, or nil when the global settings apply.
+// The registry resolves nothing for a disabled config or on a lookup error,
+// yet a reply routed through a stored conversation link is still delivered, so
+// the stored row is read directly in that case: a device that switched its
+// signature off must not start signing because forwarding was paused.
+func (h *ChatwootHandler) signConfigForDevice(deviceID string) *chatwoot.ResolvedConfig {
+	if rc := h.resolveChatwootForDevice(deviceID); rc != nil {
+		return rc
+	}
+	if h.ChatStorageRepo == nil {
+		return nil
+	}
+	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(deviceID)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	return &chatwoot.ResolvedConfig{ConfigID: cfg.ID, DeviceID: cfg.DeviceID, SignMsg: cfg.SignMsg, SignDelimiter: cfg.SignDelimiter}
+}
+
 // HandleWebhook is the shared (legacy / single-webhook) Chatwoot endpoint. The
 // device is resolved from the payload (conversation link, contact attrs, inbox
 // map, or env fallback).
@@ -545,7 +565,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 	// Translate Chatwoot markdown to WhatsApp formatting and apply the optional
 	// agent signature once, so both the attachment caption and the text path use
 	// the same composed body. The signature follows the sending device's config.
-	outgoingText := composeOutgoingText(payload, h.resolveChatwootForDevice(resolvedID))
+	outgoingText := composeOutgoingText(payload, h.signConfigForDevice(resolvedID))
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
