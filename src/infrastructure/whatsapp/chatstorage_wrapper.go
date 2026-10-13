@@ -280,6 +280,10 @@ func (r *deviceChatStorage) ListScheduledSendIDs() ([]string, error) {
 	return r.base.ListScheduledSendIDs()
 }
 
+func (r *deviceChatStorage) SetScheduledSendPendingMessageID(id, leaseToken, messageID string) (bool, error) {
+	return r.base.SetScheduledSendPendingMessageID(id, leaseToken, messageID)
+}
+
 func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
 	return r.base.RetryScheduledSend(id, leaseToken, lastError, attempts, nextRunAt)
 }

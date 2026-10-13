@@ -93,6 +93,13 @@ type IChatStorageRepository interface {
 	ListExpiredScheduledSends(now time.Time) ([]*ScheduledSend, error)
 	// ListScheduledSendIDs returns every job that may still need its media.
 	ListScheduledSendIDs() ([]string, error)
+	// SetScheduledSendPendingMessageID records the WhatsApp message id the
+	// claimed occurrence is sent with. It reports false when the lease is no
+	// longer held.
+	SetScheduledSendPendingMessageID(id, leaseToken, messageID string) (bool, error)
+	// RetryScheduledSend returns a claimed job to the queue. attempts 0 means
+	// nothing of the occurrence that follows has been sent (a new occurrence,
+	// or one that never got to send): its pending message id is cleared.
 	RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error
 	CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error
 	FailScheduledSend(id, leaseToken, lastError string) error

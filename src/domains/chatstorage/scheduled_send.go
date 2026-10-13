@@ -27,7 +27,13 @@ type ScheduledSend struct {
 	LeaseUntil      *time.Time
 	LastRunAt       *time.Time
 	LastMessageID   string
-	LastError       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// PendingMessageID is the WhatsApp message id of the occurrence being
+	// attempted. It is chosen before the first attempt and reused by every
+	// retry of that occurrence, so a send WhatsApp accepted but whose
+	// acknowledgment was lost is not delivered a second time. It is empty
+	// between occurrences.
+	PendingMessageID string
+	LastError        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }

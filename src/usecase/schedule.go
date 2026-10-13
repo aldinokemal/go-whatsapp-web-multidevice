@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,12 +59,14 @@ type ScheduleService struct {
 	manager   *whatsapp.DeviceManager
 	mediaRoot string
 	now       func() time.Time
-	once      sync.Once
-	done      chan struct{}
+	// newMessageID returns a fresh WhatsApp message id for an occurrence.
+	newMessageID func(ctx context.Context) string
+	once         sync.Once
+	done         chan struct{}
 }
 
 func NewScheduleService(repo domainChatStorage.IChatStorageRepository, base domainSend.ISendUsecase, manager *whatsapp.DeviceManager, mediaRoot string) *ScheduleService {
-	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }, done: make(chan struct{})}
+	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }, newMessageID: newScheduledMessageID, done: make(chan struct{})}
 }
 
 func (s *ScheduleService) Create(ctx context.Context, messageType, phone, summary string, options domainSend.ScheduleOptions, request any, assets []scheduledAssetInput) (domainSend.GenericResponse, error) {
@@ -471,7 +475,57 @@ func (s *ScheduleService) processJob(parent context.Context, job *domainChatStor
 	return s.deliver(ctx, job)
 }
 
+// pinOccurrenceMessageID returns ctx carrying the WhatsApp message id of the
+// occurrence being attempted, choosing and storing one on the first attempt.
+//
+// A retry follows a send whose outcome is unknown: WhatsApp may have accepted
+// the message while its acknowledgment was lost (a timeout, a dropped
+// connection). Sent again under a new random id, the customer receives it
+// twice; sent again under the same id, WhatsApp delivers it once. The id is
+// stored before the first attempt so that no attempt can go out under an id
+// the next one would not know.
+func (s *ScheduleService) pinOccurrenceMessageID(ctx context.Context, job *domainChatStorage.ScheduledSend) (context.Context, error) {
+	if job.PendingMessageID == "" {
+		messageID := s.newMessageID(ctx)
+		held, err := s.repo.SetScheduledSendPendingMessageID(job.ID, job.LeaseToken, messageID)
+		if err != nil {
+			return ctx, fmt.Errorf("store the message id of the occurrence: %w", err)
+		}
+		if !held {
+			return ctx, errScheduleLeaseLost
+		}
+		job.PendingMessageID = messageID
+	}
+	return whatsapp.ContextWithSendMessageID(ctx, job.PendingMessageID), nil
+}
+
+// errScheduleLeaseLost: the job was taken from this worker (cancelled,
+// paused, or its lease expired) before the occurrence could be sent.
+var errScheduleLeaseLost = errors.New("scheduled send is no longer claimed by this worker")
+
+// newScheduledMessageID returns a fresh WhatsApp message id for an occurrence.
+func newScheduledMessageID(ctx context.Context) string {
+	if client := whatsapp.ClientFromContext(ctx); client != nil {
+		return string(client.GenerateMessageID())
+	}
+	random := make([]byte, 9)
+	_, _ = rand.Read(random)
+	return "3EB0" + strings.ToUpper(hex.EncodeToString(random))
+}
+
 func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.ScheduledSend) error {
+	ctx, err := s.pinOccurrenceMessageID(ctx, job)
+	if errors.Is(err, errScheduleLeaseLost) {
+		// Nothing was sent and the job is no longer ours to reschedule.
+		return err
+	}
+	if err != nil {
+		// Nothing was sent: try again shortly, at no cost to the attempt budget.
+		if retryErr := s.repo.RetryScheduledSend(job.ID, job.LeaseToken, err.Error(), job.Attempts, s.now().Add(30*time.Second)); retryErr != nil {
+			return retryErr
+		}
+		return err
+	}
 	response, err := s.dispatch(ctx, job)
 	if err != nil {
 		var validationErr pkgError.ValidationError

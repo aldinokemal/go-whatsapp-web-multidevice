@@ -1658,12 +1658,14 @@ func (r *SQLiteRepository) CreateScheduledSend(job *domainChatStorage.ScheduledS
 			id, device_id, message_type, payload_json, assets_json, phone, summary,
 			scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 			end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+			pending_message_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.DeviceID, job.MessageType, job.PayloadJSON, job.AssetsJSON, job.Phone, job.Summary,
 		job.ScheduledAt, job.NextRunAt, job.Timezone, job.Recurrence, job.WeekdaysJSON, job.DayOfMonth,
 		job.EndAt, job.OccurrenceLimit, job.OccurrenceCount, job.Attempts, job.Status, job.LeaseToken,
-		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt)
+		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt,
+		job.PendingMessageID)
 	return err
 }
 
@@ -1796,13 +1798,27 @@ func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
 	return ids, rows.Err()
 }
 
+func (r *SQLiteRepository) SetScheduledSendPendingMessageID(id, leaseToken, messageID string) (bool, error) {
+	result, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, messageID, time.Now().UTC(), id, leaseToken)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected > 0, err
+}
+
 func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
+	// With no attempt on record, what runs next has not been sent under any
+	// id yet (a new occurrence after a skipped one, or one that only waited
+	// for its device): it must not inherit the id of an earlier occurrence.
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ?,
+		pending_message_id = CASE WHEN ? > 0 THEN pending_message_id ELSE '' END
+		WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), attempts, id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, pending_message_id = '', last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
@@ -1828,7 +1844,8 @@ func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id string, from []st
 const scheduledSendColumns = `id, device_id, message_type, payload_json, assets_json, phone, summary,
 	scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 	end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at`
+	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+	pending_message_id`
 
 func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStorage.ScheduledSend, error) {
 	job := &domainChatStorage.ScheduledSend{}
@@ -1838,6 +1855,7 @@ func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStor
 		&job.ScheduledAt, &job.NextRunAt, &job.Timezone, &job.Recurrence, &job.WeekdaysJSON, &job.DayOfMonth,
 		&endAt, &job.OccurrenceLimit, &job.OccurrenceCount, &job.Attempts, &job.Status, &job.LeaseToken,
 		&leaseUntil, &lastRunAt, &job.LastMessageID, &job.LastError, &job.CreatedAt, &job.UpdatedAt,
+		&job.PendingMessageID,
 	); err != nil {
 		return nil, err
 	}
@@ -3170,5 +3188,8 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 50: Per-device secret for Chatwoot's signed webhooks (each API channel has its own)
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
+
+		// Migration 51: Reuse the identity of a scheduled occurrence on retries.
+		`ALTER TABLE scheduled_sends ADD COLUMN pending_message_id VARCHAR(255) NOT NULL DEFAULT ''`,
 	}
 }

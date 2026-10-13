@@ -29,6 +29,27 @@ func DeviceFromContext(ctx context.Context) (*DeviceInstance, bool) {
 	return nil, false
 }
 
+type sendMessageIDContextKey struct{}
+
+// ContextWithSendMessageID asks the send path to use the given WhatsApp
+// message id for the next message sent with this context instead of a random
+// one. An empty id leaves the context unchanged.
+func ContextWithSendMessageID(ctx context.Context, messageID string) context.Context {
+	if ctx == nil || messageID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sendMessageIDContextKey{}, messageID)
+}
+
+// SendMessageIDFromContext returns the id set by ContextWithSendMessageID.
+func SendMessageIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(sendMessageIDContextKey{}).(string)
+	return id
+}
+
 // ClientFromContext returns the client stored in the device context.
 // If a device was explicitly set in context but has no client (not logged in), returns nil.
 // Only falls back to global client when no device was set in context (backward compatibility).

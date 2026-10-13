@@ -14,6 +14,10 @@ For a contract change, update the domain interface and WhatsApp wrapper together
   context. `status@broadcast` must display as `Status`.
 - `scheduled_sends` is keyed by the registry slot alias (`instance.ID()`), not the
   storage JID, because the worker resolves clients with `DeviceManager.GetDevice`.
+- `scheduled_sends.pending_message_id` is the WhatsApp id of the occurrence being
+  attempted: set under the lease before the first attempt, kept across retries,
+  cleared when the occurrence completes or is given up (`RetryScheduledSend` with
+  attempts 0).
 - Parameterize values in SQL; dynamic clauses use fixed fragments plus arguments.
 - `message_edits` retains append-only history while the current message updates.
 
