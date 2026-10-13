@@ -3,6 +3,7 @@ package utils
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMatchesIgnoredJID(t *testing.T) {
@@ -280,6 +281,283 @@ func TestChatwootToWhatsAppMarkdown(t *testing.T) {
 			in:   "\x01**bold**\x02",
 			want: "*bold*",
 		},
+		{
+			name: "MixedEmphasisInSentence",
+			in:   "Dear **Dana**, your *cabin* is ~~12A~~ **14B**.",
+			want: "Dear *Dana*, your _cabin_ is ~12A~ *14B*.",
+		},
+		{
+			// ***x*** used to come out as "_x*_".
+			name: "BoldItalic",
+			in:   "***Cancun, Mexico***\n**Total**",
+			want: "*_Cancun, Mexico_*\n*Total*",
+		},
+		{
+			name: "MultiLine",
+			in:   "line one\n\n**line two**\nline *three*",
+			want: "line one\n\n*line two*\nline _three_",
+		},
+		{
+			name: "EmojiAndBold",
+			in:   "🌴 **Welcome** 🚢 see you ~~soon~~ *now* 👍🏽",
+			want: "🌴 *Welcome* 🚢 see you ~soon~ _now_ 👍🏽",
+		},
+		{
+			name: "RightToLeftText",
+			in:   "**שלום** לכולם, *תודה* רבה: [האתר שלנו](https://x.example/he)",
+			want: "*שלום* לכולם, _תודה_ רבה: האתר שלנו: https://x.example/he",
+		},
+		{
+			// Bullets and numbering are plain text on WhatsApp; Chatwoot
+			// escapes the dot of a typed "1." to keep it from becoming a list.
+			name: "ListsPreserved",
+			in:   "Options:\n- **Balcony** cabin\n- Inside cabin\n\n1. Pay deposit\n2. Send passports\n3\\. Done",
+			want: "Options:\n- *Balcony* cabin\n- Inside cabin\n\n1. Pay deposit\n2. Send passports\n3. Done",
+		},
+		{
+			name: "InlineLink",
+			in:   "- [Symphony of the Seas](https://x.example/royal/symphony-of-the-seas/jan-24-2027/)  ",
+			want: "- Symphony of the Seas: https://x.example/royal/symphony-of-the-seas/jan-24-2027/  ",
+		},
+		{
+			// A canned reply whose link label is the URL: one URL, not
+			// "url: url" and not the raw brackets.
+			name: "InlineLinkLabelIsBoldURL",
+			in:   "form: [**https://x.example/panama/registration/**](https://x.example/panama/registration/)",
+			want: "form: https://x.example/panama/registration/",
+		},
+		{
+			name: "InlineLinkLabelIsURLAfterEmoji",
+			in:   "🌐 [**https://x.example/**](https://x.example/)",
+			want: "🌐 https://x.example/",
+		},
+		{
+			name: "InlineLinkLabelIsURLIgnoringTrailingSlashAndCase",
+			in:   "[_HTTPS://X.example_](https://x.example/)",
+			want: "https://x.example/",
+		},
+		{
+			// The escaped "&" used to end the link on the phone.
+			name: "InlineLinkEscapedAmpersandInTarget",
+			in:   "[https://x.example/a?shareId=5&asset=1](https://x.example/a?shareId=5\\&asset=1)",
+			want: "https://x.example/a?shareId=5&asset=1",
+		},
+		{
+			name: "InlineLinkMailto",
+			in:   "email: [**rabbi_usa@x.example**](mailto:rabbi_usa@x.example)",
+			want: "email: rabbi_usa@x.example",
+		},
+		{
+			name: "InlineLinkTel",
+			in:   "[Call us](tel:+15550100)",
+			want: "Call us: +15550100",
+		},
+		{
+			// The label keeps its emphasis; the title is dropped.
+			name: "InlineLinkBoldLabelAndTitle",
+			in:   "see [**Splash Academy**](https://www.x.example/kids \"Kids\") now",
+			want: "see *Splash Academy*: https://www.x.example/kids now",
+		},
+		{
+			name: "InlineLinkBalancedParentheses",
+			in:   "[wiki](https://x.example/wiki/Panama_(city)) ok",
+			want: "wiki: https://x.example/wiki/Panama_(city) ok",
+		},
+		{
+			name: "InlineLinkEmptyLabel",
+			in:   "[](https://x.example/a) [  ](<https://x.example/b>)",
+			want: "https://x.example/a https://x.example/b",
+		},
+		{
+			// Emphasis around a whole link still converts; the target's own
+			// delimiters do not take part.
+			name: "InlineLinkInsideBoldWithDelimitersInTarget",
+			in:   "**[Book *now*](https://x.example/a_b/*c*/?utm_source=cw&utm_medium=~x~)**",
+			want: "*Book _now_: https://x.example/a_b/*c*/?utm_source=cw&utm_medium=~x~*",
+		},
+		{
+			name: "TwoInlineLinksOnOneLine",
+			in:   "[A](https://x.example/a) and [B](https://x.example/b)",
+			want: "A: https://x.example/a and B: https://x.example/b",
+		},
+		{
+			name: "MessageThatIsOnlyALink",
+			in:   "https://x.example/t?utm_source=wa&utm_medium=tpl",
+			want: "https://x.example/t?utm_source=wa&utm_medium=tpl",
+		},
+		{
+			name: "MessageThatIsOnlyAMarkdownLink",
+			in:   "[https://x.example/](https://x.example/)",
+			want: "https://x.example/",
+		},
+		{
+			name: "NotALink",
+			in:   "2 < 3 and [not a link] (really), [relative](/path), a[0](x)",
+			want: "2 < 3 and [not a link] (really), [relative](/path), a[0](x)",
+		},
+		{
+			// An escaped bracket is literal text, not the start of a link.
+			name: "EscapedBracketsAreNotALink",
+			in:   "\\[label\\](https://x.example/)",
+			want: "[label](https://x.example/)",
+		},
+		{
+			name: "Autolink",
+			in:   "here: <https://x.example/3qdiakdIIl0?si=4_xh80NjuF5HdWea>",
+			want: "here: https://x.example/3qdiakdIIl0?si=4_xh80NjuF5HdWea",
+		},
+		{
+			name: "AutolinkMailtoAndEmail",
+			in:   "write <info@x.example> or <mailto:first\\_last@x.example>, <not an autolink>",
+			want: "write info@x.example or first_last@x.example, <not an autolink>",
+		},
+		{
+			name: "BackslashEscapes",
+			in:   "a \\- b 1\\. c snake\\_case R\\&D \\(x\\) \\#1 \\+ \\! \\\\ \\[y\\]",
+			want: "a - b 1. c snake_case R&D (x) #1 + ! \\ [y]",
+		},
+		{
+			// A backslash before a letter or digit is not an escape.
+			name: "BackslashBeforeAlphanumericKept",
+			in:   "C:\\temp\\1 and a trailing \\",
+			want: "C:\\temp\\1 and a trailing \\",
+		},
+		{
+			// Escaped delimiters are literal: they must not pair up.
+			name: "EscapedDelimitersDoNotFormat",
+			in:   "5 \\* 3 \\* 2 and \\~x\\~ and **b\\*b**",
+			want: "5 * 3 * 2 and ~x~ and *b*b*",
+		},
+		{
+			name: "EscapedAmpersandInBareURL",
+			in:   "https://x.example/q?a=1\\&b=2\\&c\\_d=3 ok",
+			want: "https://x.example/q?a=1&b=2&c_d=3 ok",
+		},
+		{
+			name: "BareURLQueryUnchanged",
+			in:   "plain https://x.example/q?a=2&t=0&c=0&i=0&f=1&it=1",
+			want: "plain https://x.example/q?a=2&t=0&c=0&i=0&f=1&it=1",
+		},
+		{
+			// The two asterisks in the URL used to pair as italic.
+			name: "BareURLWithAsterisksUnchanged",
+			in:   "https://x.example/search?q=*kosher*&sort=~price~ and www.x.example/*a*/~b~",
+			want: "https://x.example/search?q=*kosher*&sort=~price~ and www.x.example/*a*/~b~",
+		},
+		{
+			name: "BareURLWithUnderscoresNextToItalic",
+			in:   "*see* https://x.example/snake_case_path/_docs_/?utm_source=cw *now*",
+			want: "_see_ https://x.example/snake_case_path/_docs_/?utm_source=cw _now_",
+		},
+		{
+			name: "BoldBareURL",
+			in:   "**https://x.example/manual-payment**",
+			want: "*https://x.example/manual-payment*",
+		},
+		{
+			name: "EmphasisSpanningBareURL",
+			in:   "**pay at https://x.example/a*b*c today** and ~~https://x.example/~old/x~~",
+			want: "*pay at https://x.example/a*b*c today* and ~https://x.example/~old/x~",
+		},
+		{
+			// What Chatwoot's reply box stores when a canned reply holding
+			// [**url**](url) is inserted.
+			name: "DuplicatedLinkFromCannedReply",
+			in:   "form: **https://x.example/panama/registration/**: https://x.example/panama/registration/\n\nTo help",
+			want: "form: https://x.example/panama/registration/\n\nTo help",
+		},
+		{
+			name: "DuplicatedLinkWithoutEmphasis",
+			in:   "https://x.example/a_b: https://x.example/a_b",
+			want: "https://x.example/a_b",
+		},
+		{
+			name: "DuplicatedLinkTwice",
+			in:   "*https://x.example/a*: https://x.example/a and https://x.example/b: https://x.example/b",
+			want: "https://x.example/a and https://x.example/b",
+		},
+		{
+			name: "DifferentLinksAreNotDuplicates",
+			in:   "https://x.example/x: https://x.example/xy, Site https://x.example/x: https://y.example/y, https://x.example/x - https://x.example/x",
+			want: "https://x.example/x: https://x.example/xy, Site https://x.example/x: https://y.example/y, https://x.example/x - https://x.example/x",
+		},
+		{
+			// The opening marker is missing, so this is not the reply box's
+			// flattened link; keep both.
+			name: "UnbalancedMarkerIsNotADuplicate",
+			in:   "https://x.example/x**: https://x.example/x",
+			want: "https://x.example/x**: https://x.example/x",
+		},
+		{
+			name: "InlineCodeUntouched",
+			in:   "run `**not bold** [a](https://x.example/) \\_ <https://x.example/>` then **bold**",
+			want: "run `**not bold** [a](https://x.example/) \\_ <https://x.example/>` then *bold*",
+		},
+		{
+			name: "CodeBlockUntouched",
+			in:   "**before**\n```\n**a** *b* ~~c~~ \\* [l](https://x.example/)\n--\n```\n*after*",
+			want: "*before*\n```\n**a** *b* ~~c~~ \\* [l](https://x.example/)\n--\n```\n_after_",
+		},
+		{
+			// An escaped backtick is a literal backtick, not a code span.
+			name: "EscapedBacktickIsNotCode",
+			in:   "\\`**bold**\\`",
+			want: "`*bold*`",
+		},
+		{
+			// Signature switch on, signature empty: Chatwoot appends only the
+			// separator.
+			name: "EmptySignatureSeparatorDropped",
+			in:   "Thanks **a lot**\n\n\n--\n\n",
+			want: "Thanks *a lot*",
+		},
+		{
+			name: "EmptySignatureSeparatorDroppedPlainText",
+			in:   "Thanks\r\n\r\n  -- \t\r\n",
+			want: "Thanks",
+		},
+		{
+			name: "OnlySignatureSeparatorPadded",
+			in:   "\n\n--\n\n",
+			want: "",
+		},
+		{
+			name: "OnlySignatureSeparator",
+			in:   "--",
+			want: "",
+		},
+		{
+			name: "EscapedSignatureSeparator",
+			in:   "ok\n\n\\-\\-",
+			want: "ok",
+		},
+		{
+			name: "SignatureWithTextKept",
+			in:   "Thanks\n\n--\nDana\nAcme Travel",
+			want: "Thanks\n\n--\nDana\nAcme Travel",
+		},
+		{
+			name: "DashesInSentenceKept",
+			in:   "prices -- as agreed\nsee you --",
+			want: "prices -- as agreed\nsee you --",
+		},
+		{
+			name: "LongerDashLineKept",
+			in:   "above\n---",
+			want: "above\n---",
+		},
+		{
+			// Trailing whitespace is only trimmed together with a separator.
+			name: "TrailingWhitespaceKept",
+			in:   "hello  \n",
+			want: "hello  \n",
+		},
+		{
+			// A link sentinel in the input must not be read as a placeholder.
+			name: "PreExistingLinkSentinelStripped",
+			in:   "\x030\x03 **a** \x03 https://x.example/",
+			want: "0 *a*  https://x.example/",
+		},
 	}
 
 	for _, tt := range tests {
@@ -447,6 +725,35 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 	}
 }
 
+// TestChatwootToWhatsAppMarkdownHostileInput feeds the converter large inputs
+// built to make a careless implementation backtrack or re-scan. Every pass is
+// a single linear sweep, so each of these must finish almost instantly; the
+// bound is loose enough for a loaded CI runner.
+func TestChatwootToWhatsAppMarkdownHostileInput(t *testing.T) {
+	const size = 64 * 1024
+	inputs := map[string]string{
+		"OpenBrackets":   strings.Repeat("[", size),
+		"UnclosedLinks":  strings.Repeat("[a](https://x.example/(", size/24),
+		"Escapes":        strings.Repeat("\\*", size/2),
+		"Asterisks":      strings.Repeat("*", size),
+		"TripleNesting":  strings.Repeat("***a ", size/5),
+		"Backticks":      strings.Repeat("`a", size/2),
+		"AngleBrackets":  strings.Repeat("<https://", size/9),
+		"DuplicateLinks": strings.Repeat("https://x.example/a: ", size/21),
+		"DashLines":      strings.Repeat("--\n", size/3),
+	}
+	for name, in := range inputs {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			got := ChatwootToWhatsAppMarkdown(in)
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Fatalf("conversion of %d bytes took %s", len(in), elapsed)
+			}
+			assertNoMarkdownSentinels(t, got)
+		})
+	}
+}
+
 // TestChatwootMarkdownRoundTrip is a sanity check that simple WhatsApp-flavored
 // strings survive a WhatsApp -> Chatwoot -> WhatsApp round trip intact.
 func TestChatwootMarkdownRoundTrip(t *testing.T) {
@@ -471,11 +778,12 @@ func TestChatwootMarkdownRoundTrip(t *testing.T) {
 	}
 }
 
-// assertNoMarkdownSentinels fails if the markdown bridge leaked either of the
-// internal guard runes (\x01 bold, \x02 strike) into a user-visible string.
+// assertNoMarkdownSentinels fails if the markdown bridge leaked any of the
+// internal guard runes (\x01 bold, \x02 strike, \x03 link) into a
+// user-visible string.
 func assertNoMarkdownSentinels(t *testing.T, out string) {
 	t.Helper()
-	if strings.ContainsAny(out, "\x01\x02") {
+	if strings.ContainsAny(out, "\x01\x02\x03") {
 		t.Fatalf("output leaked a markdown sentinel rune: %q", out)
 	}
 }

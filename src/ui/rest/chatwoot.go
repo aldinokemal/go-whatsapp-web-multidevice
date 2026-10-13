@@ -44,10 +44,12 @@ func NewChatwootHandler(
 }
 
 // composeOutgoingText prepares a Chatwoot agent reply for WhatsApp delivery:
-// it translates Chatwoot/GFM markdown (**bold**, *italic*, ~~strike~~) into
-// WhatsApp's syntax, and — when CHATWOOT_SIGN_MSG is enabled — prefixes the
-// agent's name (joined by CHATWOOT_SIGN_DELIMITER, with literal "\n" escapes
-// expanded). Returns "" when the reply has no text body.
+// it translates Chatwoot/GFM markdown (**bold**, *italic*, ~~strike~~, links,
+// backslash escapes) into what WhatsApp displays, and — when CHATWOOT_SIGN_MSG
+// is enabled — prefixes the agent's name (joined by CHATWOOT_SIGN_DELIMITER,
+// with literal "\n" escapes expanded). Returns "" when the reply has no text
+// body, which includes a message holding only Chatwoot's "--" signature
+// separator; callers must not send an empty text.
 func composeOutgoingText(payload chatwoot.WebhookPayload) string {
 	text := utils.ChatwootToWhatsAppMarkdown(payload.Content)
 	if config.ChatwootSignMsg && text != "" {

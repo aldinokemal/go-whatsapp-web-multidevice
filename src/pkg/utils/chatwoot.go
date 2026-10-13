@@ -2,6 +2,7 @@ package utils
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -68,6 +69,21 @@ func IsNewsletterJID(jid string) bool {
 // (/_docs_/, ?utm_source=a&utm_medium=b) and snake_case ids pass through
 // untouched. Sentinel runes guard the bold pass from being re-matched by the
 // italic pass.
+//
+// Chatwoot -> WhatsApp additionally flattens the Markdown that WhatsApp has
+// no syntax for, because an API-channel inbox hands over the agent's message
+// as stored Markdown and the customer would otherwise read it raw:
+//
+//	[label](url)         -> label: url   (just the url when the label is the url)
+//	<https://x.example/> -> https://x.example/
+//	\& \_ \* \. \- \( ... -> the bare character, never read as formatting
+//	***bold italic***    -> *_bold italic_*
+//	**url**: url         -> url          (how Chatwoot's reply box stores a
+//	                                      canned reply holding such a link)
+//	trailing "--" line   -> dropped      (signature separator, empty signature)
+//
+// Code spans, link targets and bare URLs are set aside before the emphasis
+// passes and put back verbatim afterwards.
 
 const (
 	mdBoldSentinel   = "\x01"
@@ -86,6 +102,22 @@ var (
 	// A trailing delimiter or punctuation stays outside the link, so
 	// "*https://x.com*!" still pairs.
 	reWaLink = regexp.MustCompile(`(?i:https?://|www\.)\S*[^\s*_~.,;:!?)\]'"]`)
+
+	// Text the Chatwoot -> WhatsApp passes must not read as Markdown: fenced
+	// and inline code, and backslash escapes. One left-to-right alternation, so
+	// an escaped backtick is consumed as an escape and cannot open a code span.
+	reCwLiteral = regexp.MustCompile("(?s)```.*?```|`[^`\\n]+`|" + `\\[!-/:-@\[-` + "`{-~]")
+	// [label](target "title"), optionally an image. Escapes are already hidden
+	// by reCwLiteral, so neither class needs to know about backslashes. The
+	// target may hold one level of balanced parentheses (Wikipedia-style).
+	reCwInlineLink = regexp.MustCompile(`(?i)!?\[([^\[\]\n]*)\]\(\s*<?((?:https?://|mailto:|tel:)(?:[^()\s<>]|\([^()\s<>]*\))*)>?(?:\s+"[^"\n]*")?\s*\)`)
+	reCwAutolink   = regexp.MustCompile(`(?i)<((?:https?://|mailto:)[^<>\s]+)>`)
+	// The link sentinel is allowed in the local part: an escaped "_" is hidden.
+	reCwEmailAutolink = regexp.MustCompile(`<([A-Za-z0-9._%+\x03-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>`)
+	reCwBoldItalic    = regexp.MustCompile(`\*\*\*([^\s*](?:[^*\n]*[^\s*])?)\*\*\*`)
+	reCwHidden        = regexp.MustCompile(`\x03(\d+)\x03`)
+	reCwLinkScheme    = regexp.MustCompile(`(?i)^(?:mailto|tel):`)
+	reCwLinkPrefix    = regexp.MustCompile(`^(?:https?://|mailto:|tel:)`)
 )
 
 // stripMarkdownSentinels removes any pre-existing guard runes from input so
@@ -99,14 +131,76 @@ func stripMarkdownSentinels(s string) string {
 	return strings.NewReplacer(mdBoldSentinel, "", mdStrikeSentinel, "", mdLinkSentinel, "").Replace(s)
 }
 
-// ChatwootToWhatsAppMarkdown rewrites Chatwoot/GFM markdown to WhatsApp's
-// formatting syntax: **bold**->*bold*, *italic*->_italic_, ~~strike~~->~strike~.
-func ChatwootToWhatsAppMarkdown(s string) string {
-	if s == "" || !strings.ContainsAny(s, "*~") {
+// cwHidden holds text taken out of a Chatwoot message while it is converted,
+// so that later passes cannot read it as Markdown. Each piece is replaced by
+// its index between two link sentinels; input sentinels are stripped first, so
+// every sentinel in the working text is one of ours.
+type cwHidden struct{ parts []string }
+
+// hide stores text and returns its placeholder. text must already be expanded,
+// which keeps expand a single pass.
+func (h *cwHidden) hide(text string) string {
+	h.parts = append(h.parts, text)
+	return mdLinkSentinel + strconv.Itoa(len(h.parts)-1) + mdLinkSentinel
+}
+
+func (h *cwHidden) expand(s string) string {
+	if len(h.parts) == 0 || !strings.Contains(s, mdLinkSentinel) {
 		return s
 	}
-	s = stripMarkdownSentinels(s)
+	return reCwHidden.ReplaceAllStringFunc(s, func(m string) string {
+		if i, err := strconv.Atoi(m[1 : len(m)-1]); err == nil && i < len(h.parts) {
+			return h.parts[i]
+		}
+		return ""
+	})
+}
+
+// ChatwootToWhatsAppMarkdown rewrites the Markdown of a Chatwoot agent message
+// to text WhatsApp displays as intended: **bold**->*bold*, *italic*->_italic_,
+// ~~strike~~->~strike~, ***both***->*_both_*, links and autolinks flattened to
+// plain URLs, backslash escapes removed, and the dangling "--" of an empty
+// Chatwoot signature dropped. Code and URLs pass through untouched. It returns
+// "" when nothing is left to send.
+func ChatwootToWhatsAppMarkdown(s string) string {
+	if s == "" {
+		return s
+	}
+	if strings.ContainsAny(s, "*~[<\\") || strings.Contains(s, "://") {
+		s = convertChatwootMarkdown(stripMarkdownSentinels(s))
+	}
+	return dropEmptyChatwootSignature(s)
+}
+
+// convertChatwootMarkdown runs a fixed number of linear passes; none repeats
+// until stable, so the cost stays proportional to the message length.
+func convertChatwootMarkdown(s string) string {
+	hidden := &cwHidden{}
+	s = reCwLiteral.ReplaceAllStringFunc(s, func(m string) string {
+		if m[0] == '\\' {
+			return hidden.hide(m[1:])
+		}
+		return hidden.hide(m)
+	})
+	s = reCwInlineLink.ReplaceAllStringFunc(s, func(m string) string {
+		groups := reCwInlineLink.FindStringSubmatch(m)
+		label, target := strings.TrimSpace(groups[1]), hidden.expand(groups[2])
+		url := hidden.hide(reCwLinkScheme.ReplaceAllString(target, ""))
+		if label == "" || comparableLinkText(hidden.expand(label)) == comparableLinkText(target) {
+			return url
+		}
+		return label + ": " + url
+	})
+	s = reCwAutolink.ReplaceAllStringFunc(s, func(m string) string {
+		return hidden.hide(reCwLinkScheme.ReplaceAllString(hidden.expand(m[1:len(m)-1]), ""))
+	})
+	s = reCwEmailAutolink.ReplaceAllStringFunc(s, func(m string) string {
+		return hidden.hide(hidden.expand(m[1 : len(m)-1]))
+	})
+	s = hideChatwootBareLinks(s, hidden)
+
 	// Bold first so its asterisks are hidden from the italic pass.
+	s = reCwBoldItalic.ReplaceAllString(s, mdBoldSentinel+"_${1}_"+mdBoldSentinel)
 	s = reCwBold.ReplaceAllString(s, mdBoldSentinel+"$1"+mdBoldSentinel)
 	s = reCwStrike.ReplaceAllString(s, mdStrikeSentinel+"$1"+mdStrikeSentinel)
 	// "${1}" (braced) is required: a bare "$1_" parses as the named group "1_"
@@ -115,7 +209,80 @@ func ChatwootToWhatsAppMarkdown(s string) string {
 	s = reCwItalic.ReplaceAllString(s, "_${1}_")
 	s = strings.ReplaceAll(s, mdBoldSentinel, "*")
 	s = strings.ReplaceAll(s, mdStrikeSentinel, "~")
-	return s
+	return hidden.expand(s)
+}
+
+// comparableLinkText reduces a link label or target to what a reader sees, to
+// tell "[**https://x/**](https://x/)" (label repeats the target) from a real
+// label: emphasis markers, case, the scheme and a trailing slash are ignored.
+func comparableLinkText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if strings.ContainsRune("*_~`", r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.TrimRight(reCwLinkPrefix.ReplaceAllString(s, ""), "/")
+}
+
+// hideChatwootBareLinks sets every plain URL aside so its asterisks,
+// underscores and tildes survive the emphasis passes. A URL followed by ": "
+// and the same URL again is Chatwoot's reply box having flattened a link whose
+// label was the URL ("**https://x/**: https://x/"); it is emitted once.
+func hideChatwootBareLinks(s string, hidden *cwHidden) string {
+	locs := reWaLink.FindAllStringIndex(s, -1)
+	if len(locs) == 0 {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for i := 0; i < len(locs); i++ {
+		start, end := locs[i][0], locs[i][1]
+		url := hidden.expand(s[start:end])
+		if i+1 < len(locs) {
+			next := locs[i+1]
+			marker, ok := duplicatedLinkMarker(s[last:start], s[end:next[0]])
+			if ok && hidden.expand(s[next[0]:next[1]]) == url {
+				start -= len(marker)
+				end = next[1]
+				i++
+			}
+		}
+		b.WriteString(s[last:start])
+		b.WriteString(hidden.hide(url))
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+// duplicatedLinkMarker reports whether between (the text separating two URLs)
+// is ": " after an optional closing emphasis marker of up to three characters
+// that also precedes the first URL, and returns that marker.
+func duplicatedLinkMarker(before, between string) (string, bool) {
+	marker, ok := strings.CutSuffix(between, ": ")
+	if !ok || len(marker) > 3 || strings.Trim(marker, "*_~") != "" {
+		return "", false
+	}
+	return marker, strings.HasSuffix(before, marker)
+}
+
+// dropEmptyChatwootSignature removes a last line holding only "--". Chatwoot
+// appends "\n\n--\n\n<signature>" for an agent who sends with signature; with
+// an empty signature only the separator arrives. A separator that is followed
+// by signature text, and "--" inside a sentence, are left alone.
+func dropEmptyChatwootSignature(s string) string {
+	const blank = " \t\r\n"
+	body, ok := strings.CutSuffix(strings.TrimRight(s, blank), "--")
+	if !ok {
+		return s
+	}
+	body = strings.TrimRight(body, " \t")
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		return s
+	}
+	return strings.TrimRight(body, blank)
 }
 
 // WhatsAppToChatwootMarkdown rewrites WhatsApp formatting to Chatwoot/GFM

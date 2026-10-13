@@ -175,6 +175,37 @@ func TestComposeOutgoingText(t *testing.T) {
 			want:      "*Agent Smith*\n\nhello",
 		},
 		{
+			// Links are flattened in the agent's body; the signature is added
+			// around the converted text.
+			name:      "sign enabled flattens markdown link in body",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "see [**https://x.example/**](https://x.example/) and [docs](https://x.example/a_b?c=1\\&d=2)",
+			sender:    "Bob",
+			want:      "*Bob*\n\nsee https://x.example/ and docs: https://x.example/a_b?c=1&d=2",
+		},
+		{
+			// Chatwoot's own "send with signature" switch with an empty
+			// signature leaves a dangling separator line; it is dropped.
+			name:      "dangling chatwoot signature separator dropped",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "Thanks\n\n--\n\n",
+			sender:    "Bob",
+			want:      "*Bob*\n\nThanks",
+		},
+		{
+			// A message that is only the separator has no body: nothing is
+			// sent as text (an attachment then goes out without a caption),
+			// and no lone agent name either.
+			name:      "only chatwoot signature separator returns empty",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "\n\n--\n\n",
+			sender:    "Bob",
+			want:      "",
+		},
+		{
 			// Plain text with no markdown delimiters is passed through unchanged
 			// (the markdown translator short-circuits when no * ~ are present).
 			name:      "plain text no markdown unchanged",
