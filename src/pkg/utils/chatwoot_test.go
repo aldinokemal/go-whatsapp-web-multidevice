@@ -876,8 +876,8 @@ func TestWhatsAppToChatwootMarkdown(t *testing.T) {
 // never backtracks, but ReplaceAll starts a new search after every match, so
 // an opener that stays alive across many short matches would still cost one
 // scan per match; the inputs below try exactly that for every pattern. Each
-// must finish almost instantly; the bound is loose enough for a loaded CI
-// runner under the race detector.
+// takes about 0.1s (2s under the race detector), where a quadratic pass would
+// take minutes, so the bound leaves a loaded CI runner plenty of room.
 func TestChatwootToWhatsAppMarkdownHostileInput(t *testing.T) {
 	// Chatwoot caps a message at 150,000 characters.
 	const size = 150 * 1024
@@ -915,7 +915,7 @@ func TestChatwootToWhatsAppMarkdownHostileInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			start := time.Now()
 			got := ChatwootToWhatsAppMarkdown(in)
-			if elapsed := time.Since(start); elapsed > 5*time.Second {
+			if elapsed := time.Since(start); elapsed > 30*time.Second {
 				t.Fatalf("conversion of %d bytes took %s", len(in), elapsed)
 			}
 			assertNoMarkdownSentinels(t, got)
