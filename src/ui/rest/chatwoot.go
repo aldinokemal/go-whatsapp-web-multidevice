@@ -307,19 +307,34 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 
 // signConfigForDevice returns the config whose sign_msg / sign_delimiter apply
 // to an agent reply sent from deviceID, or nil when the global settings apply.
-// The registry resolves nothing for a disabled config or on a lookup error,
-// yet a reply routed through a stored conversation link is still delivered, so
-// the stored row is read directly in that case: a device that switched its
-// signature off must not start signing because forwarding was paused.
+// The registry resolves nothing for a disabled config, yet a reply routed
+// through a stored conversation link is still delivered, so the stored row is
+// read directly in that case: a device that switched its signature off must
+// not start signing because forwarding was paused.
+//
+// It fails closed. When the device's settings cannot be read (storage error),
+// the reply is sent unsigned rather than with the global setting: the device
+// may have switched the signature off, and adding the agent's name to a
+// message is the one outcome that cannot be taken back.
 func (h *ChatwootHandler) signConfigForDevice(deviceID string) *chatwoot.ResolvedConfig {
-	if rc := h.resolveChatwootForDevice(deviceID); rc != nil {
-		return rc
+	if reg := chatwoot.GetClientRegistry(); reg != nil {
+		rc, err := reg.Resolve(deviceID)
+		if err != nil {
+			logrus.Errorf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
+		} else if rc != nil {
+			return rc
+		}
 	}
 	if h.ChatStorageRepo == nil {
 		return nil
 	}
 	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(deviceID)
-	if err != nil || cfg == nil {
+	if err != nil {
+		logrus.Errorf("Chatwoot: failed to read signature settings for device %s; sending the reply unsigned: %v", deviceID, err)
+		unsigned := false
+		return &chatwoot.ResolvedConfig{DeviceID: deviceID, SignMsg: &unsigned}
+	}
+	if cfg == nil {
 		return nil
 	}
 	return &chatwoot.ResolvedConfig{ConfigID: cfg.ID, DeviceID: cfg.DeviceID, SignMsg: cfg.SignMsg, SignDelimiter: cfg.SignDelimiter}

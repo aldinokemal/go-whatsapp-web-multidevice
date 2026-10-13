@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,5 +103,70 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 				t.Fatalf("sent text = %q, want [%q]", sender.sent, tt.want)
 			}
 		})
+	}
+}
+
+// failingConfigRepo is signTestRepo with a per-device config lookup that
+// always fails, as during a storage outage.
+type failingConfigRepo struct {
+	signTestRepo
+	lookups int
+}
+
+func (r *failingConfigRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	r.lookups++
+	return nil, errors.New("database is locked")
+}
+
+// TestAgentReplyIsUnsignedWhenSignatureLookupFails covers the fail-closed
+// rule: with CHATWOOT_SIGN_MSG on and the device's sign_msg off, a reply
+// routed through a stored conversation link while the config cannot be read
+// must go out without the agent's name, not with the global setting.
+func TestAgentReplyIsUnsignedWhenSignatureLookupFails(t *testing.T) {
+	withSignConfig(t, true, "\n\n")
+
+	off := false
+	repo := &failingConfigRepo{signTestRepo: signTestRepo{
+		deviceWebhookTestRepo: deviceWebhookTestRepo{
+			// The stored row says "do not sign", but it cannot be read.
+			cfg: &domainChatStorage.ChatwootDeviceConfig{
+				ID: 1, DeviceID: "dev", ChatwootURL: "https://chat.example.com",
+				AccountID: 1, InboxID: 2, APIToken: "t", Enabled: true, SignMsg: &off,
+			},
+			count: 1,
+		},
+		link: &domainChatStorage.ChatwootMessageLink{
+			DeviceID: "dev", WhatsAppChatJID: "628111111111@s.whatsapp.net",
+			ChatwootConversationID: 5, ChatwootConfigID: 1, ChatwootAccountID: 1,
+		},
+	}}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	dm := whatsapp.NewDeviceManager(nil, nil, nil)
+	dm.AddDevice(whatsapp.NewDeviceInstance("dev", nil, nil))
+	sender := &recordingTextSender{}
+	handler := &ChatwootHandler{DeviceManager: dm, ChatStorageRepo: repo, SendUsecase: sender}
+
+	app := fiber.New()
+	app.Post("/chatwoot/webhook", handler.HandleWebhook)
+
+	const body = `{"id":78,"event":"message_created","message_type":"outgoing","content":"Hello",` +
+		`"account":{"id":1},"sender":{"name":"Jane"},` +
+		`"conversation":{"id":5,"inbox_id":2,"meta":{"sender":{"phone_number":"+628111111111"}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
+	if resp.StatusCode != fiber.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if repo.lookups == 0 {
+		t.Fatal("the test must exercise a failing config lookup")
+	}
+	if len(sender.sent) != 1 || sender.sent[0] != "Hello" {
+		t.Fatalf("sent text = %q, want [\"Hello\"] (unsigned)", sender.sent)
 	}
 }
