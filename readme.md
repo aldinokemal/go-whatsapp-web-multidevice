@@ -100,7 +100,7 @@ Download:
   - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
     `/send/schedules`.
   - A failed occurrence is retried under the same WhatsApp message id, so a send whose acknowledgment was lost is not
-    delivered twice.
+    delivered twice. An occurrence interrupted by a restart is resumed the same way instead of being skipped.
 - **Send stickers** — Automatically convert images to WebP sticker format.
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.

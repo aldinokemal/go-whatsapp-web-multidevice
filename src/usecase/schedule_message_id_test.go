@@ -96,8 +96,8 @@ func TestScheduledOccurrencesGetTheirOwnMessageID(t *testing.T) {
 }
 
 // TestScheduledSkippedOccurrenceDoesNotLeakItsMessageID: an occurrence that
-// is given up (attempt budget spent, or its run interrupted) may have reached
-// WhatsApp. The occurrence after it starts with a fresh id.
+// is given up (attempt budget spent) may have reached WhatsApp. The occurrence
+// after it starts with a fresh id.
 func TestScheduledSkippedOccurrenceDoesNotLeakItsMessageID(t *testing.T) {
 	base := &scheduleIDSendStub{fail: func(attempt int) error {
 		if attempt == 1 {
@@ -120,20 +120,6 @@ func TestScheduledSkippedOccurrenceDoesNotLeakItsMessageID(t *testing.T) {
 	require.NoError(t, service.deliver(scheduleTestContext(), reclaimScheduleTestJob(t, repo, "lease-2")))
 	require.Len(t, base.ids, 2)
 	require.NotEqual(t, base.ids[0], base.ids[1])
-
-	// So does one whose run was interrupted (its lease expired).
-	interrupted := newScheduleTestJob("interrupted", "daily", scheduleTestNow.Add(-time.Hour))
-	interrupted.Status = scheduleStatusRunning
-	interrupted.LeaseToken = "stale"
-	interrupted.PendingMessageID = "3EB0INTERRUPTED"
-	leaseUntil := scheduleTestNow.Add(-time.Minute)
-	interrupted.LeaseUntil = &leaseUntil
-	require.NoError(t, repo.CreateScheduledSend(interrupted))
-	service.processDue(context.Background())
-	stored, err = repo.GetScheduledSend("device-a", "interrupted")
-	require.NoError(t, err)
-	require.Equal(t, scheduleStatusActive, stored.Status)
-	require.Empty(t, stored.PendingMessageID)
 }
 
 // TestScheduledOfflineWaitKeepsTheMessageID: waiting for the device between

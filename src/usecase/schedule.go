@@ -290,6 +290,11 @@ func (s *ScheduleService) Resume(ctx context.Context, id string) error {
 				return nil
 			}
 			next = slot
+			// The missed occurrence may have reached WhatsApp under its
+			// pinned id; the next one must not be sent as its duplicate.
+			if err := s.repo.ClearScheduledSendPendingMessageID(job.DeviceID, job.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return s.changeStatus(job, "resumed", []string{scheduleStatusPaused}, scheduleStatusActive, &next)
@@ -422,17 +427,7 @@ func (s *ScheduleService) garbageCollectAssets() {
 }
 
 func (s *ScheduleService) processDue(ctx context.Context) {
-	expired, err := s.repo.ListExpiredScheduledSends(s.now())
-	if err != nil {
-		logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
-	}
-	// The send may or may not have gone out, so an interrupted occurrence is
-	// never resent.
-	for _, job := range expired {
-		if err := s.skipOccurrence(job, "execution interrupted before completion"); err != nil {
-			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send worker failed to recover interrupted job")
-		}
-	}
+	s.recoverInterrupted()
 	for ctx.Err() == nil {
 		now := s.now()
 		job, err := s.repo.ClaimNextScheduledSend(now, now.Add(2*time.Minute), fiberUtils.UUIDv4())
@@ -445,6 +440,45 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 		}
 		if err := s.processJob(ctx, job); err != nil {
 			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send failed")
+		}
+	}
+}
+
+// recoverInterrupted returns occurrences whose lease lapsed to the queue: the
+// process stopped mid-send, or the send outlived its lease.
+//
+// Whether the interrupted send reached WhatsApp is unknown, so the occurrence
+// is neither dropped nor sent as a new message: it is attempted again under
+// the message id pinned before its first attempt, and WhatsApp delivers a
+// repeated id once. That is also the only reason two workers may send the same
+// occurrence, which happens when a lease lapses while its send is still in
+// flight: both use the pinned id, and only the current lease holder records
+// the result. An occurrence with no pinned id never reached the send.
+//
+// The slot (next_run_at) and the occurrence count are left alone, so a
+// recurring schedule resumes the interrupted occurrence, not the one after it.
+// A pinned occurrence is charged an attempt: a send that keeps taking the
+// process down runs out of budget like one that keeps failing, and a pinned
+// job in the queue always has attempts on record, which is what keeps its id
+// through RetryScheduledSend.
+func (s *ScheduleService) recoverInterrupted() {
+	expired, err := s.repo.ListExpiredScheduledSends(s.now())
+	if err != nil {
+		logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
+	}
+	const reason = "execution interrupted before completion"
+	for _, job := range expired {
+		attempts := job.Attempts
+		if job.PendingMessageID != "" {
+			attempts++
+		}
+		if attempts >= scheduleMaxAttempts {
+			err = s.skipOccurrence(job, reason)
+		} else {
+			err = s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, attempts, job.NextRunAt)
+		}
+		if err != nil {
+			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send worker failed to recover interrupted job")
 		}
 	}
 }
@@ -554,10 +588,22 @@ func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.Sc
 	if err := s.repo.CompleteScheduledSend(job.ID, job.LeaseToken, status, response.MessageID, count, timePtr(next)); err != nil {
 		return err
 	}
-	if status == scheduleStatusCompleted {
+	if status == scheduleStatusCompleted && !s.stillPending(job) {
 		s.cleanupAssets(job)
 	}
 	return nil
+}
+
+// stillPending reports whether the job is still to be sent by another worker:
+// this one's lease lapsed during the send, so its completion was not recorded
+// and the worker that took the job over needs the media to resend it.
+func (s *ScheduleService) stillPending(job *domainChatStorage.ScheduledSend) bool {
+	stored, err := s.repo.GetScheduledSend(job.DeviceID, job.ID)
+	if err != nil {
+		// Unknown: keep the media, the startup cleanup removes it later.
+		return true
+	}
+	return stored != nil && (stored.Status == scheduleStatusActive || stored.Status == scheduleStatusRunning || stored.Status == scheduleStatusPaused)
 }
 
 func (s *ScheduleService) retry(job *domainChatStorage.ScheduledSend, reason string) error {

@@ -97,6 +97,9 @@ type IChatStorageRepository interface {
 	// claimed occurrence is sent with. It reports false when the lease is no
 	// longer held.
 	SetScheduledSendPendingMessageID(id, leaseToken, messageID string) (bool, error)
+	// ClearScheduledSendPendingMessageID forgets the message id of a paused
+	// job's occurrence, for when the job moves on to another occurrence.
+	ClearScheduledSendPendingMessageID(deviceID, id string) error
 	// RetryScheduledSend returns a claimed job to the queue. attempts 0 means
 	// nothing of the occurrence that follows has been sent (a new occurrence,
 	// or one that never got to send): its pending message id is cleared.

@@ -1807,6 +1807,11 @@ func (r *SQLiteRepository) SetScheduledSendPendingMessageID(id, leaseToken, mess
 	return affected > 0, err
 }
 
+func (r *SQLiteRepository) ClearScheduledSendPendingMessageID(deviceID, id string) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = '', updated_at = ? WHERE device_id = ? AND id = ? AND status = 'paused'`, time.Now().UTC(), deviceID, id)
+	return err
+}
+
 func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
 	// With no attempt on record, what runs next has not been sent under any
 	// id yet (a new occurrence after a skipped one, or one that only waited

@@ -17,7 +17,8 @@ For a contract change, update the domain interface and WhatsApp wrapper together
 - `scheduled_sends.pending_message_id` is the WhatsApp id of the occurrence being
   attempted: set under the lease before the first attempt, kept across retries,
   cleared when the occurrence completes or is given up (`RetryScheduledSend` with
-  attempts 0).
+  attempts 0, or a paused job resumed at a later slot). A job whose lease lapsed
+  goes back to the queue with the id kept, so the same occurrence is resent under it.
 - Parameterize values in SQL; dynamic clauses use fixed fragments plus arguments.
 - `message_edits` retains append-only history while the current message updates.
 
