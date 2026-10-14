@@ -56,6 +56,7 @@ func captureGroupWebhooks(t *testing.T) *[]capturedWebhook {
 	return &captured
 }
 
+// groupNameEvent builds a GroupInfo event that carries only a group name change.
 func groupNameEvent(name types.GroupName) *events.GroupInfo {
 	return &events.GroupInfo{
 		JID:       types.NewJID("120363402106000000", types.GroupServer),

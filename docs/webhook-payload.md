@@ -638,9 +638,8 @@ Triggered when a chat-level label is applied to or removed from a chat.
 
 ## Group Events
 
-Group events are triggered when group metadata changes, including member join/leave events, admin promotions/demotions,
-and group settings updates. These events use the `group.participants` event type and provide comprehensive information
-about group changes.
+Group events are triggered when group metadata changes. Member join/leave events and admin promotions/demotions use the
+`group.participants` event type. Group name (subject) changes use the `group.info` event type.
 
 ### Group Member Join
 
