@@ -178,6 +178,7 @@ Download:
   | `message.deleted`    | Messages deleted for the user                 |
   | `chat_presence`      | Typing and recording indicators from contacts |
   | `group.participants` | Group member join/leave/promote/demote events |
+  | `group.info`         | Group name (subject) changed                  |
   | `group.joined`       | You were added to a group                     |
   | `label.edit`         | WhatsApp label metadata changed               |
   | `label.association`  | Label applied to or removed from a chat       |
