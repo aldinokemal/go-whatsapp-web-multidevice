@@ -567,6 +567,12 @@ func (m *DeviceManager) ListDevices() []*DeviceInstance {
 	return result
 }
 
+// WTF: DisableOrphanSlotAdoption stops LoadExistingDevices from attaching a
+// stored WhatsApp session whose slot record was lost to an arbitrary unpaired
+// slot. In multi-user mode every slot has an owner, so that adoption could hand
+// one user's session to another user's slot. False keeps upstream behaviour.
+var DisableOrphanSlotAdoption bool
+
 // LoadExistingDevices registers existing device records in the store container without connecting them.
 // This keeps the registry aware of all device IDs even before their clients are initialized.
 func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
@@ -646,7 +652,9 @@ func (m *DeviceManager) LoadExistingDevices(ctx context.Context) error {
 		}
 
 		// Match orphaned device (registered slot without a session) with this row.
-		if orphanSlot != nil {
+		// WTF: skipped when DisableOrphanSlotAdoption is set, so the session falls
+		// through to its own new instance below instead of joining another user's slot.
+		if orphanSlot != nil && !DisableOrphanSlotAdoption {
 			logrus.Infof("[DEVICE_MANAGER] matching orphaned device %s with JID %s", orphanSlot.ID(), nonAD)
 			m.applyStoreJID(orphanSlot, *dev.ID)
 			m.persistInstanceRecord(orphanSlot)

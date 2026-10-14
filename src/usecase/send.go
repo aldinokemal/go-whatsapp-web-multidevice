@@ -343,7 +343,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, request.BaseRequest.Phone))
 	}
 
 	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
@@ -2076,13 +2076,19 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 	return isAnimated, width, height
 }
 
-func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
+func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, jid string) (expiration uint32) {
 	expiration = 0
 	if jid == "" {
 		return expiration
 	}
 
-	chat, err := service.chatStorageRepo.GetChat(jid)
+	// WTF: scoped to the calling device; the unscoped GetChat could apply
+	// another account's disappearing-message setting for the same chat JID.
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return expiration
+	}
+	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid)
 	if err != nil {
 		return expiration
 	}

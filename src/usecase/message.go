@@ -271,7 +271,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// Participant field for group chats — required by the WhatsApp protocol.
 	// An empty JID means "message was from me".
 	senderJID := types.EmptyJID
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, err := scopedMessageLookup(ctx, service.chatStorageRepo, request.MessageID)
 	if err != nil {
 		logrus.Warnf("Failed to lookup message %s for reaction: %v, using heuristic", request.MessageID, err)
 		if len(request.MessageID) > 22 {
@@ -323,11 +323,9 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	// Resolve the original sender so group admins can revoke other members'
 	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
 	// any other JID is admin-revoke and requires the bot to be group admin.
-	// WhatsApp message IDs are globally unique, so a cross-device lookup
-	// via GetMessageByID yields the same sender regardless of which device
-	// owns the row.
+	// WTF: scoped to this device; a cross-device lookup leaks whether another account holds this message.
 	senderJID := types.EmptyJID
-	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, lookupErr := scopedMessageLookup(ctx, service.chatStorageRepo, request.MessageID)
 	if lookupErr != nil {
 		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
 	} else if message != nil && !message.IsFromMe && message.Sender != "" {
@@ -616,7 +614,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	}
 
 	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, err := scopedMessageLookup(ctx, service.chatStorageRepo, request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
@@ -692,4 +690,22 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	})
 
 	return response, nil
+}
+
+// WTF: scopedMessageLookup finds a message only among the calling device's
+// rows. The unscoped GetMessageByID let one account read another account's
+// media keys by message id. The device id matches what
+// SQLiteRepository.CreateMessage writes to messages.device_id: the instance's
+// JID, else its slot id, else the client's store JID.
+func scopedMessageLookup(ctx context.Context, repo domainChatStorage.IChatStorageRepository, messageID string) (*domainChatStorage.Message, error) {
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		if client := whatsapp.ClientFromContext(ctx); client != nil && client.Store != nil && client.Store.ID != nil {
+			deviceID = client.Store.ID.ToNonAD().String()
+		}
+	}
+	if deviceID == "" {
+		return nil, nil
+	}
+	return repo.GetMessageByIDAndDevice(deviceID, messageID)
 }

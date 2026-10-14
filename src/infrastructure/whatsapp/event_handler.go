@@ -19,6 +19,12 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// WTF: EventHook sees every event before upstream handling. The multi-user
+// layer uses it for the service number's sign-in messages and the
+// duplicate-number guard. It must return quickly; long work goes in a goroutine.
+// Nil means no-op.
+var EventHook func(ctx context.Context, instance *DeviceInstance, evt any)
+
 // handler is the main event handler for WhatsApp events, scoped to a device instance.
 func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	if instance == nil {
@@ -27,6 +33,10 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 
 	// Ensure downstream handlers see the device context (used for device-scoped storage).
 	ctx = ContextWithDevice(ctx, instance)
+
+	if EventHook != nil { // WTF
+		EventHook(ctx, instance, rawEvt)
+	}
 
 	chatStorageRepo := instance.GetChatStorage()
 	client := instance.GetClient()
@@ -103,8 +113,10 @@ func handleUndecryptableMessage(evt *events.UndecryptableMessage) {
 func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
-	// Find the message to get its chat JID
-	message, err := chatStorageRepo.GetMessageByID(evt.MessageID)
+	// Find the message to get its chat JID.
+	// WTF: scoped to this device ("" = the wrapper's own device id); the unscoped
+	// GetMessageByID let one account's "delete for me" hit another account's copy.
+	message, err := chatStorageRepo.GetMessageByIDAndDevice("", evt.MessageID)
 	if err != nil {
 		log.Errorf("Failed to find message %s for deletion: %v", evt.MessageID, err)
 		return
