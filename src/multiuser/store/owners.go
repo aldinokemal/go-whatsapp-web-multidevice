@@ -49,3 +49,22 @@ func (s *Store) OwnedDeviceCount(ctx context.Context) (int, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_owners`).Scan(&n)
 	return n, err
 }
+
+// ReserveOwner records userID as deviceID's owner only while the user owns
+// fewer than max devices. The count and the insert are one SQL statement, and
+// SQLite takes the write lock before the statement reads, so concurrent calls
+// can never take a user past max. ok is false when the limit is reached.
+func (s *Store) ReserveOwner(ctx context.Context, deviceID, userID string, max int) (ok bool, err error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO device_owners (device_id, user_id, created_at)
+		 SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM device_owners WHERE user_id = ?) < ?`,
+		deviceID, userID, s.now(), userID, max)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}

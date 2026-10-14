@@ -2,12 +2,16 @@ package owners
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/require"
 )
@@ -145,4 +149,113 @@ func TestScopedDevicesOrphanIsInvisible(t *testing.T) {
 	_, err := svc.GetDevice(auth.WithUser(context.Background(), a), "d_orphan")
 	require.ErrorIs(t, err, pkgError.ErrDeviceNotFound)
 	require.Empty(t, inner.touched)
+}
+
+// syncInner is safe for concurrent AddDevice calls.
+type syncInner struct {
+	*innerStub
+	mu sync.Mutex
+}
+
+func (s *syncInner) AddDevice(ctx context.Context, id string, w *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
+	time.Sleep(10 * time.Millisecond) // creating a device is slow; a check-then-insert limit loses this race
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.innerStub.AddDevice(ctx, id, w)
+}
+
+func TestAddDeviceLimitHoldsUnderConcurrency(t *testing.T) {
+	st, _, _, _ := fixture(t)
+	c, _ := st.CreateUser(context.Background(), "+27825550102") // MaxDevices 2
+	inner := &syncInner{innerStub: &innerStub{}}
+	svc := NewScopedDevices(inner, st)
+	ctxC := auth.WithUser(context.Background(), c)
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins, limited := 0, 0
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := svc.AddDevice(ctxC, "", nil)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				wins++
+			} else if errors.Is(err, ErrDeviceLimitReached) {
+				limited++
+			}
+		}()
+	}
+	wg.Wait()
+	require.Equal(t, 2, wins)
+	require.Equal(t, 14, limited, "every loser is told about the limit")
+	ids, err := st.DevicesOf(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+	require.Len(t, inner.added, 2, "the inner usecase only created the two reserved devices")
+}
+
+// failingInner creates the slot, then fails (as upstream does when the webhook
+// config can't be saved).
+type failingInner struct {
+	*innerStub
+	removeErr error
+}
+
+func (f *failingInner) AddDevice(_ context.Context, id string, _ *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
+	f.added = append(f.added, id)
+	return nil, errors.New("device created but webhook config could not be saved")
+}
+func (f *failingInner) RemoveDevice(_ context.Context, id string) error {
+	f.removed = append(f.removed, id)
+	return f.removeErr
+}
+
+func TestAddDeviceRollsBackWhenInnerFails(t *testing.T) {
+	for name, removeErr := range map[string]error{
+		"slot removed":       nil,
+		"slot already gone":  pkgError.ErrDeviceNotFound,
+		"slot removal fails": errors.New("disk full"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			st, _, _, _ := fixture(t)
+			c, _ := st.CreateUser(context.Background(), "+27825550102")
+			inner := &failingInner{innerStub: &innerStub{}, removeErr: removeErr}
+			svc := NewScopedDevices(inner, st)
+			ctxC := auth.WithUser(context.Background(), c)
+
+			_, err := svc.AddDevice(ctxC, "", nil)
+			require.Error(t, err)
+			require.Len(t, inner.added, 1)
+			require.Equal(t, inner.added, inner.removed, "the half-made slot is removed")
+			ids, _ := st.DevicesOf(context.Background(), c.ID)
+			require.Empty(t, ids, "the reservation is released, so it does not use up the limit")
+		})
+	}
+}
+
+// ghostInner has no manager entry for any device.
+type ghostInner struct{ *innerStub }
+
+func (g *ghostInner) RemoveDevice(_ context.Context, id string) error {
+	g.removed = append(g.removed, id)
+	return pkgError.ErrDeviceNotFound
+}
+
+func TestRemoveGhostDeviceClearsOwnership(t *testing.T) {
+	st, _, a, b := fixture(t)
+	inner := &ghostInner{innerStub: &innerStub{}}
+	svc := NewScopedDevices(inner, st)
+
+	require.NoError(t, svc.RemoveDevice(auth.WithUser(context.Background(), a), "d_a1"))
+	_, err := st.OwnerOf(context.Background(), "d_a1")
+	require.ErrorIs(t, err, store.ErrNotFound, "a ghost row would use up the limit forever")
+
+	// The ghost path never lets someone else's row be cleared.
+	require.ErrorIs(t, svc.RemoveDevice(auth.WithUser(context.Background(), a), "d_b1"), pkgError.ErrDeviceNotFound)
+	owner, err := st.OwnerOf(context.Background(), "d_b1")
+	require.NoError(t, err)
+	require.Equal(t, b.ID, owner)
 }

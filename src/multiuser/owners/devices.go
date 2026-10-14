@@ -2,6 +2,7 @@ package owners
 
 import (
 	"context"
+	"errors"
 
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -9,6 +10,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/sirupsen/logrus"
 )
 
 // ScopedDevices wraps upstream's device usecase so the unchanged
@@ -17,6 +19,8 @@ type ScopedDevices struct {
 	inner domainDevice.IDeviceUsecase
 	st    *store.Store
 }
+
+var ErrDeviceLimitReached = pkgError.ValidationError("you have reached your limit of linked WhatsApp accounts")
 
 func NewScopedDevices(inner domainDevice.IDeviceUsecase, st *store.Store) domainDevice.IDeviceUsecase {
 	return &ScopedDevices{inner: inner, st: st}
@@ -60,36 +64,53 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 	return out, nil
 }
 
+// AddDevice ignores the requested id: the server picks it. Ownership is
+// reserved before the device is created, in one statement that also enforces
+// the user's limit, so concurrent adds cannot exceed it and a device never
+// exists without an owner.
 func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
 	u, ok := auth.UserFrom(ctx)
 	if !ok {
 		return nil, pkgError.ErrDeviceNotFound
 	}
-	ids, err := s.st.DevicesOf(ctx, u.ID)
+	id := NewDeviceID()
+	reserved, err := s.st.ReserveOwner(ctx, id, u.ID, u.MaxDevices)
 	if err != nil {
 		return nil, err
 	}
-	if len(ids) >= u.MaxDevices {
-		return nil, pkgError.ValidationError("you have reached your limit of linked WhatsApp accounts")
+	if !reserved {
+		return nil, ErrDeviceLimitReached
 	}
-	id := NewDeviceID()
 	dev, err := s.inner.AddDevice(ctx, id, webhook)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.st.SetOwner(ctx, id, u.ID); err != nil {
-		_ = s.inner.RemoveDevice(ctx, id) // never leave an ownerless device behind
+		s.rollbackAdd(ctx, id)
 		return nil, err
 	}
 	_ = s.st.Audit(ctx, store.AuditEvent{UserID: u.ID, Action: "device_add", DeviceID: id})
 	return dev, nil
 }
 
+// rollbackAdd undoes a failed AddDevice. Upstream can create the slot and
+// then fail (for example when the webhook config can't be saved), so the slot
+// is removed as well as the reservation. It runs even if the request was
+// cancelled. Failures are logged by device id only.
+func (s *ScopedDevices) rollbackAdd(ctx context.Context, id string) {
+	ctx = context.WithoutCancel(ctx)
+	if err := s.inner.RemoveDevice(ctx, id); err != nil && !errors.Is(err, pkgError.ErrDeviceNotFound) {
+		logrus.WithError(err).Warnf("[WTF] rollback: could not remove half-created device %s", id)
+	}
+	if err := s.st.RemoveOwner(ctx, id); err != nil {
+		logrus.WithError(err).Warnf("[WTF] rollback: could not release reservation for device %s", id)
+	}
+}
+
+// RemoveDevice also clears a "ghost": an owner row whose device the manager no
+// longer has. Without that, the row would count against the limit forever.
 func (s *ScopedDevices) RemoveDevice(ctx context.Context, deviceID string) error {
 	if err := s.own(ctx, deviceID); err != nil {
 		return err
 	}
-	if err := s.inner.RemoveDevice(ctx, deviceID); err != nil {
+	if err := s.inner.RemoveDevice(ctx, deviceID); err != nil && !errors.Is(err, pkgError.ErrDeviceNotFound) {
 		return err
 	}
 	u, _ := auth.UserFrom(ctx)
