@@ -30,3 +30,20 @@ func TestPasskeys(t *testing.T) {
 	require.ErrorIs(t, st.DeletePasskey(ctx, b.ID, "cred1"), ErrNotFound, "cannot delete another user's passkey")
 	require.NoError(t, st.DeletePasskey(ctx, a.ID, "cred1"))
 }
+
+func TestPasskeyWrongUserDeleteLeavesRow(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	a, _ := st.CreateUser(ctx, "+27825550100")
+	b, _ := st.CreateUser(ctx, "+27825550101")
+	require.NoError(t, st.AddPasskey(ctx, Passkey{CredentialID: "c1", UserID: a.ID, CredentialJSON: []byte(`{}`)}))
+	require.ErrorIs(t, st.DeletePasskey(ctx, b.ID, "c1"), ErrNotFound)
+	list, err := st.PasskeysOf(ctx, a.ID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+}
+
+func TestUpdatePasskeyUnknown(t *testing.T) {
+	st := openTest(t)
+	require.ErrorIs(t, st.UpdatePasskeyCredential(context.Background(), "nope", []byte(`{}`)), ErrNotFound)
+}

@@ -8,7 +8,7 @@ import (
 
 func (s *Store) SetOwner(ctx context.Context, deviceID, userID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO device_owners (device_id, user_id, created_at) VALUES (?, ?, ?)`, deviceID, userID, s.Now())
+		`INSERT INTO device_owners (device_id, user_id, created_at) VALUES (?, ?, ?)`, deviceID, userID, s.now())
 	return err
 }
 

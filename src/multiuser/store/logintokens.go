@@ -11,12 +11,12 @@ func (s *Store) CreateLoginToken(ctx context.Context, phone string, ttl time.Dur
 	raw := NewToken()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO login_tokens (token_hash, phone, expires_at) VALUES (?, ?, ?)`,
-		HashToken(raw), phone, s.Now().Add(ttl))
+		HashToken(raw), phone, s.now().Add(ttl))
 	if err != nil {
 		return "", err
 	}
 	// Opportunistic cleanup of dead tokens.
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM login_tokens WHERE expires_at < ?`, s.Now().Add(-24*time.Hour))
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM login_tokens WHERE expires_at < ?`, s.now().Add(-24*time.Hour))
 	return raw, nil
 }
 
@@ -24,7 +24,7 @@ func (s *Store) LoginTokenValid(ctx context.Context, raw string) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM login_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`,
-		HashToken(raw), s.Now()).Scan(&n)
+		HashToken(raw), s.now()).Scan(&n)
 	return n == 1, err
 }
 
@@ -34,7 +34,7 @@ func (s *Store) ConsumeLoginToken(ctx context.Context, raw string) (string, erro
 	h := HashToken(raw)
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`,
-		s.Now(), h, s.Now())
+		s.now(), h, s.now())
 	if err != nil {
 		return "", err
 	}

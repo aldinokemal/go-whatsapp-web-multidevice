@@ -36,6 +36,10 @@ func Open(uri string) (*Store, error) {
 	return st, nil
 }
 
+// now is the only way store code reads the clock. Timestamps are compared as
+// text in SQL, so they must always be UTC regardless of what Now returns.
+func (s *Store) now() time.Time { return s.Now().UTC() }
+
 func (s *Store) Close() error { return s.db.Close() }
 
 // migrations run in order, once each. Append only; never edit a shipped entry.

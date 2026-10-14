@@ -41,7 +41,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 }
 
 func (s *Store) CreateUser(ctx context.Context, phone string) (*User, error) {
-	u := &User{ID: newID("u_"), Phone: phone, Status: StatusActive, MaxDevices: 2, CreatedAt: s.Now()}
+	u := &User{ID: newID("u_"), Phone: phone, Status: StatusActive, MaxDevices: 2, CreatedAt: s.now()}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users (id, phone, status, max_devices, created_at) VALUES (?, ?, ?, ?, ?)`,
 		u.ID, u.Phone, u.Status, u.MaxDevices, u.CreatedAt)
@@ -93,6 +93,6 @@ func (s *Store) SetUserStatus(ctx context.Context, id, status string) error {
 }
 
 func (s *Store) TouchLogin(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET last_login_at = ? WHERE id = ?`, s.Now(), id)
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET last_login_at = ? WHERE id = ?`, s.now(), id)
 	return err
 }

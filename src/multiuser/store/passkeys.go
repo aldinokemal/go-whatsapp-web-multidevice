@@ -39,12 +39,12 @@ func scanPasskey(row interface{ Scan(...any) error }) (*Passkey, error) {
 func (s *Store) AddPasskey(ctx context.Context, p Passkey) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO passkeys (credential_id, user_id, name, credential_json, created_at) VALUES (?, ?, ?, ?, ?)`,
-		p.CredentialID, p.UserID, p.Name, string(p.CredentialJSON), s.Now())
+		p.CredentialID, p.UserID, p.Name, string(p.CredentialJSON), s.now())
 	return err
 }
 
 func (s *Store) PasskeysOf(ctx context.Context, userID string) ([]Passkey, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+passkeyCols+` FROM passkeys WHERE user_id = ? ORDER BY created_at`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+passkeyCols+` FROM passkeys WHERE user_id = ? ORDER BY created_at, credential_id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +65,15 @@ func (s *Store) PasskeyByCredentialID(ctx context.Context, credID string) (*Pass
 }
 
 func (s *Store) UpdatePasskeyCredential(ctx context.Context, credID string, credJSON []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE passkeys SET credential_json = ?, last_used_at = ? WHERE credential_id = ?`, string(credJSON), s.Now(), credID)
-	return err
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE passkeys SET credential_json = ?, last_used_at = ? WHERE credential_id = ?`, string(credJSON), s.now(), credID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeletePasskey(ctx context.Context, userID, credID string) error {

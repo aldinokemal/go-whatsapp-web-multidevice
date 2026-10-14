@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,4 +45,25 @@ func TestLoginTokenSingleUseAndExpiry(t *testing.T) {
 
 	_, err = st.ConsumeLoginToken(ctx, "nonsense")
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestConsumeLoginTokenConcurrent(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	raw, err := st.CreateLoginToken(ctx, "+27825550100", time.Hour)
+	require.NoError(t, err)
+	const n = 8
+	var wg sync.WaitGroup
+	var ok int32
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := st.ConsumeLoginToken(ctx, raw); err == nil {
+				atomic.AddInt32(&ok, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	require.EqualValues(t, 1, ok)
 }

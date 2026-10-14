@@ -24,6 +24,6 @@ func (s *Store) SetSetting(ctx context.Context, key, value, by string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-		key, value, by, s.Now())
+		key, value, by, s.now())
 	return err
 }
