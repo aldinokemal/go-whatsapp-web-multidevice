@@ -74,12 +74,7 @@ func init() {
 	initFlags()
 
 	// Then initialize other components
-	cobra.OnInitialize(initEnvConfig, func() { // WTF: admin-link must not start WhatsApp
-		if commandSkipsAppInit(os.Args[1:]) {
-			return
-		}
-		initApp()
-	})
+	cobra.OnInitialize(initEnvConfig, func() { initAppUnlessSkipped(os.Args[1:]) }) // WTF: admin-link must not start WhatsApp
 }
 
 // initEnvConfig loads configuration from environment variables

@@ -12,13 +12,15 @@ import (
 )
 
 type Settings struct {
-	Enabled       bool
-	DBURI         string
-	ProductName   string
-	PublicURL     string
-	SessionSecret []byte
-	Superadmins   map[string]bool
-	SignupOpen    bool
+	Enabled     bool
+	DBURI       string
+	ProductName string
+	PublicURL   string
+	// PublicURLIsFallback is true when neither WTF_PUBLIC_URL nor RENDER_EXTERNAL_URL was set.
+	PublicURLIsFallback bool
+	SessionSecret       []byte
+	Superadmins         map[string]bool
+	SignupOpen          bool
 }
 
 // Load reads WTF_* settings. getenv is os.Getenv in production and a map in tests.
@@ -45,6 +47,7 @@ func Load(getenv func(string) string) (Settings, error) {
 	}
 	if s.PublicURL == "" {
 		s.PublicURL = "http://localhost:3000"
+		s.PublicURLIsFallback = true
 	}
 	s.PublicURL = strings.TrimRight(s.PublicURL, "/")
 

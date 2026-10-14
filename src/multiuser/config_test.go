@@ -55,3 +55,13 @@ func TestApplyForcesSharedFeaturesOff(t *testing.T) {
 	require.Empty(t, config.WhatsappWebhook)
 	require.Empty(t, config.AppBasicAuthCredential)
 }
+
+func TestLoadFlagsLocalhostFallback(t *testing.T) {
+	env := map[string]string{"WTF_MULTIUSER": "true", "SESSION_SECRET": "0123456789abcdef0123456789abcdef"}
+	s, err := Load(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	require.True(t, s.PublicURLIsFallback)
+	env["WTF_PUBLIC_URL"] = "https://wtf.example"
+	s, _ = Load(func(k string) string { return env[k] })
+	require.False(t, s.PublicURLIsFallback)
+}
