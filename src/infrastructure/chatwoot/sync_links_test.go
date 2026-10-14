@@ -40,6 +40,15 @@ func (r *chatwootSyncLinkRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMe
 	return &cloned, nil
 }
 
+// EnqueueChatwootForwardEvent is a bare-minimum no-op so every test built on
+// this base repo can go through syncChat's pre-arm write (it now enqueues a
+// reopen intent before posting into any resolved conversation) without
+// panicking on the embedded nil IChatStorageRepository. Tests asserting on
+// what got queued use chatwootReopenQueueRepo, which overrides this.
+func (r *chatwootSyncLinkRepo) EnqueueChatwootForwardEvent(*domainChatStorage.ChatwootForwardEvent) error {
+	return nil
+}
+
 func TestSyncMessageSkipsExistingChatwootLink(t *testing.T) {
 	repo := newChatwootSyncLinkTestRepo()
 	msg := &domainChatStorage.Message{
@@ -75,7 +84,7 @@ func TestSyncMessageSkipsExistingChatwootLink(t *testing.T) {
 		HTTPClient: server.Client(),
 	}, repo)
 
-	if err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
+	if _, err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
 		t.Fatalf("syncMessage: %v", err)
 	}
 	if got := requests.Load(); got != 0 {
@@ -110,7 +119,7 @@ func TestSyncMessageStoresChatwootLinkAfterCreate(t *testing.T) {
 		HTTPClient: server.Client(),
 	}, repo)
 
-	if err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
+	if _, err := svc.syncMessage(context.Background(), 42, msg, nil, SyncOptions{}, false); err != nil {
 		t.Fatalf("syncMessage: %v", err)
 	}
 
@@ -154,7 +163,7 @@ func TestSyncMessageWithRequiredMediaDoesNotCreatePlaceholderWhenDownloadFails(t
 		HTTPClient: server.Client(),
 	}, repo)
 
-	err := svc.syncMessageWithOptions(context.Background(), 42, msg, nil, SyncOptions{IncludeMedia: true}, false, true)
+	_, err := svc.syncMessageWithOptions(context.Background(), 42, msg, nil, SyncOptions{IncludeMedia: true}, false, true)
 	if err == nil {
 		t.Fatal("syncMessageWithOptions error = nil, want media download failure")
 	}
