@@ -161,6 +161,25 @@ func TestForwardGroupInfoToWebhook_ParticipantsOnlySendsNoGroupInfo(t *testing.T
 	}
 }
 
+func TestForwardGroupInfoToWebhook_NameAndParticipantsSendsBoth(t *testing.T) {
+	captured := captureGroupWebhooks(t)
+
+	evt := groupNameEvent(types.GroupName{Name: "Renamed"})
+	evt.Join = []types.JID{types.NewJID("6289685000000", types.DefaultUserServer)}
+
+	if err := forwardGroupInfoToWebhook(context.Background(), evt, "", nil); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	counts := map[string]int{}
+	for _, webhook := range *captured {
+		counts[webhook.event]++
+	}
+	if len(*captured) != 2 || counts["group.participants"] != 1 || counts["group.info"] != 1 {
+		t.Fatalf("expected one group.participants and one group.info webhook, got %+v", *captured)
+	}
+}
+
 func TestForwardGroupInfoToWebhook_NameChangeFollowsEventWhitelist(t *testing.T) {
 	tests := []struct {
 		name      string

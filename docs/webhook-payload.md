@@ -718,11 +718,11 @@ Triggered when users are demoted from admin.
 }
 ```
 
-### Group Event Fields
+### Group Participant Event Fields
 
 | **Field**         | **Type** | **Description**                                              |
 |-------------------|----------|--------------------------------------------------------------|
-| `event`           | string   | Always `"group.participants"` for group events               |
+| `event`           | string   | Always `"group.participants"` for participant events         |
 | `device_id`       | string   | JID of the device that received this event                   |
 | `timestamp`       | string   | RFC3339 formatted timestamp when the group event occurred    |
 | `payload.chat_id` | string   | Group identifier (e.g., `"120363402106XXXXX@g.us"`)          |
