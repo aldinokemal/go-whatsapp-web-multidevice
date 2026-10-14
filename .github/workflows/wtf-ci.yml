@@ -1,0 +1,25 @@
+name: wtf-ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+concurrency:
+  group: wtf-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    if: github.repository_owner == 'arilewis93'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg webp
+      - run: go vet ./...
+      - run: set -o pipefail && go test ./... 2>&1 | tee test.log
+      - name: The multi-user tests actually ran
+        run: grep -E '^ok\s+github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser' test.log
