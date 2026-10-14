@@ -25,6 +25,17 @@ import (
 // Nil means no-op.
 var EventHook func(ctx context.Context, instance *DeviceInstance, evt any)
 
+// WTF: runEventHook calls EventHook so that a panic in it is logged (event type
+// only, never the payload) and upstream handling of the event still runs.
+func runEventHook(ctx context.Context, instance *DeviceInstance, evt any) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("[WTF] event hook panicked on %T: %v", evt, r)
+		}
+	}()
+	EventHook(ctx, instance, evt)
+}
+
 // handler is the main event handler for WhatsApp events, scoped to a device instance.
 func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	if instance == nil {
@@ -35,7 +46,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	ctx = ContextWithDevice(ctx, instance)
 
 	if EventHook != nil { // WTF
-		EventHook(ctx, instance, rawEvt)
+		runEventHook(ctx, instance, rawEvt)
 	}
 
 	chatStorageRepo := instance.GetChatStorage()
@@ -114,9 +125,17 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
 	// Find the message to get its chat JID.
-	// WTF: scoped to this device ("" = the wrapper's own device id); the unscoped
-	// GetMessageByID let one account's "delete for me" hit another account's copy.
-	message, err := chatStorageRepo.GetMessageByIDAndDevice("", evt.MessageID)
+	// WTF: scoped to this device; the unscoped GetMessageByID let one account's
+	// "delete for me" hit another account's copy. Use the id messages are written
+	// under (instance JID, else slot id), not the wrapper's, which stays the slot
+	// id until restart.
+	lookupDeviceID := deviceID
+	if lookupDeviceID == "" {
+		if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+			lookupDeviceID = inst.ID()
+		}
+	}
+	message, err := chatStorageRepo.GetMessageByIDAndDevice(lookupDeviceID, evt.MessageID)
 	if err != nil {
 		log.Errorf("Failed to find message %s for deletion: %v", evt.MessageID, err)
 		return
@@ -128,7 +147,12 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 	}
 
 	// Delete the message from database
-	if err := chatStorageRepo.DeleteMessage(evt.MessageID, message.ChatJID); err != nil {
+	// WTF: delete under the found row's own device id.
+	deleteDeviceID := message.DeviceID
+	if deleteDeviceID == "" {
+		deleteDeviceID = lookupDeviceID
+	}
+	if err := chatStorageRepo.DeleteMessageByDevice(deleteDeviceID, evt.MessageID, message.ChatJID); err != nil {
 		log.Errorf("Failed to delete message %s from database: %v", evt.MessageID, err)
 	} else {
 		log.Infof("Successfully deleted message %s from database", evt.MessageID)

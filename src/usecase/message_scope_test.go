@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,10 @@ func TestMessageLookupsAreDeviceScoped(t *testing.T) {
 	require.Equal(t, "d_a1", repo.byDeviceID)
 }
 
-func TestMessageLookupWithoutDeviceIsNotUnscoped(t *testing.T) {
+// With no device in the context, the helper falls back to the global client's
+// store JID (as CreateMessage does). In tests there is no global client, so it
+// returns no message without any lookup; it never uses the unscoped GetMessageByID.
+func TestMessageLookupWithoutDeviceOrClientReturnsNothing(t *testing.T) {
 	repo := &lookupRepo{}
 	msg, err := scopedMessageLookup(context.Background(), repo, "MSG1")
 	require.NoError(t, err)
@@ -78,4 +82,31 @@ func TestDefaultEphemeralExpirationIsDeviceScoped(t *testing.T) {
 	got = serviceSend{chatStorageRepo: repo2}.getDefaultEphemeralExpiration(context.Background(), "628123456789@s.whatsapp.net")
 	require.Equal(t, uint32(0), got, "no device in context means no other account's setting leaks in")
 	require.False(t, repo2.getChatCalled)
+}
+
+type listChatsRepo struct {
+	domainChatStorage.IChatStorageRepository
+	getChatsCalled, countCalled bool
+}
+
+func (r *listChatsRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	r.getChatsCalled = true
+	return []*domainChatStorage.Chat{{JID: "x@s.whatsapp.net", DeviceID: "someone-else"}}, nil
+}
+
+func (r *listChatsRepo) GetFilteredChatCount(*domainChatStorage.ChatFilter) (int64, error) {
+	r.countCalled = true
+	return 1, nil
+}
+
+// An empty device id would drop the device condition from the chat filter and
+// list every account's chats; ListChats must refuse instead.
+func TestListChatsWithoutDeviceIsRefused(t *testing.T) {
+	repo := &listChatsRepo{}
+	service := serviceChat{chatStorageRepo: repo}
+	resp, err := service.ListChats(context.Background(), domainChat.ListChatsRequest{})
+	require.Error(t, err)
+	require.Empty(t, resp.Data)
+	require.False(t, repo.getChatsCalled, "GetChats must not run without a device")
+	require.False(t, repo.countCalled, "GetFilteredChatCount must not run without a device")
 }

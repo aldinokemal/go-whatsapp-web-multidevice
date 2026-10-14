@@ -54,6 +54,12 @@ func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 		)
 		if DeviceResolveFunc != nil { // WTF
 			instance, resolvedID, err = DeviceResolveFunc(c, deviceID)
+			if err == nil && instance == nil { // WTF: a nil device must never reach the context
+				err = pkgError.ErrDeviceNotFound
+				if resolvedID == "" {
+					resolvedID = deviceID
+				}
+			}
 		} else {
 			instance, resolvedID, err = dm.ResolveDevice(deviceID)
 		}

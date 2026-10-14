@@ -92,3 +92,29 @@ func TestDeviceResolveFuncNilKeepsUpstreamBehaviour(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+// A hook that returns no device and no error must not let a nil device reach the
+// context (usecases would fall back to the global client).
+func TestDeviceResolveFuncNilInstanceIsNotFound(t *testing.T) {
+	saved := DeviceResolveFunc
+	t.Cleanup(func() { DeviceResolveFunc = saved })
+	DeviceResolveFunc = func(_ fiber.Ctx, id string) (*whatsapp.DeviceInstance, string, error) {
+		return nil, id, nil
+	}
+
+	dm := whatsapp.NewDeviceManager(nil, nil, nil)
+	app := fiber.New()
+	reached := false
+	app.Get("/x", DeviceMiddleware(dm), func(c fiber.Ctx) error { reached = true; return c.SendString("reached") })
+
+	for _, header := range []string{"", "d_x"} {
+		req := httptest.NewRequest(http.MethodGet, "/x", nil)
+		if header != "" {
+			req.Header.Set(DeviceIDHeader, header)
+		}
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusNotFound, resp.StatusCode, "header %q", header)
+		require.False(t, reached)
+	}
+}
