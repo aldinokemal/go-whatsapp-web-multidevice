@@ -566,3 +566,97 @@ func TestBuildEventPayloadIncludesSenderDisplayName(t *testing.T) {
 		})
 	}
 }
+
+func albumEventForTest(id string, message *waE2E.Message) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   types.NewJID("123", types.DefaultUserServer),
+				Sender: types.NewJID("456", types.DefaultUserServer),
+			},
+			ID:        types.MessageID(id),
+			Timestamp: time.Date(2026, time.October, 7, 10, 0, 0, 0, time.UTC),
+		},
+		Message: message,
+	}
+}
+
+func TestBuildEventPayloadAlbumHeaderIncludesExpectedCounts(t *testing.T) {
+	images, videos := uint32(3), uint32(1)
+	evt := albumEventForTest("ALBUM1", &waE2E.Message{
+		AlbumMessage: &waE2E.AlbumMessage{ExpectedImageCount: &images, ExpectedVideoCount: &videos},
+	})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.Equal(t, EventTypeMessage, eventType)
+	assert.Equal(t, map[string]any{"expected_image_count": images, "expected_video_count": videos}, payload["album"])
+	assert.False(t, payloadHasNoRenderableContent(payload))
+	assert.True(t, hasRecognizedMessageType(evt.Message))
+	_, hasAlbumID := payload["album_id"]
+	assert.False(t, hasAlbumID)
+}
+
+func TestBuildEventPayloadAlbumItemIncludesAlbumID(t *testing.T) {
+	previous := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = previous })
+
+	albumType := waE2E.MessageAssociation_MEDIA_ALBUM
+	evt := albumEventForTest("ITEM1", &waE2E.Message{
+		ImageMessage: &waE2E.ImageMessage{},
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  &albumType,
+				ParentMessageKey: &waCommon.MessageKey{ID: protoString("ALBUM1")},
+			},
+		},
+	})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.Equal(t, EventTypeMessage, eventType)
+	assert.Equal(t, "ALBUM1", payload["album_id"])
+	assert.Contains(t, payload, "image")
+}
+
+func TestBuildEventPayloadIgnoresNonAlbumAssociations(t *testing.T) {
+	previous := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = previous })
+
+	otherType := waE2E.MessageAssociation_MOTION_PHOTO
+	evt := albumEventForTest("ITEM2", &waE2E.Message{
+		ImageMessage: &waE2E.ImageMessage{},
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  &otherType,
+				ParentMessageKey: &waCommon.MessageKey{ID: protoString("PARENT")},
+			},
+		},
+	})
+
+	_, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	_, hasAlbumID := payload["album_id"]
+	assert.False(t, hasAlbumID)
+}
+
+func TestAlbumHeaderIsNotForwardedToChatwootAsUnsupported(t *testing.T) {
+	images := uint32(2)
+	evt := albumEventForTest("ALBUM2", &waE2E.Message{AlbumMessage: &waE2E.AlbumMessage{ExpectedImageCount: &images}})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.True(t, isAlbumHeaderPayload(eventType, payload))
+	assert.False(t, isAlbumHeaderPayload(EventTypeMessage, map[string]any{"album_id": "ALBUM2", "image": "x.jpg"}))
+	assert.False(t, isAlbumHeaderPayload(EventTypeMessageReaction, payload))
+}

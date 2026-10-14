@@ -210,6 +210,7 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		"image", "audio", "video", "video_note", "document", "sticker",
 		"contact", "contacts_array", "list", "live_location", "location", "order",
 		"template", "buttons", "product", "selection", "interactive",
+		"album",
 	}
 	for _, key := range renderableKeys {
 		if _, ok := payload[key]; ok {
@@ -242,6 +243,7 @@ func hasRecognizedMessageType(msg *waE2E.Message) bool {
 		msg.GetTemplateMessage() != nil,
 		msg.GetButtonsMessage() != nil,
 		msg.GetProductMessage() != nil,
+		msg.GetAlbumMessage() != nil,
 		msg.GetListResponseMessage() != nil,
 		msg.GetButtonsResponseMessage() != nil,
 		msg.GetTemplateButtonReplyMessage() != nil,
@@ -351,8 +353,36 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 	}
 
 	buildOtherMessageTypes(msg, payload)
+	buildAlbumFields(evt, msg, payload)
 
 	return nil
+}
+
+// buildAlbumFields exposes WhatsApp's media album grouping. When several photos or
+// videos are sent together, WhatsApp first sends an AlbumMessage carrying only the
+// expected counts, then each item as a regular image/video message linked to it
+// through messageContextInfo.messageAssociation (type MEDIA_ALBUM). Without this the
+// album header reaches consumers as an empty, unsupported message and the items
+// cannot be grouped.
+func buildAlbumFields(evt *events.Message, msg *waE2E.Message, payload map[string]any) {
+	if album := msg.GetAlbumMessage(); album != nil {
+		payload["album"] = map[string]any{
+			"expected_image_count": album.GetExpectedImageCount(),
+			"expected_video_count": album.GetExpectedVideoCount(),
+		}
+		return
+	}
+
+	association := evt.Message.GetMessageContextInfo().GetMessageAssociation()
+	if association == nil {
+		association = msg.GetMessageContextInfo().GetMessageAssociation()
+	}
+	if association.GetAssociationType() != waE2E.MessageAssociation_MEDIA_ALBUM {
+		return
+	}
+	if parentID := association.GetParentMessageKey().GetID(); parentID != "" {
+		payload["album_id"] = parentID
+	}
 }
 
 func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any) error {
