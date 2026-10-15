@@ -1032,6 +1032,7 @@ func configureDeviceProps() {
 	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 	store.DeviceProps.PlatformType = &config.AppPlatform
 	store.DeviceProps.Os = &osName
+	applyFullHistorySyncProps()
 }
 
 // StoreInfo returns configured store URIs for observability.
