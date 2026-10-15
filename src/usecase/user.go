@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -396,6 +397,48 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 	utils.SanitizePhone(&request.Phone)
 
 	response.IsOnWhatsApp = utils.IsOnWhatsapp(client, request.Phone)
+
+	return response, nil
+}
+
+func (service serviceUser) SubscribePresence(ctx context.Context, request domainUser.SubscribePresenceRequest) (response domainUser.SubscribePresenceResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	utils.SanitizePhone(&request.Phone)
+
+	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	// Presence subscription is only valid for individual users; reject group /
+	// newsletter JIDs (e.g. caused by over-length phone inputs) instead of
+	// returning a false success.
+	if dataWaRecipient.Server != types.DefaultUserServer {
+		return response, pkgError.InvalidJID(fmt.Sprintf(
+			"presence subscription requires a user phone number, got non-user JID %s",
+			dataWaRecipient.ToNonAD().String()))
+	}
+
+	if err = client.SubscribePresence(ctx, dataWaRecipient); err != nil {
+		return response, err
+	}
+
+	// whatsmeow requires this client to be marked as available (online) to
+	// receive presence updates for other users. Do not override the operator's
+	// configured presence-on-connect value — surface the requirement instead.
+	if config.WhatsappPresenceOnConnect != "available" {
+		logrus.Warnf("presence subscription: client presence-on-connect is %q; "+
+			"contact presence updates require WHATSAPP_PRESENCE_ON_CONNECT=available "+
+			"(note: marking the device available suppresses phone notifications)", config.WhatsappPresenceOnConnect)
+	}
+
+	response.Subscribed = true
+	response.JID = dataWaRecipient.ToNonAD().String()
 
 	return response, nil
 }
