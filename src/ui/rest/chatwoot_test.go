@@ -283,6 +283,36 @@ func TestChatwootPayloadDeleted(t *testing.T) {
 	}
 }
 
+func TestChatwootPayloadReplyTarget(t *testing.T) {
+	tests := []struct {
+		name           string
+		in             map[string]any
+		wantWAID       string
+		wantChatwootID int
+	}{
+		{name: "missing", in: nil},
+		// JSON numbers decode as float64 into map[string]any.
+		{name: "WAID external id", in: map[string]any{"in_reply_to": float64(42), "in_reply_to_external_id": "WAID:3EB0A1"}, wantWAID: "3EB0A1", wantChatwootID: 42},
+		{name: "null external id keeps chatwoot id", in: map[string]any{"in_reply_to": float64(42), "in_reply_to_external_id": nil}, wantChatwootID: 42},
+		{name: "external id without WAID prefix", in: map[string]any{"in_reply_to_external_id": "3EB0A1"}},
+		{name: "empty WAID id", in: map[string]any{"in_reply_to_external_id": "WAID: "}},
+		{name: "non-string external id", in: map[string]any{"in_reply_to_external_id": float64(7)}},
+		{name: "string chatwoot id", in: map[string]any{"in_reply_to": "42"}, wantChatwootID: 42},
+		{name: "fractional chatwoot id", in: map[string]any{"in_reply_to": 4.5}},
+		{name: "zero chatwoot id", in: map[string]any{"in_reply_to": float64(0)}},
+		{name: "malformed chatwoot id", in: map[string]any{"in_reply_to": "abc"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := chatwoot.WebhookPayload{ContentAttributes: tt.in}
+			gotWAID, gotChatwootID := chatwootPayloadReplyTarget(payload)
+			if gotWAID != tt.wantWAID || gotChatwootID != tt.wantChatwootID {
+				t.Fatalf("chatwootPayloadReplyTarget() = (%q, %d), want (%q, %d)", gotWAID, gotChatwootID, tt.wantWAID, tt.wantChatwootID)
+			}
+		})
+	}
+}
+
 func TestChatwootWebhookRejectsInvalidSecret(t *testing.T) {
 	withChatwootWebhookSecret(t, "expected-secret")
 

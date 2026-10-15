@@ -537,6 +537,8 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
 
+Agent replies made with Chatwoot's **Reply** action go out as quoted replies on WhatsApp. The quoted message comes from the webhook's `in_reply_to_external_id` (`WAID:<id>`) or, for an earlier agent reply that has no source-id, from its stored outbound link in the same conversation and account. With attachments, only the first one carries the quote. If the quoted message cannot be resolved, or is not in the local chat storage, the reply is sent without a quote.
+
 ### Ignoring chats
 
 `CHATWOOT_IGNORE_JIDS` lets you exclude chats from Chatwoot entirely, on top of the always-ignored system JIDs (`status@broadcast`, `0@s.whatsapp.net`). It accepts a comma-separated list of exact JIDs or the wildcards `@g.us` (all groups), `@s.whatsapp.net` (all DMs), or `@lid`:
