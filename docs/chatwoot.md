@@ -537,6 +537,11 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
 
+Agent replies are quoted the other way: when an agent uses **Reply** in Chatwoot, the WhatsApp message quotes the original. The text and every attachment carry the quote, including the audio-to-file fallback; the caption stays on the first attachment only.
+
+- A message mirrored from WhatsApp (`in_reply_to_external_id` is `WAID:<id>`) is quoted only when it is in the sending device's local message store and belongs to the same chat. An `@lid` chat matches its phone JID when the sending device knows the mapping.
+- A quote that cannot be resolved is not an error: the reply is sent without it, as before, and no failure note is added.
+
 ### Ignoring chats
 
 `CHATWOOT_IGNORE_JIDS` lets you exclude chats from Chatwoot entirely, on top of the always-ignored system JIDs (`status@broadcast`, `0@s.whatsapp.net`). It accepts a comma-separated list of exact JIDs or the wildcards `@g.us` (all groups), `@s.whatsapp.net` (all DMs), or `@lid`:
@@ -574,6 +579,7 @@ Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTT
 | Audio | ✅ | Sent as voice note (PTT) |
 | Video | ✅ | - |
 | Files | ✅ | Any file type supported |
+| Quoted replies | ✅ | Quotes the original message when it can be resolved (see [Replies & reactions](#replies--reactions)) |
 
 ### Group Support
 
