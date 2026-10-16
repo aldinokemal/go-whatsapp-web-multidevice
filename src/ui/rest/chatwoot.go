@@ -511,6 +511,10 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 	// the same composed body.
 	outgoingText := composeOutgoingText(payload)
 
+	// The message the agent replied to, quoted by the text and by every
+	// attachment; nil sends them without a quote.
+	replyMessageID := h.chatwootReplyMessageID(ctx, payload, route, storageDeviceID, linkChatJID)
+
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
 		sentAny := false
@@ -522,7 +526,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 			if i == 0 {
 				caption = outgoingText
 			}
-			resp, err := h.handleAttachment(ctx, sendDestination, attachment, caption)
+			resp, err := h.handleAttachment(ctx, sendDestination, attachment, caption, replyMessageID)
 			if err != nil {
 				logrus.Errorf("Chatwoot Webhook: Failed to send attachment %d: %v", attachment.ID, err)
 				h.notifySendFailure(payload, route, fmt.Errorf("attachment %d failed: %w", attachment.ID, err))
@@ -541,7 +545,8 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 	// If content is present (and not just an attachment caption), send it as text
 	if outgoingText != "" {
 		req := domainSend.MessageRequest{
-			Message: outgoingText,
+			Message:        outgoingText,
+			ReplyMessageID: replyMessageID,
 		}
 		req.Phone = sendDestination
 
@@ -562,6 +567,79 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 	}
 
 	return c.SendStatus(fiber.StatusOK)
+}
+
+// chatwootReplyMessageID returns the WhatsApp message that an agent reply
+// quotes, or nil to send the reply without a quote.
+func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload chatwoot.WebhookPayload, route chatwootWebhookRoute, deviceID, chatJID string) *string {
+	if h.ChatStorageRepo == nil {
+		return nil
+	}
+	// A message mirrored from WhatsApp carries its id as "WAID:<id>". Quote it
+	// only if it is stored for this device and belongs to the reply's chat.
+	if ref, _ := payload.ContentAttributes["in_reply_to_external_id"].(string); strings.HasPrefix(ref, "WAID:") {
+		waMessageID := strings.TrimPrefix(ref, "WAID:")
+		if !h.storedMessageInChat(ctx, deviceID, waMessageID, chatJID) {
+			return nil
+		}
+		return &waMessageID
+	}
+
+	// An earlier agent reply has no source_id, only its Chatwoot id. Find the
+	// link stored when it was delivered, in the scope storeChatwootOutboundLink
+	// writes. JSON numbers decode as float64; take exact positive integers only.
+	number, _ := payload.ContentAttributes["in_reply_to"].(float64)
+	quotedID := int(number)
+	if number < 1 || number >= 1<<53 || float64(quotedID) != number {
+		return nil
+	}
+	inboxID := route.InboxID
+	if inboxID == 0 {
+		inboxID = payload.Conversation.InboxID
+	}
+	link, err := h.ChatStorageRepo.GetChatwootMessageLinkForReply(domainChatStorage.ChatwootReplyLinkFilter{
+		DeviceID:               deviceID,
+		ChatwootMessageID:      quotedID,
+		ChatwootConversationID: payload.Conversation.ID,
+		ChatwootAccountID:      route.AccountID,
+		ChatwootInboxID:        inboxID,
+		ChatwootConfigID:       route.ConfigID,
+		AllowLegacyAccountZero: h.legacyChatwootMode(),
+	})
+	if err != nil {
+		logrus.Warnf("Chatwoot Webhook: failed to look up quoted Chatwoot message %d: %v", quotedID, err)
+		return nil
+	}
+	// The link and the stored row the quote is built from must both be in the
+	// reply's chat: another chat may hold a row with the same WhatsApp id.
+	if link == nil || !chatwootSameChat(ctx, link.WhatsAppChatJID, chatJID) ||
+		!h.storedMessageInChat(ctx, deviceID, link.WhatsAppMessageID, chatJID) {
+		return nil
+	}
+	return &link.WhatsAppMessageID
+}
+
+// storedMessageInChat reports whether the row the send path quotes from
+// (GetMessageByIDAndDevice, which does not filter by chat) is in chatJID.
+func (h *ChatwootHandler) storedMessageInChat(ctx context.Context, deviceID, id, chatJID string) bool {
+	message, err := h.ChatStorageRepo.GetMessageByIDAndDevice(deviceID, id)
+	if err != nil {
+		logrus.Warnf("Chatwoot Webhook: failed to read quoted message %s: %v", id, err)
+		return false
+	}
+	return message != nil && chatwootSameChat(ctx, message.ChatJID, chatJID)
+}
+
+// chatwootSameChat reports whether two JIDs name the same chat. An @lid side
+// is mapped to its phone JID by the sending device, as the send path does.
+func chatwootSameChat(ctx context.Context, a, b string) bool {
+	jidA, errA := utils.ParseJID(a)
+	jidB, errB := utils.ParseJID(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	return utils.ResolveLIDToPhone(ctx, jidA, client).ToNonAD() == utils.ResolveLIDToPhone(ctx, jidB, client).ToNonAD()
 }
 
 func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
@@ -726,13 +804,16 @@ func (h *ChatwootHandler) notifySendFailure(payload chatwoot.WebhookPayload, rou
 	}
 }
 
-func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, att chatwoot.Attachment, caption string) (domainSend.GenericResponse, error) {
+// handleAttachment sends one Chatwoot attachment; replyMessageID (nil for none)
+// is quoted by every request, including the audio-to-file fallback.
+func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, att chatwoot.Attachment, caption string, replyMessageID *string) (domainSend.GenericResponse, error) {
 	switch att.FileType {
 	case "image":
 		req := domainSend.ImageRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
-			Caption:     caption,
-			ImageURL:    &att.DataURL,
+			BaseRequest:    domainSend.BaseRequest{Phone: phone},
+			Caption:        caption,
+			ImageURL:       &att.DataURL,
+			ReplyMessageID: replyMessageID,
 		}
 		resp, err := h.SendUsecase.SendImage(ctx, req)
 		if err == nil {
@@ -742,9 +823,10 @@ func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, at
 
 	case "audio":
 		req := domainSend.AudioRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
-			AudioURL:    &att.DataURL,
-			PTT:         true, // Send as PTT (Voice Note) for better mobile experience
+			BaseRequest:    domainSend.BaseRequest{Phone: phone},
+			AudioURL:       &att.DataURL,
+			PTT:            true, // Send as PTT (Voice Note) for better mobile experience
+			ReplyMessageID: replyMessageID,
 		}
 		resp, err := h.SendUsecase.SendAudio(ctx, req)
 		if err == nil {
@@ -755,9 +837,10 @@ func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, at
 		logrus.Warnf("Chatwoot Webhook: Failed to send as audio (%v), retrying as file...", err)
 		// Fallback to sending as file
 		reqFile := domainSend.FileRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
-			FileURL:     &att.DataURL,
-			Caption:     caption,
+			BaseRequest:    domainSend.BaseRequest{Phone: phone},
+			FileURL:        &att.DataURL,
+			Caption:        caption,
+			ReplyMessageID: replyMessageID,
 		}
 		resp, err = h.SendUsecase.SendFile(ctx, reqFile)
 		if err == nil {
@@ -767,9 +850,10 @@ func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, at
 
 	case "video":
 		req := domainSend.VideoRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
-			Caption:     caption,
-			VideoURL:    &att.DataURL,
+			BaseRequest:    domainSend.BaseRequest{Phone: phone},
+			Caption:        caption,
+			VideoURL:       &att.DataURL,
+			ReplyMessageID: replyMessageID,
 		}
 		resp, err := h.SendUsecase.SendVideo(ctx, req)
 		if err == nil {
@@ -780,9 +864,10 @@ func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, at
 	default:
 		// Default to file for other types
 		req := domainSend.FileRequest{
-			BaseRequest: domainSend.BaseRequest{Phone: phone},
-			FileURL:     &att.DataURL,
-			Caption:     caption,
+			BaseRequest:    domainSend.BaseRequest{Phone: phone},
+			FileURL:        &att.DataURL,
+			Caption:        caption,
+			ReplyMessageID: replyMessageID,
 		}
 		resp, err := h.SendUsecase.SendFile(ctx, req)
 		if err == nil {
