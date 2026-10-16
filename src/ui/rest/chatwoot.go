@@ -513,7 +513,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 	// The message the agent replied to, quoted by the text and by every
 	// attachment; nil sends them without a quote.
-	replyMessageID := h.chatwootReplyMessageID(ctx, payload, storageDeviceID, linkChatJID)
+	replyMessageID := h.chatwootReplyMessageID(ctx, payload, route, storageDeviceID, linkChatJID)
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
@@ -571,7 +571,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 // chatwootReplyMessageID returns the WhatsApp message that an agent reply
 // quotes, or nil to send the reply without a quote.
-func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload chatwoot.WebhookPayload, deviceID, chatJID string) *string {
+func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload chatwoot.WebhookPayload, route chatwootWebhookRoute, deviceID, chatJID string) *string {
 	if h.ChatStorageRepo == nil {
 		return nil
 	}
@@ -584,7 +584,39 @@ func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload ch
 		}
 		return &waMessageID
 	}
-	return nil
+
+	// An earlier agent reply has no source_id, only its Chatwoot id. Find the
+	// link stored when it was delivered, in the scope storeChatwootOutboundLink
+	// writes. JSON numbers decode as float64; take exact positive integers only.
+	number, _ := payload.ContentAttributes["in_reply_to"].(float64)
+	quotedID := int(number)
+	if number < 1 || number >= 1<<53 || float64(quotedID) != number {
+		return nil
+	}
+	inboxID := route.InboxID
+	if inboxID == 0 {
+		inboxID = payload.Conversation.InboxID
+	}
+	link, err := h.ChatStorageRepo.GetChatwootMessageLinkForReply(domainChatStorage.ChatwootReplyLinkFilter{
+		DeviceID:               deviceID,
+		ChatwootMessageID:      quotedID,
+		ChatwootConversationID: payload.Conversation.ID,
+		ChatwootAccountID:      route.AccountID,
+		ChatwootInboxID:        inboxID,
+		ChatwootConfigID:       route.ConfigID,
+		AllowLegacyAccountZero: h.legacyChatwootMode(),
+	})
+	if err != nil {
+		logrus.Warnf("Chatwoot Webhook: failed to look up quoted Chatwoot message %d: %v", quotedID, err)
+		return nil
+	}
+	// The link and the stored row the quote is built from must both be in the
+	// reply's chat: another chat may hold a row with the same WhatsApp id.
+	if link == nil || !chatwootSameChat(ctx, link.WhatsAppChatJID, chatJID) ||
+		!h.storedMessageInChat(ctx, deviceID, link.WhatsAppMessageID, chatJID) {
+		return nil
+	}
+	return &link.WhatsAppMessageID
 }
 
 // storedMessageInChat reports whether the row the send path quotes from
