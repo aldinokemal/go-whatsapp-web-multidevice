@@ -241,6 +241,14 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 			if link.ChatwootAccountID != 0 {
 				route.AccountID = link.ChatwootAccountID
 			}
+			// In per-device mode a config-0 link (written in legacy mode, or for
+			// a reply routed without a config) carries no config: use the one of
+			// its device, as the forwarder does for that device's messages.
+			if !legacy && route.ConfigID == 0 {
+				if rc := h.deviceConfigForPayload(route.DeviceID, payload); rc != nil {
+					route.ConfigID = h.payloadConfigID(rc, payload)
+				}
+			}
 			return route
 		}
 	}
@@ -261,8 +269,13 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	// by any agent of that Chatwoot account, so an unchecked override would let
 	// account A send from a device belonging to account B.
 	if deviceID := chatwootContactAttrString(contact.CustomAttributes, "gowa_device_id"); deviceID != "" {
-		if legacy || h.deviceMatchesPayloadScope(deviceID, payload) {
+		if legacy {
 			route.DeviceID = deviceID
+			return route
+		}
+		if rc := h.deviceConfigForPayload(deviceID, payload); rc != nil {
+			route.DeviceID = deviceID
+			route.ConfigID = h.payloadConfigID(rc, payload)
 			return route
 		}
 		logrus.Warnf("Chatwoot Webhook: ignoring gowa_device_id %q: device is not configured for account %d inbox %d",
@@ -291,13 +304,40 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	return route
 }
 
-// deviceMatchesPayloadScope reports whether deviceID has a per-device config
-// bound to the payload's account and inbox. Used to validate the
-// gowa_device_id contact-attribute override in per-device mode.
-func (h *ChatwootHandler) deviceMatchesPayloadScope(deviceID string, payload chatwoot.WebhookPayload) bool {
+// deviceConfigForPayload returns deviceID's per-device config when it is bound
+// to the payload's account and inbox, or nil. Used in per-device mode to
+// validate the gowa_device_id contact-attribute override and to find the
+// config a route without one may take.
+func (h *ChatwootHandler) deviceConfigForPayload(deviceID string, payload chatwoot.WebhookPayload) *chatwoot.ResolvedConfig {
 	rc := h.resolveChatwootForDevice(deviceID)
-	return rc != nil && rc.Client != nil &&
-		rc.Client.AccountID == payload.Account.ID && rc.Client.InboxID == payload.Conversation.InboxID
+	if rc != nil && rc.Client != nil &&
+		rc.Client.AccountID == payload.Account.ID && rc.Client.InboxID == payload.Conversation.InboxID {
+		return rc
+	}
+	return nil
+}
+
+// payloadConfigID returns rc's config id when no other config, enabled or
+// not, is bound to the payload's account and inbox, or 0. A payload carries no
+// Chatwoot URL: when a config of another server shares the account and inbox,
+// the reply may come from that server (disabling its config does not stop its
+// webhooks), and recording rc's config on its link would put it in rc's
+// config-scoped conversation lookup.
+func (h *ChatwootHandler) payloadConfigID(rc *chatwoot.ResolvedConfig, payload chatwoot.WebhookPayload) int64 {
+	if h.ChatStorageRepo == nil {
+		return 0
+	}
+	configs, err := h.ChatStorageRepo.ListChatwootDeviceConfigs()
+	if err != nil {
+		logrus.Errorf("Chatwoot Webhook: config list failed (account=%d inbox=%d): %v", payload.Account.ID, payload.Conversation.InboxID, err)
+		return 0
+	}
+	for _, cfg := range configs {
+		if cfg.ID != rc.ConfigID && cfg.AccountID == payload.Account.ID && cfg.InboxID == payload.Conversation.InboxID {
+			return 0
+		}
+	}
+	return rc.ConfigID
 }
 
 // legacyChatwootMode reports whether the integration is in single-device env
