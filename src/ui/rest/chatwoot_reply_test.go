@@ -89,6 +89,16 @@ type replyRepo struct {
 	links      []domainChatStorage.ChatwootMessageLink
 	writes     int
 	writeErr   error
+	lookups    []domainChatStorage.ChatwootReplyLinkFilter
+	lookupErr  error
+	counts     int
+}
+
+// CountChatwootDeviceConfigs counts the legacy-mode checks: routing makes one,
+// and a numeric quote one more.
+func (r *replyRepo) CountChatwootDeviceConfigs() (int, error) {
+	r.counts++
+	return r.chatwootRouteTestRepo.CountChatwootDeviceConfigs()
 }
 
 func (r *replyRepo) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
@@ -97,6 +107,19 @@ func (r *replyRepo) GetMessageByIDAndDevice(deviceID, id string) (*domainChatSto
 		return &message, r.messageErr
 	}
 	return nil, r.messageErr
+}
+
+// GetChatwootMessageLinkForReply records the filter and returns the first
+// stored link of that device and Chatwoot message; the scope is asserted on
+// the recorded filter. A found link is returned even with lookupErr.
+func (r *replyRepo) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	r.lookups = append(r.lookups, filter)
+	for _, link := range r.links {
+		if link.DeviceID == filter.DeviceID && link.ChatwootMessageID == filter.ChatwootMessageID {
+			return &link, r.lookupErr
+		}
+	}
+	return nil, r.lookupErr
 }
 
 func (r *replyRepo) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
@@ -178,6 +201,15 @@ func (e *replyEnv) store(deviceID, id, chatJID string) {
 	e.repo.messages[deviceID+" "+id] = domainChatStorage.Message{ID: id, ChatJID: chatJID, DeviceID: deviceID}
 }
 
+// seed stores the outbound link of an earlier agent message and, as the send
+// usecase does after delivering it, its WhatsApp message in the same chat.
+func (e *replyEnv) seed(chatwootMessageID int, waMessageID, chatJID string) {
+	e.repo.links = append(e.repo.links, domainChatStorage.ChatwootMessageLink{
+		DeviceID: replyTestDevice, WhatsAppMessageID: waMessageID, WhatsAppChatJID: chatJID, ChatwootMessageID: chatwootMessageID,
+	})
+	e.store(replyTestDevice, waMessageID, chatJID)
+}
+
 func (e *replyEnv) post(t *testing.T, body string) {
 	t.Helper()
 	if resp, raw := doJSON(t, e.app, http.MethodPost, "/chatwoot/webhook", body); resp.StatusCode != fiber.StatusOK {
@@ -222,6 +254,11 @@ func replyBody(t *testing.T, attrs map[string]any, fields map[string]any) string
 // the quoted message's own numeric id, 41.
 func quoting(id string) map[string]any {
 	return map[string]any{"in_reply_to": 41, "in_reply_to_external_id": "WAID:" + id}
+}
+
+// quotingID is a reply to an earlier agent message, which has no source_id.
+func quotingID(id any) map[string]any {
+	return map[string]any{"in_reply_to": id, "in_reply_to_external_id": nil}
 }
 
 func attachments(fileTypes ...string) map[string]any {
@@ -421,6 +458,7 @@ func TestChatwootReplyGuardsRunBeforeTheQuote(t *testing.T) {
 		quote string
 	}{
 		{"WAID", quoting("WA-ORIG"), "WA-ORIG"},
+		{"numeric only", quotingID(41), "WA-AGENT"},
 	}
 	cases := []struct {
 		name   string
@@ -437,6 +475,7 @@ func TestChatwootReplyGuardsRunBeforeTheQuote(t *testing.T) {
 			t.Run(ref.name+"/"+tc.name, func(t *testing.T) {
 				env := newReplyEnv(t)
 				env.store(replyTestDevice, "WA-ORIG", replyTestChat)
+				env.seed(41, "WA-AGENT", replyTestChat)
 
 				env.post(t, replyBody(t, ref.attrs, tc.fields))
 
@@ -445,7 +484,7 @@ func TestChatwootReplyGuardsRunBeforeTheQuote(t *testing.T) {
 					return
 				}
 				env.assertSends(t)
-				if reads := len(env.repo.reads); reads != 0 {
+				if reads := len(env.repo.reads) + len(env.repo.lookups); reads != 0 {
 					t.Fatalf("quote reads = %d, want 0", reads)
 				}
 			})
@@ -468,5 +507,223 @@ func TestChatwootReplyLinkWriteFailureDoesNotResend(t *testing.T) {
 	}
 	if n := env.notes.Load(); n != 0 {
 		t.Fatalf("failure notes = %d, want 0", n)
+	}
+}
+
+// A reply to an earlier agent message quotes the WhatsApp message stored by
+// that message's own delivery, looked up in exactly the scope its link was
+// written with, in each routing mode.
+func TestChatwootReplyQuotesAnEarlierAgentReply(t *testing.T) {
+	modes := []struct {
+		name     string
+		configs  int
+		configID int64
+	}{
+		{"per-device", 1, 11},
+		{"per-device route without a config", 1, 0},
+		{"legacy", 0, 0},
+	}
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			env.repo.count = mode.configs
+			env.repo.link.ChatwootConfigID = mode.configID
+
+			env.post(t, replyBody(t, nil, map[string]any{"id": 50, "content": "Primeira"}))
+			env.store(replyTestDevice, "WA-SENT-1", replyTestChat) // stored by the send usecase
+			env.post(t, replyBody(t, quotingID(50), map[string]any{"id": 51, "content": "Segunda"}))
+
+			env.assertSends(t,
+				env.send("SendText", "peer-a", "Primeira", "", ""),
+				env.send("SendText", "peer-a", "Segunda", "", "WA-SENT-1"),
+			)
+			first := env.repo.links[0]
+			if first.DeviceID != replyTestDevice || first.WhatsAppMessageID != "WA-SENT-1" || first.ChatwootMessageID != 50 ||
+				first.ChatwootAccountID != 3 || first.ChatwootInboxID != 5 || first.ChatwootConfigID != mode.configID {
+				t.Fatalf("first link = %+v, want device-a, WA-SENT-1, message 50, account 3, inbox 5, config %d", first, mode.configID)
+			}
+			want := domainChatStorage.ChatwootReplyLinkFilter{
+				DeviceID: first.DeviceID, ChatwootMessageID: 50, ChatwootConversationID: first.ChatwootConversationID,
+				ChatwootAccountID: first.ChatwootAccountID, ChatwootInboxID: first.ChatwootInboxID,
+				ChatwootConfigID: first.ChatwootConfigID, AllowLegacyAccountZero: mode.configs == 0,
+			}
+			if !reflect.DeepEqual(env.repo.lookups, []domainChatStorage.ChatwootReplyLinkFilter{want}) {
+				t.Fatalf("lookups = %+v, want [%+v]", env.repo.lookups, want)
+			}
+		})
+	}
+}
+
+// The link must be in the reply's chat; an @lid chat counts only through the
+// sending device's mapping. Otherwise the reply goes out unquoted, with no
+// failure note. The stored message is in the reply's chat in every case.
+func TestChatwootReplyChecksTheChatOfTheLink(t *testing.T) {
+	cases := []struct {
+		name, chat string
+		mapped     bool
+		want       string
+	}{
+		{"same chat", replyTestChat, false, "WA-AGENT"},
+		{"another chat", "peer-b@s.whatsapp.net", true, ""},
+		{"LID the device maps", replyTestLID, true, "WA-AGENT"},
+		{"unmapped LID", replyTestLID, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			env.lids.mapped = tc.mapped
+			env.seed(41, "WA-AGENT", tc.chat)
+			env.store(replyTestDevice, "WA-AGENT", replyTestChat)
+
+			env.post(t, replyBody(t, quotingID(41), nil))
+
+			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
+			if len(env.repo.lookups) != 1 {
+				t.Fatalf("lookups = %d, want 1", len(env.repo.lookups))
+			}
+			if n := env.notes.Load(); n != 0 {
+				t.Fatalf("failure notes = %d, want 0", n)
+			}
+		})
+	}
+}
+
+// The quote is built from the message stored under the link's WhatsApp id,
+// read by id and device only, so that row must be in the reply's chat too: a
+// missing row, or one of another chat with the same id, sends no quote.
+func TestChatwootReplyChecksTheChatOfTheStoredMessage(t *testing.T) {
+	cases := []struct {
+		name, stored, want string // stored is the chat of WA-AGENT's row, "" when missing
+	}{
+		{"stored in the reply's chat", replyTestChat, "WA-AGENT"},
+		{"stored only in another chat", "peer-b@s.whatsapp.net", ""},
+		{"not stored", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			env.lids.mapped = true
+			env.seed(41, "WA-AGENT", replyTestChat)
+			delete(env.repo.messages, replyTestDevice+" WA-AGENT")
+			if tc.stored != "" {
+				env.store(replyTestDevice, "WA-AGENT", tc.stored)
+			}
+
+			env.post(t, replyBody(t, quotingID(41), nil))
+
+			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
+			if want := []string{replyTestDevice + " WA-AGENT"}; !reflect.DeepEqual(env.repo.reads, want) {
+				t.Fatalf("reads = %v, want %v", env.repo.reads, want)
+			}
+			if len(env.repo.lookups) != 1 {
+				t.Fatalf("lookups = %d, want 1", len(env.repo.lookups))
+			}
+			if n := env.notes.Load(); n != 0 {
+				t.Fatalf("failure notes = %d, want 0", n)
+			}
+		})
+	}
+}
+
+// Without a link, or when the lookup fails, the reply goes out once,
+// unquoted, with no failure note.
+func TestChatwootReplyWithoutALinkIsSentUnquoted(t *testing.T) {
+	for name, lookupErr := range map[string]error{"no link": nil, "lookup error": errors.New("database is locked")} {
+		t.Run(name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			if lookupErr != nil {
+				env.seed(41, "WA-AGENT", replyTestChat)
+				env.repo.lookupErr = lookupErr
+			}
+
+			env.post(t, replyBody(t, quotingID(41), nil))
+
+			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", ""))
+			if len(env.repo.lookups) != 1 {
+				t.Fatalf("lookups = %d, want 1", len(env.repo.lookups))
+			}
+			if n := env.notes.Load(); n != 0 {
+				t.Fatalf("failure notes = %d, want 0", n)
+			}
+		})
+	}
+}
+
+// in_reply_to is used only as an exact positive integer; any other value is
+// sent unquoted, with no lookup and no extra legacy-mode check.
+func TestChatwootReplyIgnoresAnInvalidInReplyTo(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   any
+		want    string
+		lookups int
+	}{
+		{"integer", 41, "WA-AGENT", 1},
+		{"numeric string", "41", "", 0},
+		{"fraction", 41.5, "", 0},
+		{"zero", 0, "", 0},
+		{"negative", -41, "", 0},
+		{"beyond exact float64 integers", float64(1 << 53), "", 0},
+		{"boolean", true, "", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			env.seed(41, "WA-AGENT", replyTestChat)
+
+			env.post(t, replyBody(t, quotingID(tc.value), nil))
+
+			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
+			if len(env.repo.lookups) != tc.lookups || env.repo.counts != 1+tc.lookups {
+				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want %d and %d", env.repo.lookups, env.repo.counts, tc.lookups, 1+tc.lookups)
+			}
+		})
+	}
+}
+
+// A WAID reference wins over in_reply_to: accepted or refused, the link of
+// in_reply_to is never looked up and the legacy mode is not checked again.
+func TestChatwootReplyPrefersTheWAIDReference(t *testing.T) {
+	cases := []struct {
+		name, stored, want string // stored is the chat of WA-ORIG, "" when not stored
+	}{
+		{"WAID accepted", replyTestChat, "WA-ORIG"},
+		{"WAID of another chat", "peer-b@s.whatsapp.net", ""},
+		{"WAID not stored", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newReplyEnv(t)
+			env.seed(41, "WA-AGENT", replyTestChat)
+			if tc.stored != "" {
+				env.store(replyTestDevice, "WA-ORIG", tc.stored)
+			}
+
+			env.post(t, replyBody(t, quoting("WA-ORIG"), nil))
+
+			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
+			if len(env.repo.lookups) != 0 || env.repo.counts != 1 {
+				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want none and 1 (routing)", env.repo.lookups, env.repo.counts)
+			}
+		})
+	}
+}
+
+// The quote of an earlier agent reply is resolved once and goes on every
+// file, including the audio-to-file fallback.
+func TestChatwootReplyQuotesAnEarlierAgentReplyOnEveryFile(t *testing.T) {
+	env := newReplyEnv(t)
+	env.seed(41, "WA-AGENT", replyTestChat)
+	env.sender.fail = map[int]error{2: errors.New("unsupported audio")}
+
+	env.post(t, replyBody(t, quotingID(41), attachments("image", "audio")))
+
+	env.assertSends(t,
+		env.send("SendImage", "peer-a", "Legenda", replyTestURL, "WA-AGENT"),
+		env.send("SendAudio", "peer-a", "", replyTestURL, "WA-AGENT"),
+		env.send("SendFile", "peer-a", "", replyTestURL, "WA-AGENT"),
+	)
+	if len(env.repo.lookups) != 1 {
+		t.Fatalf("lookups = %d, want 1", len(env.repo.lookups))
 	}
 }
