@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -46,8 +47,8 @@ func (r *signTestRepo) GetLatestChatwootMessageLinkByConversation(int, int, bool
 func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 	off := false
 	const body = `{"id":77,"event":"message_created","message_type":"outgoing","content":"Hello",` +
-		`"account":{"id":1},"sender":{"name":"Jane"},` +
-		`"conversation":{"id":5,"inbox_id":2,"meta":{"sender":{"phone_number":"+628111111111"}}}}`
+		`"account":{"id":1},"sender":{"id":3,"name":"Jane Smith"},` +
+		`"conversation":{"id":5,"inbox_id":2,"messages":[{"id":77,"sender":{"id":3,"name":"Jane Smith","available_name":"Jane"}}],"meta":{"sender":{"phone_number":"+628111111111"}}}}`
 
 	tests := []struct {
 		name    string
@@ -101,6 +102,39 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 			}
 			if len(sender.sent) != 1 || sender.sent[0] != tt.want {
 				t.Fatalf("sent text = %q, want [%q]", sender.sent, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentReplySignatureUsesPublicDisplayName(t *testing.T) {
+	withSignConfig(t, true, "\n\n")
+	for _, tt := range []struct {
+		name, sender, messages, want string
+	}{
+		{"webhook nested display name", `{"id":3,"name":"Jane Smith"}`, `[{"id":77,"sender":{"id":3,"available_name":"Jane"}}]`, "Jane"},
+		{"recovered API reply", `{"id":3,"name":"Jane Smith","available_name":"Jane"}`, `[]`, "Jane"},
+		{"explicit display name", `{"name":"Jane Smith","display_name":"Jane"}`, `[]`, "Jane"},
+		{"public name wins", `{"name":"Jane Smith","available_name":"Jane","display_name":"Other"}`, `[]`, "Jane"},
+		{"matching message rather than first", `{"id":3,"name":"Jane Smith"}`, `[{"id":76,"sender":{"id":4,"available_name":"Other"}},{"id":77,"sender":{"id":3,"available_name":"Jane"}}]`, "Jane"},
+		{"different message ignored", `{"id":3,"name":"Jane Smith"}`, `[{"id":76,"sender":{"id":3,"available_name":"Other"}}]`, "Jane Smith"},
+		{"different sender ignored", `{"id":3,"name":"Jane Smith"}`, `[{"id":77,"sender":{"id":4,"available_name":"Other"}}]`, "Jane Smith"},
+		{"blank public name falls back", `{"name":"Jane Smith","available_name":"  ","display_name":" "}`, `[]`, "Jane Smith"},
+		{"public name trimmed", `{"name":"Jane Smith","available_name":"  Jane  "}`, `[]`, "Jane"},
+		{"no name stays unsigned", `{}`, `[]`, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var payload chatwoot.WebhookPayload
+			err := json.Unmarshal([]byte(`{"id":77,"content":"Hello","sender":`+tt.sender+`,"conversation":{"messages":`+tt.messages+`}}`), &payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "Hello"
+			if tt.want != "" {
+				want = "*" + tt.want + "*\n\nHello"
+			}
+			if got := composeOutgoingText(payload, nil); got != want {
+				t.Fatalf("outgoing text = %q, want %q", got, want)
 			}
 		})
 	}

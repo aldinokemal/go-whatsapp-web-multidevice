@@ -54,12 +54,42 @@ func NewChatwootHandler(
 func composeOutgoingText(payload chatwoot.WebhookPayload, rc *chatwoot.ResolvedConfig) string {
 	text := utils.ChatwootToWhatsAppMarkdown(payload.Content)
 	if rc.SignMsgEnabled() && text != "" {
-		if agent := strings.TrimSpace(payload.Sender.Name); agent != "" {
+		if agent := chatwootAgentSignatureName(payload); agent != "" {
 			delimiter := strings.ReplaceAll(rc.SignDelimiterValue(), "\\n", "\n")
 			text = "*" + agent + "*" + delimiter + text
 		}
 	}
 	return text
+}
+
+// chatwootAgentSignatureName preserves Chatwoot's public display name, as
+// Evolution did. Webhooks carry it on the matching conversation message;
+// recovered replies from the messages API carry it on the top-level sender.
+// Never borrow the name of a different message or agent in the conversation.
+func chatwootAgentSignatureName(payload chatwoot.WebhookPayload) string {
+	publicName := func(sender chatwoot.Contact) string {
+		for _, name := range []string{sender.AvailableName, sender.DisplayName} {
+			if name = strings.TrimSpace(name); name != "" {
+				return name
+			}
+		}
+		return ""
+	}
+	if name := publicName(payload.Sender); name != "" {
+		return name
+	}
+	for _, message := range payload.Conversation.Messages {
+		if message.ID != payload.ID || payload.ID == 0 {
+			continue
+		}
+		if payload.Sender.ID != 0 && message.Sender.ID != payload.Sender.ID {
+			continue
+		}
+		if name := publicName(message.Sender); name != "" {
+			return name
+		}
+	}
+	return strings.TrimSpace(payload.Sender.Name)
 }
 
 // isEchoOfForwardedMessage reports whether a Chatwoot webhook message is one
