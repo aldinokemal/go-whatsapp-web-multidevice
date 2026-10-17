@@ -111,6 +111,14 @@ func (r *deviceChatStorage) GetMessageByIDChatAndDevice(deviceID, chatJID, id st
 	return r.base.GetMessageByIDChatAndDevice(targetDeviceID, chatJID, id)
 }
 
+func (r *deviceChatStorage) GetQuotedMedia(ctx context.Context, deviceID, chatJID, id string) (*domainChatStorage.QuotedMedia, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetQuotedMedia(ctx, targetDeviceID, chatJID, id)
+}
+
 func (r *deviceChatStorage) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

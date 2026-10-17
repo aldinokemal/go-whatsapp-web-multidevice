@@ -694,7 +694,11 @@ func initApp() {
 	}
 
 	chatStorageRepo = chatstorage.NewStorageRepository(chatStorageDB)
-	chatStorageRepo.InitializeSchema()
+	if err := chatStorageRepo.InitializeSchema(); err != nil {
+		// Message writes need the current schema: stop before any WhatsApp
+		// client stores into an incomplete one.
+		logrus.Fatalf("failed to initialize chat storage schema: %v", err)
+	}
 
 	whatsappDB := whatsapp.InitWaDB(ctx, config.DBURI)
 	var keysDB *sqlstore.Container
