@@ -36,6 +36,26 @@ func QuotedMediaCopy(msg *waE2E.Message, viewOnce bool) []byte {
 	return encoded
 }
 
+// QuotedMediaFromCopy returns the media message a reply quotes from encoded,
+// the stored QuotedMediaCopy of a message of mediaType. It returns nil when
+// encoded is empty, not under 64 KiB, unreadable, or anything but a single
+// media message of that type. The result is reduced as a new copy would be:
+// no reply context, and only the type of view-once media.
+func QuotedMediaFromCopy(encoded []byte, mediaType string) *waE2E.Message {
+	if len(encoded) == 0 || len(encoded) >= maxQuotedMediaBytes {
+		return nil
+	}
+	decoded := &waE2E.Message{}
+	if err := proto.Unmarshal(encoded, decoded); err != nil {
+		return nil
+	}
+	media, decodedType := quotedMediaMessage(decoded)
+	if media == nil || decodedType != mediaType || !proto.Equal(media, decoded) {
+		return nil
+	}
+	return reduceQuotedMedia(media, false)
+}
+
 // quotedMediaMessage returns the media message of msg alone in a new envelope,
 // picked in the order ExtractMediaInfo uses, and the media type stored for it;
 // nil and "" when msg holds none. The media message itself is shared.

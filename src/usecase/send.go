@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -257,7 +258,8 @@ func normalizeStoredSender(ctx context.Context, sender string) string {
 	return whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).ToNonAD().String()
 }
 
-func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
+// mergeReplyContext makes a reply sent to recipient quote replyMessageID.
+func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string, recipient types.JID) *waE2E.ContextInfo {
 	if replyMessageID == nil || *replyMessageID == "" {
 		return contextInfo
 	}
@@ -273,16 +275,173 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 		logrus.Warnf("Reply message ID %s not found in storage, continuing without reply context", *replyMessageID)
 		return contextInfo
 	}
+	quoted := service.quotedMessage(ctx, message, recipient)
+	if quoted == nil {
+		return contextInfo // removed since the lookup above
+	}
 
 	if contextInfo == nil {
 		contextInfo = &waE2E.ContextInfo{}
 	}
 	contextInfo.StanzaID = replyMessageID
 	contextInfo.Participant = proto.String(normalizeStoredSender(ctx, message.Sender))
-	contextInfo.QuotedMessage = &waE2E.Message{
-		Conversation: proto.String(message.Content),
-	}
+	contextInfo.QuotedMessage = quoted
 	return contextInfo
+}
+
+// quotedMessage is the copy of message that a reply to recipient carries, or
+// nil when message is no longer stored. The recipient renders the quote from
+// that copy alone, and a plain-text copy of a photo, video, voice note,
+// document or sticker shows up blank, so media is quoted as media: from the
+// copy stored with it, or by its type alone when that copy is missing or
+// unusable. The row cannot tell whether such media was view-once, so nothing
+// else of it is quoted then.
+//
+// The stored copy holds the media's download keys, so media is quoted that way
+// only in its own chat; elsewhere, as for any other message, the quote is the
+// stored text.
+func (service serviceSend) quotedMessage(ctx context.Context, message *domainChatStorage.Message, recipient types.JID) *waE2E.Message {
+	if quotedMediaType(message.MediaType) == nil || !inChat(ctx, message.ChatJID, recipient) {
+		return &waE2E.Message{Conversation: proto.String(message.Content)}
+	}
+	stored, err := service.chatStorageRepo.GetQuotedMedia(ctx, message.DeviceID, message.ChatJID, message.ID)
+	if err != nil {
+		logrus.Warn("Quoting media by its type only: its stored copy could not be read")
+		return quotedMediaType(message.MediaType)
+	}
+	if stored == nil {
+		return nil
+	}
+	if media := utils.QuotedMediaFromCopy(stored.Copy, stored.MediaType); media != nil {
+		setQuotedCaption(media, quotedCaption(stored, media))
+		return media
+	}
+	if typed := quotedMediaType(stored.MediaType); typed != nil {
+		return typed
+	}
+	return &waE2E.Message{Conversation: proto.String(stored.Content)}
+}
+
+// quotedMediaType quotes media of mediaType by its type alone, or returns nil
+// when mediaType is not quotable media.
+func quotedMediaType(mediaType string) *waE2E.Message {
+	switch mediaType {
+	case "image":
+		return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{}}
+	case "video":
+		return &waE2E.Message{VideoMessage: &waE2E.VideoMessage{}}
+	case "video_note":
+		return &waE2E.Message{PtvMessage: &waE2E.VideoMessage{}}
+	case "audio":
+		return &waE2E.Message{AudioMessage: &waE2E.AudioMessage{}}
+	case "document":
+		return &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{}}
+	case "sticker":
+		return &waE2E.Message{StickerMessage: &waE2E.StickerMessage{}}
+	}
+	return nil
+}
+
+// inChat reports whether chatJID, a stored chat, is recipient's chat. Both are
+// compared as phone JIDs without a device suffix, an @lid mapped through the
+// sending device as ValidateJidWithLogin maps the recipient; an @lid that does
+// not map never matches a phone JID, and an empty recipient matches nothing.
+// Nor does a status or broadcast list: a reply posted there reaches another
+// audience than the quoted message did.
+func inChat(ctx context.Context, chatJID string, recipient types.JID) bool {
+	stored, err := utils.ParseJID(chatJID)
+	if err != nil || stored.Server == types.BroadcastServer {
+		return false
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	return phoneChatJID(ctx, stored, client) == phoneChatJID(ctx, recipient, client)
+}
+
+// phoneChatJID is jid without a device suffix, an @lid mapped to its phone JID
+// when client maps it. Unlike utils.ResolveLIDToPhone, it logs nothing: the
+// JIDs it maps are message data.
+func phoneChatJID(ctx context.Context, jid types.JID, client *whatsmeow.Client) types.JID {
+	if jid.Server == types.HiddenUserServer && client != nil && client.Store != nil && client.Store.LIDs != nil {
+		if phone, err := client.Store.LIDs.GetPNForLID(ctx, jid); err == nil && !phone.IsEmpty() {
+			jid = phone
+		}
+	}
+	return jid.ToNonAD()
+}
+
+// quotedCaption is the caption of a quoted image, video, video note or
+// document: the message's current content, which edits keep up to date. This
+// API stores media it sends with a summary in place of the caption ("🖼️
+// Image", "🎥 <caption>", "📄 <file name>"...): content that is exactly the
+// summary stored for the caption of the quoted copy quotes that caption
+// instead, unless the message was edited.
+func quotedCaption(stored *domainChatStorage.QuotedMedia, media *waE2E.Message) string {
+	caption := utils.ExtractMediaCaption(media)
+	if stored.IsFromMe && !stored.HasEdits &&
+		slices.Contains(sentMediaContents(stored.MediaType, caption, media.GetDocumentMessage().GetFileName()), stored.Content) {
+		return caption
+	}
+	return stored.Content
+}
+
+// sentMediaContents lists the contents this API stores for media of mediaType
+// that it sends with caption, by its send request or as a forward.
+func sentMediaContents(mediaType, caption, fileName string) []string {
+	contents := []string{forwardStoredContent(&domainChatStorage.Message{MediaType: mediaType, Content: caption})}
+	switch mediaType {
+	case "image":
+		contents = append(contents, sentImageContent(caption))
+	case "video":
+		contents = append(contents, sentVideoContent(caption))
+	case "document":
+		contents = append(contents, sentDocumentContent(caption, fileName))
+	}
+	return contents
+}
+
+// sentImageContent, sentVideoContent and sentDocumentContent are the contents
+// stored for an image, video or document that this API sends with caption.
+func sentImageContent(caption string) string {
+	if caption != "" {
+		return caption
+	}
+	return "🖼️ Image"
+}
+
+func sentVideoContent(caption string) string {
+	if caption != "" {
+		return "🎥 " + caption
+	}
+	return "🎥 Video"
+}
+
+func sentDocumentContent(caption, fileName string) string {
+	if caption != "" {
+		return caption
+	}
+	if fileName != "" {
+		return "📄 " + fileName
+	}
+	return "📄 Document"
+}
+
+// setQuotedCaption sets the caption of a quoted image, video, video note or
+// document, or removes it when caption is empty. View-once media keeps none.
+func setQuotedCaption(media *waE2E.Message, caption string) {
+	var value *string
+	if caption != "" {
+		value = proto.String(caption)
+	}
+	switch {
+	case media.GetImageMessage() != nil && !media.GetImageMessage().GetViewOnce():
+		media.ImageMessage.Caption = value
+	case media.GetVideoMessage() != nil && !media.GetVideoMessage().GetViewOnce():
+		media.VideoMessage.Caption = value
+	case media.GetPtvMessage() != nil && !media.GetPtvMessage().GetViewOnce():
+		media.PtvMessage.Caption = value
+	case media.GetDocumentMessage() != nil:
+		media.DocumentMessage.Caption = value
+	}
 }
 
 // withAllowReshare marks a status post as reshareable. Without
@@ -350,7 +509,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		msg.ExtendedTextMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 
-	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
+	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.ExtendedTextMessage.ContextInfo = withAllowReshare(msg.ExtendedTextMessage.ContextInfo, request.AllowReshare)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
@@ -522,14 +681,10 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
+	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.ImageMessage.ContextInfo = withAllowReshare(msg.ImageMessage.ContextInfo, request.AllowReshare)
 
-	caption := "🖼️ Image"
-	if request.Caption != "" {
-		caption = request.Caption
-	}
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, sentImageContent(request.Caption))
 	go func() {
 		errDelete := utils.RemoveFile(0, deletedItems...)
 		if errDelete != nil {
@@ -621,16 +776,9 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		}
 		msg.DocumentMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
+	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 
-	caption := "📄 Document"
-	if fileName != "" {
-		caption = "📄 " + fileName
-	}
-	if request.Caption != "" {
-		caption = request.Caption
-	}
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, sentDocumentContent(request.Caption, fileName))
 	if err != nil {
 		return response, err
 	}
@@ -1081,14 +1229,10 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 		msg.VideoMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
-	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
+	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 	msg.VideoMessage.ContextInfo = withAllowReshare(msg.VideoMessage.ContextInfo, request.AllowReshare)
 
-	caption := "🎥 Video"
-	if request.Caption != "" {
-		caption = "🎥 " + request.Caption
-	}
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, sentVideoContent(request.Caption))
 	if err != nil {
 		return response, err
 	}
@@ -1500,7 +1644,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		}
 		msg.AudioMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
-	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID)
+	msg.AudioMessage.ContextInfo = service.mergeReplyContext(ctx, msg.AudioMessage.ContextInfo, request.ReplyMessageID, dataWaRecipient)
 
 	content := "🎵 Audio"
 
