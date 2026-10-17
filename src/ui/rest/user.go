@@ -23,8 +23,59 @@ func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
 	app.Get("/user/business-profile", rest.UserBusinessProfile)
+	app.Get("/user/my/blocklist", rest.UserMyBlocklist)
+	app.Post("/user/block", rest.UserBlock)
+	app.Post("/user/unblock", rest.UserUnblock)
 
 	return rest
+}
+
+func (controller *User) UserMyBlocklist(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+	response, err := controller.Service.MyBlocklist(ctx)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get blocklist",
+		Results: response,
+	})
+}
+
+func (controller *User) UserBlock(c fiber.Ctx) error {
+	return controller.changeBlock(c, true)
+}
+
+func (controller *User) UserUnblock(c fiber.Ctx) error {
+	return controller.changeBlock(c, false)
+}
+
+func (controller *User) changeBlock(c fiber.Ctx, block bool) error {
+	var request domainUser.BlockRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.Phone)
+
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+
+	var response domainUser.BlocklistResponse
+	message := "Success block user"
+	if block {
+		response, err = controller.Service.Block(ctx, request)
+	} else {
+		response, err = controller.Service.Unblock(ctx, request)
+		message = "Success unblock user"
+	}
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: message,
+		Results: response,
+	})
 }
 
 func (controller *User) UserInfo(c fiber.Ctx) error {

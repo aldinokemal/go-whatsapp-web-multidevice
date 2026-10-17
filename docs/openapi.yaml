@@ -1141,6 +1141,91 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/blocklist:
+    get:
+      operationId: userMyBlocklist
+      tags:
+        - user
+      summary: Get the account's block list
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/block:
+    post:
+      operationId: userBlock
+      tags:
+        - user
+      summary: Block a user
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockRequest'
+      responses:
+        '200':
+          description: OK, returns the updated block list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/unblock:
+    post:
+      operationId: userUnblock
+      tags:
+        - user
+      summary: Unblock a user
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockRequest'
+      responses:
+        '200':
+          description: OK, returns the updated block list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/check:
     get:
       operationId: userCheck
@@ -5632,6 +5717,38 @@ components:
         name:
           type: string
           example: "Aldino Kemal"
+    BlockRequest:
+      type: object
+      required:
+        - phone
+      properties:
+        phone:
+          type: string
+          example: '628912344551@s.whatsapp.net'
+          description: Phone number or JID to block/unblock
+    BlocklistResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get blocklist"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  lid:
+                    type: string
+                    example: "123456789@lid"
+                  pn:
+                    type: string
+                    example: "628912344551@s.whatsapp.net"
 
 
     GroupParticipantRequestItem:
