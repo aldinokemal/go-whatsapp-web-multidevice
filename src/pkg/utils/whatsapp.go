@@ -1092,6 +1092,9 @@ type EvtMessage struct {
 	ID            string `json:"id"`
 	RepliedId     string `json:"replied_id"`
 	QuotedMessage string `json:"quoted_message"`
+	// RepliedSender is the author of the quoted message (ContextInfo.participant),
+	// as WhatsApp sent it: a phone JID or a LID. Empty when it is not a reply.
+	RepliedSender string `json:"replied_sender"`
 }
 
 // GetMessageDigestOrSignature generates HMAC signature for message
@@ -1152,6 +1155,7 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			if ci := ExtractContextInfo(editedMessage); ci != nil {
 				message.RepliedId = ci.GetStanzaID()
 				message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
+				message.RepliedSender = ci.GetParticipant()
 			}
 			return message
 		}
@@ -1164,9 +1168,28 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 	if ci := ExtractContextInfo(msg); ci != nil {
 		message.RepliedId = ci.GetStanzaID()
 		message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
+		message.RepliedSender = ci.GetParticipant()
 	}
 
 	return message
+}
+
+// ExtractMentionedJIDs returns the JIDs a message @mentions
+// (ContextInfo.mentionedJID), as WhatsApp sent them: phone JIDs or LIDs. It
+// covers text and captioned media, including inside ephemeral/view-once
+// wrappers. Empty entries are skipped.
+func ExtractMentionedJIDs(msg *waE2E.Message) []string {
+	ci := ExtractContextInfo(UnwrapMessage(msg))
+	if ci == nil {
+		return nil
+	}
+	var out []string
+	for _, jid := range ci.GetMentionedJID() {
+		if jid != "" {
+			out = append(out, jid)
+		}
+	}
+	return out
 }
 
 func BuildForwarded(evt *events.Message) bool {

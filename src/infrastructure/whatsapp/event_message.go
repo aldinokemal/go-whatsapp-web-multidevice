@@ -289,36 +289,16 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 	message := utils.BuildEventMessage(evt)
 
 	// Replace LID mentions with phone numbers in text
-	if message.Text != "" && client != nil && client.Store != nil && client.Store.LIDs != nil {
-		tags := reMention.FindAllString(message.Text, -1)
-		tagsMap := make(map[string]bool)
-		for _, tag := range tags {
-			tagsMap[tag] = true
-		}
-		for tag := range tagsMap {
-			lid, err := types.ParseJID(tag[1:] + "@lid")
-			if err != nil {
-				logrus.Errorf("Error when parse jid: %v", err)
-			} else {
-				pn, err := client.Store.LIDs.GetPNForLID(ctx, lid)
-				if err != nil {
-					logrus.Errorf("Error when get pn for lid %s: %v", lid.ToNonAD().String(), err)
-				}
-				if !pn.IsEmpty() {
-					message.Text = strings.Replace(message.Text, tag, fmt.Sprintf("@%s", pn.User), -1)
-				}
-			}
-		}
-		payload["body"] = message.Text
-	} else if message.Text != "" {
-		payload["body"] = message.Text
+	if message.Text != "" {
+		payload["body"] = replaceLIDMentions(ctx, client, message.Text)
 	}
 
-	// Fallback: extract caption from media messages if no text body was set
+	// Fallback: extract caption from media messages if no text body was set.
+	// Captions carry @mentions too, so they get the same LID replacement.
 	if _, hasBody := payload["body"]; !hasBody {
 		msg := utils.UnwrapMessage(evt.Message)
 		if caption := utils.ExtractMediaCaption(msg); caption != "" {
-			payload["body"] = caption
+			payload["body"] = replaceLIDMentions(ctx, client, caption)
 		}
 	}
 
@@ -329,8 +309,87 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 	if message.QuotedMessage != "" {
 		payload["quoted_body"] = message.QuotedMessage
 	}
+	if message.RepliedSender != "" {
+		addJIDField(ctx, client, payload, "replied_to_sender", message.RepliedSender)
+	}
+
+	buildMentionFields(ctx, client, evt, payload)
 
 	return nil
+}
+
+// replaceLIDMentions rewrites @<lid> tags in text to @<phone> where the LID
+// store knows the phone number, leaving any it cannot resolve as they are.
+func replaceLIDMentions(ctx context.Context, client *whatsmeow.Client, text string) string {
+	if text == "" || client == nil || client.Store == nil || client.Store.LIDs == nil {
+		return text
+	}
+	tags := reMention.FindAllString(text, -1)
+	tagsMap := make(map[string]bool)
+	for _, tag := range tags {
+		tagsMap[tag] = true
+	}
+	for tag := range tagsMap {
+		lid, err := types.ParseJID(tag[1:] + "@lid")
+		if err != nil {
+			logrus.Errorf("Error when parse jid: %v", err)
+			continue
+		}
+		pn, err := client.Store.LIDs.GetPNForLID(ctx, lid)
+		if err != nil {
+			logrus.Errorf("Error when get pn for lid %s: %v", lid.ToNonAD().String(), err)
+		}
+		if !pn.IsEmpty() {
+			text = strings.Replace(text, tag, fmt.Sprintf("@%s", pn.User), -1)
+		}
+	}
+	return text
+}
+
+// addJIDField sets payload[key] to the JID with a LID resolved to its phone
+// JID where the store knows it, and payload[key+"_lid"] to the LID, the same
+// convention as from/from_lid. An unparseable JID is skipped.
+func addJIDField(ctx context.Context, client *whatsmeow.Client, payload map[string]any, key, raw string) {
+	jid, err := types.ParseJID(raw)
+	if err != nil || jid.IsEmpty() {
+		return
+	}
+	if jid.Server == types.HiddenUserServer {
+		payload[key+"_lid"] = jid.ToNonAD().String()
+	}
+	payload[key] = NormalizeJIDFromLID(ctx, jid, client).ToNonAD().String()
+}
+
+// buildMentionFields adds the JIDs a message @mentions: "mentions" holds them
+// with LIDs resolved to phone JIDs where known, and "mentions_lid" the LIDs
+// as sent, mirroring from/from_lid. Duplicates are dropped and order is kept;
+// both keys are omitted when nothing is mentioned.
+func buildMentionFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) {
+	var mentions, lids []string
+	seen := make(map[string]bool)
+	seenLID := make(map[string]bool)
+	for _, raw := range utils.ExtractMentionedJIDs(evt.Message) {
+		jid, err := types.ParseJID(raw)
+		if err != nil || jid.IsEmpty() {
+			continue
+		}
+		if jid.Server == types.HiddenUserServer {
+			if lid := jid.ToNonAD().String(); !seenLID[lid] {
+				seenLID[lid] = true
+				lids = append(lids, lid)
+			}
+		}
+		if resolved := NormalizeJIDFromLID(ctx, jid, client).ToNonAD().String(); !seen[resolved] {
+			seen[resolved] = true
+			mentions = append(mentions, resolved)
+		}
+	}
+	if len(mentions) > 0 {
+		payload["mentions"] = mentions
+	}
+	if len(lids) > 0 {
+		payload["mentions_lid"] = lids
+	}
 }
 
 func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *events.Message, msg *waE2E.Message, payload map[string]any) error {
