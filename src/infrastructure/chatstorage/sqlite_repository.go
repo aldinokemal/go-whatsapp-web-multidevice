@@ -2212,6 +2212,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	if evt == nil || evt.Message == nil {
 		return nil
 	}
+	evt = restoreRecoveredEdit(evt)
 
 	// Get WhatsApp client for LID resolution (device-scoped if present in context)
 	client := whatsapp.ClientFromContext(ctx)
@@ -2369,6 +2370,27 @@ func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
 		return nil
 	}
 	return protocolMessage.GetEditedMessage()
+}
+
+// restoreRecoveredEdit undoes the edit unwrapping ParseWebMessage applies to
+// a WebMessageInfo, as for a placeholder-resend response: the edit comes back
+// under its own ID, so it reaches storeEditedMessage like a live edit instead
+// of StoreMessage as a replay of the original. Any other event is returned as
+// is; the caller's event is never modified.
+func restoreRecoveredEdit(evt *events.Message) *events.Message {
+	editID := evt.SourceWebMsg.GetKey().GetID()
+	if editID == "" {
+		return evt
+	}
+	// The same unwrapping ParseWebMessage applied before it unwrapped the edit.
+	raw := (&events.Message{RawMessage: evt.RawMessage}).UnwrapRaw().Message
+	if extractEditedMessage(raw) == nil {
+		return evt
+	}
+	restored := *evt
+	restored.Info.ID = editID
+	restored.Message = raw
+	return &restored
 }
 
 func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.Message, deviceID, chatJID, sender string, editedMessage *waE2E.Message) error {
