@@ -26,7 +26,7 @@ func handleChatPresence(ctx context.Context, evt *events.ChatPresence, deviceID 
 
 	// Forward chat presence event to webhook
 	go func(e *events.ChatPresence, c *whatsmeow.Client) {
-		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		if err := forwardChatPresenceToWebhook(webhookCtx, e, deviceID, c); err != nil {
 			logrus.Errorf("Failed to forward chat_presence event to webhook: %v", err)
@@ -46,6 +46,7 @@ func createChatPresencePayload(ctx context.Context, evt *events.ChatPresence, de
 	}
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addSenderDisplayName(ctx, client, payload, false, "")
 
 	// Chat where the presence event occurred
 	payload["chat_id"] = evt.Chat.ToNonAD().String()

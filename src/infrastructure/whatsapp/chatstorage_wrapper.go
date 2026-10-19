@@ -103,6 +103,14 @@ func (r *deviceChatStorage) GetMessageByIDAndDevice(deviceID, id string) (*domai
 	return r.base.GetMessageByIDAndDevice(targetDeviceID, id)
 }
 
+func (r *deviceChatStorage) GetMessageByIDChatAndDevice(deviceID, chatJID, id string) (*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetMessageByIDChatAndDevice(targetDeviceID, chatJID, id)
+}
+
 func (r *deviceChatStorage) GetMessageEdits(originalMessageID, deviceID string) ([]*domainChatStorage.MessageEdit, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {
@@ -116,6 +124,14 @@ func (r *deviceChatStorage) GetMessages(filter *domainChatStorage.MessageFilter)
 		filter.DeviceID = r.deviceID
 	}
 	return r.base.GetMessages(filter)
+}
+
+func (r *deviceChatStorage) GetOldestMessageByDevice(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetOldestMessageByDevice(targetDeviceID, chatJID)
 }
 
 func (r *deviceChatStorage) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
@@ -232,11 +248,88 @@ func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64) error {
 	return r.base.MarkChatwootForwardEventDone(id)
 }
 
+// Scheduled sends are keyed by the registry slot alias, which r.deviceID (a
+// storage JID once logged in) is not, so these pass device IDs through as-is.
+func (r *deviceChatStorage) CreateScheduledSend(job *domainChatStorage.ScheduledSend) error {
+	return r.base.CreateScheduledSend(job)
+}
+
+func (r *deviceChatStorage) ListScheduledSends(filter domainChatStorage.ScheduledSendFilter) ([]*domainChatStorage.ScheduledSend, error) {
+	return r.base.ListScheduledSends(filter)
+}
+
+func (r *deviceChatStorage) CountScheduledSends(filter domainChatStorage.ScheduledSendFilter) (int, error) {
+	return r.base.CountScheduledSends(filter)
+}
+
+func (r *deviceChatStorage) GetScheduledSend(deviceID, id string) (*domainChatStorage.ScheduledSend, error) {
+	return r.base.GetScheduledSend(deviceID, id)
+}
+
+func (r *deviceChatStorage) ClaimNextScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	return r.base.ClaimNextScheduledSend(now, leaseUntil, leaseToken)
+}
+
+func (r *deviceChatStorage) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
+	return r.base.ListExpiredScheduledSends(now)
+}
+
+func (r *deviceChatStorage) ListScheduledSendIDs() ([]string, error) {
+	return r.base.ListScheduledSendIDs()
+}
+
+func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
+	return r.base.RetryScheduledSend(id, leaseToken, lastError, attempts, nextRunAt)
+}
+
+func (r *deviceChatStorage) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
+	return r.base.CompleteScheduledSend(id, leaseToken, status, lastMessageID, occurrenceCount, nextRunAt)
+}
+
+func (r *deviceChatStorage) FailScheduledSend(id, leaseToken, lastError string) error {
+	return r.base.FailScheduledSend(id, leaseToken, lastError)
+}
+
+func (r *deviceChatStorage) SetScheduledSendStatus(deviceID, id string, from []string, status string, nextRunAt *time.Time) (bool, error) {
+	return r.base.SetScheduledSendStatus(deviceID, id, from, status, nextRunAt)
+}
+
 func (r *deviceChatStorage) StoreSentMessageWithContext(ctx context.Context, messageID string, senderJID string, recipientJID string, content string, timestamp time.Time, msg *waE2E.Message) error {
 	if _, ok := DeviceFromContext(ctx); !ok && r.deviceID != "" {
 		ctx = ContextWithDevice(ctx, NewDeviceInstance(r.deviceID, nil, nil))
 	}
 	return r.base.StoreSentMessageWithContext(ctx, messageID, senderJID, recipientJID, content, timestamp, msg)
+}
+
+func (r *deviceChatStorage) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
+	if definition != nil && definition.DeviceID == "" {
+		definition.DeviceID = r.deviceID
+	}
+	return r.base.UpsertPollDefinition(definition)
+}
+
+func (r *deviceChatStorage) GetPollDefinition(deviceID, chatJID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetPollDefinition(targetDeviceID, chatJID, pollMessageID)
+}
+
+func (r *deviceChatStorage) GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*domainChatStorage.PollDefinition, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetPollDefinitionByIDAndDevice(targetDeviceID, pollMessageID)
+}
+
+func (r *deviceChatStorage) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.AppendPollOption(targetDeviceID, chatJID, pollMessageID, option)
 }
 
 func (r *deviceChatStorage) GetChatMessageCount(chatJID string) (int64, error) {

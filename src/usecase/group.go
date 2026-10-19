@@ -598,16 +598,7 @@ func contactDisplayName(ctx context.Context, client *whatsmeow.Client, jid types
 }
 
 func contactInfoDisplayName(contact types.ContactInfo) string {
-	switch {
-	case contact.FullName != "":
-		return contact.FullName
-	case contact.PushName != "":
-		return contact.PushName
-	case contact.BusinessName != "":
-		return contact.BusinessName
-	default:
-		return ""
-	}
+	return whatsapp.PreferredContactDisplayName(contact, "")
 }
 
 func verifiedNameFromUserInfo(info types.UserInfo) string {

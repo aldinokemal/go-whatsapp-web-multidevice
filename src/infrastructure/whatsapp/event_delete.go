@@ -30,6 +30,7 @@ func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *
 	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, evt.SenderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addSenderDisplayName(ctx, client, payload, false, "")
 
 	// Include original message information if available
 	if message != nil {

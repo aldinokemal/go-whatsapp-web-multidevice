@@ -377,7 +377,7 @@ func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
 	// JID). Unknown ids are acknowledged without processing — this endpoint can
 	// be reached unauthenticated, so it must neither leak which device ids exist
 	// nor grow the client-registry cache with arbitrary identifiers.
-	deviceID := strings.TrimSpace(c.Params("device_id"))
+	deviceID := pathDeviceID(c)
 	if h.DeviceManager != nil {
 		resolved, ok := h.resolveConfigDeviceID(c)
 		if !ok {

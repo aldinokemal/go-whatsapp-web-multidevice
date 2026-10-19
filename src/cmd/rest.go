@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/uiasset"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -41,6 +43,8 @@ func init() {
 	rootCmd.AddCommand(restCmd)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	// registerMcpOAuth depends on these values being loaded after flag parsing.
+	loadMcpOAuthEnvConfig()
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
@@ -99,6 +103,21 @@ func restServer(_ *cobra.Command, _ []string) {
 		app.Post(webhookPath+"/:device_id", chatwootHandler.HandleDeviceWebhook)
 	}
 
+	// OAuth discovery/login/token routes and the OAuth-protected MCP route must
+	// be registered before the global Basic Auth middleware. When OAuth is off,
+	// this is a no-op and MCP is mounted in its historical location below.
+	oauthServer, mcpOAuthRegistered, err := registerMcpOAuth(app, dm)
+	if err != nil {
+		logrus.Fatalln("Failed to initialize MCP OAuth: ", err.Error())
+	}
+	if oauthServer != nil {
+		defer func() {
+			if err := oauthServer.Close(); err != nil {
+				logrus.Warnf("MCP OAuth storage close: %v", err)
+			}
+		}()
+	}
+
 	if len(config.AppBasicAuthCredential) > 0 {
 		account := make(map[string]string)
 		for _, basicAuth := range config.AppBasicAuthCredential {
@@ -124,6 +143,7 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestCall(r, callUsecase)
 		rest.InitRestChat(r, chatUsecase)
 		rest.InitRestSend(r, sendUsecase)
+		rest.InitRestSchedule(r, scheduleUsecase)
 		rest.InitRestUser(r, userUsecase)
 		rest.InitRestMessage(r, messageUsecase, sendUsecase)
 		rest.InitRestGroup(r, groupUsecase)
@@ -137,12 +157,24 @@ func restServer(_ *cobra.Command, _ []string) {
 	// App info (version, limits) for standalone UIs; no device required
 	rest.InitRestAppInfo(apiGroup)
 
-	// Device-scoped operations (header-based)
-	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
-	registerDeviceScopedRoutes(headerDeviceGroup)
+	// MCP endpoint — same usecase instances as REST, so both surfaces share
+	// one whatsmeow session. With OAuth disabled it keeps the existing global
+	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
+	if config.McpEnabled && !mcpOAuthRegistered {
+		uimcp.Register(apiGroup, dm, uimcp.Deps{
+			App:      appUsecase,
+			Send:     sendUsecase,
+			Schedule: scheduleUsecase,
+			Chat:     chatUsecase,
+			User:     userUsecase,
+			Message:  messageUsecase,
+			Group:    groupUsecase,
+		})
+	}
 
 	// Chatwoot sync + per-device config routes - require authentication (the
-	// webhooks are registered earlier without auth).
+	// webhooks are registered earlier without auth). Registered before
+	// headerDeviceGroup so they are not intercepted by DeviceMiddleware.
 	if config.ChatwootEnabled {
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
@@ -158,6 +190,13 @@ func restServer(_ *cobra.Command, _ []string) {
 	uiCtx, uiCancel := context.WithCancel(context.Background())
 	defer uiCancel()
 	registerUIRoute(apiGroup, uiCtx)
+
+	// Device-scoped operations (header-based). This must stay the LAST
+	// registration on apiGroup: Group("") registers a root "use" route that
+	// matches every path, so DeviceMiddleware would also run for anything
+	// mounted after it. TestDeviceGroupIsRegisteredLast pins the order.
+	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	go websocket.RunHub()
 
@@ -189,6 +228,9 @@ func restServer(_ *cobra.Command, _ []string) {
 		}
 	case sig := <-sigCh:
 		logrus.Infof("Received %s — shutting down", sig)
+		if scheduleStop != nil {
+			scheduleStop()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
@@ -261,10 +303,19 @@ func newCORSMiddleware() fiber.Handler {
 	if len(config.AppCORSAllowedOrigins) > 0 {
 		origins = config.AppCORSAllowedOrigins
 	}
+	oauthAuthorizePath := ""
+	if config.McpOAuthEnabled {
+		if issuer, err := url.Parse(strings.TrimSpace(config.McpOAuthIssuerURL)); err == nil {
+			oauthAuthorizePath = strings.TrimRight(issuer.Path, "/") + "/oauth/authorize"
+		}
+	}
 	return cors.New(cors.Config{
 		AllowOrigins: origins,
 		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", middleware.DeviceIDHeader},
+		Next: func(c fiber.Ctx) bool {
+			return oauthAuthorizePath != "" && c.Path() == oauthAuthorizePath
+		},
 	})
 }
 

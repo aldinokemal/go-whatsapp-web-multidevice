@@ -1,9 +1,16 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -11,10 +18,221 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
+
+func writeOrientedJPEG(t *testing.T, path string, orientation byte) {
+	t.Helper()
+	var encoded bytes.Buffer
+	require.NoError(t, jpeg.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 3)), &jpeg.Options{Quality: 100}))
+
+	// Minimal little-endian EXIF APP1 segment containing only Orientation.
+	exif := []byte{
+		0xff, 0xe1, 0x00, 0x22,
+		'E', 'x', 'i', 'f', 0x00, 0x00,
+		'I', 'I', 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+		0x01, 0x00,
+		0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+		orientation, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+	}
+	jpegData := encoded.Bytes()
+	fixture := make([]byte, 0, len(jpegData)+len(exif))
+	fixture = append(fixture, jpegData[:2]...)
+	fixture = append(fixture, exif...)
+	fixture = append(fixture, jpegData[2:]...)
+	require.NoError(t, os.WriteFile(path, fixture, 0600))
+}
+
+func TestOpenImageForSendAppliesEXIFOrientationForHD(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orientation-6.jpg")
+	writeOrientedJPEG(t, path, 6)
+
+	got, err := openImageForSend(path, true)
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.Bounds().Dx())
+	assert.Equal(t, 2, got.Bounds().Dy())
+}
+
+func TestSaveProcessedImageUsesJPEGForHDPNG(t *testing.T) {
+	directory := t.TempDir()
+	gotPath, err := saveProcessedImage(image.NewRGBA(image.Rect(0, 0, 32, 16)), directory, "report.png", true)
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(directory, "hd-report.jpg"), gotPath)
+
+	data, err := os.ReadFile(gotPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "image/jpeg", http.DetectContentType(data))
+}
+
+func TestResizeImageForHDCapsLongestEdgeWithoutUpscaling(t *testing.T) {
+	tests := []struct {
+		name       string
+		width      int
+		height     int
+		wantWidth  int
+		wantHeight int
+	}{
+		{name: "landscape", width: 4000, height: 2000, wantWidth: 2560, wantHeight: 1280},
+		{name: "portrait", width: 2000, height: 4000, wantWidth: 1280, wantHeight: 2560},
+		{name: "small image is not upscaled", width: 1200, height: 800, wantWidth: 1200, wantHeight: 800},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resizeImageForHD(image.NewRGBA(image.Rect(0, 0, tt.width, tt.height)))
+			assert.Equal(t, tt.wantWidth, got.Bounds().Dx())
+			assert.Equal(t, tt.wantHeight, got.Bounds().Dy())
+		})
+	}
+}
+
+func TestPrepareImageForSendSelectsRequestedQuality(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 3000, 1500))
+	tests := []struct {
+		name          string
+		compress      bool
+		hd            bool
+		wantWidth     int
+		wantHeight    int
+		wantProcessed bool
+	}{
+		{name: "HD overrides compression", compress: true, hd: true, wantWidth: 2560, wantHeight: 1280, wantProcessed: true},
+		{name: "HD overrides original mode", compress: false, hd: true, wantWidth: 2560, wantHeight: 1280, wantProcessed: true},
+		{name: "legacy compression stays unchanged", compress: true, wantWidth: 600, wantHeight: 300, wantProcessed: true},
+		{name: "original mode stays unchanged", wantWidth: 3000, wantHeight: 1500, wantProcessed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, processed := prepareImageForSend(source, tt.compress, tt.hd)
+			assert.Equal(t, tt.wantWidth, got.Bounds().Dx())
+			assert.Equal(t, tt.wantHeight, got.Bounds().Dy())
+			assert.Equal(t, tt.wantProcessed, processed)
+		})
+	}
+}
+
+func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T) {
+	want := []string{
+		"-i", "input.mp4",
+		"-c:v", "libx264",
+		"-crf", "23",
+		"-preset", "fast",
+		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-pix_fmt", "yuv420p",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		"output.mp4",
+	}
+
+	assert.Equal(t, want, buildHDVideoFFmpegArgs("input.mp4", "output.mp4"))
+}
+
+func TestBuildStickerWebPFFmpegArgs(t *testing.T) {
+	want := []string{
+		"-y",
+		"-i", "input.png",
+		"-vcodec", "libwebp",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "60",
+		"-preset", "default",
+		"-loop", "0",
+		"-an",
+		"output.webp",
+	}
+
+	got := buildStickerWebPFFmpegArgs("input.png", "output.webp")
+	assert.Equal(t, want, got)
+	assert.NotContains(t, got, "-vsync", "ffmpeg 9 removed -vsync; passing it fails the whole conversion")
+}
+
+func TestBuildStickerWebPFFmpegArgsConvertWithInstalledFFmpeg(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+
+	dir := t.TempDir()
+	pngPath := filepath.Join(dir, "sticker.png")
+	webpPath := filepath.Join(dir, "sticker.webp")
+
+	pngFile, err := os.Create(pngPath)
+	require.NoError(t, err)
+	require.NoError(t, png.Encode(pngFile, image.NewNRGBA(image.Rect(0, 0, 4, 4))))
+	require.NoError(t, pngFile.Close())
+
+	output, err := exec.Command("ffmpeg", buildStickerWebPFFmpegArgs(pngPath, webpPath)...).CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	webp, err := os.ReadFile(webpPath)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(webp), 12)
+	assert.Equal(t, "RIFF", string(webp[0:4]))
+	assert.Equal(t, "WEBP", string(webp[8:12]))
+}
+
+func TestBuildVideoTranscodeArgsSelectsRequestedQuality(t *testing.T) {
+	hdArgs := buildHDVideoFFmpegArgs("input.mp4", "output.mp4")
+	legacyArgs := []string{
+		"-i", "input.mp4",
+		"-c:v", "libx264",
+		"-crf", "28",
+		"-preset", "fast",
+		"-vf", "scale=720:-2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		"output.mp4",
+	}
+
+	tests := []struct {
+		name       string
+		compress   bool
+		hd         bool
+		wantArgs   []string
+		wantOutput bool
+	}{
+		{name: "HD overrides compression", compress: true, hd: true, wantArgs: hdArgs, wantOutput: true},
+		{name: "HD overrides original mode", hd: true, wantArgs: hdArgs, wantOutput: true},
+		{name: "legacy compression stays unchanged", compress: true, wantArgs: legacyArgs, wantOutput: true},
+		{name: "original mode stays unchanged"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotArgs, gotOutput := buildVideoTranscodeArgs("input.mp4", "output.mp4", tt.compress, tt.hd)
+			assert.Equal(t, tt.wantArgs, gotArgs)
+			assert.Equal(t, tt.wantOutput, gotOutput)
+		})
+	}
+}
+
+func TestParseVideoMetadataUsesContainerDuration(t *testing.T) {
+	metadata, err := parseVideoMetadata([]byte(`{
+		"streams": [{"width": 1280, "height": 720}],
+		"format": {"duration": "13.040000"}
+	}`))
+	assert.NoError(t, err)
+	assert.Equal(t, videoMetadata{Width: 1280, Height: 720, Seconds: 13}, metadata)
+}
+
+func TestParseVideoMetadataFallsBackToStreamDuration(t *testing.T) {
+	metadata, err := parseVideoMetadata([]byte(`{
+		"streams": [{"width": 720, "height": 1280, "duration": "9.750000"}],
+		"format": {"duration": "N/A"}
+	}`))
+	assert.NoError(t, err)
+	assert.Equal(t, uint32(9), metadata.Seconds)
+}
 
 type replyMessageRepo struct {
 	domainChatStorage.IChatStorageRepository
@@ -45,6 +263,42 @@ func TestWithoutCancelPreservesDeviceContext(t *testing.T) {
 	if got := inst.ID(); got != deviceID {
 		t.Fatalf("expected device id %q, got %q", deviceID, got)
 	}
+}
+
+type pollDefinitionRepoSpy struct {
+	domainChatStorage.IChatStorageRepository
+	definition *domainChatStorage.PollDefinition
+	err        error
+}
+
+func (r *pollDefinitionRepoSpy) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
+	r.definition = definition
+	return r.err
+}
+
+func TestPersistSentPollDefinitionStoresReadableOptions(t *testing.T) {
+	repo := &pollDefinitionRepoSpy{}
+	service := serviceSend{chatStorageRepo: repo}
+	deviceID := "628000@s.whatsapp.net"
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+	recipient := types.NewJID("120363000000", types.GroupServer)
+	request := domainSend.PollRequest{
+		Question:  "Lunch?",
+		Options:   []string{"Pizza", "Sushi"},
+		MaxAnswer: 1,
+	}
+
+	require.NoError(t, service.persistSentPollDefinition(ctx, recipient, "POLL-SENT-1", request))
+	require.NotNil(t, repo.definition)
+	assert.Equal(t, deviceID, repo.definition.DeviceID)
+	assert.Equal(t, recipient.String(), repo.definition.ChatJID)
+	assert.Equal(t, "POLL-SENT-1", repo.definition.PollMessageID)
+	assert.Equal(t, "Lunch?", repo.definition.Question)
+	assert.Equal(t, uint32(1), repo.definition.SelectableOptionCount)
+	assert.Equal(t, "v1", repo.definition.Version)
+	require.Len(t, repo.definition.Options, 2)
+	assert.Equal(t, "Sushi", repo.definition.Options[1].Name)
+	assert.NotEmpty(t, repo.definition.Options[1].Hash)
 }
 
 func TestResolveDocumentMIME(t *testing.T) {
@@ -318,4 +572,58 @@ func TestSendForwardUnsupportedType(t *testing.T) {
 	if genericErr.Error() != utils.ErrUnsupportedForwardType {
 		t.Fatalf("error = %q, want %q", genericErr.Error(), utils.ErrUnsupportedForwardType)
 	}
+}
+
+// A sender persisted before senders were normalised on the way in still carries
+// AD/device identity. The quote reader must not trust it: a device-suffixed JID
+// matches no participant of a chat, so the recipient cannot attribute the quote.
+func TestMergeReplyContextNormalizesALegacyDeviceSuffixedSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{
+			Sender:  "628123456789:32@s.whatsapp.net", // written before the fix
+			Content: "quoted message body",
+		},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "628123456789@s.whatsapp.net" {
+		t.Fatalf("expected the stored sender to be normalized, got %q", got.GetParticipant())
+	}
+}
+
+// A stored value that will not parse must pass through rather than be dropped:
+// a wrong participant is recoverable, an empty one loses the quote entirely.
+func TestMergeReplyContextPassesThroughAnUnparseableSender(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	repo := &replyMessageRepo{
+		message: &domainChatStorage.Message{Sender: "not-a-jid", Content: "body"},
+	}
+	service := serviceSend{chatStorageRepo: repo}
+
+	ctx := whatsapp.ContextWithDevice(context.Background(),
+		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+
+	if got.GetParticipant() != "not-a-jid" {
+		t.Fatalf("expected the raw sender to survive, got %q", got.GetParticipant())
+	}
+}
+
+func TestWithAllowReshare(t *testing.T) {
+	assert.Nil(t, withAllowReshare(nil, false))
+
+	got := withAllowReshare(nil, true)
+	require.NotNil(t, got)
+	assert.True(t, got.GetFeatureEligibilities().GetCanBeReshared())
+
+	existing := &waE2E.ContextInfo{MentionedJID: []string{"628123456789@s.whatsapp.net"}}
+	got = withAllowReshare(existing, true)
+	assert.Same(t, existing, got)
+	assert.Equal(t, []string{"628123456789@s.whatsapp.net"}, got.GetMentionedJID())
+	assert.True(t, got.GetFeatureEligibilities().GetCanBeReshared())
 }

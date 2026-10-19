@@ -109,6 +109,11 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
   entry is an **exact** JID match.
 - Empty/unset (default) forwards everything.
 - Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
+- `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (`--webhook-device-merge-global`) changes what a per-device
+  `webhook_url` means: instead of replacing the global `WHATSAPP_WEBHOOK` targets it is added to them. The
+  device URL is signed with the device's `webhook_secret` and filtered by its `webhook_events`; the global
+  URLs keep the global secret and `WHATSAPP_WEBHOOK_EVENTS`. The ignore-JID rules above apply to both. A
+  global URL that equals the device URL is delivered once. Default `false` keeps the replace behaviour.
 - `@g.us` is the recommended way to mute groups (it matches the group `chat_id`). The
   `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
   `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific
@@ -199,9 +204,24 @@ Fields commonly found inside the `payload` object:
 | `chat_id`   | string   | Chat JID (e.g., `628987654321@s.whatsapp.net` or `120363...@g.us` for groups) |
 | `from`      | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)                  |
 | `from_lid`  | string   | LID (Linked ID) of the sender if available                                    |
-| `from_name` | string   | Display name (pushname) of the sender                                         |
+| `sender_display_name` | string | Dynamic human-readable sender label. Present only when `from` is a non-empty string; see [Sender Display Name Resolution](#sender-display-name-resolution). |
+| `from_name` | string   | Legacy message-event push name of the sender. It remains available for compatibility and is not replaced by `sender_display_name`. |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
 | `is_from_me` | boolean | Whether the message was sent by the current user                              |
+
+### Sender Display Name Resolution
+
+`sender_display_name` is added only when `payload.from` is a non-empty string. It is omitted when `from` is missing,
+empty, or not a singular string. Resolution is best-effort and never prevents a webhook from being delivered: a contact
+lookup failure falls through the remaining applicable precedence candidates (including a live event push name when
+available), then deterministically to the JID user part, or to the original `from` value when it cannot be parsed.
+
+For another sender, the resolver prefers the saved contact full name, then the live WhatsApp push name supplied by the
+event (when available), the stored contact push name, the contact business name, and the JID user part. For the active
+account, it prefers the stored account push name, account JID user part, account JID, sender JID user part, and raw
+sender JID. The label is resolved at webhook-build time, so a saved-contact rename can change labels on later events.
+`from_name` remains the legacy message-event push name; it is a separate compatibility field and does not use this
+resolution order.
 
 ## Message Events
 
@@ -216,6 +236,7 @@ Fields commonly found inside the `payload` object:
     "chat_id": "628987654321@s.whatsapp.net",
     "from": "628123456789@s.whatsapp.net",
     "from_lid": "251556368777322@lid",
+    "sender_display_name": "Saved Contact",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:30:00Z",
     "is_from_me": false,
@@ -234,6 +255,7 @@ Fields commonly found inside the `payload` object:
     "id": "3EB0C127D7BACC83D6A2",
     "chat_id": "628987654321@s.whatsapp.net",
     "from": "628123456789@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:35:00Z",
     "is_from_me": false,
@@ -254,6 +276,7 @@ Fields commonly found inside the `payload` object:
     "id": "88760C69D1F35FEB239102699AE9XXXX",
     "chat_id": "628987654321@s.whatsapp.net",
     "from": "628123456789@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "from_name": "John Doe",
     "timestamp": "2023-10-15T10:40:00Z",
     "is_from_me": false,
@@ -262,6 +285,112 @@ Fields commonly found inside the `payload` object:
   }
 }
 ```
+
+### Poll Messages
+
+Poll creations, votes, edits, and added options keep the normal `message` event name. The structured `poll` object lets
+existing `WHATSAPP_WEBHOOK_EVENTS=message` subscriptions receive poll interactions without another event allow-list.
+Option hashes are lowercase hexadecimal SHA-256 hashes of the exact option names.
+
+Poll creation:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "POLL-1",
+    "chat_id": "120363402106XXXXX@g.us",
+    "body": "Poll: Lunch?",
+    "poll": {
+      "type": "creation",
+      "poll_id": "POLL-1",
+      "question": "Lunch?",
+      "options": [
+        {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+        {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"}
+      ],
+      "selectable_options_count": 1,
+      "version": "v3"
+    }
+  }
+}
+```
+
+Resolved vote:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "VOTE-1",
+    "chat_id": "120363402106XXXXX@g.us",
+    "body": "Poll vote: Sushi",
+    "poll": {
+      "type": "vote",
+      "poll_id": "POLL-1",
+      "question": "Lunch?",
+      "options": [
+        {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+        {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"}
+      ],
+      "selected_options": ["Sushi"],
+      "selected_option_hashes": ["670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"],
+      "resolution_status": "resolved"
+    }
+  }
+}
+```
+
+Clearing all choices is distinct from a resolution failure. Both arrays are present and empty:
+
+```json
+{
+  "body": "Poll vote cleared",
+  "poll": {
+    "type": "vote",
+    "poll_id": "POLL-1",
+    "selected_options": [],
+    "selected_option_hashes": [],
+    "resolution_status": "resolved"
+  }
+}
+```
+
+Resolution statuses:
+
+| Status | Meaning |
+|---|---|
+| `resolved` | The vote decrypted and every selected hash matched a stored option. |
+| `partially_resolved` | The vote decrypted, but one or more hashes did not match the stored definition. All hashes and the matched names are returned. |
+| `definition_missing` | The vote decrypted, but the original poll definition was unavailable. Hashes are returned and names are empty. |
+| `decrypt_failed` | The original WhatsApp message secret was missing or authentication failed. Known poll details are returned, but selection fields are omitted. |
+
+Poll edits replace the stored definition and use `"type": "edit"`. Add-option messages use `"type": "add_option"`,
+return the current full `options` list when known, and add an `added_option` object:
+
+```json
+{
+  "body": "Poll option added: Ramen",
+  "poll": {
+    "type": "add_option",
+    "poll_id": "POLL-1",
+    "question": "Lunch?",
+    "options": [
+      {"name": "Pizza", "hash": "f12958816a49adfa2c6c8de8dd2144c163e92c5e375de964d533187c7d236c36"},
+      {"name": "Sushi", "hash": "670bd9ced0c6bc3fab9bcce97185cdb5a6c6008f0bb7a33c5e432b7faa0e27ed"},
+      {"name": "Ramen", "hash": "8930b1916b28f31f1e9c067cecce8301a2653982e8696f5b78d30229c3e0e988"}
+    ],
+    "added_option": {"name": "Ramen", "hash": "8930b1916b28f31f1e9c067cecce8301a2653982e8696f5b78d30229c3e0e988"}
+  }
+}
+```
+
+Poll definitions are persisted per device and chat from live messages, sent polls, and recent/bootstrap history sync, so
+votes can normally be resolved after a restart. Decryption still depends on WhatsApp having delivered the original
+message secret. Older/incomplete history and some upstream LID migration cases may therefore produce `decrypt_failed`;
+the webhook is still delivered with a safe degraded payload.
 
 ## Receipt Events
 
@@ -284,6 +413,7 @@ Triggered when a message is successfully delivered to the recipient's device.
     "chat_id": "120363402106XXXXX@g.us",
     "from": "6289685XXXXXX@s.whatsapp.net",
     "from_lid": "251556368777322@lid",
+    "sender_display_name": "Saved Contact",
     "receipt_type": "delivered",
     "receipt_type_description": "means the message was delivered to the device (but the user might not have noticed)."
   }
@@ -305,11 +435,18 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
     ],
     "chat_id": "120363402106XXXXX@g.us",
     "from": "6289685XXXXXX@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "receipt_type": "read",
     "receipt_type_description": "the user opened the chat and saw the message."
   }
 }
 ```
+
+Receipts are forwarded from each user's primary device only, so a contact with several linked devices does not produce
+duplicate events. Read receipts generated by the current account itself (`"read"`, or `"read-self"` when read receipts
+are disabled in privacy settings) are forwarded from any of its devices, so opening a chat on WhatsApp Web, Desktop or
+another linked device is reported just like opening it on the phone. For these, `payload.from` is the account's own JID
+(without the device suffix) and `payload.ids` are the IDs of the incoming messages that were read.
 
 ### Receipt Event Fields
 
@@ -322,6 +459,7 @@ Triggered when a message is read by the recipient (they opened the chat and saw 
 | `payload.chat_id`                  | string   | Chat identifier (group or individual chat)                |
 | `payload.from`                     | string   | JID of the user who triggered the receipt                 |
 | `payload.from_lid`                 | string   | LID of the user (if available)                            |
+| `payload.sender_display_name`      | string   | Dynamic sender label when `payload.from` is non-empty     |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
 
@@ -345,6 +483,7 @@ Triggered when a user starts typing a text message.
   "timestamp": "2026-01-22T12:00:00Z",
   "payload": {
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "chat_id": "628987654321@s.whatsapp.net",
     "state": "composing",
     "media": "",
@@ -364,6 +503,7 @@ Triggered when a user stops typing (pauses or clears the input field).
   "timestamp": "2026-01-22T12:00:05Z",
   "payload": {
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "chat_id": "628987654321@s.whatsapp.net",
     "state": "paused",
     "media": "",
@@ -383,6 +523,7 @@ Triggered when a user starts recording a voice message.
   "timestamp": "2026-01-22T12:01:00Z",
   "payload": {
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "chat_id": "628987654321@s.whatsapp.net",
     "state": "composing",
     "media": "audio",
@@ -403,6 +544,7 @@ Triggered when a user starts typing in a group chat.
   "payload": {
     "from": "628987654321@s.whatsapp.net",
     "from_lid": "251556368777322@lid",
+    "sender_display_name": "Saved Contact",
     "chat_id": "120363402106XXXXX@g.us",
     "state": "composing",
     "media": "",
@@ -420,6 +562,7 @@ Triggered when a user starts typing in a group chat.
 | `timestamp`        | string   | RFC3339 formatted timestamp when the event was processed           |
 | `payload.from`     | string   | JID of the user who is typing (e.g., `628987654321@s.whatsapp.net`)|
 | `payload.from_lid` | string   | LID of the user (if available, typically in group chats)           |
+| `payload.sender_display_name` | string | Dynamic sender label when `payload.from` is non-empty               |
 | `payload.chat_id`  | string   | Chat identifier (individual or group)                              |
 | `payload.state`    | string   | Typing state: `"composing"` (typing) or `"paused"` (stopped)      |
 | `payload.media`    | string   | Media type: `""` (text message) or `"audio"` (voice recording)    |
@@ -706,6 +849,7 @@ Triggered when an incoming call is received.
   "payload": {
     "call_id": "ABC123DEF456",
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "auto_rejected": false,
     "remote_platform": "android",
     "remote_version": "2.24.1.5"
@@ -725,6 +869,7 @@ When `WHATSAPP_AUTO_REJECT_CALL=true`, calls are automatically rejected and the 
   "payload": {
     "call_id": "ABC123DEF456",
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "auto_rejected": true,
     "remote_platform": "android",
     "remote_version": "2.24.1.5",
@@ -742,6 +887,7 @@ When `WHATSAPP_AUTO_REJECT_CALL=true`, calls are automatically rejected and the 
 | `timestamp`               | string   | RFC3339 formatted timestamp when the call was received     |
 | `payload.call_id`         | string   | Unique identifier for the call                             |
 | `payload.from`            | string   | JID of the caller                                          |
+| `payload.sender_display_name` | string | Dynamic sender label when `payload.from` is non-empty      |
 | `payload.auto_rejected`   | boolean  | Whether the call was auto-rejected                         |
 | `payload.remote_platform` | string   | Platform of the caller (e.g., `"android"`, `"ios"`)        |
 | `payload.remote_version`  | string   | WhatsApp version of the caller                             |
@@ -794,6 +940,7 @@ When you receive a `call.offer` webhook event, extract the values from the paylo
   "payload": {
     "call_id": "ABC123DEF456",
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "auto_rejected": false
   }
 }
@@ -1105,6 +1252,91 @@ When a user shares multiple contacts at once (via WhatsApp's multi-contact share
 
 > **Note:** WhatsApp uses `ContactMessage` (field 4) for a single contact and `ContactsArrayMessage` (field 13) for multiple contacts. A single contact produces `"contact"`, while multiple contacts produce `"contacts_array"`.
 
+### Business Template Message
+
+Sent by WhatsApp Business / Cloud API senders (order confirmations, OTPs, booking updates):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0A1B2C3D4E5F60718",
+    "chat_id": "628123456789@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "Acme Store",
+    "timestamp": "2026-09-25T10:00:00Z",
+    "body": "Order confirmed\nHi John, your order #1234 has shipped.\nAcme Store\n🔗 Track order: https://acme.example/track/1234\n📞 Call us: +15550100\n[Stop updates]",
+    "template": {
+      "title": "Order confirmed",
+      "body": "Hi John, your order #1234 has shipped.",
+      "footer": "Acme Store",
+      "template_id": "order_confirmed",
+      "buttons": [
+        { "type": "url", "text": "Track order", "url": "https://acme.example/track/1234" },
+        { "type": "call", "text": "Call us", "phone_number": "+15550100" },
+        { "type": "quick_reply", "text": "Stop updates", "id": "stop" }
+      ]
+    }
+  }
+}
+```
+
+- `body` is the whole message as plain text: title, body and footer, then one line per button. Chat storage keeps the same text, and Chatwoot receives it with its usual WhatsApp-to-Markdown conversion. A template with no text gets `Template message`.
+- `buttons[].type` is `url`, `call`, `quick_reply` or `copy` (`code` holds the value to copy). Other native-flow buttons keep their name as the type.
+- A `single_select` button lists its options in `rows` (`id`, `title`, `description`).
+- `header_type` is set when the header is media: `image`, `video`, `document`, `location` or `product`. The header media itself is not included.
+- Templates wrapping an interactive message use the same shape, plus `subtitle`, and `cards` for carousels. Their `body` is rendered like an interactive message (`[quick_reply] Stop updates`, `Card 1: …`, and `Interactive message` when empty).
+- Interactive, list and order messages keep their `interactive` (the same text as `body`), `list` and `order` (raw WhatsApp message fields) keys, and get a plain-text `body` too: `List: <title>` or `Order: <title>` first, then the remaining text and list rows.
+
+### Buttons Message
+
+Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text):
+
+```json
+"buttons": {
+  "title": "Support",
+  "body": "Please choose the service",
+  "footer": "Reply with a button",
+  "buttons": [
+    { "type": "quick_reply", "text": "Sales", "id": "sales" },
+    { "type": "quick_reply", "text": "Support", "id": "support" }
+  ]
+}
+```
+
+### Product Message
+
+Prices are in WhatsApp's unit (amount × 1000). `body` is `Product: <title> (<currency> <price>)` with the price in major units, e.g. `Product: Weekend package (IDR 3500.00)`, using the sale price when set, followed by the message body and footer:
+
+```json
+"product": {
+  "product_id": "p-77",
+  "title": "Weekend package",
+  "description": "2 nights, breakfast included",
+  "currency_code": "IDR",
+  "price_amount_1000": 3500000,
+  "catalog_title": "Packages",
+  "business_owner_jid": "628111222333@s.whatsapp.net"
+}
+```
+
+### List / Button Reply
+
+A tap on a list row, a button, a template quick reply or a native-flow button. `selected_id` matches the list row's `rowID` or the button `id`:
+
+```json
+"selection": {
+  "kind": "list",
+  "text": "Void PNR",
+  "description": "Cancel the booking",
+  "selected_id": "row-void-pnr"
+}
+```
+
+- `kind` is `list`, `buttons`, `template` or `interactive` (native-flow replies, whose `selected_id` comes from the reply's `id` param).
+- `body` is the selected text, falling back to `description`. Recent clients often send replies with only the id; `body` is then `Selected option <selected_id>`, or `Selection message` when there is nothing at all.
+
 ### Location Message
 
 ```json
@@ -1161,6 +1393,7 @@ Triggered when a message is deleted for the current user (DeleteForMe event).
     "deleted_message_id": "3EB0C127D7BACC83D6A1",
     "timestamp": "2025-07-13T11:12:00Z",
     "from": "628987654321@s.whatsapp.net",
+    "sender_display_name": "Saved Contact",
     "chat_id": "628987654321@s.whatsapp.net",
     "original_content": "Hello, how are you?",
     "original_sender": "628987654321@s.whatsapp.net",
@@ -1177,6 +1410,7 @@ Triggered when a message is deleted for the current user (DeleteForMe event).
 | `payload.deleted_message_id`   | string   | ID of the deleted message                             |
 | `payload.timestamp`            | string   | RFC3339 timestamp when the delete event occurred      |
 | `payload.from`                 | string   | JID of the user who deleted the message               |
+| `payload.sender_display_name`  | string   | Dynamic sender label when `payload.from` is non-empty |
 | `payload.chat_id`              | string   | Chat identifier where the message was deleted         |
 | `payload.original_content`     | string   | Original message content (if available from storage)  |
 | `payload.original_sender`      | string   | Original sender of the deleted message                |

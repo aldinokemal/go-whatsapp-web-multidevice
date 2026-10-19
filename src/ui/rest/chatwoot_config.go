@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -40,8 +41,11 @@ func maskAPIToken(token string) string {
 // Chatwoot inbox so agent replies route back to this device. Derived from the
 // configured public webhook base, or a relative path when none is set.
 func perDeviceWebhookURL(deviceID string) string {
-	if base := strings.TrimRight(strings.TrimSpace(config.ChatwootWebhookURL), "/"); base != "" {
-		return base + "/" + deviceID
+	if base := strings.TrimSpace(config.ChatwootWebhookURL); base != "" {
+		if webhookURL, err := url.JoinPath(base, deviceID); err == nil {
+			return webhookURL
+		}
+		return strings.TrimRight(base, "/") + "/" + deviceID
 	}
 	return strings.TrimRight(config.AppBasePath, "/") + "/chatwoot/webhook/" + deviceID
 }
@@ -198,7 +202,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 	// param so a config orphaned by device removal stays deletable.
 	deviceID, ok := h.resolveConfigDeviceID(c)
 	if !ok {
-		deviceID = strings.TrimSpace(c.Params("device_id"))
+		deviceID = pathDeviceID(c)
 	}
 	if deviceID == "" {
 		return utils.ResponseError(c, "device_id is required")
@@ -229,7 +233,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 // request. Handlers persist this id (config rows, registry cache), so an
 // uncopied value would mutate under the next request.
 func (h *ChatwootHandler) resolveConfigDeviceID(c fiber.Ctx) (string, bool) {
-	deviceID := strings.TrimSpace(c.Params("device_id"))
+	deviceID := pathDeviceID(c)
 	if deviceID == "" || h.DeviceManager == nil {
 		return "", false
 	}

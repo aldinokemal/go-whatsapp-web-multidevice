@@ -76,11 +76,45 @@ func TestCORSPreflightAllowsUIHeaders(t *testing.T) {
 
 	resp, err := app.Test(req)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	assert.Equal(t, fiber.StatusNoContent, resp.StatusCode)
 	assert.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
 	allowedHeaders := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers"))
 	assert.Contains(t, allowedHeaders, "authorization")
 	assert.Contains(t, allowedHeaders, "x-device-id")
+}
+
+func TestCORSDoesNotApplyToOAuthAuthorizationEndpoint(t *testing.T) {
+	previousEnabled := config.McpOAuthEnabled
+	previousIssuer := config.McpOAuthIssuerURL
+	config.McpOAuthEnabled = true
+	config.McpOAuthIssuerURL = "https://gowa.example.com/gowa"
+	t.Cleanup(func() {
+		config.McpOAuthEnabled = previousEnabled
+		config.McpOAuthIssuerURL = previousIssuer
+	})
+
+	app := fiber.New()
+	app.Use(newCORSMiddleware())
+	app.Get("/gowa/oauth/authorize", func(c fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusOK)
+	})
+
+	req := httptest.NewRequest("GET", "/gowa/oauth/authorize", nil)
+	req.Header.Set("Origin", "https://client.example.com")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
+
+	preflight := httptest.NewRequest("OPTIONS", "/gowa/oauth/authorize", nil)
+	preflight.Header.Set("Origin", "https://client.example.com")
+	preflight.Header.Set("Access-Control-Request-Method", "GET")
+	preflightResp, err := app.Test(preflight)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, preflightResp.Body.Close()) }()
+	assert.Empty(t, preflightResp.Header.Get("Access-Control-Allow-Origin"))
 }
 
 func TestWebsocketQueryAuth(t *testing.T) {

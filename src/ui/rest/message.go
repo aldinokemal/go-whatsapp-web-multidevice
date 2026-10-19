@@ -28,6 +28,7 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase, se
 	app.Post("/message/:message_id/delete", rest.DeleteMessage)
 	app.Post("/message/:message_id/update", rest.UpdateMessage)
 	app.Post("/message/:message_id/read", rest.MarkAsRead)
+	app.Post("/message/:message_id/played", rest.MarkAsPlayed)
 	app.Post("/message/:message_id/star", rest.StarMessage)
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
 	app.Post("/message/:message_id/forward", rest.ForwardMessage)
@@ -130,6 +131,25 @@ func (controller *Message) MarkAsRead(c fiber.Ctx) error {
 	})
 }
 
+func (controller *Message) MarkAsPlayed(c fiber.Ctx) error {
+	var request domainMessage.MarkAsPlayedRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	utils.SanitizePhone(&request.Phone)
+
+	response, err := controller.Service.MarkAsPlayed(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
+	})
+}
+
 func (controller *Message) StarMessage(c fiber.Ctx) error {
 	var request domainMessage.StarRequest
 	err := c.Bind().Body(&request)
@@ -214,7 +234,8 @@ func publicStaticFileURL(c fiber.Ctx, filePath string) string {
 	if staticPath == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s://%s%s%s", c.Scheme(), c.Hostname(), config.AppBasePath, staticPath)
+	// Host() keeps the port, Hostname() drops it.
+	return fmt.Sprintf("%s://%s%s%s", c.Scheme(), c.Host(), config.AppBasePath, staticPath)
 }
 
 func publicStaticPath(filePath string) string {

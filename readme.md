@@ -4,20 +4,23 @@
   <!-- markdownlint-disable-next-line MD033 -->
   <img src="gallery/gowa.svg" alt="GoWA Logo" width="200" height="200">
 
-## Golang WhatsApp - Built with Go for efficient memory use
+## Go WhatsApp — Built for Efficient Memory Use
 
 </div>
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
-**If you're using this tools to generate income, consider supporting its development by becoming a Patreon member!**
-Your support helps ensure the library stays maintained and receives regular updates!
-___
+
+**If you're using this tool to generate income, consider supporting its development by becoming a Patreon member!**
+
+Your support helps ensure the project stays maintained and receives regular updates!
+
+---
 
 ![release version](https://img.shields.io/github/v/release/aldinokemal/go-whatsapp-web-multidevice)
 ![Build Image](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/build-docker-image.yaml/badge.svg)
 ![Binary Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/actions/workflows/release.yml/badge.svg)
 
-## Support for `ARM` & `AMD` Architecture along with `MCP` Support
+## ARM, AMD64, and MCP Support
 
 Download:
 
@@ -25,126 +28,143 @@ Download:
 - [Docker Hub](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 - [GitHub Container Registry](https://github.com/aldinokemal/go-whatsapp-web-multidevice/pkgs/container/go-whatsapp-web-multidevice)
 
-## Support n8n package (n8n.io)
+## n8n Community Node
 
 - [n8n package](https://www.npmjs.com/package/@aldinokemal2104/n8n-nodes-gowa)
-- Go to Settings -> Community Nodes -> Input `@aldinokemal2104/n8n-nodes-gowa` -> Install
+- Go to **Settings → Community Nodes**, enter `@aldinokemal2104/n8n-nodes-gowa`, and select **Install**.
 
 ## Breaking Changes
 
 - `v6`
-  - For REST mode, you need to run `<binary> rest` instead of `<binary>`
-    - for example: `./whatsapp rest` instead of ~~./whatsapp~~
-  - For MCP mode, you need to run `<binary> mcp`
-    - for example: `./whatsapp mcp`
+  - REST mode requires `<binary> rest` instead of `<binary>`.
+    - Example: `./whatsapp rest` instead of `./whatsapp`.
+  - MCP mode required `<binary> mcp`.
+    - Example: `./whatsapp mcp`.
 - `v7`
-  - Starting version 7.x we are using goreleaser to build the binary, so you can download the binary
-      from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
+  - Starting with version 7.x, binaries are built with GoReleaser and can be downloaded from the
+    [latest release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest).
 - `v8`
   - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single
-      server instance
-  - **New Device Management API**: New endpoints under `/devices` for managing multiple devices
+    server instance.
+  - **New Device Management API**: New endpoints under `/devices` manage multiple devices.
   - **Device scoping required**: All device-scoped REST API calls now require either:
     - `X-Device-Id` header, or
-    - `device_id` query parameter
-    - If only one device is registered, it will be used as the default
-  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope WebSocket to a specific device
+    - `device_id` query parameter.
+    - If only one device is registered, it is used as the default.
+  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope the WebSocket connection to a specific device.
   - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
-      (e.g. [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
-      `GET /app/info` exposes version and media size limits. Since browsers cannot set headers on WebSocket
-      connections, pass `/ws?device_id=<id>&authorization=<base64(user:pass)>` when basic auth is enabled
-      (use TLS — the credential is visible in the URL)
+    (for example, [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
+    `GET /app/info` exposes the version and media size limits. Because browsers cannot set headers on WebSocket
+    connections, pass `/ws?device_id=<id>&authorization=<base64(user:pass)>` when Basic Auth is enabled
+    (use TLS—the credential is visible in the URL).
   - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
-      device received the event:
+    device received the event:
 
-        ```json
-        {
-          "event": "message",
-          "device_id": "628123456789@s.whatsapp.net",
-          "payload": { ... }
-        }
-        ```
+    ```json
+    {
+      "event": "message",
+      "device_id": "628123456789@s.whatsapp.net",
+      "payload": { ... }
+    }
+    ```
 
 - `v9`
+  - **MCP and API are unified under `rest`**: MCP is no longer a separate mode or process. Run
+    `./whatsapp rest` to serve both the REST API and MCP; MCP is available at `/mcp` (no standalone `mcp`
+    subcommand). See [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol) for migration
+    details.
   - **UI moved to a separate repository**: The web dashboard is no longer bundled in this repo. It now lives at
-      [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui) and ships as a single self-contained
-      `gowa-ui.html`. This server is now a pure API backend that downloads the latest dashboard release at
-      startup, verifies its sha256 digest, caches it under `storages/ui/`, and serves it at `/`.
-      See [Web dashboard (gowa-ui)](#web-dashboard-gowa-ui) for the `APP_UI_*` settings, supply-chain pinning,
-      and air-gapped deployment.
+    [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui) and ships as a single self-contained
+    `gowa-ui.html`. The server downloads the latest dashboard release at startup, verifies its SHA-256 digest,
+    caches it under `storages/ui/`, and serves it at `/`.
+    See [Web dashboard (gowa-ui)](#web-dashboard-gowa-ui) for the `APP_UI_*` settings, supply-chain pinning,
+    and air-gapped deployment.
 
-## Feature
+## Features
 
-- Send WhatsApp message via http API, [docs/openapi.yaml](./docs/openapi.yaml) for more details
-- **MCP (Model Context Protocol) Server Support** - Integrate with AI agents and tools using standardized protocol
-- Mention someone
+- Send WhatsApp messages through the HTTP API. See [docs/openapi.yaml](./docs/openapi.yaml) for details.
+- **MCP (Model Context Protocol) server support** — Integrate with AI agents and tools using a standardized protocol.
+- **Optional MCP OAuth 2.1** — Connect remote MCP clients that cannot supply a Basic Auth header. See
+  [MCP OAuth](./docs/mcp-oauth.md).
+- Mention users in message text and image, video, or file captions:
   - `@phoneNumber`
-  - example: `Hello @628974812XXXX, @628974812XXXX`
-- **Ghost Mentions (Mention All)** - Mention group participants without showing `@phone` in message text
-  - Pass phone numbers in `mentions` field to mention users without visible `@` in message
-  - Use special keyword `@everyone` to automatically mention ALL group participants
-  - UI checkbox available in Send Message modal for groups
-- Post Whatsapp Status
-- **Send Stickers** - Automatically converts images to WebP sticker format
-  - Supports JPG, JPEG, PNG, WebP, and GIF formats
-  - Automatic resizing to 512x512 pixels
-  - Preserves transparency for PNG images
+  - Example: `Hello @628974812XXXX, @628974812XXXX`
+- **Ghost mentions (mention all)** — Mention group participants without showing `@phone` in the message text.
+  - Pass phone numbers in the `mentions` field to mention users without a visible `@` in the message.
+  - Use the special keyword `@everyone` to automatically mention all group participants.
+- Post WhatsApp status updates.
+- Mark incoming audio messages and voice notes as played.
+- **Scheduled sends** — Send any message later, once or on a daily, weekly, or monthly repeat.
+  - Add `scheduled_at` (RFC3339) and `timezone` (IANA) to a send request; `recurrence`, `weekdays`, `day_of_month`,
+    `end_at`, and `occurrence_limit` control repeats.
+  - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
+    `/send/schedules`.
+- **Send stickers** — Automatically convert images to WebP sticker format.
+  - Supports JPG, JPEG, PNG, WebP, and GIF formats.
+  - Automatically resizes images to 512×512 pixels.
+  - Preserves transparency in PNG images.
   - **Animated WebP stickers** are supported but must meet WhatsApp requirements:
-    - Must be exactly **512x512 pixels**
-    - Must be under **500KB** file size
-    - Maximum **10 seconds** duration
-    - If your animated sticker doesn't meet these requirements, please resize it before uploading using tools like [ezgif.com](https://ezgif.com/resize)
-- Compress image before send
-- Compress video before send
-- Change OS name become your app (it's the device name when connect via mobile)
+    - Exactly **512×512 pixels**.
+    - Less than **500 KB**.
+    - No more than **10 seconds** long.
+    - If an animated sticker does not meet these requirements, resize it before uploading with a tool such as
+      [ezgif.com](https://ezgif.com/resize).
+- Compress images before sending.
+- Compress videos before sending.
+- Customize the OS name shown as the linked device name in WhatsApp:
   - `--os=Chrome` or `--os=MyApplication`
-- Basic Auth (able to add multi credentials)
-  - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`, or you can simplify
-  - `-b=kemal:secret,toni:password,userName:secretPassword`
-- Subpath deployment support
-  - `--base-path="/gowa"` (allows deployment under a specific path like `/gowa/sub/path`)
-- Customizable port and debug mode
+- Basic Auth with multiple credentials:
+  - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`
+  - Short form: `-b=kemal:secret,toni:password,userName:secretPassword`
+- Subpath deployment support:
+  - `--base-path="/gowa"` allows deployment under a path such as `/gowa`.
+- Customizable port and debug mode:
   - `--port 8000`
   - `--debug true`
-- Auto reply message
-  - `--autoreply="Don't reply this message"`
-- Auto mark read incoming messages
-  - `--auto-mark-read=true` (automatically marks incoming messages as read)
-- Auto download media from incoming messages
-  - `--auto-download-media=false` (disable automatic media downloads, default: `true`)
-- Auto reject incoming calls
-  - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see [Webhook Payload](./docs/webhook-payload.md#call-events) for call events)
-- Configurable presence on connect
+- Automatic replies to incoming messages:
+  - `--autoreply="Don't reply to this message"`
+- Automatically mark incoming messages as read:
+  - `--auto-mark-read=true`
+- Automatically download media from incoming messages:
+  - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+- Ignore downloading status media:
+  - `--ignore-status-media=true` disables downloading status media (default: `false`).
+- Automatically reject incoming calls:
+  - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see
+    [Webhook Payload](./docs/webhook-payload.md#call-events) for call events).
+- Configurable presence on connect:
   - `--presence-on-connect=unavailable` or `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`
-  - `available` — mark as online (suppresses phone notifications)
-  - `unavailable` — register pushname without going online (default, preserves phone notifications)
-  - `none` — skip presence entirely (pushname won't be registered, contacts may see "-" as name)
-- Daily presence pulse
-  - `--presence-pulse-enabled=true` or `WHATSAPP_PRESENCE_PULSE_ENABLED=true` (default: `true`)
-  - `--presence-pulse-interval=24h` controls how often each connected device is pulsed
-  - `--presence-pulse-duration=5m` controls how long the account stays `available` before returning to `unavailable`
-- Webhook for received message
-  - `--webhook="http://yourwebhook.site/handler"`, or you can simplify
-  - `-w="http://yourwebhook.site/handler"`
-  - for more detail, see [Webhook Payload Documentation](./docs/webhook-payload.md)
-- **Per-Device Webhook** - Each device can have its own webhook URL
-  - Set via API: `PATCH /devices/:device_id/webhook` with `{"webhook_url": "https://device-webhook.site/handler"}`
-  - Get via API: `GET /devices/:device_id/webhook`
-  - When a device has a custom webhook, events for that device are sent to the device-specific URL
-  - When no device webhook is set, events fall back to the global webhook (`--webhook`)
-  - Set to empty string `""` via PATCH to clear and use global webhook
-- Webhook Secret
-  Our webhook will be sent to you with an HMAC header and a sha256 default key `secret`.
+  - `available` — Mark the account as online (suppresses phone notifications).
+  - `unavailable` — Register the push name without going online (default; preserves phone notifications).
+  - `none` — Skip presence entirely (the push name is not registered, so contacts may see `-` as the name).
+- Daily presence pulse:
+  - `--presence-pulse-enabled=true` or `WHATSAPP_PRESENCE_PULSE_ENABLED=true` (default: `true`).
+  - `--presence-pulse-interval=24h` controls how often each connected device is pulsed.
+  - `--presence-pulse-duration=5m` controls how long the account stays `available` before returning to `unavailable`.
+- Webhooks for received messages and other events:
+  - `--webhook="http://yourwebhook.site/handler"`
+  - Short form: `-w="http://yourwebhook.site/handler"`
+  - See [Webhook Payload Documentation](./docs/webhook-payload.md) for details.
+- **Per-device webhooks** — Each device can have its own webhook URL and event filters.
+  - Set via API: `PATCH /devices/:device_id/webhook` with `{"webhook_url": "https://device-webhook.site/handler"}`.
+  - Get via API: `GET /devices/:device_id/webhook`.
+  - When a device has a custom webhook, events for that device are sent to the device-specific URL.
+  - When no device webhook is set, events fall back to the global webhook (`--webhook`).
+  - Set `webhook_url` to an empty string with `PATCH` to clear it and use the global webhook.
+  - Set `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (or `--webhook-device-merge-global=true`) to make a
+    device webhook an addition instead of a replacement: the global `--webhook` URLs still receive the
+    device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
+    device URL keeps its own secret and event filter.
+- **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
+  header, generated with the default key `secret`.
 
-  You may modify this by using the option below:
+  Change the key with:
   - `--webhook-secret="secret"`
-- **Webhook Payload Documentation**
-  For detailed webhook payload schemas, security implementation, and integration examples,
-  see [Webhook Payload Documentation](./docs/webhook-payload.md)
-- **Webhook Event Filtering**
-  You can filter which events are forwarded to your webhook using:
-  - `--webhook-events="message,message.ack"` (comma-separated list)
-  - Or environment variable: `WHATSAPP_WEBHOOK_EVENTS=message,message.ack`
+- **Webhook payload documentation** — For detailed schemas, security implementation, and integration examples,
+  see [Webhook Payload Documentation](./docs/webhook-payload.md).
+- **Webhook event filtering** — Filter which events are forwarded to your webhook with:
+  - `--webhook-events="message,message.ack"` (a comma-separated list), or
+  - `WHATSAPP_WEBHOOK_EVENTS=message,message.ack`.
 
   **Available Webhook Events:**
 
@@ -167,39 +187,39 @@ Download:
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
 
-  If not configured (empty), all events will be forwarded.
-- **Webhook JID Filtering**
+  If this setting is empty, all events are forwarded.
+- **Webhook JID filtering**
 
-  You can skip events for specific chats or senders (e.g. mute all groups) before they are forwarded:
-  - `--webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"` (comma-separated list)
-  - Or environment variable: `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`
+  You can skip events for specific chats or senders (for example, mute all groups) before they are forwarded:
+  - `--webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"` (a comma-separated list), or
+  - `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`.
   - Supports the `@g.us` / `@s.whatsapp.net` / `@lid` wildcards (match a whole address space) and exact JIDs.
-  - This filters by conversation/sender and is independent of `--webhook-events` (which filters by event type). The Chatwoot integration keeps its own `CHATWOOT_IGNORE_JIDS`.
-- **Webhook TLS Configuration**
+  - This filters by conversation or sender and is independent of `--webhook-events`, which filters by event type.
+    The Chatwoot integration has a separate `CHATWOOT_IGNORE_JIDS` setting.
+- **Webhook TLS configuration**
 
   If you encounter TLS certificate verification errors when using webhooks (e.g., with Cloudflare tunnels or self-signed
   certificates):
 
-  ```
+  ```text
   tls: failed to verify certificate: x509: certificate signed by unknown authority
   ```
 
-  You can disable TLS certificate verification using:
-  - `--webhook-insecure-skip-verify=true`
-  - Or environment variable: `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`
+  You can disable TLS certificate verification with:
+  - `--webhook-insecure-skip-verify=true`, or
+  - `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`.
 
   **Security Warning**: This option disables TLS certificate verification and should only be used in:
-  - Development/testing environments
-  - Cloudflare tunnels (which provide their own security layer)
-  - Internal networks with self-signed certificates
+  - Development or testing environments.
+  - Cloudflare tunnels, which provide their own security layer.
+  - Internal networks with self-signed certificates.
 
-  **For production environments**, it's strongly recommended to use proper SSL certificates (e.g., Let's Encrypt)
-  instead of disabling verification.
+  **For production environments**, use a valid TLS certificate (for example, from Let's Encrypt) instead of
+  disabling verification.
 
 ## Configuration
 
-You can configure the application using either command-line flags (shown above) or environment variables. Configuration
-can be set in three ways (in order of priority):
+Configuration is loaded in this order of priority:
 
 1. Command-line flags (highest priority)
 2. Environment variables
@@ -207,18 +227,11 @@ can be set in three ways (in order of priority):
 
 ### Environment Variables
 
-You can configure the application using environment variables. Configuration can be set in three ways (in order of
-priority):
-
-1. Command-line flags (highest priority)
-2. Environment variables
-3. `.env` file (lowest priority)
-
 To use environment variables:
 
-1. Copy `.env.example` to `.env` in your project root (`cp src/.env.example src/.env`)
-2. Modify the values in `.env` according to your needs
-3. Or set the same variables as system environment variables
+1. From the repository root, copy the example file: `cp src/.env.example src/.env`.
+2. Update the values in `src/.env` as needed.
+3. Alternatively, set the same variables in the process environment.
 
 #### Available Environment Variables
 
@@ -232,21 +245,35 @@ To use environment variables:
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
 | `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty)                  | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
+| `APP_UI_ENABLED`                        | Serve the downloaded gowa-ui dashboard                        | `true`                                       | `APP_UI_ENABLED=false`                        |
+| `APP_UI_AUTO_UPDATE`                    | Download and periodically refresh the latest dashboard        | `true`                                       | `APP_UI_AUTO_UPDATE=false`                    |
+| `APP_UI_REPO`                           | GitHub repository containing gowa-ui releases                 | `aldinokemal/gowa-ui`                        | `APP_UI_REPO=my-org/gowa-ui`                  |
+| `APP_UI_ASSET_NAME`                     | Dashboard release asset filename                              | `gowa-ui.html`                               | `APP_UI_ASSET_NAME=gowa-ui.html`              |
+| `APP_UI_UPDATE_INTERVAL`                | Interval between dashboard update checks                      | `3h`                                         | `APP_UI_UPDATE_INTERVAL=6h`                   |
+| `APP_UI_GITHUB_TOKEN`                   | Optional GitHub token for a higher API rate limit             | -                                            | `APP_UI_GITHUB_TOKEN=github_pat_xxx`          |
+| `APP_UI_ASSET_SHA256`                   | Optional SHA-256 pin for the dashboard asset                  | -                                            | `APP_UI_ASSET_SHA256=<hex-digest>`            |
+| `MCP_ENABLED`                           | Serve the streamable HTTP MCP endpoint at `/mcp`              | `true`                                       | `MCP_ENABLED=false`                           |
+| `MCP_OAUTH_ENABLED`                     | Enable OAuth 2.1 authentication for MCP                       | `false`                                      | `MCP_OAUTH_ENABLED=true`                      |
+| `MCP_OAUTH_ISSUER_URL`                  | Public HTTPS OAuth issuer URL                                 | -                                            | `MCP_OAUTH_ISSUER_URL=https://gowa.example.com` |
+| `MCP_OAUTH_RESOURCE_URL`                | Optional canonical public MCP URL                             | Derived from issuer and base path            | `MCP_OAUTH_RESOURCE_URL=https://gowa.example.com/mcp` |
+| `MCP_OAUTH_DB_URI`                      | SQLite URI for OAuth clients, codes, and token hashes         | `file:storages/oauth.db`                     | `MCP_OAUTH_DB_URI=file:storages/oauth.db`     |
 | `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db`                  | `DB_URI=postgres://user:pass@host/db`         |
 | `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
-| `CHAT_STORAGE_MAX_OPEN_CONNS`           | Max concurrent SQLite connections for chat storage            | `5`                                          | `CHAT_STORAGE_MAX_OPEN_CONNS=10`              |
+| `CHAT_STORAGE_MAX_OPEN_CONNS`           | Maximum concurrent SQLite connections for chat storage        | `5`                                          | `CHAT_STORAGE_MAX_OPEN_CONNS=10`              |
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
+| `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
 | `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
-| `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (socks5/http/https) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
+| `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (SOCKS5/HTTP/HTTPS) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
 | `WHATSAPP_PRESENCE_PULSE_ENABLED`       | Enable daily available/unavailable presence pulse             | `true`                                       | `WHATSAPP_PRESENCE_PULSE_ENABLED=false`       |
 | `WHATSAPP_PRESENCE_PULSE_INTERVAL`      | Interval between presence pulses                              | `24h`                                        | `WHATSAPP_PRESENCE_PULSE_INTERVAL=24h`        |
 | `WHATSAPP_PRESENCE_PULSE_DURATION`      | Duration to stay available during each pulse                  | `5m`                                         | `WHATSAPP_PRESENCE_PULSE_DURATION=5m`         |
@@ -255,7 +282,7 @@ To use environment variables:
 | `CHATWOOT_API_TOKEN`                    | Chatwoot API access token                                     | -                                            | `CHATWOOT_API_TOKEN=your-api-token`           |
 | `CHATWOOT_ACCOUNT_ID`                   | Chatwoot account ID                                           | -                                            | `CHATWOOT_ACCOUNT_ID=12345`                   |
 | `CHATWOOT_INBOX_ID`                     | Chatwoot inbox ID                                             | -                                            | `CHATWOOT_INBOX_ID=67890`                     |
-| `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (single-device / env fallback)| -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
+| `CHATWOOT_DEVICE_ID`                    | WhatsApp device ID for Chatwoot (single-device/env fallback)  | -                                            | `CHATWOOT_DEVICE_ID=628xxx@s.whatsapp.net`    |
 | `CHATWOOT_ALLOWED_HOSTS`                | Allowlist of Chatwoot hosts for per-device configs (SSRF guard) | -                                          | `CHATWOOT_ALLOWED_HOSTS=app.chatwoot.com,chat.example.com` |
 | `CHATWOOT_IMPORT_MESSAGES`              | Enable message history sync to Chatwoot                       | `false`                                      | `CHATWOOT_IMPORT_MESSAGES=true`               |
 | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES`   | Days of history to import                                     | `3`                                          | `CHATWOOT_DAYS_LIMIT_IMPORT_MESSAGES=7`       |
@@ -278,38 +305,39 @@ To use environment variables:
 
 **Documentation:**
 
-- For detailed webhook payload schemas, security implementation, and integration examples, see [Webhook Payload Documentation](./docs/webhook-payload.md)
-- For comprehensive Chatwoot integration guide, see [Chatwoot Integration Documentation](./docs/chatwoot.md)
+- For detailed webhook payload schemas, security implementation, and integration examples, see
+  [Webhook Payload Documentation](./docs/webhook-payload.md).
+- For the comprehensive Chatwoot integration guide, see
+  [Chatwoot Integration Documentation](./docs/chatwoot.md).
+- For OAuth deployment and security details, see [MCP OAuth](./docs/mcp-oauth.md).
 
-Note: Command-line flags will override any values set in environment variables or `.env` file.
-
-- For more command `./whatsapp --help`
+Run `./whatsapp --help` to see all command-line flags.
 
 ## Requirements
 
 ### System Requirements
 
-- **Go 1.25.5 or higher** (for building from source)
+- **Go 1.26.0 or later** (when building from source)
 - **FFmpeg** (for media processing)
 
-### Platform Support
+### Supported Platforms
 
 - Linux (x86_64, ARM64)
 - macOS (Intel, Apple Silicon)
-- Windows (x86_64) - WSL recommended
+- Windows (x86_64; WSL recommended)
 
-### Dependencies (without docker)
+### Dependencies (without Docker)
 
-- Mac OS:
+- macOS:
   - `brew install ffmpeg webp`
   - `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
 - Linux:
   - `sudo apt update`
   - `sudo apt install ffmpeg webp`
-- Windows (not recommended, prefer using [WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
-  - Install ffmpeg: [download here](https://www.ffmpeg.org/download.html#build-windows)
-  - Install libwebp: [download here](https://developers.google.com/speed/webp/download) (extract and add `bin` folder to PATH)
-  - Add both to [environment variable](https://www.google.com/search?q=windows+add+to+environment+path)
+- Windows (WSL is recommended; see [Install WSL](https://docs.microsoft.com/en-us/windows/wsl/install)):
+  - Install [FFmpeg](https://www.ffmpeg.org/download.html#build-windows).
+  - Install [libwebp](https://developers.google.com/speed/webp/download), then extract it and add its `bin` directory
+    to `PATH`.
 
 > **Note**: The `webp` package provides `cwebp` (encoder), `dwebp` (decoder), and `webpmux` (frame extractor) tools.
 > FFmpeg is required for media processing. The libwebp tools (`webpmux` + `dwebp`) are used for animated WebP sticker support.
@@ -318,163 +346,170 @@ Note: Command-line flags will override any values set in environment variables o
 
 ### Basic
 
-1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `cd src`
-4. run `go run . rest` (for REST API mode)
-5. Open `http://localhost:3000`
+1. Clone the repository: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`.
+2. Open the cloned directory in a terminal.
+3. Run `cd src`.
+4. Run `go run . rest`.
+5. Open `http://localhost:3000`.
 
-### Docker (you don't need to install in required)
+### Docker
 
-1. Clone this repo: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `docker-compose up -d --build`
-4. open `http://localhost:3000`
+Docker avoids the need to install Go, FFmpeg, and libwebp directly on the host.
+
+1. Clone the repository: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`.
+2. Open the cloned directory in a terminal.
+3. Copy the environment file: `cp src/.env.example src/.env`.
+4. Run `docker compose up -d --build`.
+5. Open `http://localhost:3000`.
 
 ### Build your own binary
 
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `cd src`
-4. run
-    1. Linux & MacOS: `go build -o whatsapp`
-    2. Windows (CMD / PowerShell): `go build -o whatsapp.exe`
-5. run
-    1. Linux & MacOS: `./whatsapp rest` (for REST API mode)
-        1. run `./whatsapp --help` for more detail flags
-    2. Windows: `.\whatsapp.exe rest` (for REST API mode)
-        1. run `.\whatsapp.exe --help` for more detail flags
-6. open `http://localhost:3000` in browser
+1. Clone the repository: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`.
+2. Open the cloned directory in a terminal.
+3. Run `cd src`.
+4. Build the binary:
+   - Linux and macOS: `go build -o whatsapp`
+   - Windows (Command Prompt or PowerShell): `go build -o whatsapp.exe`
+5. Start the server:
+   - Linux and macOS: `./whatsapp rest`
+   - Windows: `.\whatsapp.exe rest`
+6. Open `http://localhost:3000` in a browser.
 
-### Cross-Compile for Raspberry Pi (ARM)
+Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags.
 
-If you want to build for Raspberry Pi or other ARM devices without needing a C toolchain (CGO), you can use the `purego` build tag. This will use a pure-Go SQLite implementation.
+### Cross-compile for Raspberry Pi (ARM)
 
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `cd src`
+To build for a Raspberry Pi or another ARM device without a C toolchain (CGO), use the `purego` build tag. This
+selects a pure-Go SQLite implementation.
+
+1. Clone the repository: `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`.
+2. Open the cloned directory in a terminal.
+3. Run `cd src`.
 4. **Build for Raspberry Pi Zero / 1 (ARMv6):**
+
    ```bash
    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -tags purego -o whatsapp-armv6
    ```
+
 5. **Build for Raspberry Pi 2 / 3 / 4 (ARMv7 32-bit):**
+
    ```bash
    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags purego -o whatsapp-armv7
    ```
+
 6. Transfer the binary to your Pi, give it execution permission (`chmod +x`), and run it:
    - If you built ARMv6: `./whatsapp-armv6 rest`
    - If you built ARMv7: `./whatsapp-armv7 rest`
 
 ### MCP Server (Model Context Protocol)
 
-This application can also run as an MCP server, allowing AI agents and tools to interact with WhatsApp through a
-standardized protocol.
-
-1. Clone this repo `git clone https://github.com/aldinokemal/go-whatsapp-web-multidevice`
-2. Open the folder that was cloned via cmd/terminal.
-3. run `cd src`
-4. run `go run . mcp` or build the binary and run `./whatsapp mcp`
-5. The MCP server will start on `http://localhost:8080` by default
-
-#### MCP Server Options
-
-- `--host localhost` - Set the host for MCP server (default: localhost)
-- `--port 8080` - Set the port for MCP server (default: 8080)
+MCP is not a separate mode or process — it's served by the REST server itself. Whenever `./whatsapp rest` is
+running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` (default
+`http://localhost:3000/mcp`) using the streamable HTTP transport. Disable it with `MCP_ENABLED=false` or
+`--mcp-enabled=false` (default: enabled).
 
 #### Available MCP Tools
 
-The WhatsApp MCP server provides comprehensive tools for AI agents to interact with WhatsApp through a standardized
-protocol. Below is the complete list of available tools:
+There are six consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+operation:
 
-##### **📱 Connection Management**
+| Tool               | `type` / `action` values                                                                                                                                     |
+|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
+| `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
+| `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
+| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
+| `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
+| `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 
-- `whatsapp_connection_status` - Check whether the WhatsApp client is connected and logged in
-- `whatsapp_login_qr` - Initiate QR code based login flow with image output
-- `whatsapp_login_with_code` - Generate pairing code for multi-device login using phone number
-- `whatsapp_logout` - Sign out the current WhatsApp session
-- `whatsapp_reconnect` - Attempt to reconnect to WhatsApp using stored session
+`whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
+`occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
 
-##### **💬 Messaging & Communication**
+#### Device selection
 
-- `whatsapp_send_text` - Send text messages with reply and forwarding support
-- `whatsapp_send_contact` - Send contact cards with name and phone number
-- `whatsapp_send_link` - Send links with custom captions
-- `whatsapp_send_location` - Send location coordinates (latitude/longitude)
-- `whatsapp_send_image` - Send images with captions, compression, and view-once options
-- `whatsapp_send_video` - Send videos from URLs with captions, compression, view-once, and GIF playback options
-- `whatsapp_send_sticker` - Send stickers with automatic WebP conversion (supports JPG/PNG/GIF)
-- `whatsapp_send_document` - Send document/file messages from URLs
-- `whatsapp_send_audio` - Send audio files from URLs, including voice-note mode
-- `whatsapp_send_poll` - Send WhatsApp polls
-
-##### **📋 Chat & Contact Management**
-
-- `whatsapp_list_contacts` - Retrieve all contacts in your WhatsApp account
-- `whatsapp_list_chats` - Get recent chats with pagination and search filters
-- `whatsapp_get_chat_messages` - Fetch messages from specific chats with time/media filtering
-- `whatsapp_download_message_media` - Download images/videos from messages
-- `whatsapp_archive_chat` - Archive or unarchive a chat conversation
-- `whatsapp_react_message` - React to a WhatsApp message
-- `whatsapp_edit_message` - Edit a previously sent WhatsApp message
-- `whatsapp_revoke_message` - Delete a WhatsApp message for everyone
-- `whatsapp_delete_message` - Delete a WhatsApp message for the current account only
-- `whatsapp_mark_as_read` - Mark a WhatsApp message as read
-- `whatsapp_star_message` - Star or unstar a WhatsApp message
-
-##### **👥 Group Management**
-
-- `whatsapp_group_create` - Create new groups with optional initial participants
-- `whatsapp_group_join_via_link` - Join groups using invite links
-- `whatsapp_group_leave` - Leave groups by group ID
-- `whatsapp_group_participants` - List all participants in a group
-- `whatsapp_group_manage_participants` - Add, remove, promote, or demote group members
-- `whatsapp_group_invite_link` - Get or reset group invite links
-- `whatsapp_group_info` - Get detailed group information
-- `whatsapp_group_set_name` - Update group display name
-- `whatsapp_group_set_topic` - Update group description/topic
-- `whatsapp_group_set_locked` - Toggle admin-only group info editing
-- `whatsapp_group_set_announce` - Toggle announcement-only mode
-- `whatsapp_group_join_requests` - List pending join requests
-- `whatsapp_group_manage_join_requests` - Approve or reject join requests
-
-#### MCP Endpoints
-
-- SSE endpoint: `http://localhost:8080/sse`
-- Message endpoint: `http://localhost:8080/message`
+For multi-device deployments, the `X-Device-Id` header on the MCP client connection selects the device used by
+every tool call on that connection. If omitted, it falls back to the default device, just like REST. Any individual
+call can override it with an optional `device_id` argument.
 
 ### MCP Configuration
 
-Make sure you have the MCP server running: `./whatsapp mcp`
-
-For AI tools that support MCP with SSE (like Cursor), add this configuration:
+Point your MCP client at the `/mcp` endpoint. It inherits the REST server's Basic Auth, so include the same
+`Authorization` header your REST calls use:
 
 ```json
 {
   "mcpServers": {
     "whatsapp": {
-      "url": "http://localhost:8080/sse"
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Basic dXNlcjpzZWNyZXQ=",
+        "X-Device-Id": "628123456789"
+      }
     }
   }
 }
 ```
 
-### Production Mode REST (docker)
+`headers` is optional: include `Authorization` only when Basic Auth is configured, and `X-Device-Id` only for
+multi-device setups.
+
+#### OAuth for remote MCP clients
+
+OAuth 2.1 is available for remote clients that cannot attach a Basic Auth header. It is disabled by default. A minimal
+configuration is:
+
+```env
+APP_BASIC_AUTH=admin:replace-with-a-strong-password
+MCP_ENABLED=true
+MCP_OAUTH_ENABLED=true
+MCP_OAUTH_ISSUER_URL=https://gowa.example.com
+```
+
+When OAuth is enabled, `/mcp` accepts either a Bearer token or the configured Basic Auth credentials. OAuth does not
+authenticate REST or UI routes. See [MCP OAuth](./docs/mcp-oauth.md) for client setup, reverse-proxy requirements,
+subpath behavior, and the security model.
+
+#### Migrating from the standalone MCP mode
+
+- `./whatsapp mcp` → `./whatsapp rest` (MCP is now included automatically).
+- `http://localhost:8080/sse` → `http://localhost:3000/mcp`.
+- 40 granular tools → 5 consolidated tools (agents choose actions through the `type`/`action` field).
+
+### Production REST Server (Docker)
 
 Using Docker Hub:
 
 ```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages aldinokemal2104/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
+docker volume create whatsapp-storages
+docker volume create whatsapp-statics
+docker run --detach \
+  --publish 3000:3000 \
+  --name whatsapp \
+  --restart always \
+  --volume whatsapp-storages:/app/storages \
+  --volume whatsapp-statics:/app/statics \
+  aldinokemal2104/go-whatsapp-web-multidevice \
+  rest --autoreply="Don't reply to this message, please"
 ```
 
 Using GitHub Container Registry:
 
 ```bash
-docker run --detach --publish=3000:3000 --name=whatsapp --restart=always --volume=$(docker volume create --name=whatsapp):/app/storages ghcr.io/aldinokemal/go-whatsapp-web-multidevice rest --autoreply="Dont't reply this message please"
+docker volume create whatsapp-storages
+docker volume create whatsapp-statics
+docker run --detach \
+  --publish 3000:3000 \
+  --name whatsapp \
+  --restart always \
+  --volume whatsapp-storages:/app/storages \
+  --volume whatsapp-statics:/app/statics \
+  ghcr.io/aldinokemal/go-whatsapp-web-multidevice \
+  rest --autoreply="Don't reply to this message, please"
 ```
 
-### Production Mode REST (docker compose)
+### Production REST Server (Docker Compose)
 
-create `docker-compose.yml` file with the following configuration:
+Create a `docker-compose.yml` file with one of the following configurations.
 
 Using Docker Hub:
 
@@ -487,7 +522,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - whatsapp:/app/storages
+      - whatsapp_storages:/app/storages
+      - whatsapp_statics:/app/statics
     command:
       - rest
       - --basic-auth=admin:admin
@@ -497,7 +533,8 @@ services:
       - --account-validation=false
 
 volumes:
-  whatsapp:
+  whatsapp_storages:
+  whatsapp_statics:
 ```
 
 Using GitHub Container Registry:
@@ -511,7 +548,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - whatsapp:/app/storages
+      - whatsapp_storages:/app/storages
+      - whatsapp_statics:/app/statics
     command:
       - rest
       - --basic-auth=admin:admin
@@ -521,10 +559,11 @@ services:
       - --account-validation=false
 
 volumes:
-  whatsapp:
+  whatsapp_storages:
+  whatsapp_statics:
 ```
 
-or with env file (Docker Hub):
+Using environment variables with Docker Hub:
 
 ```yml
 services:
@@ -535,7 +574,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - whatsapp:/app/storages
+      - whatsapp_storages:/app/storages
+      - whatsapp_statics:/app/statics
     environment:
       - APP_BASIC_AUTH=admin:admin
       - APP_PORT=3000
@@ -544,10 +584,11 @@ services:
       - WHATSAPP_ACCOUNT_VALIDATION=false
 
 volumes:
-  whatsapp:
+  whatsapp_storages:
+  whatsapp_statics:
 ```
 
-or with env file (GitHub Container Registry):
+Using environment variables with GitHub Container Registry:
 
 ```yml
 services:
@@ -558,7 +599,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - whatsapp:/app/storages
+      - whatsapp_storages:/app/storages
+      - whatsapp_statics:/app/statics
     environment:
       - APP_BASIC_AUTH=admin:admin
       - APP_PORT=3000
@@ -567,31 +609,35 @@ services:
       - WHATSAPP_ACCOUNT_VALIDATION=false
 
 volumes:
-  whatsapp:
+  whatsapp_storages:
+  whatsapp_statics:
 ```
 
-### Production Mode (binary)
+Start the selected stack with `docker compose up -d`.
 
-- download binary from [release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases)
+### Production Server (Binary)
 
-You can fork or edit this source code !
+Download a binary from the [releases page](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases), then
+run it with the `rest` subcommand.
+
+You may also fork or modify the source code.
 
 ## Current API
 
 ### MCP (Model Context Protocol) API
 
-- MCP server provides standardized tools for AI agents to interact with WhatsApp
-- Supports Server-Sent Events (SSE) transport
+- Served at `/mcp` by the REST server using streamable HTTP whenever `MCP_ENABLED` is true. With `APP_BASE_PATH`
+  set, the route is `<base-path>/mcp`.
 - Available tools are listed in the "Available MCP Tools" section above.
-- Compatible with MCP-enabled AI tools and agents
+- Compatible with MCP-enabled AI tools and agents.
 
 ### HTTP REST API
 
 - Check [docs/openapi.yaml](./docs/openapi.yaml) for detailed API specifications.
-- Use [SwaggerEditor](https://editor.swagger.io) to visualize the API.
+- Use [Swagger Editor](https://editor.swagger.io) to visualize the API.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
-| Feature  | Menu                                   | Method | URL                                 |
+| Status   | Operation                              | Method | URL                                 |
 |----------|----------------------------------------|--------|-------------------------------------|
 | ✅       | Health Check                           | GET    | /health                             |
 | ✅       | List Devices                           | GET    | /devices                            |
@@ -605,11 +651,11 @@ You can fork or edit this source code !
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
 | ✅       | Get Device Webhook                     | GET    | /devices/:device_id/webhook         |
 | ✅       | Set Device Webhook                     | PATCH  | /devices/:device_id/webhook         |
-| ✅       | Login with Scan QR                     | GET    | /app/login                          |
-| ✅       | Login With Pair Code                   | GET    | /app/login-with-code                |
+| ✅       | Log In with QR Code                    | GET    | /app/login                          |
+| ✅       | Log In with Pairing Code               | GET    | /app/login-with-code                |
 | ✅       | Passkey Pairing Status                 | GET    | /app/passkey                        |
 | ✅       | Passkey Pairing Response               | POST   | /app/passkey/response               |
-| ✅       | Passkey Pairing Confirm                | POST   | /app/passkey/confirm                |
+| ✅       | Confirm Passkey Pairing                | POST   | /app/passkey/confirm                |
 | ✅       | Logout                                 | GET    | /app/logout                         |
 | ✅       | Reconnect                              | GET    | /app/reconnect                      |
 | ✅       | Devices                                | GET    | /app/devices                        |
@@ -617,14 +663,14 @@ You can fork or edit this source code !
 | ✅       | App Info (version, limits)             | GET    | /app/info                           |
 | ✅       | User Info                              | GET    | /user/info                          |
 | ✅       | User Avatar                            | GET    | /user/avatar                        |
-| ✅       | User Change Avatar                     | POST   | /user/avatar                        |
-| ✅       | User Change PushName                   | POST   | /user/pushname                      |
-| ✅       | User My Groups*                        | GET    | /user/my/groups                     |
-| ✅       | User My Newsletter                     | GET    | /user/my/newsletters                |
-| ✅       | User My Privacy Setting                | GET    | /user/my/privacy                    |
-| ✅       | User My Contacts                       | GET    | /user/my/contacts                   |
-| ✅       | User Check                             | GET    | /user/check                         |
-| ✅       | User Business Profile                  | GET    | /user/business-profile              |
+| ✅       | Change User Avatar                     | POST   | /user/avatar                        |
+| ✅       | Change User Push Name                  | POST   | /user/pushname                      |
+| ✅       | List My Groups*                        | GET    | /user/my/groups                     |
+| ✅       | List My Newsletters                    | GET    | /user/my/newsletters                |
+| ✅       | Get My Privacy Settings                | GET    | /user/my/privacy                    |
+| ✅       | List My Contacts                       | GET    | /user/my/contacts                   |
+| ✅       | Check WhatsApp User                    | GET    | /user/check                         |
+| ✅       | Get Business Profile                   | GET    | /user/business-profile              |
 | ✅       | Send Message                           | POST   | /send/message                       |
 | ✅       | Send Image                             | POST   | /send/image                         |
 | ✅       | Send Audio                             | POST   | /send/audio                         |
@@ -637,55 +683,67 @@ You can fork or edit this source code !
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
 | ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
+| ✅       | List Scheduled Sends                   | GET    | /send/schedules                     |
+| ✅       | Get Scheduled Send                     | GET    | /send/schedules/:schedule_id        |
+| ✅       | Pause Scheduled Send                   | POST   | /send/schedules/:schedule_id/pause  |
+| ✅       | Resume Scheduled Send                  | POST   | /send/schedules/:schedule_id/resume |
+| ✅       | Cancel Scheduled Send                  | POST   | /send/schedules/:schedule_id/cancel |
 | ✅       | Revoke Message                         | POST   | /message/:message_id/revoke         |
 | ✅       | React Message                          | POST   | /message/:message_id/reaction       |
 | ✅       | Delete Message                         | POST   | /message/:message_id/delete         |
 | ✅       | Edit Message                           | POST   | /message/:message_id/update         |
-| ✅       | Read Message (DM)                      | POST   | /message/:message_id/read           |
+| ✅       | Mark Message as Read                   | POST   | /message/:message_id/read           |
+| ✅       | Mark Audio Message as Played           | POST   | /message/:message_id/played         |
 | ✅       | Star Message                           | POST   | /message/:message_id/star           |
 | ✅       | Unstar Message                         | POST   | /message/:message_id/unstar         |
+| ✅       | Forward Message                        | POST   | /message/:message_id/forward        |
 | ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Reject Call                            | POST   | /call/reject                        |
-| ✅       | Join Group With Link                   | POST   | /group/join-with-link               |
-| ✅       | Group Info From Link                   | GET    | /group/info-from-link               |
-| ✅       | Group Info                             | GET    | /group/info                         |
+| ✅       | Join Group with Link                   | POST   | /group/join-with-link               |
+| ✅       | Get Group Info from Link               | GET    | /group/info-from-link               |
+| ✅       | Get Group Info                         | GET    | /group/info                         |
 | ✅       | Leave Group                            | POST   | /group/leave                        |
 | ✅       | Create Group                           | POST   | /group                              |
-| ✅       | List Participants in Group             | GET    | /group/participants                 |
-| ✅       | Add Participants in Group              | POST   | /group/participants                 |
-| ✅       | Remove Participant in Group            | POST   | /group/participants/remove          |
-| ✅       | Promote Participant in Group           | POST   | /group/participants/promote         |
-| ✅       | Demote Participant in Group            | POST   | /group/participants/demote          |
+| ✅       | List Group Participants                | GET    | /group/participants                 |
+| ✅       | Add Group Participants                 | POST   | /group/participants                 |
+| ✅       | Remove Group Participants              | POST   | /group/participants/remove          |
+| ✅       | Promote Group Participants             | POST   | /group/participants/promote         |
+| ✅       | Demote Group Participants              | POST   | /group/participants/demote          |
 | ✅       | Export Group Participants (CSV)        | GET    | /group/participants/export          |
-| ✅       | List Requested Participants in Group   | GET    | /group/participant-requests         |
-| ✅       | Approve Requested Participant in Group | POST   | /group/participant-requests/approve |
-| ✅       | Reject Requested Participant in Group  | POST   | /group/participant-requests/reject  |
+| ✅       | List Group Join Requests               | GET    | /group/participant-requests         |
+| ✅       | Approve Group Join Requests            | POST   | /group/participant-requests/approve |
+| ✅       | Reject Group Join Requests             | POST   | /group/participant-requests/reject  |
 | ✅       | Set Group Photo                        | POST   | /group/photo                        |
 | ✅       | Set Group Name                         | POST   | /group/name                         |
-| ✅       | Set Group Locked                       | POST   | /group/locked                       |
-| ✅       | Set Group Announce                     | POST   | /group/announce                     |
+| ✅       | Lock or Unlock Group Settings          | POST   | /group/locked                       |
+| ✅       | Set Group Announcement Mode            | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Get Group Invite Link                  | GET    | /group/invite-link                  |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
 | ✅       | Get Newsletter Messages                | GET    | /newsletter/messages                |
+| ✅       | Download Newsletter Message Media      | GET    | /newsletter/messages/{server_id}/download |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
+| ✅       | Request Chat History (Load Older Msgs) | POST   | /chat/:chat_jid/history             |
 | ✅       | Chatwoot Sync History                  | POST   | /chatwoot/sync                      |
 | ✅       | Chatwoot Sync Status                   | GET    | /chatwoot/sync/status               |
+| ✅       | List Chatwoot Configurations           | GET    | /chatwoot/configs                   |
+| ✅       | Get Device Chatwoot Configuration      | GET    | /devices/:device_id/chatwoot/config |
+| ✅       | Set Device Chatwoot Configuration      | PUT    | /devices/:device_id/chatwoot/config |
+| ✅       | Delete Device Chatwoot Configuration   | DELETE | /devices/:device_id/chatwoot/config |
 | ✅       | Chatwoot Reply Webhook                 | POST   | /chatwoot/webhook                   |
+| ✅       | Device Chatwoot Reply Webhook          | POST   | /chatwoot/webhook/:device_id        |
 
-```
-✅ = Available
-❌ = Not Available Yet
-* = Has known limitations (see notes below)
-```
+`✅` = available. `*` = has known limitations; see the notes below.
 
 **Notes:**
 
-- `*User My Groups`: Returns a maximum of 500 groups due to WhatsApp protocol limitation. This is enforced by WhatsApp servers, not this API. See [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go) for details.
+- `*List My Groups`: Returns a maximum of 500 groups because of a WhatsApp protocol limitation. WhatsApp's servers,
+  not this API, enforce the limit. See the [whatsmeow source](https://github.com/tulir/whatsmeow/blob/main/group.go)
+  for details.
 - `/health` is public and always registered at the root path, even when `APP_BASE_PATH` is set.
 - Chatwoot routes are registered only when `CHATWOOT_ENABLED=true`.
 
@@ -693,47 +751,48 @@ You can fork or edit this source code !
 
 ### MCP UI
 
-- Setup MCP (tested in cursor)
+- Set up MCP (tested in Cursor)
   ![Setup MCP](https://i.ibb.co/vCg4zNWt/mcpsetup.png)
 - Test MCP
   ![Test MCP](https://i.ibb.co/B2LX38DW/mcptest.png)
-- Successfully setup MCP
+- Successful MCP setup
   ![Success MCP](https://i.ibb.co/1fCx0Myc/mcpsuccess.png)
 
 ### Web dashboard (gowa-ui)
 
 The dashboard lives in its own repository: [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui). Each
 gowa-ui release publishes a single self-contained `gowa-ui.html`; the server downloads the latest release at
-startup (and every `APP_UI_UPDATE_INTERVAL`, default 3h), verifies its sha256 digest, caches it under
-`storages/ui/`, and serves it at `/` behind basic auth.
+startup (and every `APP_UI_UPDATE_INTERVAL`, which defaults to 3h), verifies its SHA-256 digest, caches it under
+`storages/ui/`, and serves it at `/` behind Basic Auth.
 
 | Setting                  | Default              | Purpose                                                             |
 |--------------------------|----------------------|---------------------------------------------------------------------|
 | `APP_UI_ENABLED`         | `true`               | Serve the dashboard at `/`; `false` returns a JSON banner (API-only) |
 | `APP_UI_AUTO_UPDATE`     | `true`               | Download/refresh from GitHub; disable for air-gapped deployments     |
-| `APP_UI_REPO`            | `aldinokemal/gowa-ui`| Repository the updater follows — always its latest release, not a version pin |
+| `APP_UI_REPO`            | `aldinokemal/gowa-ui` | Repository the updater follows—always its latest release, not a version pin |
 | `APP_UI_ASSET_NAME`      | `gowa-ui.html`       | Release asset filename to download                                   |
 | `APP_UI_UPDATE_INTERVAL` | `3h`                 | How often to check `releases/latest`                                 |
 | `APP_UI_GITHUB_TOKEN`    | (empty)              | Optional token to raise the GitHub API rate limit                    |
-| `APP_UI_ASSET_SHA256`    | (empty)              | Supply-chain pin: refuse any dashboard whose sha256 differs          |
+| `APP_UI_ASSET_SHA256`    | (empty)              | Supply-chain pin: refuse any dashboard whose SHA-256 differs         |
 
 Trust model: the release digest proves the download matches what GitHub advertises, not who published it.
 Operators who audit a specific build can pin it with `APP_UI_ASSET_SHA256` (each release ships a `.sha256`
-asset — this is the only setting that pins an exact build), point `APP_UI_REPO` at a fork they control
+asset—this is the only setting that pins an exact build), point `APP_UI_REPO` at a fork they control
 (the updater still tracks that repo's latest release), or pre-seed the cache and disable auto-update entirely.
 
 Air-gapped servers: place a downloaded `gowa-ui.html` at `storages/ui/index.html` and set
 `APP_UI_AUTO_UPDATE=false`. The dashboard can also be self-hosted anywhere static and pointed at this
-server's URL (see the gowa-ui readme).
+server's URL (see the gowa-ui README).
 
-### Mac OS NOTE
+### macOS Note
 
-- Please do this if you have an error (invalid flag in pkg-config --cflags: -Xpreprocessor)
-  `export CGO_CFLAGS_ALLOW="-Xpreprocessor"`
+If you see `invalid flag in pkg-config --cflags: -Xpreprocessor`, run:
+
+```bash
+export CGO_CFLAGS_ALLOW="-Xpreprocessor"
+```
 
 ## Important
 
 - This project is unofficial and not affiliated with WhatsApp.
-- Please use official WhatsApp API to avoid any issues.
-- We only able to run MCP or REST API, this is limitation from whatsmeow library. independent MCP will be available in
-  the future.
+- Use the official WhatsApp Business Platform when you require a supported, production-grade integration.

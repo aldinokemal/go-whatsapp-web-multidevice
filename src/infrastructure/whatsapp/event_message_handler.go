@@ -32,13 +32,14 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// edit-handling paths unchanged. No-op when the envelope is absent or when
 	// decryption fails.
 	evt = materializeSecretEditMessage(ctx, evt, client)
+	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
 
 	if isReactionMessage(evt) {
 		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
 			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
 		}
 
-		handleWebhookForward(ctx, evt, client)
+		handleWebhookForward(ctx, evt, client, pollPayload)
 		return
 	}
 
@@ -57,7 +58,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	handleAutoReply(ctx, evt, chatStorageRepo, client)
 
 	// Forward to webhook if configured
-	handleWebhookForward(ctx, evt, client)
+	handleWebhookForward(ctx, evt, client, pollPayload)
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {
@@ -77,8 +78,23 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
+func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
+	if !autoDownloadMedia {
+		return true
+	}
+	// Match on the JID's shape rather than struct equality: whatsmeow's
+	// broadcast branch assigns source.Chat without ToNonAD(), so a
+	// device-qualified status JID would not compare equal to
+	// types.StatusBroadcastJID. IsBroadcastList() is defined as "broadcast
+	// server and user != status", so negating it selects exactly status.
+	if ignoreStatusMedia && chatJID.Server == types.BroadcastServer && !chatJID.IsBroadcastList() {
+		return true
+	}
+	return false
+}
+
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !config.WhatsappAutoDownloadMedia {
+	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
 	if client == nil {
@@ -148,7 +164,7 @@ func materializeSecretEditMessage(ctx context.Context, evt *events.Message, clie
 	return &cloned
 }
 
-func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client, preparedPoll ...*webhookPollPayload) {
 	// Skip webhook for protocol messages that are internal sync messages
 	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
 		protocolType := protocolMessage.GetType().String()
@@ -173,11 +189,15 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 
 	// Forward to webhook if any webhook is configured (global or per-device)
 	// The forwardPayloadToConfiguredWebhooks function itself handles the no-op case
-	go func(e *events.Message, c *whatsmeow.Client) {
-		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	var pollPayload *webhookPollPayload
+	if len(preparedPoll) > 0 {
+		pollPayload = preparedPoll[0]
+	}
+	go func(e *events.Message, c *whatsmeow.Client, poll *webhookPollPayload) {
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
+		if err := forwardMessageToWebhook(webhookCtx, c, e, poll); err != nil {
 			logrus.Error("Failed forward to webhook: ", err)
 		}
-	}(evt, client)
+	}(evt, client, pollPayload)
 }

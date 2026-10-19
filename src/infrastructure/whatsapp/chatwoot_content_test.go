@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
 )
 
 // --- Fakes implementing the structural interfaces extractStructuredMessageContent
@@ -530,6 +533,45 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 			t.Fatalf("expected 3 attachments, got %v", atts)
 		}
 	})
+
+	t.Run("interactive_media []string yields one attachment per carousel card", func(t *testing.T) {
+		// Live path shape: collectInteractiveMedia (event_message.go) returns
+		// []string directly. Must NOT collide with the singular mediaFields —
+		// a carousel can have media on every card, which the singular
+		// "image"/"video"/"document" keys can't represent without one
+		// overwriting another.
+		content, atts := buildChatwootMessageContent(map[string]any{
+			"interactive":      "Check our products",
+			"interactive_media": []string{"/tmp/wa/card1.jpg", "/tmp/wa/card2.jpg"},
+		}, false, "")
+		if content != "Check our products" {
+			t.Fatalf("expected interactive text passthrough, got %q", content)
+		}
+		if len(atts) != 2 || atts[0] != "/tmp/wa/card1.jpg" || atts[1] != "/tmp/wa/card2.jpg" {
+			t.Fatalf("expected 2 attachments in card order, got %v", atts)
+		}
+	})
+
+	t.Run("interactive_media []any (post-retry JSON shape) yields attachments", func(t *testing.T) {
+		// A failed live forward is re-marshaled through JSON for the retry
+		// queue (enqueueChatwootForwardRetry/replayChatwootForwardEvent),
+		// which turns []string into []any of strings — must still work.
+		_, atts := buildChatwootMessageContent(map[string]any{
+			"interactive_media": []any{"/tmp/wa/card1.jpg", "/tmp/wa/card2.jpg"},
+		}, false, "")
+		if len(atts) != 2 || atts[0] != "/tmp/wa/card1.jpg" || atts[1] != "/tmp/wa/card2.jpg" {
+			t.Fatalf("expected 2 attachments, got %v", atts)
+		}
+	})
+
+	t.Run("interactive_media empty slice yields no attachments", func(t *testing.T) {
+		_, atts := buildChatwootMessageContent(map[string]any{
+			"interactive_media": []string{},
+		}, false, "")
+		if len(atts) != 0 {
+			t.Fatalf("expected no attachments, got %v", atts)
+		}
+	})
 }
 
 // TestExtractStructuredMessageContentVariants drives every non-text branch of the
@@ -987,6 +1029,213 @@ func TestGroupNameCache(t *testing.T) {
 		name, ok := getCachedGroupName(jid)
 		if !ok || name != "" {
 			t.Fatalf("expected ('', true) for empty cached name, got (%q, %v)", name, ok)
+		}
+	})
+}
+
+// TestFormatInteractiveMessageSummary pins the text rendering of
+// InteractiveMessage (business/Cloud API messages with native buttons), which
+// can't be exercised end-to-end without a real Business-API sender — these
+// build the real protobuf type directly instead of relying on a live message.
+func TestFormatInteractiveMessageSummary(t *testing.T) {
+	t.Run("header, body, footer, and cta_url button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{Title: proto.String("Promo")},
+			Body:   &waE2E.InteractiveMessage_Body{Text: proto.String("Confira nossa oferta")},
+			Footer: &waE2E.InteractiveMessage_Footer{Text: proto.String("Equipe Vendas")},
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_url"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Visitar site","url":"https://example.com"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "Promo\nConfira nossa oferta\nEquipe Vendas\n🔗 Visitar site: https://example.com"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("cta_call button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_call"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Ligar agora","phone_number":"+5511999999999"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "📞 Ligar agora: +5511999999999"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("cta_url button missing url falls back to raw name", func(t *testing.T) {
+		// A cta_url button whose JSON has no url is unusable as a link, so it
+		// must not silently print a broken "🔗 Label: " line.
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_url"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Visitar site"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[cta_url] Visitar site"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unrecognized button name falls back to raw name and display text", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("single_select"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Choose an option"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[single_select] Choose an option"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unrecognized button with no display text falls back to bare name", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{Name: proto.String("review_and_pay")},
+					},
+				},
+			},
+		}
+		want := "[review_and_pay]"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("cta_copy button", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("cta_copy"),
+							ButtonParamsJSON: proto.String(`{"display_text":"Copy","copy_code":"SAVE10"}`),
+						},
+					},
+				},
+			},
+		}
+		want := "📋 Copy: SAVE10"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("header subtitle is included alongside title", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{
+				Title:    proto.String("Promo"),
+				Subtitle: proto.String("Only this week"),
+			},
+		}
+		want := "Promo\nOnly this week"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("header image caption is included, since it never reaches payload body", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Header: &waE2E.InteractiveMessage_Header{
+				Title: proto.String("Summer sale"),
+				Media: &waE2E.InteractiveMessage_Header_ImageMessage{
+					ImageMessage: &waE2E.ImageMessage{Caption: proto.String("New arrivals, 20% off")},
+				},
+			},
+		}
+		want := "Summer sale\nNew arrivals, 20% off"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("single_select button falls back to native-flow title when display_text absent", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("single_select"),
+							ButtonParamsJSON: proto.String(`{"title":"Choose a plan","sections":[]}`),
+						},
+					},
+				},
+			},
+		}
+		want := "[single_select] Choose a plan"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("carousel summarizes each card, skipping empty ones", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{
+			Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Check our products")},
+			InteractiveMessage: &waE2E.InteractiveMessage_CarouselMessage_{
+				CarouselMessage: &waE2E.InteractiveMessage_CarouselMessage{
+					Cards: []*waE2E.InteractiveMessage{
+						{
+							Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Shoes")},
+							InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+								NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+									Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+										{
+											Name:             proto.String("cta_url"),
+											ButtonParamsJSON: proto.String(`{"display_text":"Buy","url":"https://example.com/shoes"}`),
+										},
+									},
+								},
+							},
+						},
+						{}, // empty card: no header/body/footer/buttons, must not add a blank "Card 2: " line
+					},
+				},
+			},
+		}
+		want := "Check our products\nCard 1: Shoes\n🔗 Buy: https://example.com/shoes"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no header, body, footer, or buttons yields generic sentinel", func(t *testing.T) {
+		im := &waE2E.InteractiveMessage{}
+		want := "Interactive message"
+		if got := utils.FormatInteractiveMessageSummary(im); got != want {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 }

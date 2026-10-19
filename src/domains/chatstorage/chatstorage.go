@@ -33,6 +33,7 @@ type Message struct {
 	FileEncSHA256    []byte     `db:"file_enc_sha256"`
 	FileLength       uint64     `db:"file_length"`
 	ReferralMetadata string     `db:"referral_metadata"`
+	ContextMetadata  string     `db:"context_metadata"`
 	Reactions        []Reaction `db:"-"`
 	CreatedAt        time.Time  `db:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at"`
@@ -49,6 +50,26 @@ type MessageEdit struct {
 	NewContent        string    `db:"new_content"`
 	EditedAt          time.Time `db:"edited_at"`
 	CreatedAt         time.Time `db:"created_at"`
+}
+
+// PollOption is one stable poll choice and its lowercase SHA-256 name hash.
+type PollOption struct {
+	Name string `json:"name"`
+	Hash string `json:"hash"`
+}
+
+// PollDefinition stores the option catalogue required to resolve encrypted
+// poll vote hashes after restarts and history synchronization.
+type PollDefinition struct {
+	DeviceID              string       `db:"device_id"`
+	ChatJID               string       `db:"chat_jid"`
+	PollMessageID         string       `db:"poll_message_id"`
+	Question              string       `db:"question"`
+	Options               []PollOption `db:"-"`
+	SelectableOptionCount uint32       `db:"selectable_option_count"`
+	Version               string       `db:"version"`
+	CreatedAt             time.Time    `db:"created_at"`
+	UpdatedAt             time.Time    `db:"updated_at"`
 }
 
 // ChatwootMessageLink maps a WhatsApp message to the Chatwoot message created
@@ -159,6 +180,16 @@ type MessageFilter struct {
 	EndTime   *time.Time
 	MediaOnly bool
 	IsFromMe  *bool
+}
+
+// ScheduledSendFilter represents query filters for scheduled sends
+type ScheduledSendFilter struct {
+	DeviceID    string
+	Status      string
+	Search      string
+	MessageType string
+	Limit       int
+	Offset      int
 }
 
 // ChatFilter represents query filters for chats
