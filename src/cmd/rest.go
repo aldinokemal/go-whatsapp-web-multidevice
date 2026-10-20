@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"net/http"
@@ -200,6 +201,20 @@ func restServer(_ *cobra.Command, _ []string) {
 
 	go websocket.RunHub()
 
+	// Ring the dashboard when a beta call arrives. The whatsapp layer exposes a
+	// listener hook instead of importing this UI websocket package.
+	whatsapp.SetIncomingCallUIListener(func(notification whatsapp.IncomingCallUIBroadcast) {
+		code := "CALL_INCOMING"
+		if notification.Event == whatsapp.IncomingCallEventEnded {
+			code = "CALL_ENDED"
+		}
+		websocket.Broadcast <- websocket.BroadcastMessage{
+			Code:    code,
+			Message: "Incoming call",
+			Result:  notification,
+		}
+	})
+
 	// Set auto reconnect to whatsapp server after booting
 	go helpers.SetAutoConnectAfterBooting(appUsecase)
 
@@ -282,10 +297,20 @@ func registerUIRoute(apiGroup fiber.Router, ctx context.Context) {
 	}
 
 	apiGroup.Get("/", func(c fiber.Ctx) error {
-		content, etag, ok := uiManager.Content()
-		if !ok {
+		content, etag, cached := uiManager.Content()
+		if !cached {
+			content = []byte(uiasset.FallbackHTML(config.AppVersion, config.AppUIRepo))
+		}
+		if config.WhatsappBetaCallEnabled {
+			// The overlay only exists while the beta is on, so the response bytes
+			// differ from the pinned dashboard asset and need their own ETag.
+			content = rest.InjectBetaCallConsole(content, config.AppBasePath)
+			etag = fmt.Sprintf("%x", sha256.Sum256(content))
+			cached = true
+		}
+		if !cached {
 			c.Type("html")
-			return c.Send(uiasset.FallbackHTML(config.AppVersion, config.AppUIRepo))
+			return c.Send(content)
 		}
 		quoted := `"` + etag + `"`
 		c.Set(fiber.HeaderCacheControl, "no-cache")

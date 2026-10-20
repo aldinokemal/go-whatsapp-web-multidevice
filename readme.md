@@ -132,6 +132,9 @@ Download:
 - Automatically reject incoming calls:
   - `--auto-reject-call=true` or `WHATSAPP_AUTO_REJECT_CALL=true` (see
     [Webhook Payload](./docs/webhook-payload.md#call-events) for call events).
+- Beta: real-time voice calls (call out and call in):
+  - `--beta-call-enabled=true` or `WHATSAPP_BETA_CALL_ENABLED=true` (off by default).
+  - See [Beta: Voice Calls](#beta-voice-calls) for endpoints and limitations.
 - Configurable presence on connect:
   - `--presence-on-connect=unavailable` or `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`
   - `available` — Mark the account as online (suppresses phone notifications).
@@ -265,6 +268,7 @@ To use environment variables:
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA`          | Auto-download media from incoming messages                    | `true`                                       | `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`          |
 | `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
+| `WHATSAPP_BETA_CALL_ENABLED`            | Beta voice calls (call out and call in)                       | `false`                                      | `WHATSAPP_BETA_CALL_ENABLED=true`             |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
 | `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
@@ -699,6 +703,10 @@ You may also fork or modify the source code.
 | ✅       | Forward Message                        | POST   | /message/:message_id/forward        |
 | ✅       | Download Message Media                 | GET    | /message/:message_id/download       |
 | ✅       | Reject Call                            | POST   | /call/reject                        |
+| 🧪       | Beta: Start Voice Call                 | POST   | /call/start                         |
+| 🧪       | Beta: Answer Incoming Call             | POST   | /call/answer                        |
+| 🧪       | Beta: Hang Up Call                     | POST   | /call/hangup                        |
+| 🧪       | Beta: Call Live Audio                  | WS     | /call/audio                         |
 | ✅       | Join Group with Link                   | POST   | /group/join-with-link               |
 | ✅       | Get Group Info from Link               | GET    | /group/info-from-link               |
 | ✅       | Get Group Info                         | GET    | /group/info                         |
@@ -746,6 +754,52 @@ You may also fork or modify the source code.
   for details.
 - `/health` is public and always registered at the root path, even when `APP_BASE_PATH` is set.
 - Chatwoot routes are registered only when `CHATWOOT_ENABLED=true`.
+
+## Beta: Voice Calls
+
+Real-time 1:1 voice calls are available behind a beta flag, powered by
+[meowcaller](https://github.com/purpshell/meowcaller). The stack is off by default
+because it hooks unexported whatsmeow call handlers and has only been validated
+against a live call.
+
+```sh
+WHATSAPP_BETA_CALL_ENABLED=true
+```
+
+When enabled:
+
+- `POST /call/start` places a call. Body: `{"target": "+628123456789"}`; add an
+  optional `"audio_file_path"` (`.mp3` or `.wav`) to stream that file to the peer
+  once the call is answered, and an optional `"record_path"` (`.wav`) to save the
+  peer's audio. Returns `{"call_id": "...", "target": "..."}`.
+- Incoming calls arrive as a `call.incoming` webhook event (same shape as
+  `call.offer`). Answer them with `POST /call/answer`
+  `{"call_id": "...", "record_path": "optional.wav"}`.
+- `POST /call/hangup` `{"call_id": "..."}` ends an active call either way.
+- While the flag is on, the dashboard at `/` gets a floating **Beta call** panel
+  (start, answer, hangup, live audio) that drives these endpoints using the device
+  selected in the UI. Nothing is injected when the flag is off.
+- **Live audio** opens a WebSocket (`GET /call/audio?device_id=...&call_id=...`)
+  that carries 16 kHz mono s16le PCM both ways. The panel captures the browser
+  microphone and plays the peer through Web Audio, so a headless server can still
+  hold a real conversation. The browser must honour `AudioContext({sampleRate:
+  16000})` (Chrome, Edge, Firefox) and a secure context is required outside
+  `localhost`. Attaching a live stream replaces `audio_file_path` playback and any
+  `record_path` sink for that call.
+- Coming from the other side: an inbound call also pushes `CALL_INCOMING` over the
+  dashboard websocket (`/ws`), so the panel pops open with the caller and call id
+  prefilled — one click on Answer takes it. The webhook is still delivered in
+  parallel for external integrations.
+- `WHATSAPP_AUTO_REJECT_CALL` is ignored while the beta stack is enabled; decide
+  per call through `/call/answer` or `/call/reject` instead.
+
+Limitations: audio-only (no video), 1:1 only (no group calls). Without a live
+audio connection or an `audio_file_path` the server sends silence, and without a
+`record_path` the peer's audio is discarded. meowcaller is pinned to the
+upstream-whatsmeow-compatible commit
+`v0.0.0-20260726180203-6d9b7b2c1807`; later releases track the `hypermeow` fork
+and are not compatible with this repo's `go.mau.fi/whatsmeow` dependency. The
+reflection hook may need revisiting after future whatsmeow upgrades.
 
 ## User Interface
 

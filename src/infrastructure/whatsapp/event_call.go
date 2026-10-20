@@ -16,9 +16,11 @@ import (
 func handleCallOffer(ctx context.Context, evt *events.CallOffer, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	logrus.Infof("Incoming call from %s (CallID: %s)", evt.CallCreator.String(), evt.CallID)
 
-	// Auto-reject call if configured
+	// Auto-reject call if configured. The beta voice stack answers calls through
+	// its own raw-node handler and the answer endpoint, so auto-reject must not
+	// race it; when beta calls are enabled the operator decides per call.
 	autoRejected := false
-	if config.WhatsappAutoRejectCall {
+	if config.WhatsappAutoRejectCall && !config.WhatsappBetaCallEnabled {
 		rejectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
