@@ -3,7 +3,6 @@ package whatsapp
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -50,7 +49,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
-		handleStreamReplaced(ctx)
+		handleStreamReplaced(instance)
 	case *events.Message:
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.UndecryptableMessage:
@@ -303,8 +302,25 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 	sendConfiguredPresence(context.Background(), client)
 }
 
-func handleStreamReplaced(_ context.Context) {
-	os.Exit(0)
+// handleStreamReplaced handles WhatsApp replacing this device's connection with
+// another one that uses the same session (e.g. a second process with a copy of
+// the session storage). Only the affected device is taken offline; the process
+// and the other devices keep running. whatsmeow does not reconnect after this
+// event, so the device stays disconnected until it is reconnected explicitly.
+func handleStreamReplaced(instance *DeviceInstance) {
+	deviceID := instance.ID()
+	logrus.Warnf("[STREAM_REPLACED] Connection for device %s was replaced by another client using the same session; disconnecting this device", deviceID)
+
+	if client := instance.GetClient(); client != nil {
+		client.Disconnect()
+	}
+	instance.SetState(domainDevice.DeviceStateDisconnected)
+
+	websocket.Broadcast <- websocket.BroadcastMessage{
+		Code:    "DEVICE_STREAM_REPLACED",
+		Message: "Device connection was replaced by another client using the same session",
+		Result:  map[string]string{"device_id": deviceID},
+	}
 }
 
 func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) {
