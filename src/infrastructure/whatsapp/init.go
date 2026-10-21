@@ -139,6 +139,9 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		})
 	}
 
+	// Beta voice calls must hook the client before it connects.
+	AttachCaller(instanceID, client)
+
 	globalStateMu.Lock()
 	cli = client
 	db = primaryDB

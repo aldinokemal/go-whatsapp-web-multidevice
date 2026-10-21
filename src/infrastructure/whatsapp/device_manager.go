@@ -872,6 +872,9 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	inst.SetClient(client)
 	inst.UpdateStateFromClient()
 
+	// Beta voice calls must hook the client before it connects.
+	AttachCaller(deviceID, client)
+
 	return inst, nil
 }
 

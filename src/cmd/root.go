@@ -205,6 +205,9 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_auto_reject_call") {
 		config.WhatsappAutoRejectCall = viper.GetBool("whatsapp_auto_reject_call")
 	}
+	if viper.IsSet("whatsapp_beta_call_enabled") {
+		config.WhatsappBetaCallEnabled = viper.GetBool("whatsapp_beta_call_enabled")
+	}
 	if envPresenceOnConnect := viper.GetString("whatsapp_presence_on_connect"); envPresenceOnConnect != "" {
 		config.WhatsappPresenceOnConnect = envPresenceOnConnect
 	}
@@ -494,6 +497,12 @@ func initFlags() {
 		"auto-reject-call", "",
 		config.WhatsappAutoRejectCall,
 		`auto reject incoming calls --auto-reject-call <true/false> | example: --auto-reject-call=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappBetaCallEnabled,
+		"beta-call-enabled", "",
+		config.WhatsappBetaCallEnabled,
+		`enable the beta voice call stack (call out and call in) --beta-call-enabled <true/false> | example: --beta-call-enabled=true`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.WhatsappPresenceOnConnect,
