@@ -375,7 +375,8 @@ Docker avoids the need to install Go, FFmpeg, and libwebp directly on the host.
    - Windows: `.\whatsapp.exe rest`
 6. Open `http://localhost:3000` in a browser.
 
-Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags.
+Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags. Run `./whatsapp version` to
+print only the version number (for example, `9.6.0`).
 
 ### Cross-compile for Raspberry Pi (ARM)
 
