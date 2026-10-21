@@ -173,6 +173,13 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
+func (r *deviceChatStorage) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	if filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkForReply(filter)
+}
+
 func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero, configID)
 }
