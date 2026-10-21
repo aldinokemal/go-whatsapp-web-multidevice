@@ -2,6 +2,8 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -208,4 +210,78 @@ func TestCreateBetaIncomingCallPayloadMarksLIDPeers(t *testing.T) {
 	body, ok := payload["payload"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, peer.ToNonAD().String(), body["from_lid"])
+}
+
+// failingCallClient fails every placement without a live meowcaller client.
+type failingCallClient struct{ err error }
+
+func (c failingCallClient) Call(context.Context, string) (*meowcaller.Call, error) {
+	return nil, c.err
+}
+
+// writeCallTestWAV writes a minimal 16-bit mono PCM WAV under the storage root
+// and returns the relative path the call API accepts.
+func writeCallTestWAV(t *testing.T, storageDir string) string {
+	t.Helper()
+
+	const (
+		samples    = 960
+		channels   = 1
+		sampleRate = 16000
+	)
+	payload := make([]byte, samples*channels*2)
+
+	header := make([]byte, 0, 44)
+	header = append(header, "RIFF"...)
+	header = binary.LittleEndian.AppendUint32(header, uint32(36+len(payload)))
+	header = append(header, "WAVEfmt "...)
+	header = binary.LittleEndian.AppendUint32(header, 16) // PCM chunk size
+	header = binary.LittleEndian.AppendUint16(header, 1)  // PCM format
+	header = binary.LittleEndian.AppendUint16(header, channels)
+	header = binary.LittleEndian.AppendUint32(header, sampleRate)
+	header = binary.LittleEndian.AppendUint32(header, sampleRate*channels*2) // byte rate
+	header = binary.LittleEndian.AppendUint16(header, channels*2)            // block align
+	header = binary.LittleEndian.AppendUint16(header, 16)                    // bits per sample
+	header = append(header, "data"...)
+	header = binary.LittleEndian.AppendUint32(header, uint32(len(payload)))
+
+	const name = "voice.wav"
+	require.NoError(t, os.WriteFile(filepath.Join(storageDir, name), append(header, payload...), 0o600))
+	return name
+}
+
+// requireAudioSourceClosed proves the file handle was released: a closed
+// decoder cannot yield frames.
+func requireAudioSourceClosed(t *testing.T, source meowcaller.AudioSource) {
+	t.Helper()
+	_, err := source.ReadFrame()
+	require.Error(t, err)
+}
+
+func TestCloseAudioSourceIgnoresNilSource(t *testing.T) {
+	require.NotPanics(t, func() { closeAudioSource(nil) })
+}
+
+func TestPlaceCallClosesAudioSourceWhenRecorderFails(t *testing.T) {
+	audioFile := writeCallTestWAV(t, useTempStorages(t))
+	source, err := openCallAudioSource(audioFile)
+	require.NoError(t, err)
+
+	caller := &Caller{client: failingCallClient{err: errors.New("call must not be placed")}}
+	_, err = caller.placeCall(context.Background(), "+628123456789", audioFile, source, "peer.mp3")
+	require.ErrorContains(t, err, "must end in .wav")
+
+	requireAudioSourceClosed(t, source)
+}
+
+func TestPlaceCallClosesAudioSourceWhenCallFails(t *testing.T) {
+	audioFile := writeCallTestWAV(t, useTempStorages(t))
+	source, err := openCallAudioSource(audioFile)
+	require.NoError(t, err)
+
+	caller := &Caller{client: failingCallClient{err: errors.New("relay unavailable")}}
+	_, err = caller.placeCall(context.Background(), "+628123456789", audioFile, source, "")
+	require.ErrorContains(t, err, "relay unavailable")
+
+	requireAudioSourceClosed(t, source)
 }

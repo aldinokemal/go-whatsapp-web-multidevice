@@ -37,11 +37,18 @@ var ErrCallNotFound = errors.New("call not found")
 // filesystem; the underlying cause is only logged server-side.
 var ErrCallMediaPath = errors.New("call media path is invalid")
 
+// callClient is the slice of the meowcaller client the caller stack uses. The
+// interface keeps call placement stubbable in tests; *meowcaller.Client is the
+// only production implementation.
+type callClient interface {
+	Call(ctx context.Context, target string) (*meowcaller.Call, error)
+}
+
 // Caller owns the meowcaller client for one whatsmeow session and tracks its
 // live calls so the REST layer can act on them by call id.
 type Caller struct {
 	deviceID string
-	client   *meowcaller.Client
+	client   callClient
 	wa       *whatsmeow.Client
 
 	mu       sync.Mutex
@@ -165,13 +172,34 @@ func (c *Caller) StartCall(
 	if err != nil {
 		return "", err
 	}
+	return c.placeCall(
+		ctx,
+		target,
+		audioFile,
+		source,
+		recordPath,
+	)
+}
+
+// placeCall places the call with an already-opened outbound source. The source
+// is closed on every path that does not hand it to the call's player, and by
+// the call's end callback once the media is done.
+func (c *Caller) placeCall(
+	ctx context.Context,
+	target string,
+	audioFile string,
+	source meowcaller.AudioSource,
+	recordPath string,
+) (string, error) {
 	recorder, err := openCallRecorder(recordPath)
 	if err != nil {
+		closeAudioSource(source)
 		return "", err
 	}
 
 	call, err := c.client.Call(ctx, target)
 	if err != nil {
+		closeAudioSource(source)
 		closeAudioSink(recorder)
 		return "", fmt.Errorf("failed to place call: %w", err)
 	}
@@ -186,6 +214,7 @@ func (c *Caller) StartCall(
 			// A live browser stream attached before the peer answered owns
 			// playback; playing the file on top of it would silence the mic.
 			if c.usesLiveAudio(call.ID()) {
+				closeAudioSource(source)
 				return
 			}
 			call.Play(source)
@@ -193,6 +222,7 @@ func (c *Caller) StartCall(
 		})
 	}
 	call.OnEnd(func(reason string) {
+		closeAudioSource(source)
 		c.forget(call.ID())
 		logrus.Infof("[CALL] call %s with %s ended: %s", call.ID(), target, reason)
 	})
@@ -544,6 +574,18 @@ func closeAudioSink(sink meowcaller.AudioSink) {
 	}
 	if err := sink.Close(); err != nil {
 		logrus.WithError(err).Warn("[CALL] failed to close call audio sink")
+	}
+}
+
+// closeAudioSource releases the decoder/file resources of an outbound audio
+// source. Closing repeats safely, so the failure paths and the call's end
+// callback may both close the same source.
+func closeAudioSource(source meowcaller.AudioSource) {
+	if source == nil {
+		return
+	}
+	if err := source.Close(); err != nil {
+		logrus.WithError(err).Warn("[CALL] failed to close call audio source")
 	}
 }
 
