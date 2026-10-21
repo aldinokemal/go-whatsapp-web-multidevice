@@ -101,17 +101,25 @@ func TestCallerForgetClosesSinkAndRunsEndHooks(t *testing.T) {
 }
 
 func TestOpenCallRecorderValidatesWavPath(t *testing.T) {
+	storageDir := useTempStorages(t)
+
 	recorder, err := openCallRecorder("   ")
 	require.NoError(t, err)
 	require.Nil(t, recorder)
 
-	_, err = openCallRecorder(filepath.Join(t.TempDir(), "peer.mp3"))
+	_, err = openCallRecorder("peer.mp3")
 	require.ErrorContains(t, err, "must end in .wav")
 
-	path := filepath.Join(t.TempDir(), "peer.WAV")
-	recorder, err = openCallRecorder(path)
+	path := filepath.Join(storageDir, "peer.WAV")
+	recorder, err = openCallRecorder("peer.WAV")
 	require.NoError(t, err)
 	require.NoError(t, recorder.WriteFrame(make([]float32, meowcaller.FrameSamples)))
 	require.NoError(t, recorder.Close())
 	require.FileExists(t, path)
+
+	_, err = openCallRecorder("../peer.wav")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+
+	_, err = openCallRecorder(filepath.Join(storageDir, "peer.wav"))
+	require.ErrorIs(t, err, ErrCallMediaPath)
 }

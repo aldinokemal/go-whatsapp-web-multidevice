@@ -14,35 +14,65 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+// useTempStorages points config.PathStorages at a temp dir so the call-media
+// path confinement is exercised hermetically. The config value is a package
+// global, so tests using it stay serial.
+func useTempStorages(t *testing.T) string {
+	t.Helper()
+	previous := config.PathStorages
+	directory := t.TempDir()
+	config.PathStorages = directory
+	t.Cleanup(func() { config.PathStorages = previous })
+	return directory
+}
+
 func TestOpenCallAudioSourceValidatesInput(t *testing.T) {
+	storageDir := useTempStorages(t)
+
 	t.Run("empty file means a silent call", func(t *testing.T) {
 		source, err := openCallAudioSource("   ")
 		require.NoError(t, err)
 		require.Nil(t, source)
 	})
 
-	t.Run("missing file is reported", func(t *testing.T) {
-		_, err := openCallAudioSource(filepath.Join(t.TempDir(), "absent.mp3"))
-		require.ErrorContains(t, err, "not readable")
+	t.Run("missing file is rejected generically", func(t *testing.T) {
+		_, err := openCallAudioSource("absent.mp3")
+		require.ErrorIs(t, err, ErrCallMediaPath)
+		require.NotContains(t, err.Error(), "not readable")
 	})
 
 	t.Run("unsupported extension is rejected", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "voice.ogg")
+		path := filepath.Join(storageDir, "voice.ogg")
 		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
 
-		_, err := openCallAudioSource(path)
+		_, err := openCallAudioSource("voice.ogg")
 		require.ErrorContains(t, err, "unsupported audio file extension")
 	})
 
 	t.Run("upper-case extension still resolves the decoder", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "voice.MP3")
+		path := filepath.Join(storageDir, "voice.MP3")
 		// A non-MP3 payload must fail inside the decoder, proving the extension
 		// branch ran instead of being rejected as unsupported.
 		require.NoError(t, os.WriteFile(path, []byte("not an mp3"), 0o600))
 
-		_, err := openCallAudioSource(path)
+		_, err := openCallAudioSource("voice.MP3")
 		require.Error(t, err)
 		require.NotContains(t, err.Error(), "unsupported audio file extension")
+	})
+
+	t.Run("absolute path is rejected", func(t *testing.T) {
+		_, err := openCallAudioSource("/etc/passwd.mp3")
+		require.ErrorIs(t, err, ErrCallMediaPath)
+	})
+
+	t.Run("parent traversal is rejected", func(t *testing.T) {
+		_, err := openCallAudioSource("../escape.mp3")
+		require.ErrorIs(t, err, ErrCallMediaPath)
+	})
+
+	t.Run("nested traversal is rejected", func(t *testing.T) {
+		_, err := openCallAudioSource("sub/../../escape.mp3")
+		require.ErrorIs(t, err, ErrCallMediaPath)
 	})
 }
 

@@ -32,6 +32,11 @@ var (
 // ErrCallNotFound reports an unknown or already-finished call id.
 var ErrCallNotFound = errors.New("call not found")
 
+// ErrCallMediaPath reports a client-supplied call media path that is not usable
+// under config.PathStorages. It stays generic so callers cannot probe the host
+// filesystem; the underlying cause is only logged server-side.
+var ErrCallMediaPath = errors.New("call media path is invalid")
+
 // Caller owns the meowcaller client for one whatsmeow session and tracks its
 // live calls so the REST layer can act on them by call id.
 type Caller struct {
@@ -140,8 +145,9 @@ func (callerLogWriter) Write(p []byte) (int, error) {
 
 // StartCall places a 1:1 audio call to target. audioFile, when set, is streamed
 // to the peer once media is ready; recordPath, when set, saves the peer's audio
-// to a WAV file. meowcaller keeps sending silence when no source is playing, so
-// a call without an audio file still holds the relay bridge.
+// to a WAV file. Both paths resolve relative to config.PathStorages. meowcaller
+// keeps sending silence when no source is playing, so a call without an audio
+// file still holds the relay bridge.
 func (c *Caller) StartCall(
 	ctx context.Context,
 	target string,
@@ -196,7 +202,7 @@ func (c *Caller) StartCall(
 }
 
 // AnswerCall accepts a ringing inbound call by id. recordPath, when set, saves
-// the peer's audio to a WAV file.
+// the peer's audio to a WAV file relative to config.PathStorages.
 func (c *Caller) AnswerCall(callID string, recordPath string) error {
 	call, err := c.lookup(callID)
 	if err != nil {
@@ -482,6 +488,32 @@ func (c *Caller) forget(callID string) {
 	})
 }
 
+// resolveCallMediaPath confines a client-supplied call media path to
+// config.PathStorages. Absolute paths and relative paths that normalize outside
+// the directory are rejected.
+//
+// ponytail: symlinks inside the directory can still point elsewhere; add
+// EvalSymlinks if untrusted writers can create files under PathStorages.
+func resolveCallMediaPath(raw string) (string, error) {
+	if raw == "" {
+		return "", ErrCallMediaPath
+	}
+	if filepath.IsAbs(raw) {
+		return "", ErrCallMediaPath
+	}
+	base, err := filepath.Abs(config.PathStorages)
+	if err != nil {
+		return "", ErrCallMediaPath
+	}
+	resolved := filepath.Clean(filepath.Join(base, raw))
+	relative, err := filepath.Rel(base, resolved)
+	escapes := relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	if err != nil || relative == "." || escapes {
+		return "", ErrCallMediaPath
+	}
+	return resolved, nil
+}
+
 // openCallRecorder opens an optional WAV recorder for the peer's audio. It is nil
 // when recordPath is empty; a non-.wav path is rejected so the file extension
 // does not lie about its contents.
@@ -493,9 +525,15 @@ func openCallRecorder(recordPath string) (meowcaller.AudioSink, error) {
 	if strings.ToLower(filepath.Ext(recordPath)) != ".wav" {
 		return nil, fmt.Errorf("record path %q must end in .wav", recordPath)
 	}
-	recorder, err := meowcaller.WAVRecorder(recordPath)
+	path, err := resolveCallMediaPath(recordPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open recorder %q: %w", recordPath, err)
+		logrus.WithField("path", recordPath).Warn("[CALL] rejected record path outside storages")
+		return nil, err
+	}
+	recorder, err := meowcaller.WAVRecorder(path)
+	if err != nil {
+		logrus.WithError(err).WithField("path", path).Warn("[CALL] failed to open recorder")
+		return nil, ErrCallMediaPath
 	}
 	return recorder, nil
 }
@@ -516,24 +554,34 @@ func openCallAudioSource(audioFile string) (meowcaller.AudioSource, error) {
 	if audioFile == "" {
 		return nil, nil
 	}
-	if _, err := os.Stat(audioFile); err != nil {
-		return nil, fmt.Errorf("audio file %q is not readable: %w", audioFile, err)
+	extension := strings.ToLower(filepath.Ext(audioFile))
+	if extension != ".mp3" && extension != ".wav" {
+		return nil, fmt.Errorf("unsupported audio file extension for %q (want .mp3 or .wav)", audioFile)
+	}
+	path, err := resolveCallMediaPath(audioFile)
+	if err != nil {
+		logrus.WithField("path", audioFile).Warn("[CALL] rejected audio path outside storages")
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		logrus.WithError(err).WithField("path", path).Warn("[CALL] call audio file is unavailable")
+		return nil, ErrCallMediaPath
 	}
 
-	switch strings.ToLower(filepath.Ext(audioFile)) {
+	switch extension {
 	case ".mp3":
-		source, err := meowcaller.MP3File(audioFile)
+		source, err := meowcaller.MP3File(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open mp3 %q: %w", audioFile, err)
-		}
-		return source, nil
-	case ".wav":
-		source, err := meowcaller.WAVFile(audioFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open wav %q: %w", audioFile, err)
+			logrus.WithError(err).WithField("path", path).Warn("[CALL] failed to open mp3")
+			return nil, ErrCallMediaPath
 		}
 		return source, nil
 	default:
-		return nil, fmt.Errorf("unsupported audio file extension for %q (want .mp3 or .wav)", audioFile)
+		source, err := meowcaller.WAVFile(path)
+		if err != nil {
+			logrus.WithError(err).WithField("path", path).Warn("[CALL] failed to open wav")
+			return nil, ErrCallMediaPath
+		}
+		return source, nil
 	}
 }

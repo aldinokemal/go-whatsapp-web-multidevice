@@ -66,7 +66,8 @@ func (controller *Call) RejectCall(c fiber.Ctx) error {
 	})
 }
 
-// StartCall places a beta 1:1 voice call. body: {"target": "+628...", "audio_file_path": "optional.mp3"}
+// StartCall places a beta 1:1 voice call. body: {"target": "+628...", "audio_file_path": "hello.mp3"}
+// Media paths are relative to config.PathStorages.
 func (controller *Call) StartCall(c fiber.Ctx) error {
 	var request domainCall.StartCallRequest
 	err := c.Bind().Body(&request)

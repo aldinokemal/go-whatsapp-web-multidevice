@@ -772,6 +772,9 @@ When enabled:
   optional `"audio_file_path"` (`.mp3` or `.wav`) to stream that file to the peer
   once the call is answered, and an optional `"record_path"` (`.wav`) to save the
   peer's audio. Returns `{"call_id": "...", "target": "..."}`.
+- Media paths resolve relative to the server's `storages` directory. Absolute
+  paths and `..` escapes are rejected; the API returns a generic path error
+  without exposing the host filesystem.
 - Incoming calls arrive as a `call.incoming` webhook event (same shape as
   `call.offer`). Answer them with `POST /call/answer`
   `{"call_id": "...", "record_path": "optional.wav"}`.
