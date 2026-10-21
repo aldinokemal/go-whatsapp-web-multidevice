@@ -911,12 +911,7 @@ WHATSAPP_AUTO_REJECT_CALL=true
 
 ### Beta Voice Calls
 
-With `WHATSAPP_BETA_CALL_ENABLED=true`, incoming calls are surfaced by the beta
-voice stack as a `call.incoming` event instead of `call.offer`. The payload keeps
-the `call_id`, `from`, `from_lid`, `sender_display_name`, and `auto_rejected`
-fields shown above. Answer the call with `POST /call/answer`
-`{"call_id": "..."}` or end it with `POST /call/hangup`. Auto-reject is ignored
-while the beta stack is enabled.
+With `WHATSAPP_BETA_CALL_ENABLED=true`, the beta voice stack emits a `call.incoming` event in addition to the existing `call.offer` event. The `call.incoming` payload keeps the `call_id`, `from`, `from_lid`, `sender_display_name`, and `auto_rejected` fields shown above. Answer the call with `POST /call/answer` `{"call_id": "..."}` or end it with `POST /call/hangup`. Auto-reject is ignored while the beta stack is enabled.
 
 For the built-in dashboard, the same ring is also pushed over the dashboard
 websocket (`/ws`) as a `CALL_INCOMING` message; a matching `CALL_ENDED` message
