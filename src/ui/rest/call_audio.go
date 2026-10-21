@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"math"
 	"sync"
 
@@ -10,35 +11,85 @@ import (
 	"github.com/gofiber/contrib/v3/websocket"
 )
 
+// errAudioStreamClosed reports that the audio stream finished and its pooled
+// websocket connection can no longer be used.
+var errAudioStreamClosed = errors.New("audio stream closed")
+
+// audioStreamConn guards the pooled websocket connection used by AudioStream.
+// The connection returns to the pool as soon as the handler returns, so
+// callbacks that outlive the handler must not touch it. The mutex guards the
+// completion flag together with every write and close, so a frame is never
+// written to a released connection.
+type audioStreamConn struct {
+	mu       sync.Mutex
+	conn     *websocket.Conn
+	finished bool
+}
+
+// Write sends a frame while the stream still owns the connection.
+func (stream *audioStreamConn) Write(messageType int, payload []byte) error {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.finished {
+		return errAudioStreamClosed
+	}
+
+	return stream.conn.WriteMessage(messageType, payload)
+}
+
+// Close closes the connection while the stream still owns it. It is a no-op
+// once the stream finished, so a late callback cannot close a recycled conn.
+func (stream *audioStreamConn) Close() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.finished {
+		return
+	}
+
+	stream.closeLocked()
+}
+
+// Finish marks the stream as finished and closes the connection. Later writes
+// and closes are ignored.
+func (stream *audioStreamConn) Finish() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.finished = true
+	stream.closeLocked()
+}
+
+// closeLocked closes the connection unless it was already released.
+func (stream *audioStreamConn) closeLocked() {
+	if stream.conn == nil {
+		return
+	}
+
+	_ = stream.conn.Close()
+}
+
 // AudioStream bridges a live call to the browser. Binary frames carry s16le
 // 16 kHz mono PCM in both directions: browser microphone audio is played to the
 // peer, and the peer's audio is written back to the socket.
 func (controller *Call) AudioStream(conn *websocket.Conn) {
-	defer func() { _ = conn.Close() }()
+	stream := &audioStreamConn{conn: conn}
+	defer stream.Finish()
 
 	ctx := whatsapp.ContextWithDevice(context.Background(), deviceFromConn(conn))
 	mic := make(chan []byte, 32)
 	defer close(mic)
 
-	var writeMu sync.Mutex
-	write := func(messageType int, payload []byte) error {
-		writeMu.Lock()
-		defer writeMu.Unlock()
-		return conn.WriteMessage(messageType, payload)
-	}
-
 	onPeerAudio := func(frame []float32) {
-		_ = write(websocket.BinaryMessage, pcmToS16LE(frame))
+		_ = stream.Write(websocket.BinaryMessage, pcmToS16LE(frame))
 	}
 
 	callID := conn.Query("call_id")
 	if err := controller.Service.AttachAudio(ctx, callID, mic, onPeerAudio); err != nil {
-		_ = write(websocket.TextMessage, []byte(err.Error()))
+		_ = stream.Write(websocket.TextMessage, []byte(err.Error()))
 		return
 	}
 	_ = controller.Service.WatchCallEnd(ctx, callID, func() {
-		_ = write(websocket.TextMessage, []byte("call ended"))
-		_ = conn.Close()
+		_ = stream.Write(websocket.TextMessage, []byte("call ended"))
+		stream.Close()
 	})
 
 	for {

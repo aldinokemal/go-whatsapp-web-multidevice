@@ -5,8 +5,19 @@ import (
 	"math"
 	"testing"
 
+	"github.com/gofiber/contrib/v3/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+// A nil conn stands in for the released pooled connection: touching it would
+// panic, so surviving these calls proves the completion flag guards it.
+func TestAudioStreamConnIgnoresCallbacksAfterFinish(t *testing.T) {
+	stream := &audioStreamConn{}
+	stream.Finish()
+
+	require.ErrorIs(t, stream.Write(websocket.BinaryMessage, []byte("frame")), errAudioStreamClosed)
+	require.NotPanics(t, stream.Close)
+}
 
 func TestPCMToS16LEClamp(t *testing.T) {
 	out := pcmToS16LE([]float32{0, 0.5, -0.5, 2, -2})
