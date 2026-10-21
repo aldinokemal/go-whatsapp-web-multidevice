@@ -883,6 +883,11 @@ type ExtractedMedia struct {
 	Caption   string `json:"caption"`
 }
 
+// maxInboundMediaSize caps media received in messages. WhatsApp itself stops at
+// 2 GB per document; the file goes to disk, not memory, so this is only a guard.
+// WhatsappSettingMaxDownloadSize stays for URL downloads, which are in memory.
+const maxInboundMediaSize = 4 << 30
+
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
@@ -890,15 +895,9 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, nil
 	}
 
-	data, err := client.Download(ctx, mediaFile)
-	if err != nil {
-		return extractedMedia, err
-	}
-
-	// Validate file size before writing to disk
-	maxFileSize := config.WhatsappSettingMaxDownloadSize
-	if int64(len(data)) > maxFileSize {
-		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+	// Refuse by the size the message announces, before downloading anything.
+	if sized, ok := mediaFile.(interface{ GetFileLength() uint64 }); ok && sized.GetFileLength() > maxInboundMediaSize {
+		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", uint64(maxInboundMediaSize))
 	}
 
 	var originalFilename string
@@ -923,8 +922,19 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
-	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
+	// Decrypt straight to disk: Download() holds the whole file in memory, and a
+	// 2 GB document would take the process down. DownloadToFile checks the MAC
+	// and the SHA-256 of the plaintext, like Download.
+	file, err := os.OpenFile(extractedMedia.MediaPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
 	if err != nil {
+		return extractedMedia, err
+	}
+	err = client.DownloadToFile(ctx, mediaFile, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(extractedMedia.MediaPath)
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
