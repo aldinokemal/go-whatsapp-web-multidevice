@@ -60,7 +60,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.Archive:
 		handleArchive(ctx, evt, chatStorageRepo, client)
 	case *events.Presence:
-		handlePresence(ctx, evt)
+		handlePresence(ctx, evt, instance.JID(), client)
 	case *events.ChatPresence:
 		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
@@ -328,18 +328,6 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
 			}
 		}(evt, client)
-	}
-}
-
-func handlePresence(_ context.Context, evt *events.Presence) {
-	if evt.Unavailable {
-		if evt.LastSeen.IsZero() {
-			log.Infof("%s is now offline", evt.From)
-		} else {
-			log.Infof("%s is now offline (last seen: %s)", evt.From, evt.LastSeen)
-		}
-	} else {
-		log.Infof("%s is now online", evt.From)
 	}
 }
 
