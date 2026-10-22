@@ -1533,6 +1533,10 @@ paths:
                   type: integer
                   example: 86400
                   description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
