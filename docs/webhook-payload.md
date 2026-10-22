@@ -1904,6 +1904,89 @@ enabled:
 | `mentioned_jids`   | array    | JIDs mentioned in the message; LIDs are resolved to phone JIDs when possible, as with `from`    |
 | `expiration`       | integer  | Disappearing-message timer of the chat, in seconds                                              |
 
+### Interactive Replies and Orders
+
+When a user taps a button, picks a list row, answers a template button or submits a native flow, the `message` event
+carries an `interactive_reply` object next to the [`selection`](#list--button-reply) object. It adds the native-flow
+`name` and raw `response_json`. When no text `body` is present, `body` is set to the reply's `title`.
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6B7",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "Jane Customer",
+    "timestamp": "2023-10-15T12:06:00Z",
+    "is_from_me": false,
+    "body": "Monthly plan",
+    "interactive_reply": {
+      "kind": "list",
+      "id": "plan_monthly",
+      "title": "Monthly plan",
+      "description": "Billed every month"
+    }
+  }
+}
+```
+
+**Interactive reply fields** (`interactive_reply`):
+
+| **Field**       | **Type** | **Description**                                                                                  |
+|-----------------|----------|--------------------------------------------------------------------------------------------------|
+| `kind`          | string   | `"button"`, `"list"`, `"template_button"` or `"native_flow"`                                     |
+| `id`            | string   | ID of the selected button or list row (`button`, `list` and `template_button`)                   |
+| `title`         | string   | Text shown on the selected button or row; for `native_flow`, the response body text              |
+| `description`   | string   | Description of the selected row (`list` only)                                                    |
+| `name`          | string   | Name of the native flow (`native_flow` only)                                                     |
+| `response_json` | string   | Raw JSON string with the submitted flow parameters (`native_flow` only)                          |
+
+Order messages keep the existing `order` object, which mirrors the WhatsApp `OrderMessage` (`orderID`, `orderTitle`,
+`itemCount`, ...), and add the snake_case fields below to it. `body` keeps the rendered order text described under
+[Business Template Message](#business-template-message); the raw text is in `order.title` and `order.message`.
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6B8",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "timestamp": "2023-10-15T12:07:00Z",
+    "is_from_me": false,
+    "order": {
+      "orderID": "1234567890",
+      "orderTitle": "Jane's Store",
+      "message": "I'd like these, please",
+      "itemCount": 2,
+      "totalAmount1000": 150000,
+      "totalCurrencyCode": "BRL",
+      "order_id": "1234567890",
+      "title": "Jane's Store",
+      "item_count": 2,
+      "total_amount_1000": 150000,
+      "currency": "BRL"
+    }
+  }
+}
+```
+
+**Order fields** (added to `order`):
+
+| **Field**           | **Type** | **Description**                                                |
+|---------------------|----------|----------------------------------------------------------------|
+| `order_id`          | string   | Order ID                                                       |
+| `title`             | string   | Order title                                                    |
+| `message`           | string   | Message the customer sent with the order                       |
+| `item_count`        | integer  | Number of items in the order                                   |
+| `total_amount_1000` | integer  | Order total multiplied by 1000 (e.g., `150000` is 150.00)      |
+| `currency`          | string   | ISO 4217 currency code of the total                            |
+| `seller_jid`        | string   | JID of the seller                                              |
+| `token`             | string   | Order token, needed to fetch the order details                 |
+
 ## Integration Guide
 
 ### Setting Up Webhook Endpoint

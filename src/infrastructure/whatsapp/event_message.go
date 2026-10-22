@@ -212,6 +212,7 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		"contact", "contacts_array", "list", "live_location", "location", "order",
 		"template", "buttons", "product", "selection", "interactive",
 		"album",
+		"interactive_reply",
 	}
 	for _, key := range renderableKeys {
 		if _, ok := payload[key]; ok {
