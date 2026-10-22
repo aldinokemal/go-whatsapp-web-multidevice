@@ -2547,6 +2547,104 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/pin:
+    post:
+      operationId: pinMessage
+      tags:
+        - message
+      summary: Pin message
+      description: Pin a message for everyone in the chat. In groups, admins may need to allow members to pin messages.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+                duration:
+                  type: integer
+                  enum: [86400, 604800, 2592000]
+                  default: 604800
+                  example: 86400
+                  description: How long the message stays pinned in seconds (24 hours, 7 days or 30 days)
+              required:
+                - phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /message/{message_id}/unpin:
+    post:
+      operationId: unpinMessage
+      tags:
+        - message
+      summary: Unpin message
+      description: Unpin a message for everyone in the chat.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: message_id
+          schema:
+            type: string
+          required: true
+          description: Message ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '62819273192397132@s.whatsapp.net'
+                  description: Phone number with country code
+              required:
+                - phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /message/{message_id}/forward:
     post:
       operationId: forwardMessage

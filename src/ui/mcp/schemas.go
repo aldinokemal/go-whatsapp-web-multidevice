@@ -83,13 +83,14 @@ const messageSchema = `{
   "type": "object",
   "required": ["action", "phone", "message_id"],
   "properties": {
-    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","mark_played","star","unstar","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; mark_played sends the played receipt for an incoming audio message; download_media returns the local file path"},
+    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","mark_played","star","unstar","pin","unpin","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; mark_played sends the played receipt for an incoming audio message; pin/unpin pins the message for everyone in the chat; download_media returns the local file path"},
     "phone": {"type": "string", "description": "Phone number or group JID of the chat containing the message"},
     "message_id": {"type": "string", "description": "The WhatsApp message ID"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "emoji": {"type": "string", "description": "action=react: emoji to react with; empty string removes the reaction"},
     "message": {"type": "string", "description": "action=edit: replacement text (works ~15 minutes after send)"},
-    "link": {"type": "string", "description": "action=edit: optional URL; the edit is sent with a rich link preview for it, like send link (appended to message if absent)"}
+    "link": {"type": "string", "description": "action=edit: optional URL; the edit is sent with a rich link preview for it, like send link (appended to message if absent)"},
+    "duration": {"type": "integer", "enum": [86400, 604800, 2592000], "description": "action=pin: how long the message stays pinned in seconds (24h, 7d or 30d); default 7 days"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["message"]}}

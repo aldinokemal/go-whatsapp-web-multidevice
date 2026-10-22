@@ -11,6 +11,7 @@ type IMessageActions interface {
 	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
 	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)
 	UpdateMessage(ctx context.Context, request UpdateMessageRequest) (response GenericResponse, err error)
+	PinMessage(ctx context.Context, request PinRequest) (response GenericResponse, err error)
 }
 
 // IMessageManagement handles message management operations

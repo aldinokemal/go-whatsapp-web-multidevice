@@ -283,3 +283,53 @@ func TestValidateStarMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePinMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		request domainMessage.PinRequest
+		err     any
+	}{
+		{
+			name:    "should success pinning for 24 hours",
+			request: domainMessage.PinRequest{Phone: "6281234567890@s.whatsapp.net", MessageID: "3EB0789ABC123456", IsPinned: true, Duration: domainMessage.PinDuration24Hours},
+			err:     nil,
+		},
+		{
+			name:    "should success pinning for 30 days",
+			request: domainMessage.PinRequest{Phone: "6281234567890@s.whatsapp.net", MessageID: "3EB0789ABC123456", IsPinned: true, Duration: domainMessage.PinDuration30Days},
+			err:     nil,
+		},
+		{
+			name:    "should success unpinning without duration",
+			request: domainMessage.PinRequest{Phone: "6281234567890@s.whatsapp.net", MessageID: "3EB0789ABC123456", IsPinned: false},
+			err:     nil,
+		},
+		{
+			name:    "should error pinning with unsupported duration",
+			request: domainMessage.PinRequest{Phone: "6281234567890@s.whatsapp.net", MessageID: "3EB0789ABC123456", IsPinned: true, Duration: 3600},
+			err:     pkgError.ValidationError("duration: duration must be 86400 (24h), 604800 (7d) or 2592000 (30d)."),
+		},
+		{
+			name:    "should error pinning without duration",
+			request: domainMessage.PinRequest{Phone: "6281234567890@s.whatsapp.net", MessageID: "3EB0789ABC123456", IsPinned: true},
+			err:     pkgError.ValidationError("duration: cannot be blank."),
+		},
+		{
+			name:    "should error with empty phone and message id",
+			request: domainMessage.PinRequest{IsPinned: false},
+			err:     pkgError.ValidationError("message_id: cannot be blank; phone: cannot be blank."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePinMessage(context.Background(), tt.request)
+			if tt.err == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.Equal(t, tt.err, err)
+			}
+		})
+	}
+}

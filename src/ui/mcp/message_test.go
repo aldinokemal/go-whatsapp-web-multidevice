@@ -18,6 +18,7 @@ type stubMessageService struct {
 	marked     *domainMessage.MarkAsReadRequest
 	played     *domainMessage.MarkAsPlayedRequest
 	starred    *domainMessage.StarRequest
+	pinned     *domainMessage.PinRequest
 	downloaded *domainMessage.DownloadMediaRequest
 }
 
@@ -48,6 +49,10 @@ func (s *stubMessageService) MarkAsPlayed(_ context.Context, r domainMessage.Mar
 func (s *stubMessageService) StarMessage(_ context.Context, r domainMessage.StarRequest) error {
 	s.starred = &r
 	return nil
+}
+func (s *stubMessageService) PinMessage(_ context.Context, r domainMessage.PinRequest) (domainMessage.GenericResponse, error) {
+	s.pinned = &r
+	return domainMessage.GenericResponse{MessageID: r.MessageID}, nil
 }
 func (s *stubMessageService) DownloadMedia(_ context.Context, r domainMessage.DownloadMediaRequest) (domainMessage.DownloadMediaResponse, error) {
 	s.downloaded = &r
@@ -138,6 +143,20 @@ func TestHandleMessageDispatch(t *testing.T) {
 		_, err = h.handleMessage(deviceCtx(), callReq(withAction("unstar", nil)))
 		require.NoError(t, err)
 		assert.False(t, svc.starred.IsStarred)
+	})
+
+	t.Run("pin and unpin", func(t *testing.T) {
+		svc := &stubMessageService{}
+		h := InitMcpMessage(svc, &stubResolver{})
+		_, err := h.handleMessage(deviceCtx(), callReq(withAction("pin", map[string]any{"duration": 86400})))
+		require.NoError(t, err)
+		require.NotNil(t, svc.pinned)
+		assert.True(t, svc.pinned.IsPinned)
+		assert.Equal(t, 86400, svc.pinned.Duration)
+
+		_, err = h.handleMessage(deviceCtx(), callReq(withAction("unpin", nil)))
+		require.NoError(t, err)
+		assert.False(t, svc.pinned.IsPinned)
 	})
 
 	t.Run("download_media", func(t *testing.T) {

@@ -31,6 +31,8 @@ func InitRestMessage(app fiber.Router, service domainMessage.IMessageUsecase, se
 	app.Post("/message/:message_id/played", rest.MarkAsPlayed)
 	app.Post("/message/:message_id/star", rest.StarMessage)
 	app.Post("/message/:message_id/unstar", rest.UnstarMessage)
+	app.Post("/message/:message_id/pin", rest.PinMessage)
+	app.Post("/message/:message_id/unpin", rest.UnpinMessage)
 	app.Post("/message/:message_id/forward", rest.ForwardMessage)
 	app.Get("/message/:message_id/download", rest.DownloadMedia)
 	return rest
@@ -186,6 +188,34 @@ func (controller *Message) UnstarMessage(c fiber.Ctx) error {
 		Code:    "SUCCESS",
 		Message: "Unstarred message successfully",
 		Results: nil,
+	})
+}
+
+func (controller *Message) PinMessage(c fiber.Ctx) error {
+	return controller.pin(c, true)
+}
+
+func (controller *Message) UnpinMessage(c fiber.Ctx) error {
+	return controller.pin(c, false)
+}
+
+func (controller *Message) pin(c fiber.Ctx, pinned bool) error {
+	var request domainMessage.PinRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	request.MessageID = c.Params("message_id")
+	utils.SanitizePhone(&request.Phone)
+	request.IsPinned = pinned
+
+	response, err := controller.Service.PinMessage(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Status,
+		Results: response,
 	})
 }
 
