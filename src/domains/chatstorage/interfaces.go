@@ -49,7 +49,10 @@ type IChatStorageRepository interface {
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
-	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
+	// ListChatwootMessageLinksByChatwootID returns every link of a Chatwoot
+	// message, oldest first: a reply with several attachments goes out as one
+	// WhatsApp message per attachment.
+	ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*ChatwootMessageLink, error)
 	// GetLatestChatwootMessageLinkByConversation resolves a conversation to its
 	// most recent link. Conversation ids are numbered per Chatwoot account, so the
 	// lookup is account-scoped. allowLegacyZero additionally matches rows whose

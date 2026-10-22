@@ -41,15 +41,15 @@ func TestSQLiteRepositoryStoresAndLooksUpChatwootMessageLinks(t *testing.T) {
 		t.Fatalf("unexpected link by whatsapp id: %+v", byWA)
 	}
 
-	byCW, err := repo.GetChatwootMessageLinkByChatwootID(link.DeviceID, link.ChatwootMessageID)
+	byCW, err := repo.ListChatwootMessageLinksByChatwootID(link.DeviceID, link.ChatwootMessageID)
 	if err != nil {
 		t.Fatalf("lookup by chatwoot id: %v", err)
 	}
-	if byCW == nil {
-		t.Fatal("expected link by chatwoot id")
+	if len(byCW) != 1 {
+		t.Fatalf("links by chatwoot id = %d, want 1", len(byCW))
 	}
-	if byCW.WhatsAppMessageID != "wa-1" || byCW.WhatsAppChatJID != link.WhatsAppChatJID {
-		t.Fatalf("unexpected link by chatwoot id: %+v", byCW)
+	if byCW[0].WhatsAppMessageID != "wa-1" || byCW[0].WhatsAppChatJID != link.WhatsAppChatJID {
+		t.Fatalf("unexpected link by chatwoot id: %+v", byCW[0])
 	}
 
 	link.ChatwootConversationID = 404

@@ -590,26 +590,29 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 	}
 
 	storageDeviceID := chatwootStorageDeviceID(instance, resolvedID)
-	link, err := h.ChatStorageRepo.GetChatwootMessageLinkByChatwootID(storageDeviceID, payload.ID)
+	links, err := h.ChatStorageRepo.ListChatwootMessageLinksByChatwootID(storageDeviceID, payload.ID)
 	if err != nil {
 		logrus.Errorf("Chatwoot Webhook: Failed to lookup deleted Chatwoot message %d: %v", payload.ID, err)
 		return c.SendStatus(fiber.StatusOK)
 	}
-	if link == nil {
-		return c.SendStatus(fiber.StatusOK)
-	}
-	if link.Direction != "outgoing" {
-		logrus.Debugf("Chatwoot Webhook: Not revoking inbound WhatsApp message %s for Chatwoot delete %d", link.WhatsAppMessageID, payload.ID)
-		return c.SendStatus(fiber.StatusOK)
-	}
 
 	ctx := whatsapp.ContextWithDevice(c.Context(), instance)
-	if _, err := h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
-		MessageID: link.WhatsAppMessageID,
-		Phone:     link.WhatsAppChatJID,
-	}); err != nil {
-		logrus.Errorf("Chatwoot Webhook: Failed to revoke WhatsApp message %s for Chatwoot delete %d: %v", link.WhatsAppMessageID, payload.ID, err)
-		h.notifySendFailure(payload, route, err)
+	// Same account rule as the conversation lookup: a legacy account-0 link
+	// matches only while no per-device config exists.
+	legacy := h.legacyChatwootMode()
+	for _, link := range links {
+		inAccount := link.ChatwootAccountID == payload.Account.ID || (legacy && link.ChatwootAccountID == 0)
+		if link.Direction != "outgoing" || !inAccount {
+			logrus.Debugf("Chatwoot Webhook: Not revoking WhatsApp message %s for Chatwoot delete %d", link.WhatsAppMessageID, payload.ID)
+			continue
+		}
+		if _, err := h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
+			MessageID: link.WhatsAppMessageID,
+			Phone:     link.WhatsAppChatJID,
+		}); err != nil {
+			logrus.Errorf("Chatwoot Webhook: Failed to revoke WhatsApp message %s for Chatwoot delete %d: %v", link.WhatsAppMessageID, payload.ID, err)
+			h.notifySendFailure(payload, route, err)
+		}
 	}
 	return c.SendStatus(fiber.StatusOK)
 }
