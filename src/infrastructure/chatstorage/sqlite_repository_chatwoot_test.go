@@ -1,6 +1,7 @@
 package chatstorage
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -64,6 +65,39 @@ func TestSQLiteRepositoryStoresAndLooksUpChatwootMessageLinks(t *testing.T) {
 	}
 	if updated.ChatwootConversationID != 404 || !updated.IsRead {
 		t.Fatalf("expected updated link, got %+v", updated)
+	}
+}
+
+func TestSQLiteRepositoryListsEveryLinkOfAChatwootMessage(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	t0 := time.Date(2026, time.October, 21, 12, 0, 0, 0, time.UTC)
+	// Written out of order: the list follows created_at.
+	for _, l := range []struct {
+		device, id string
+		message    int
+		created    time.Time
+	}{
+		{"dev", "wa-3", 90, t0.Add(2 * time.Second)},
+		{"dev", "wa-1", 90, t0},
+		{"dev", "wa-2", 90, t0.Add(time.Second)},
+		{"other", "wa-9", 90, t0},
+		{"dev", "wa-8", 91, t0},
+	} {
+		if err := repo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{DeviceID: l.device, WhatsAppMessageID: l.id,
+			WhatsAppChatJID: "5500900000001@s.whatsapp.net", ChatwootMessageID: l.message, Direction: "outgoing", CreatedAt: l.created}); err != nil {
+			t.Fatalf("upsert %s: %v", l.id, err)
+		}
+	}
+	links, err := repo.ListChatwootMessageLinksByChatwootID("dev", 90)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	ids := []string{}
+	for _, link := range links {
+		ids = append(ids, link.WhatsAppMessageID)
+	}
+	if fmt.Sprint(ids) != "[wa-1 wa-2 wa-3]" {
+		t.Fatalf("links = %v, want [wa-1 wa-2 wa-3]", ids)
 	}
 }
 
