@@ -379,6 +379,9 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 	if len(evt.Demote) > 0 {
 		log.Infof("Group %s: %d users demoted at %s", evt.JID, len(evt.Demote), evt.Timestamp)
 	}
+	if evt.Name != nil {
+		log.Infof("Group %s: name changed at %s", evt.JID, evt.Timestamp)
+	}
 
 	// Forward group info event to webhook
 	go func(e *events.GroupInfo, c *whatsmeow.Client) {
