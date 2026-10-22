@@ -1486,6 +1486,49 @@ When a message is edited, the webhook includes the original message ID to track 
 }
 ```
 
+### Media Album
+
+When several photos or videos are sent together, WhatsApp first sends an album header that only announces how many items
+follow, then each item as a regular image or video message. The header is forwarded with an `album` object (and no body):
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0A1B2C3D4E5F6A7B8",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:42:00Z",
+    "album": {
+      "expected_image_count": 3,
+      "expected_video_count": 1
+    }
+  }
+}
+```
+
+Each item carries `album_id`, the `id` of its header, so the items can be grouped:
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0F1E2D3C4B5A6F7E8",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "John Doe",
+    "timestamp": "2023-10-15T11:42:01Z",
+    "image": "statics/media/1752405121-image.jpeg",
+    "album_id": "3EB0A1B2C3D4E5F6A7B8"
+  }
+}
+```
+
+The header is not forwarded to Chatwoot, since it has no content of its own.
+
 ### Forwarded Message
 
 ```json
