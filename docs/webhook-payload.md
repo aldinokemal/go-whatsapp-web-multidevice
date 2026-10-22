@@ -1822,6 +1822,88 @@ When a conversation starts from a Meta Click-to-WhatsApp ad, the first inbound m
 | `source_type`                      | string   | Source type (e.g., `"ad"`)                                         |
 | `ad_type`                          | string   | Ad type: `"CTWA"` (Click-to-WhatsApp) or `"CAWC"` (Click-to-Call) |
 
+### Conversion Attribution and Media Metadata
+
+Regular `message` events may also carry conversion attribution, media metadata and a few `contextInfo` values. They are
+read from the message's own `contextInfo` (never from a quoted message) after unwrapping ephemeral and view-once
+containers. Every field is optional: a key is present only when WhatsApp sent a non-empty, non-zero value, and
+`conversion` or `media_info` is omitted entirely when it would be empty.
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6B5",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "from": "628123456789@s.whatsapp.net",
+    "from_name": "Jane Customer",
+    "timestamp": "2023-10-15T12:05:00Z",
+    "is_from_me": false,
+    "body": "Is this still available?",
+    "image": {
+      "url": "https://mmg.whatsapp.net/...",
+      "caption": "Is this still available?"
+    },
+    "conversion": {
+      "conversion_source": "FB_Ads",
+      "conversion_data": "AQI=",
+      "entry_point_conversion_source": "ctwa_ad",
+      "entry_point_conversion_app": "instagram",
+      "entry_point_conversion_delay_seconds": 4
+    },
+    "media_info": {
+      "mime_type": "image/jpeg",
+      "file_length": 204800,
+      "file_sha256": "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=",
+      "width": 1080,
+      "height": 1350
+    },
+    "forwarding_score": 6,
+    "mentioned_jids": ["628111222333@s.whatsapp.net"],
+    "expiration": 86400
+  }
+}
+```
+
+**Conversion fields** (`conversion`, from `contextInfo`):
+
+| **Field**                                | **Type** | **Description**                                                   |
+|------------------------------------------|----------|-------------------------------------------------------------------|
+| `conversion_source`                      | string   | Conversion source reported by WhatsApp (e.g., `"FB_Ads"`)         |
+| `conversion_data`                        | string   | Opaque conversion data, standard base64-encoded                   |
+| `conversion_delay_seconds`               | integer  | Delay between the conversion and the message, in seconds          |
+| `entry_point_conversion_source`          | string   | Entry point that opened the chat (e.g., `"ctwa_ad"`)              |
+| `entry_point_conversion_app`             | string   | App the entry point came from (e.g., `"instagram"`, `"facebook"`) |
+| `entry_point_conversion_delay_seconds`   | integer  | Delay between the entry point and the message, in seconds         |
+| `entry_point_conversion_external_source` | string   | External source of the entry point                                |
+| `entry_point_conversion_external_medium` | string   | External medium of the entry point                                |
+
+**Media metadata fields** (`media_info`, for image, video, video note, audio, document and sticker messages). It
+describes the media without download URLs or keys, and is present whether or not `WHATSAPP_AUTO_DOWNLOAD_MEDIA` is
+enabled:
+
+| **Field**      | **Type** | **Description**                                               |
+|----------------|----------|---------------------------------------------------------------|
+| `mime_type`    | string   | MIME type of the media                                        |
+| `file_name`    | string   | Original file name (documents only)                           |
+| `file_length`  | integer  | File size in bytes                                            |
+| `file_sha256`  | string   | SHA-256 of the decrypted file, standard base64-encoded        |
+| `width`        | integer  | Width in pixels (image, video, video note and sticker)        |
+| `height`       | integer  | Height in pixels (image, video, video note and sticker)       |
+| `seconds`      | integer  | Duration in seconds (audio, video and video note)             |
+| `ptt`          | boolean  | `true` for voice notes; omitted otherwise                     |
+| `is_animated`  | boolean  | `true` for animated stickers; omitted otherwise               |
+| `gif_playback` | boolean  | `true` for videos sent as GIFs; omitted otherwise             |
+
+**Context fields** (top level of `payload`, from `contextInfo`):
+
+| **Field**          | **Type** | **Description**                                                                                 |
+|--------------------|----------|-------------------------------------------------------------------------------------------------|
+| `forwarding_score` | integer  | How many times the message has been forwarded                                                   |
+| `mentioned_jids`   | array    | JIDs mentioned in the message; LIDs are resolved to phone JIDs when possible, as with `from`    |
+| `expiration`       | integer  | Disappearing-message timer of the chat, in seconds                                              |
+
 ## Integration Guide
 
 ### Setting Up Webhook Endpoint
