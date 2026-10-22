@@ -3,9 +3,13 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 )
 
@@ -446,5 +450,45 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
 			}
 		})
+	}
+}
+
+type revokeOnDeleteLinkRepo struct {
+	domainChatStorage.IChatStorageRepository
+}
+
+func (revokeOnDeleteLinkRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	return &domainChatStorage.ChatwootMessageLink{DeviceID: deviceID, WhatsAppMessageID: waMessageID,
+		ChatwootConversationID: 7, ChatwootMessageID: 90, ChatwootAccountID: 3, Direction: "incoming"}, nil
+}
+
+// ChatwootRevokeOnDelete only goes Chatwoot to WhatsApp: a WhatsApp delete
+// never deletes the Chatwoot message, nor reaches the forwarder on its own.
+func TestRevokeOnDeleteAloneNeverDeletesInChatwoot(t *testing.T) {
+	var deletes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deletes.Add(1)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	origURL, origToken, origAccount := config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID
+	origDelete, origRevoke, origForward := config.ChatwootMessageDelete, config.ChatwootRevokeOnDelete, config.ChatwootForwardDeletes
+	t.Cleanup(func() {
+		config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID = origURL, origToken, origAccount
+		config.ChatwootMessageDelete, config.ChatwootRevokeOnDelete, config.ChatwootForwardDeletes = origDelete, origRevoke, origForward
+	})
+	config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID = server.URL, "tok", 3
+	config.ChatwootMessageDelete, config.ChatwootRevokeOnDelete, config.ChatwootForwardDeletes = false, true, false
+
+	if deleteLinkedChatwootMessage(chatwoot.NewClient(), "dev", revokeOnDeleteLinkRepo{}, "message.revoked", map[string]any{"revoked_message_id": "WA-IN"}) {
+		t.Fatal("deleteLinkedChatwootMessage = true, want false")
+	}
+	if n := deletes.Load(); n != 0 {
+		t.Fatalf("Chatwoot DELETE requests = %d, want 0", n)
+	}
+	if shouldForwardEventToChatwoot("message.revoked") {
+		t.Fatal("message.revoked should not forward on ChatwootRevokeOnDelete alone")
 	}
 }

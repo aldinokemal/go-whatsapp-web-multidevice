@@ -81,9 +81,11 @@ func newDeleteEnv(t *testing.T) *deleteEnv {
 
 	prevURL, prevToken := config.ChatwootURL, config.ChatwootAPIToken
 	prevAccount, prevInbox, prevDelete := config.ChatwootAccountID, config.ChatwootInboxID, config.ChatwootMessageDelete
+	prevRevoke := config.ChatwootRevokeOnDelete
 	t.Cleanup(func() {
 		config.ChatwootURL, config.ChatwootAPIToken = prevURL, prevToken
 		config.ChatwootAccountID, config.ChatwootInboxID, config.ChatwootMessageDelete = prevAccount, prevInbox, prevDelete
+		config.ChatwootRevokeOnDelete = prevRevoke
 		chatwoot.InitClientRegistry(nil)
 	})
 	config.ChatwootURL, config.ChatwootAPIToken = server.URL, "tok"
@@ -162,6 +164,28 @@ func TestChatwootDeleteNotesRefusedRevokesOnce(t *testing.T) {
 			env.deleted(t, 90)
 			deleteEqual(t, "revokes", env.usecase.ids, []string{"WA-1", "WA-2"})
 			deleteEqual(t, "notes", env.notes, []string{tc.note})
+		})
+	}
+}
+
+func TestChatwootDeleteFollowsBothFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name                          string
+		messageDelete, revokeOnDelete bool
+		revokes                       []string
+	}{
+		{"CHATWOOT_REVOKE_ON_DELETE alone revokes", false, true, []string{"WA-1", "WA-2"}},
+		{"CHATWOOT_MESSAGE_DELETE alone still revokes", true, false, []string{"WA-1", "WA-2"}},
+		{"both off touch nothing", false, false, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newDeleteEnv(t)
+			config.ChatwootMessageDelete, config.ChatwootRevokeOnDelete = tc.messageDelete, tc.revokeOnDelete
+			env.deleted(t, 90)
+			deleteEqual(t, "revokes", env.usecase.ids, tc.revokes)
+			if tc.revokes == nil {
+				deleteEqual(t, "storage calls", env.repo.calls, 0)
+			}
 		})
 	}
 }
