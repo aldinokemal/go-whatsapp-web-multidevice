@@ -565,7 +565,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 }
 
 func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {
-	if !config.ChatwootMessageDelete {
+	if !config.ChatwootMessageDelete && !config.ChatwootRevokeOnDelete {
 		return c.SendStatus(fiber.StatusOK)
 	}
 	if h.MessageUsecase == nil || h.ChatStorageRepo == nil || h.DeviceManager == nil {
