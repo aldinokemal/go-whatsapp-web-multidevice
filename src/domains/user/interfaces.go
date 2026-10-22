@@ -30,10 +30,18 @@ type IUserPrivacy interface {
 	MyPrivacySetting(ctx context.Context) (response MyPrivacySettingResponse, err error)
 }
 
+// IUserBlocklist handles the account's WhatsApp block list
+type IUserBlocklist interface {
+	MyBlocklist(ctx context.Context) (response BlocklistResponse, err error)
+	Block(ctx context.Context, request BlockRequest) (response BlocklistResponse, err error)
+	Unblock(ctx context.Context, request BlockRequest) (response BlocklistResponse, err error)
+}
+
 // IUserUsecase combines all user interfaces for backward compatibility
 type IUserUsecase interface {
 	IUserInfo
 	IUserProfile
 	IUserListing
 	IUserPrivacy
+	IUserBlocklist
 }
