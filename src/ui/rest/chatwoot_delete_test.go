@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -73,7 +74,7 @@ func newDeleteEnv(t *testing.T) *deleteEnv {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		env.notes = append(env.notes, fmt.Sprint(body["content"]))
+		env.notes = append(env.notes, fmt.Sprintf("private=%v %v", body["private"], body["content"]))
 		_, _ = w.Write([]byte(`{"id":1}`))
 	}))
 	t.Cleanup(server.Close)
@@ -140,6 +141,27 @@ func TestChatwootDeleteRevokesLegacyLinksOnlyInLegacyMode(t *testing.T) {
 				ChatwootConversationID: 7, ChatwootAccountID: 3}
 			env.deleted(t, 91)
 			deleteEqual(t, "revokes", env.usecase.ids, tc.revokes)
+		})
+	}
+}
+
+func TestChatwootDeleteNotesRefusedRevokesOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fail map[string]error
+		note string
+	}{
+		{"one refused", map[string]error{"WA-1": errors.New("boom")},
+			"private=true Message was not deleted on WhatsApp (1 of 2).\n\nError: boom"},
+		{"both refused, first error kept", map[string]error{"WA-1": errors.New("first"), "WA-2": errors.New("second")},
+			"private=true Message was not deleted on WhatsApp (2 of 2).\n\nError: first"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newDeleteEnv(t)
+			env.usecase.fail = tc.fail
+			env.deleted(t, 90)
+			deleteEqual(t, "revokes", env.usecase.ids, []string{"WA-1", "WA-2"})
+			deleteEqual(t, "notes", env.notes, []string{tc.note})
 		})
 	}
 }
