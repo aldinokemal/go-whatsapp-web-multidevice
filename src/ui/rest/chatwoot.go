@@ -600,19 +600,28 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 	// Same account rule as the conversation lookup: a legacy account-0 link
 	// matches only while no per-device config exists.
 	legacy := h.legacyChatwootMode()
+	total, failed := 0, 0
+	var firstErr error
 	for _, link := range links {
 		inAccount := link.ChatwootAccountID == payload.Account.ID || (legacy && link.ChatwootAccountID == 0)
 		if link.Direction != "outgoing" || !inAccount {
 			logrus.Debugf("Chatwoot Webhook: Not revoking WhatsApp message %s for Chatwoot delete %d", link.WhatsAppMessageID, payload.ID)
 			continue
 		}
+		total++
 		if _, err := h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
 			MessageID: link.WhatsAppMessageID,
 			Phone:     link.WhatsAppChatJID,
 		}); err != nil {
 			logrus.Errorf("Chatwoot Webhook: Failed to revoke WhatsApp message %s for Chatwoot delete %d: %v", link.WhatsAppMessageID, payload.ID, err)
-			h.notifySendFailure(payload, route, err)
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
+	}
+	if failed > 0 {
+		h.notifyChatwoot(payload, route, chatwootDeleteFailureContent(failed, total, firstErr))
 	}
 	return c.SendStatus(fiber.StatusOK)
 }
@@ -674,6 +683,13 @@ func (h *ChatwootHandler) markLatestInboundAsRead(c fiber.Ctx, deviceID, chatJID
 	}
 }
 
+// chatwootDeleteFailureContent is the note for revokes WhatsApp refused. It is
+// not the send-failure note, which would tell the agent to send again the
+// message they just deleted.
+func chatwootDeleteFailureContent(failed, total int, err error) string {
+	return fmt.Sprintf("Message was not deleted on WhatsApp (%d of %d).\n\nError: %v", failed, total, err)
+}
+
 func chatwootSendFailureContent(err error) string {
 	content := "Message was not sent to WhatsApp."
 	if err != nil {
@@ -699,9 +715,14 @@ func (h *ChatwootHandler) chatwootClientForPayload(payload chatwoot.WebhookPaylo
 }
 
 func (h *ChatwootHandler) notifySendFailure(payload chatwoot.WebhookPayload, route chatwootWebhookRoute, sendErr error) {
+	h.notifyChatwoot(payload, route, chatwootSendFailureContent(sendErr))
+}
+
+// notifyChatwoot posts content as a private note in the payload's conversation.
+func (h *ChatwootHandler) notifyChatwoot(payload chatwoot.WebhookPayload, route chatwootWebhookRoute, content string) {
 	conversationID := payload.Conversation.ID
 	if conversationID == 0 {
-		logrus.Warn("Chatwoot Webhook: Cannot create send-failure note without conversation id")
+		logrus.Warn("Chatwoot Webhook: Cannot create note without conversation id")
 		return
 	}
 
@@ -720,12 +741,12 @@ func (h *ChatwootHandler) notifySendFailure(payload chatwoot.WebhookPayload, rou
 		cwClient = h.chatwootClientForPayload(payload)
 	}
 	if cwClient == nil || !cwClient.IsConfigured() {
-		logrus.Warn("Chatwoot Webhook: Cannot create send-failure note because no Chatwoot client is configured for this account/inbox")
+		logrus.Warn("Chatwoot Webhook: Cannot create note because no Chatwoot client is configured for this account/inbox")
 		return
 	}
 
-	if _, err := cwClient.CreateMessage(conversationID, chatwootSendFailureContent(sendErr), "outgoing", nil, chatwoot.MessageOptions{Private: true}); err != nil {
-		logrus.Warnf("Chatwoot Webhook: Failed to create send-failure note: %v", err)
+	if _, err := cwClient.CreateMessage(conversationID, content, "outgoing", nil, chatwoot.MessageOptions{Private: true}); err != nil {
+		logrus.Warnf("Chatwoot Webhook: Failed to create note: %v", err)
 	}
 }
 
