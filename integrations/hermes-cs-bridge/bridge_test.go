@@ -291,22 +291,74 @@ func TestRateLimit(t *testing.T) {
 	cfg := testConfig()
 	cfg.RateLimitPerHr = 2
 	b, snd, _ := newTestBridge(t, cfg, agent)
-	for i, txt := range []string{"a", "b", "c", "d"} {
-		post(t, b, msg("R"+string(rune('0'+i)), user, txt, false))
-	}
+	post(t, b, msg("R0", user, "a", false))
+	post(t, b, msg("R1", user, "b", false))
+	b.Wait() // first burst answered as one turn
+	post(t, b, msg("R2", user, "c", false))
+	post(t, b, msg("R3", user, "d", false))
 	b.Wait()
 	c := agent.all()
 	if len(c) != 1 || c[0].user != "a\nb" {
 		t.Fatalf("calls = %+v", c)
 	}
-	notices := 0
+	notices, adminNotices := 0, 0
 	for _, m := range snd.all() {
 		if m.text == "SLOW_DOWN" {
 			notices++
 		}
+		if m.to == "628111@s.whatsapp.net" && strings.Contains(m.text, "batas 2 pesan/jam") {
+			adminNotices++
+		}
 	}
-	if notices != 1 {
-		t.Fatalf("want exactly one rate-limit notice, got %d", notices)
+	if notices != 1 || adminNotices != 1 {
+		t.Fatalf("want one lead notice and one admin notice, got %d and %d", notices, adminNotices)
+	}
+}
+
+// By default the lead gets no technical "too many messages" text; only the admin is told.
+func TestRateLimitDefaultIsSilentToLead(t *testing.T) {
+	agent := &fakeAgent{reply: "ok"}
+	cfg := testConfig()
+	cfg.RateLimitPerHr, cfg.RateLimitMessage = 1, ""
+	b, snd, _ := newTestBridge(t, cfg, agent)
+	post(t, b, msg("Q1", user, "a", false))
+	post(t, b, msg("Q2", user, "b", false))
+	b.Wait()
+	for _, m := range snd.all() {
+		if m.to == user && m.text != "ok" {
+			t.Fatalf("lead received unexpected text %q", m.text)
+		}
+	}
+	if got := snd.all(); got[len(got)-1].to != "628111@s.whatsapp.net" {
+		t.Fatalf("admin not notified: %+v", got)
+	}
+}
+
+func TestHandoffSummaryIsSeparated(t *testing.T) {
+	agent := &fakeAgent{reply: "Baik, Kak.\n[[HANDOFF: siap daftar | akhwat, pemula, malam, 1× sepekan]]"}
+	b, snd, _ := newTestBridge(t, testConfig(), agent)
+	post(t, b, msg("S1", user, "saya mau daftar", false))
+	b.Wait()
+	got := snd.all()
+	if len(got) != 2 || !strings.Contains(got[1].text, "Alasan: siap daftar\n") ||
+		!strings.Contains(got[1].text, "Ringkasan: akhwat, pemula, malam, 1× sepekan") {
+		t.Fatalf("admin notice = %+v", got)
+	}
+	if got[0].text != "Baik, Kak." {
+		t.Fatalf("lead reply = %q", got[0].text)
+	}
+}
+
+// Guards the embedded CS instructions against accidental edits that would
+// break handoff or drop the verified price facts.
+func TestEmbeddedPrompt(t *testing.T) {
+	for _, want := range []string{"[[HANDOFF:", "Rp149.000", "Rp199.000", "LURC", "CLEAR", "Jangan pernah mengarang link"} {
+		if !strings.Contains(defaultSystemPrompt, want) {
+			t.Errorf("embedded prompt lacks %q", want)
+		}
+	}
+	if len(defaultSystemPrompt) > 20000 {
+		t.Errorf("prompt is %d bytes; keep it compact, it is sent on every turn", len(defaultSystemPrompt))
 	}
 }
 

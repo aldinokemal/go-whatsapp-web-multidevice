@@ -45,21 +45,23 @@ type Config struct {
 
 func loadConfig() (Config, error) {
 	c := Config{
-		ListenAddr:      env("LISTEN_ADDR", "127.0.0.1:8650"),
-		WebhookSecret:   os.Getenv("WEBHOOK_SECRET"),
-		GowaURL:         strings.TrimRight(env("GOWA_URL", "http://127.0.0.1:3000"), "/"),
-		GowaUser:        os.Getenv("GOWA_USER"),
-		GowaPass:        os.Getenv("GOWA_PASS"),
-		GowaDeviceID:    os.Getenv("GOWA_DEVICE_ID"),
-		HermesURL:       strings.TrimRight(env("HERMES_URL", "http://127.0.0.1:8642"), "/"),
-		HermesAPIKey:    os.Getenv("HERMES_API_KEY"),
-		HermesModel:     os.Getenv("HERMES_MODEL"),
-		SessionPrefix:   env("HERMES_SESSION_PREFIX", "wa-cs-"),
-		StateFile:       env("STATE_FILE", "/data/state.json"),
-		FallbackMessage: env("FALLBACK_MESSAGE", "Mohon maaf, sistem kami sedang sibuk. Pesan Anda sudah kami terima dan akan dibalas oleh admin secepatnya."),
-		HandoffMessage:  env("HANDOFF_MESSAGE", "Baik, pertanyaan Anda kami teruskan ke admin. Mohon ditunggu, admin akan membalas secepatnya."),
-		RateLimitMessage: env("RATE_LIMIT_MESSAGE",
-			"Mohon maaf, pesan Anda sangat banyak dalam waktu singkat. Kami akan membalas setelah beberapa saat."),
+		ListenAddr:    env("LISTEN_ADDR", "127.0.0.1:8650"),
+		WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
+		GowaURL:       strings.TrimRight(env("GOWA_URL", "http://127.0.0.1:3000"), "/"),
+		GowaUser:      os.Getenv("GOWA_USER"),
+		GowaPass:      os.Getenv("GOWA_PASS"),
+		GowaDeviceID:  os.Getenv("GOWA_DEVICE_ID"),
+		HermesURL:     strings.TrimRight(env("HERMES_URL", "http://127.0.0.1:8642"), "/"),
+		HermesAPIKey:  os.Getenv("HERMES_API_KEY"),
+		HermesModel:   os.Getenv("HERMES_MODEL"),
+		SessionPrefix: env("HERMES_SESSION_PREFIX", "wa-cs-"),
+		StateFile:     env("STATE_FILE", "/data/state.json"),
+		// No technical wording towards leads (Ruang Sanad CS rules).
+		FallbackMessage: env("FALLBACK_MESSAGE", "Terima kasih, Kak. Pesan Kakak sudah kami terima. Admin akan membalas di chat ini secepatnya."),
+		HandoffMessage:  env("HANDOFF_MESSAGE", "Baik, Kak. Agar informasinya tepat, saya teruskan ke admin, ya. Admin akan membalas di chat ini."),
+		// Empty by default: when the hourly limit is hit the admin is notified
+		// instead of sending the lead a "too many messages" notice.
+		RateLimitMessage: os.Getenv("RATE_LIMIT_MESSAGE"),
 	}
 
 	var err error

@@ -280,7 +280,13 @@ func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time) {
 		if !c.notified {
 			c.notified = true
 			b.wg.Add(1)
-			go func() { defer b.wg.Done(); b.send(chatID, b.cfg.RateLimitMessage) }()
+			go func() {
+				defer b.wg.Done()
+				if b.cfg.RateLimitMessage != "" {
+					b.send(chatID, b.cfg.RateLimitMessage)
+				}
+				b.handoff(chatID, phone, name, text, fmt.Sprintf("batas %d pesan/jam terlampaui", b.cfg.RateLimitPerHr))
+			}()
 		}
 		b.log.Warn("rate limit reached, message ignored", "chat", chatID)
 		return
@@ -420,8 +426,19 @@ func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
 		contact = "https://wa.me/" + phone
 		cmdTarget = phone
 	}
-	msg := fmt.Sprintf("🔔 *CS AI butuh admin*\nDari: %s\nKontak: %s\nAlasan: %s\n\nPesan terakhir:\n%s\n\nAI diam di chat ini sampai %s.\nBalas pengirim dari HP nomor CS, atau kirim \"AI ON %s\" ke nomor CS untuk mengaktifkan AI lagi.",
-		orDash(name), contact, reason, truncate(lastText, 500), until.Format("02 Jan 15:04"), cmdTarget)
+	// The marker may carry "reason | needs summary" for the admin.
+	summary := ""
+	if r, sum, ok := strings.Cut(reason, "|"); ok {
+		reason, summary = strings.TrimSpace(r), strings.TrimSpace(sum)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🔔 *CS AI butuh admin*\nDari: %s\nKontak: %s\nAlasan: %s\n", orDash(name), contact, orDash(reason))
+	if summary != "" {
+		fmt.Fprintf(&sb, "Ringkasan: %s\n", summary)
+	}
+	fmt.Fprintf(&sb, "\nPesan terakhir:\n%s\n\nAI diam di chat ini sampai %s.\nBalas pengirim dari HP nomor CS, atau kirim \"AI ON %s\" ke nomor CS untuk mengaktifkan AI lagi.",
+		truncate(lastText, 500), until.Format("02 Jan 15:04"), cmdTarget)
+	msg := sb.String()
 	for _, admin := range b.cfg.AdminNumbers {
 		b.send(admin+"@s.whatsapp.net", msg)
 	}

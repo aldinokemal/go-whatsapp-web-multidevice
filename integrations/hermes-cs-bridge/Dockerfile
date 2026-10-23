@@ -4,6 +4,7 @@ FROM golang:1.26-alpine3.23 AS builder
 WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
+COPY prompts ./prompts
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o /out/hermes-cs-bridge .
 
 FROM alpine:3.23
