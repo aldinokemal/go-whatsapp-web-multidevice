@@ -37,6 +37,13 @@ func (f *fakeSender) SendText(_ context.Context, phone, text string) (string, er
 	f.msgs = append(f.msgs, sent{phone, text})
 	return "OUT" + string(rune('A'+f.n)), nil
 }
+func (f *fakeSender) SendImage(_ context.Context, phone, caption, path, ctype string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n++
+	f.msgs = append(f.msgs, sent{phone, "IMAGE:" + filepath.Base(path) + "|" + ctype + "|" + caption})
+	return "IMG" + string(rune('A'+f.n)), nil
+}
 func (f *fakeSender) Typing(context.Context, string, bool) { f.mu.Lock(); f.typing++; f.mu.Unlock() }
 func (f *fakeSender) all() []sent {
 	f.mu.Lock()
@@ -77,12 +84,17 @@ func testConfig() Config {
 
 func newTestBridge(t *testing.T, cfg Config, agent *fakeAgent) (*Bridge, *fakeSender, *Store) {
 	t.Helper()
-	store, err := LoadStore(filepath.Join(t.TempDir(), "state.json"))
+	dir := t.TempDir()
+	store, err := LoadStore(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := LoadSettings(filepath.Join(dir, "settings.json"), filepath.Join(dir, "media"), defaultSettings(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
 	snd := &fakeSender{}
-	b := NewBridge(context.Background(), cfg, snd, agent, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b := NewBridge(context.Background(), cfg, snd, agent, store, settings, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return b, snd, store
 }
 
@@ -350,15 +362,22 @@ func TestHandoffSummaryIsSeparated(t *testing.T) {
 }
 
 // Guards the embedded CS instructions against accidental edits that would
-// break handoff or drop the verified price facts.
+// break handoff or drop the verified facts.
 func TestEmbeddedPrompt(t *testing.T) {
-	for _, want := range []string{"[[HANDOFF:", "Rp149.000", "Rp199.000", "LURC", "CLEAR", "Jangan pernah mengarang link"} {
-		if !strings.Contains(defaultSystemPrompt, want) {
-			t.Errorf("embedded prompt lacks %q", want)
+	cfg := testConfig()
+	cfg.SystemPrompt = defaultSystemPrompt
+	full := buildSystemPrompt(defaultSettings(cfg), "X", time.Now(), false)
+	for _, want := range []string{"[[HANDOFF:", "[[REKENING:", "[[FORM]]", "Rp149.000", "Rp199.000", "LURC", "CLEAR",
+		"JANGAN pernah menulis sendiri nomor rekening", "emoji"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("system prompt lacks %q", want)
 		}
 	}
-	if len(defaultSystemPrompt) > 20000 {
-		t.Errorf("prompt is %d bytes; keep it compact, it is sent on every turn", len(defaultSystemPrompt))
+	if strings.Contains(full, "1110012352") {
+		t.Error("the account number must not be in the prompt; it is pasted by the bridge")
+	}
+	if len(full) > 24000 {
+		t.Errorf("prompt is %d bytes; keep it compact, it is sent on every turn", len(full))
 	}
 }
 
@@ -497,8 +516,13 @@ func TestLoadConfigValidation(t *testing.T) {
 	if strings.Join(cfg.AdminNumbers, ",") != "62811,62822" {
 		t.Fatalf("admins = %v", cfg.AdminNumbers)
 	}
+	// Admin numbers can now come from the /cs-ai page, so an empty env is fine.
 	t.Setenv("ADMIN_NUMBERS", "")
-	if _, err := loadConfig(); err == nil {
-		t.Fatal("empty ADMIN_NUMBERS should fail")
+	if _, err := loadConfig(); err != nil {
+		t.Fatalf("empty ADMIN_NUMBERS should be allowed: %v", err)
+	}
+	t.Setenv("ADMIN_TOKEN", "short")
+	if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "ADMIN_TOKEN") {
+		t.Fatalf("short ADMIN_TOKEN should fail, got %v", err)
 	}
 }

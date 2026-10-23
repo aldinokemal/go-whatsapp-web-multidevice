@@ -34,15 +34,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	settings, err := LoadSettings(cfg.SettingsFile, cfg.MediaDir, defaultSettings(cfg))
+	if err != nil {
+		log.Error("cannot load settings", "file", cfg.SettingsFile, "err", err)
+		os.Exit(1)
+	}
+	if len(settings.Get().AdminNumbers) == 0 {
+		log.Warn("no admin numbers configured; handoff notices go nowhere until they are set at /cs-ai")
+	}
+	if cfg.AdminToken == "" {
+		log.Warn("ADMIN_TOKEN is empty; the /cs-ai settings page is disabled")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bridge := NewBridge(ctx, cfg, NewGowaClient(cfg), NewHermesClient(cfg), store, log)
+	bridge := NewBridge(ctx, cfg, NewGowaClient(cfg), NewHermesClient(cfg), store, settings, log)
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: bridge.Routes(), ReadHeaderTimeout: 10 * time.Second}
 
 	go func() {
 		log.Info("hermes-cs-bridge listening", "addr", cfg.ListenAddr, "device", cfg.GowaDeviceID,
-			"hermes", cfg.HermesURL, "admins", len(cfg.AdminNumbers))
+			"hermes", cfg.HermesURL, "admins", len(settings.Get().AdminNumbers), "settings_page", cfg.AdminToken != "")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server stopped", "err", err)
 			stop()

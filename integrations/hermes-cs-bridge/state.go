@@ -22,10 +22,13 @@ type Store struct {
 	path   string
 	Paused map[string]Pause  `json:"paused"`
 	Phones map[string]string `json:"phones"`
+	// PaymentSent records when payment info was last sent to a chat, so a later
+	// image from that chat is treated as a likely transfer proof.
+	PaymentSent map[string]time.Time `json:"payment_sent"`
 }
 
 func LoadStore(path string) (*Store, error) {
-	s := &Store{path: path, Paused: map[string]Pause{}, Phones: map[string]string{}}
+	s := &Store{path: path, Paused: map[string]Pause{}, Phones: map[string]string{}, PaymentSent: map[string]time.Time{}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -41,6 +44,9 @@ func LoadStore(path string) (*Store, error) {
 	}
 	if s.Phones == nil {
 		s.Phones = map[string]string{}
+	}
+	if s.PaymentSent == nil {
+		s.PaymentSent = map[string]time.Time{}
 	}
 	return s, nil
 }
@@ -127,4 +133,26 @@ func (s *Store) ActivePauses(now time.Time) map[string]Pause {
 		}
 	}
 	return out
+}
+
+const paymentWindow = 14 * 24 * time.Hour
+
+func (s *Store) MarkPaymentSent(chatID string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, t := range s.PaymentSent {
+		if now.Sub(t) > paymentWindow {
+			delete(s.PaymentSent, k)
+		}
+	}
+	s.PaymentSent[chatID] = now
+	_ = s.save()
+}
+
+// PaymentSentRecently reports whether payment info went to chatID within the window.
+func (s *Store) PaymentSentRecently(chatID string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.PaymentSent[chatID]
+	return ok && now.Sub(t) <= paymentWindow
 }

@@ -4,24 +4,26 @@ Panduan ini menyambungkan nomor WhatsApp CS di GOWA ke Hermes Agent profile
 `ruang-sanad`. Hasilnya, pesan masuk ke nomor CS dijawab AI, dan topik sensitif
 dialihkan ke admin manusia.
 
-Cakupan CS AI: **informasi umum dan percakapan closing** mengikuti skill
-`whatsapp-cs-closing` (lihat [Skill dan pengetahuan CS](#skill-dan-pengetahuan-cs)).
-Data pribadi (tagihan, kelas, nilai), jadwal/slot pasti, form, dan pembayaran
-**tidak** ditangani AI dan selalu dialihkan ke admin. CS AI ini tidak terhubung ke
-dashboard Ruang Sanad.
+Cakupan CS AI: **percakapan sampai closing** mengikuti skill `whatsapp-cs-closing`.
+Alurnya: form data, rangkuman, info rekening, lalu bukti transfer diteruskan ke admin
+(lihat [Skill dan pengetahuan CS](#skill-dan-pengetahuan-cs)). Yang **tidak** ditangani
+AI dan selalu dialihkan ke admin: verifikasi pembayaran, data pribadi (tagihan, kelas,
+nilai), dan jadwal/slot pasti. Semua pengaturan bisa diubah di
+`https://wa.ruangsanad.com/cs-ai`. CS AI ini tidak terhubung ke dashboard Ruang Sanad.
 
 ## Daftar isi
 
 1. [Cara kerja](#cara-kerja)
 2. [Skill dan pengetahuan CS](#skill-dan-pengetahuan-cs)
-3. [Langkah 1 — Siapkan GOWA](#langkah-1--siapkan-gowa)
-4. [Langkah 2 — Siapkan Hermes (WAJIB dibaca: keamanan)](#langkah-2--siapkan-hermes)
-5. [Langkah 3 — Pasang bridge](#langkah-3--pasang-bridge)
-6. [Langkah 4 — Sambungkan webhook GOWA ke bridge](#langkah-4--sambungkan-webhook-gowa-ke-bridge)
-7. [Langkah 5 — Uji coba](#langkah-5--uji-coba)
-8. [Pemakaian sehari-hari](#pemakaian-sehari-hari)
-9. [Troubleshooting](#troubleshooting)
-10. [Risiko dan batasan](#risiko-dan-batasan)
+3. [Halaman pengaturan /cs-ai](#halaman-pengaturan-cs-ai)
+4. [Langkah 1 — Siapkan GOWA](#langkah-1--siapkan-gowa)
+5. [Langkah 2 — Siapkan Hermes (WAJIB dibaca: keamanan)](#langkah-2--siapkan-hermes)
+6. [Langkah 3 — Pasang bridge](#langkah-3--pasang-bridge)
+7. [Langkah 4 — Sambungkan webhook GOWA ke bridge](#langkah-4--sambungkan-webhook-gowa-ke-bridge)
+8. [Langkah 5 — Uji coba](#langkah-5--uji-coba)
+9. [Pemakaian sehari-hari](#pemakaian-sehari-hari)
+10. [Troubleshooting](#troubleshooting)
+11. [Risiko dan batasan](#risiko-dan-batasan)
 
 ## Cara kerja
 
@@ -98,32 +100,44 @@ Toolset `skills` berisi `skill_manage`, jadi kalau dinyalakan, siapa pun yang ch
 bisa mengubah skill. Dengan instruksi yang dikirim bridge, skill tetap aktif tanpa
 membuka tool apa pun.
 
-**Pembagian kerja AI dan admin**, sesuai aturan di dokumen sumber bahwa data yang
-belum terverifikasi tidak boleh dikirim dari ingatan:
+**Alur closing.** AI membawa calon santri sampai bukti transfer. Verifikasi
+pembayaran dan penempatan kelas tetap oleh admin.
+
+```
+discovery → rekomendasi paket → trial close
+→ AI kirim [[FORM]]          (teks form resmi dari halaman pengaturan)
+→ calon santri isi → AI rangkum + minta konfirmasi
+→ AI kirim [[REKENING:1x]]   (teks rekening resmi + nominal paket dari pengaturan)
+→ calon santri kirim bukti transfer
+→ AI: "terima kasih, diteruskan untuk verifikasi" → admin diberi tahu, AI diam di chat itu
+```
 
 | AI menangani | Selalu dialihkan ke admin |
 |---|---|
-| Sapaan, discovery, ringkasan kebutuhan | Jadwal pasti, slot, tanggal mulai |
-| Harga reguler (Rp149.000 / Rp199.000) | Link form pendaftaran, metode pembayaran/rekening |
-| Proses belajar, kelas ikhwan/akhwat terpisah | Profil/sanad guru, coba kelas, promo, kebijakan absen |
-| Rekomendasi frekuensi, trial close | "Siap daftar", bukti transfer, masalah pembayaran |
-| Keberatan (LURC), penutupan sopan | Komplain, data pribadi, fikih, kelas yang tidak ada |
+| Sapaan, discovery, ringkasan kebutuhan | Verifikasi pembayaran ("sudah lunas" hanya dari admin) |
+| Harga paket, proses belajar, kelas ikhwan/akhwat terpisah | Jadwal pasti, slot, tanggal mulai, penempatan kelas |
+| Rekomendasi paket, trial close, keberatan (LURC) | Profil/sanad guru, coba kelas, promo, kebijakan absen |
+| Form data, rangkuman data, info rekening + nominal | Masalah pembayaran, refund, rekening lain |
+| Mengirim gambar dari galeri | Komplain, data pribadi, fikih, kelas yang tidak ada |
 
-Saat mengalihkan, AI menulis `[[HANDOFF: alasan | ringkasan kebutuhan]]`. Notifikasi
-ke admin lalu berisi baris *Ringkasan*, misalnya `akhwat, pemula, malam, 1× sepekan`,
-supaya admin tidak perlu bertanya ulang.
+**Kode khusus.** Nomor rekening, nominal, isi form, dan gambar **tidak pernah diketik
+oleh AI**. AI hanya menulis kode, lalu bridge menggantinya dengan teks atau gambar
+resmi dari halaman pengaturan sebelum pesan dikirim:
 
-**Mengubah fakta** (harga baru, menambah link form resmi supaya AI bisa
-mengirimnya sendiri, dan sebagainya):
-1. Edit bagian "Fakta terverifikasi" di `prompts/ruang-sanad-cs.md` lewat GitHub.
-   Kalau ada fakta yang dipindah dari kolom "admin" ke "AI", hapus juga dari daftar
-   "Data yang TIDAK boleh Anda sebut".
-2. Merge ke `main`. Auto-deploy akan mem-build ulang bridge.
+| Kode | Diganti dengan |
+|---|---|
+| `[[FORM]]` | teks "Form data pendaftaran" |
+| `[[REKENING:<kode paket>]]` | teks "Info pembayaran" dengan `{PAKET}` dan `{NOMINAL}` dari paket itu. Kode paket yang tidak dikenal menghasilkan "akan dikonfirmasi admin", tidak pernah nominal karangan |
+| `[[GAMBAR:<kode>]]` | gambar dari galeri, maksimal 2 per balasan |
+| `[[HANDOFF: alasan \| ringkasan]]` | tidak terlihat oleh calon santri. Admin menerima notifikasi berisi alasan dan ringkasan |
 
-Untuk uji cepat tanpa deploy, salin file itu ke
-`/opt/gowa-deploy/cs-bridge-data/cs-prompt.txt`, edit, set
-`CS_SYSTEM_PROMPT_FILE=/data/cs-prompt.txt` di `cs-bridge.env`, lalu restart bridge.
-Kalau mau kembali ke versi repo, hapus variabel itu.
+Kalau calon santri mengirim gambar atau dokumen dalam 14 hari setelah info
+pembayaran dikirim, bridge memberi tahu AI bahwa itu kemungkinan bukti transfer.
+
+**Bagian yang dikunci.** Aturan keamanan, aturan pembayaran, dan kode khusus ada di
+`prompts/locked.md`. Bagian ini **tidak bisa diubah dari halaman pengaturan** dan
+selalu ditambahkan ke instruksi. Tujuannya supaya edit dari UI tidak bisa membuat AI
+menyatakan "lunas", mengetik rekening sendiri, atau menuruti perintah sistem.
 
 **Follow-up 30 hari (Hari 1/3/7/14/30) tidak dijalankan otomatis.** Bridge hanya
 membalas pesan yang masuk. Follow-up adalah pesan keluar terjadwal yang butuh:
@@ -146,6 +160,55 @@ hermes -p ruang-sanad skills list | grep whatsapp-cs-closing
 ```
 
 Langkah ini tidak memengaruhi jalur CS, karena di jalur CS toolset `skills` mati.
+
+## Halaman pengaturan `/cs-ai`
+
+Buka `https://wa.ruangsanad.com/cs-ai` dan login dengan akun GOWA yang sama. Semua
+perubahan berlaku langsung setelah **Simpan**, tanpa restart.
+
+| Tab | Isi |
+|---|---|
+| Status | Saklar AI aktif/nonaktif untuk semua chat, status Hermes, daftar chat yang dijeda + tombol "Aktifkan AI" |
+| Paket & Pembayaran | Paket (kode, nama, harga, keterangan), teks info pembayaran/rekening, teks form pendaftaran |
+| Instruksi | Instruksi CS (gaya, emoji, alur, fakta program), tombol kembalikan default, aturan tetap (hanya baca), pratinjau instruksi lengkap yang diterima AI |
+| Galeri Gambar | Unggah JPG/PNG/WEBP maks 5 MB dengan kode, keterangan "kapan dikirim", caption. Unggah dengan kode yang sama untuk mengganti |
+| Operasional | Nomor admin, lama jeda, penggabungan pesan, batas pesan per jam, indikator "mengetik", pesan otomatis |
+
+Cara kerjanya: GOWA memeriksa Basic Auth, lalu meneruskan `/cs-ai` ke bridge dengan
+token rahasia (`X-CS-AI-Token`) dan nama user yang login. Bridge menolak semua
+permintaan tanpa token itu. Permintaan yang mengubah data juga harus berasal dari
+halaman itu sendiri, untuk mencegah CSRF. Pengaturan disimpan di
+`/opt/gowa-deploy/cs-bridge-data/settings.json`, gambar di
+`/opt/gowa-deploy/cs-bridge-data/media/`. Folder itu sebaiknya ikut di-backup.
+
+**Mengaktifkan halaman (sekali saja, di server):**
+
+```bash
+T=$(openssl rand -hex 32)
+# bridge
+grep -q '^ADMIN_TOKEN=' /opt/gowa-deploy/cs-bridge.env \
+  && sed -i "s|^ADMIN_TOKEN=.*|ADMIN_TOKEN=$T|" /opt/gowa-deploy/cs-bridge.env \
+  || echo "ADMIN_TOKEN=$T" >> /opt/gowa-deploy/cs-bridge.env
+# GOWA
+sed -i '/^CS_AI_ADMIN_URL=/d;/^CS_AI_ADMIN_TOKEN=/d' /opt/gowa/src/.env
+printf 'CS_AI_ADMIN_URL=http://host.docker.internal:8650\nCS_AI_ADMIN_TOKEN=%s\n' "$T" >> /opt/gowa/src/.env
+unset T
+cd /opt/gowa-deploy && docker compose up -d --force-recreate
+docker compose logs --tail=50 whatsapp_go | grep CS_AI
+```
+
+Log harus berisi `[CS_AI] settings page mounted at /cs-ai`. Rute ini hanya aktif
+kalau `APP_BASIC_AUTH` terisi, supaya halaman pengaturan tidak pernah terbuka tanpa
+login.
+
+Pada start pertama setelah update, bridge membuat `settings.json` dari nilai di
+`cs-bridge.env` (nomor admin, jeda, batas pesan) ditambah default Ruang Sanad (paket
+Rp149.000/Rp199.000, rekening Muamalat, form pendaftaran). Setelah itu, nilai-nilai
+tersebut diubah dari halaman `/cs-ai`, bukan dari `.env`.
+
+Catatan: repo ini publik, jadi teks default (termasuk nomor rekening) ikut terlihat di
+GitHub. Rekening itu memang untuk dibagikan ke calon santri, tapi kalau Anda tidak
+ingin ada di repo, ubah lewat halaman pengaturan. Isi `settings.json` tidak masuk Git.
 
 ## Langkah 1 — Siapkan GOWA
 
@@ -439,7 +502,8 @@ hermes -p ruang-sanad logs -f
 | Matikan CS AI total sementara | `docker compose -f /opt/gowa-deploy/compose.yml stop hermes_cs_bridge`. Pesan tetap masuk ke HP, hanya tidak dibalas AI |
 | Nyalakan lagi | `docker compose -f /opt/gowa-deploy/compose.yml up -d hermes_cs_bridge` |
 | Ubah lama jeda, batas pesan, teks | Edit `/opt/gowa-deploy/cs-bridge.env`, lalu jalankan perintah "nyalakan lagi" |
-| Ubah fakta/aturan CS | Edit `integrations/hermes-cs-bridge/prompts/ruang-sanad-cs.md`, lalu merge ke `main` (lihat [Skill dan pengetahuan CS](#skill-dan-pengetahuan-cs)) |
+| Ubah harga, rekening, form, instruksi, gambar, nomor admin | Halaman `/cs-ai`, lalu tekan Simpan |
+| Matikan/nyalakan CS AI untuk semua chat | Halaman `/cs-ai`, tab Status |
 | Follow-up Hari 1/3/7/14/30 | Manual oleh admin dengan quick reply dari Script 30 Hari |
 
 Perintah `AI ON/OFF/STATUS` hanya berlaku dari nomor di `ADMIN_NUMBERS`. Dari nomor
