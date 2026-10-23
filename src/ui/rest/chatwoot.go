@@ -584,9 +584,13 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 		return c.SendStatus(fiber.StatusOK)
 	}
 	instance, resolvedID, err := h.DeviceManager.ResolveDevice(route.DeviceID)
+	// A logout keeps the slot but clears its JID, while the conversation's link
+	// keeps the old one: its outgoing links are reported as not deleted, with
+	// the send path's error, instead of dropping the delete.
+	var resolveErr error
 	if err != nil {
 		logrus.Errorf("Chatwoot Webhook: Failed to resolve device for delete: %v", err)
-		return c.SendStatus(fiber.StatusOK)
+		resolveErr = fmt.Errorf("no WhatsApp device available: %w", err)
 	}
 
 	storageDeviceID := chatwootStorageDeviceID(instance, resolvedID)
@@ -609,10 +613,14 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 			continue
 		}
 		total++
-		if _, err := h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
-			MessageID: link.WhatsAppMessageID,
-			Phone:     link.WhatsAppChatJID,
-		}); err != nil {
+		err := resolveErr
+		if err == nil {
+			_, err = h.MessageUsecase.RevokeMessage(ctx, domainMessage.RevokeRequest{
+				MessageID: link.WhatsAppMessageID,
+				Phone:     link.WhatsAppChatJID,
+			})
+		}
+		if err != nil {
 			logrus.Errorf("Chatwoot Webhook: Failed to revoke WhatsApp message %s for Chatwoot delete %d: %v", link.WhatsAppMessageID, payload.ID, err)
 			failed++
 			if firstErr == nil {
