@@ -49,6 +49,7 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_FORWARD_DELETES` | No | `true` | Mirror WhatsApp delete-for-everyone events into Chatwoot as private/threaded notes attached to the original message. |
 | `CHATWOOT_MESSAGE_READ` | No | `false` | Evolution-compatible read sync. Updates Chatwoot last-seen from WhatsApp receipts and marks WhatsApp messages read after agent replies when durable message links exist. |
 | `CHATWOOT_MESSAGE_DELETE` | No | `false` | Evolution-compatible delete sync. Deletes/revokes the linked message on the opposite side when durable message links exist. Inbound customer messages are not revoked from WhatsApp because this device did not send them. |
+| `CHATWOOT_REVOKE_ON_DELETE` | No | `false` | The Chatwoot-to-WhatsApp half of `CHATWOOT_MESSAGE_DELETE` alone: a message deleted in Chatwoot is revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in Chatwoot. |
 
 ### Configuration Examples
 
@@ -526,6 +527,7 @@ As in WhatsApp, a WhatsApp-side pair only counts at word boundaries and never in
 - **Edits**: when a WhatsApp user edits a message, the new text is mirrored into Chatwoot as a threaded `✏️ **Edited:** …` note (controlled by `CHATWOOT_FORWARD_EDITS`, default on).
 - **Deletions**: a delete-for-everyone is mirrored as a threaded `🗑️ This message was deleted.` note (controlled by `CHATWOOT_FORWARD_DELETES`, default on).
 - **Linked deletes**: with `CHATWOOT_MESSAGE_DELETE=true`, WhatsApp delete-for-everyone events delete the linked Chatwoot message when a durable link exists. Chatwoot `message_updated` delete webhooks revoke linked outgoing WhatsApp messages; inbound customer messages are not revoked because this device did not send them.
+- **Chatwoot deletes only**: with `CHATWOOT_REVOKE_ON_DELETE=true`, a message deleted in Chatwoot is revoked on WhatsApp — every WhatsApp message it went out as, one per attachment. WhatsApp deletes still arrive as the note above and never delete the Chatwoot message. The same delete path also applies with `CHATWOOT_MESSAGE_DELETE=true`.
 
 Both are threaded onto the original message via Chatwoot's `in_reply_to_external_id` using the shared `WAID:<id>` source-id convention, so they appear as replies to the message they affect.
 
