@@ -49,6 +49,12 @@ jobs:
         working-directory: src
         run: go test ./...
 
+      - name: Test CS bridge
+        working-directory: integrations/hermes-cs-bridge
+        run: |
+          go vet ./...
+          go test -race ./...
+
   deploy:
     name: Deploy
     needs: test

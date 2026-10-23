@@ -73,6 +73,11 @@ Hasil pengecekan server saat ini:
 Container: `gowa-deploy-whatsapp_go-1`. Reverse proxy (Nginx/Caddy) meneruskan
 `wa.ruangsanad.com` ke `127.0.0.1:3000`, dan tidak perlu diubah.
 
+Kalau CS AI sudah dipasang ([cs-ai-hermes.md](cs-ai-hermes.md)), `compose.yml` juga
+berisi service `hermes_cs_bridge`, dan service itu ikut di-build setiap deploy.
+Health check deploy hanya memeriksa GOWA. Bridge yang gagal tidak menggagalkan
+deploy, jadi cek bridge dengan `docker compose -f /opt/gowa-deploy/compose.yml ps`.
+
 ## Setup sekali jalan
 
 Jalankan semua perintah di server sebagai **root**, kecuali yang ditandai
