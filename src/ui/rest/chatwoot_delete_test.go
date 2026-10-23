@@ -21,9 +21,10 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// deleteRepo serves the links of Chatwoot message 90: WA-1 and WA-2 went
-// out from account 3, WA-IN was received and WA-X belongs to account 4.
-// Message 91 has WA-3 from account 3 and WA-0, a legacy account-0 link.
+// deleteRepo serves, for the env's device, the links of Chatwoot message 90:
+// WA-1 and WA-2 went out from account 3, WA-IN was received and WA-X belongs
+// to account 4. Message 91 has WA-3 from account 3 and WA-0, a legacy
+// account-0 link.
 type deleteRepo struct {
 	chatwootRouteTestRepo
 	calls int
@@ -32,6 +33,9 @@ type deleteRepo struct {
 func (r *deleteRepo) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
 	r.calls++
 	links := []*domainChatStorage.ChatwootMessageLink{}
+	if deviceID != "device-a@s.whatsapp.net" {
+		return links, nil
+	}
 	ids := map[int][]string{90: {"WA-1", "WA-2", "WA-IN", "WA-X"}, 91: {"WA-0", "WA-3"}}[chatwootMessageID]
 	for _, id := range ids {
 		link := &domainChatStorage.ChatwootMessageLink{DeviceID: deviceID, WhatsAppMessageID: id,
@@ -63,6 +67,7 @@ func (u *deleteUsecase) RevokeMessage(_ context.Context, r domainMessage.RevokeR
 
 type deleteEnv struct {
 	app     *fiber.App
+	dm      *whatsapp.DeviceManager
 	usecase *deleteUsecase
 	repo    *deleteRepo
 	notes   []string
@@ -93,9 +98,9 @@ func newDeleteEnv(t *testing.T) *deleteEnv {
 	chatwoot.InitClientRegistry(nil)
 
 	jid := types.NewJID("device-a", types.DefaultUserServer)
-	dm := whatsapp.NewDeviceManager(nil, nil, nil)
-	dm.AddDevice(whatsapp.NewDeviceInstance("slot-a", &whatsmeow.Client{Store: &store.Device{ID: &jid}}, nil))
-	handler := &ChatwootHandler{MessageUsecase: env.usecase, DeviceManager: dm, ChatStorageRepo: env.repo}
+	env.dm = whatsapp.NewDeviceManager(nil, nil, nil)
+	env.dm.AddDevice(whatsapp.NewDeviceInstance("slot-a", &whatsmeow.Client{Store: &store.Device{ID: &jid}}, nil))
+	handler := &ChatwootHandler{MessageUsecase: env.usecase, DeviceManager: env.dm, ChatStorageRepo: env.repo}
 	env.app = fiber.New()
 	env.app.Post("/chatwoot/webhook", handler.HandleWebhook)
 	return env
@@ -186,6 +191,38 @@ func TestChatwootDeleteFollowsBothFlags(t *testing.T) {
 			if tc.revokes == nil {
 				deleteEqual(t, "storage calls", env.repo.calls, 0)
 			}
+		})
+	}
+}
+
+// A delete whose sending device can't be resolved revokes nothing: the links
+// still stored under that device's JID get the not-deleted note. A logout keeps
+// the slot but clears its JID, so the conversation link's JID no longer resolves.
+func TestChatwootDeleteNotesLinksWithoutDevice(t *testing.T) {
+	const note = "private=true Message was not deleted on WhatsApp (2 of 2).\n\n" +
+		"Error: no WhatsApp device available: device device-a@s.whatsapp.net not found"
+	for _, tc := range []struct {
+		name   string
+		link   bool
+		unpair func(dm *whatsapp.DeviceManager)
+		notes  []string
+	}{
+		{"logged-out slot", true, func(dm *whatsapp.DeviceManager) {
+			slot, _ := dm.GetDevice("slot-a")
+			slot.ResetClient()
+		}, []string{note}},
+		{"never paired, nothing sent", false, func(dm *whatsapp.DeviceManager) { dm.RemoveDevice("slot-a") }, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newDeleteEnv(t)
+			if tc.link {
+				env.repo.link = &domainChatStorage.ChatwootMessageLink{DeviceID: "device-a@s.whatsapp.net",
+					WhatsAppChatJID: "5500900000001@s.whatsapp.net", ChatwootConversationID: 7, ChatwootAccountID: 3}
+			}
+			tc.unpair(env.dm)
+			env.deleted(t, 90)
+			deleteEqual(t, "revokes", env.usecase.ids, []string(nil))
+			deleteEqual(t, "notes", env.notes, tc.notes)
 		})
 	}
 }
