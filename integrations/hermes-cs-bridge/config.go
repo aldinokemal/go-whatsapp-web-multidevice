@@ -39,8 +39,14 @@ type Config struct {
 	HandoffMessage   string
 	RateLimitMessage string
 
-	StateFile string
-	Typing    bool
+	StateFile    string
+	SettingsFile string
+	MediaDir     string
+	Typing       bool
+
+	// AdminToken protects the /cs-ai settings page. GOWA's proxy sends it after
+	// Basic Auth succeeded; when empty the settings page is disabled.
+	AdminToken string
 }
 
 func loadConfig() (Config, error) {
@@ -56,6 +62,9 @@ func loadConfig() (Config, error) {
 		HermesModel:   os.Getenv("HERMES_MODEL"),
 		SessionPrefix: env("HERMES_SESSION_PREFIX", "wa-cs-"),
 		StateFile:     env("STATE_FILE", "/data/state.json"),
+		SettingsFile:  env("SETTINGS_FILE", "/data/settings.json"),
+		MediaDir:      env("MEDIA_DIR", "/data/media"),
+		AdminToken:    os.Getenv("ADMIN_TOKEN"),
 		// No technical wording towards leads (Ruang Sanad CS rules).
 		FallbackMessage: env("FALLBACK_MESSAGE", "Terima kasih, Kak. Pesan Kakak sudah kami terima. Admin akan membalas di chat ini secepatnya."),
 		HandoffMessage:  env("HANDOFF_MESSAGE", "Baik, Kak. Agar informasinya tepat, saya teruskan ke admin, ya. Admin akan membalas di chat ini."),
@@ -115,8 +124,8 @@ func loadConfig() (Config, error) {
 	if len(c.WebhookSecret) < 16 {
 		return c, errors.New("WEBHOOK_SECRET must be at least 16 characters")
 	}
-	if len(c.AdminNumbers) == 0 {
-		return c, errors.New("ADMIN_NUMBERS is empty: handoff needs at least one admin number")
+	if c.AdminToken != "" && len(c.AdminToken) < 24 {
+		return c, errors.New("ADMIN_TOKEN must be at least 24 characters (openssl rand -hex 32)")
 	}
 	return c, nil
 }

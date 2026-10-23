@@ -7,13 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"os"
+	"path/filepath"
 	"time"
 )
 
 // Sender sends WhatsApp messages through GOWA.
 type Sender interface {
 	SendText(ctx context.Context, phone, text string) (messageID string, err error)
+	SendImage(ctx context.Context, phone, caption, path, contentType string) (messageID string, err error)
 	Typing(ctx context.Context, phone string, on bool)
 }
 
@@ -39,12 +44,16 @@ func (g *GowaClient) post(ctx context.Context, path string, body any) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.baseURL+path, bytes.NewReader(b))
+	return g.do(ctx, path, "application/json", bytes.NewReader(b))
+}
+
+func (g *GowaClient) do(ctx context.Context, path, contentType string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.SetBasicAuth(g.user, g.pass)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Device-Id", g.deviceID)
 	resp, err := g.http.Do(req)
 	if err != nil {
@@ -63,13 +72,50 @@ func (g *GowaClient) SendText(ctx context.Context, phone, text string) (string, 
 	if err != nil {
 		return "", err
 	}
+	return messageID(out), nil
+}
+
+func messageID(out []byte) string {
 	var r struct {
 		Results struct {
 			MessageID string `json:"message_id"`
 		} `json:"results"`
 	}
 	_ = json.Unmarshal(out, &r)
-	return r.Results.MessageID, nil
+	return r.Results.MessageID
+}
+
+// SendImage uploads a file to GOWA's /send/image as multipart form data.
+func (g *GowaClient) SendImage(ctx context.Context, phone, caption, path, contentType string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("phone", phone)
+	if caption != "" {
+		_ = mw.WriteField("caption", caption)
+	}
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename=%q`, filepath.Base(path)))
+	h.Set("Content-Type", contentType)
+	part, err := mw.CreatePart(h)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return "", err
+	}
+	if err := mw.Close(); err != nil {
+		return "", err
+	}
+	out, err := g.do(ctx, "/send/image", mw.FormDataContentType(), &buf)
+	if err != nil {
+		return "", err
+	}
+	return messageID(out), nil
 }
 
 func (g *GowaClient) Typing(ctx context.Context, phone string, on bool) {

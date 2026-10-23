@@ -19,19 +19,21 @@ import (
 // Bridge receives GOWA webhooks for the CS device, asks Hermes for a reply and
 // sends it back through GOWA. Admins take over by replying from the CS phone
 // (the chat is then paused) or by sending "AI ON/OFF <number>" to the CS number.
+// Behaviour that admins tune lives in settings (editable at /cs-ai).
 type Bridge struct {
-	cfg    Config
-	gowa   Sender
-	agent  Agent
-	store  *Store
-	log    *slog.Logger
-	now    func() time.Time
-	ctx    context.Context
-	wg     sync.WaitGroup
-	mu     sync.Mutex
-	chats  map[string]*chat
-	seen   map[string]time.Time // processed message ids (dedupe of webhook retries)
-	sentID map[string]time.Time // ids of messages this bridge sent
+	cfg      Config
+	gowa     Sender
+	agent    Agent
+	store    *Store
+	settings *SettingsStore
+	log      *slog.Logger
+	now      func() time.Time
+	ctx      context.Context
+	wg       sync.WaitGroup
+	mu       sync.Mutex
+	chats    map[string]*chat
+	seen     map[string]time.Time // processed message ids (dedupe of webhook retries)
+	sentID   map[string]time.Time // ids of messages this bridge sent
 }
 
 type chat struct {
@@ -56,8 +58,8 @@ type webhookEvent struct {
 var handoffRe = regexp.MustCompile(`(?is)\[\[\s*HANDOFF\s*(?::\s*(.*?))?\]\]`)
 var adminCmdRe = regexp.MustCompile(`(?i)^\s*AI\s+(ON|OFF|STATUS)\s*([+0-9 \-]*)\s*$`)
 
-func NewBridge(ctx context.Context, cfg Config, gowa Sender, agent Agent, store *Store, log *slog.Logger) *Bridge {
-	return &Bridge{cfg: cfg, gowa: gowa, agent: agent, store: store, log: log, now: time.Now, ctx: ctx,
+func NewBridge(ctx context.Context, cfg Config, gowa Sender, agent Agent, store *Store, settings *SettingsStore, log *slog.Logger) *Bridge {
+	return &Bridge{cfg: cfg, gowa: gowa, agent: agent, store: store, settings: settings, log: log, now: time.Now, ctx: ctx,
 		chats: map[string]*chat{}, seen: map[string]time.Time{}, sentID: map[string]time.Time{}}
 }
 
@@ -71,6 +73,7 @@ func (b *Bridge) Routes() *http.ServeMux {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "paused_chats": len(b.store.ActivePauses(b.now()))})
 	})
+	b.adminRoutes(mux)
 	return mux
 }
 
@@ -122,17 +125,34 @@ func ignoredChat(chatID string) bool {
 		strings.HasSuffix(chatID, "@newsletter")
 }
 
-// mediaNote describes a message without text so the AI can react to it.
-func mediaNote(p map[string]any) string {
-	for key, label := range map[string]string{
-		"image": "gambar", "video": "video", "audio": "pesan suara", "document": "dokumen",
-		"sticker": "stiker", "location": "lokasi", "contact": "kontak",
-	} {
-		if v, ok := p[key]; ok && v != nil {
-			return fmt.Sprintf("[Pengirim mengirim %s tanpa teks. Anda tidak bisa membuka isinya.]", label)
+var mediaLabels = []struct{ key, label string }{
+	{"image", "gambar"}, {"video", "video"}, {"audio", "pesan suara"}, {"document", "dokumen"},
+	{"sticker", "stiker"}, {"location", "lokasi"}, {"contact", "kontak"},
+}
+
+// mediaKind returns the media type label of a message, or "".
+func mediaKind(p map[string]any) string {
+	for _, m := range mediaLabels {
+		if v, ok := p[m.key]; ok && v != nil {
+			return m.label
 		}
 	}
 	return ""
+}
+
+// mediaNote describes media to the AI. After payment info went out, an image or
+// document is very likely a transfer proof, and the AI is told so.
+func mediaNote(kind string, hasText, paymentSent bool) string {
+	if kind == "" {
+		return ""
+	}
+	if paymentSent && (kind == "gambar" || kind == "dokumen") {
+		return fmt.Sprintf("[Pengirim mengirim %s. Info pembayaran sudah dikirim sebelumnya, jadi ini kemungkinan besar BUKTI TRANSFER. Anda tidak bisa membuka isinya.]", kind)
+	}
+	if hasText {
+		return fmt.Sprintf("[Pesan ini disertai %s yang tidak bisa Anda buka.]", kind)
+	}
+	return fmt.Sprintf("[Pengirim mengirim %s tanpa teks. Anda tidak bisa membuka isinya.]", kind)
 }
 
 func (b *Bridge) handleEvent(ev webhookEvent) {
@@ -153,6 +173,7 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 	if id != "" && !b.markSeen(id, now) {
 		return
 	}
+	s := b.settings.Get()
 	text := strings.TrimSpace(str(p, "body"))
 	fromMe, _ := p["is_from_me"].(bool)
 
@@ -162,11 +183,11 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 		if b.isOwnSent(id) {
 			return
 		}
-		if err := b.store.SetPause(chatID, now.Add(b.cfg.PauseDuration), "admin membalas dari HP"); err != nil {
+		if err := b.store.SetPause(chatID, now.Add(s.PauseDuration()), "admin membalas dari HP"); err != nil {
 			b.log.Error("save pause", "err", err)
 		}
 		b.dropPending(chatID)
-		b.log.Info("admin took over chat; AI paused", "chat", chatID, "for", b.cfg.PauseDuration)
+		b.log.Info("admin took over chat; AI paused", "chat", chatID, "for", s.PauseDuration())
 		return
 	}
 
@@ -179,7 +200,7 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 	}
 	b.store.RememberPhone(phone, chatID)
 
-	if phone != "" && b.isAdmin(phone) {
+	if phone != "" && isAdmin(s, phone) {
 		if m := adminCmdRe.FindStringSubmatch(text); m != nil {
 			b.wg.Add(1)
 			go func() { defer b.wg.Done(); b.adminCommand(chatID, strings.ToUpper(m[1]), normalizePhone(m[2])) }()
@@ -187,8 +208,12 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 		}
 	}
 
-	if text == "" {
-		text = mediaNote(p)
+	if !s.Enabled {
+		b.log.Info("CS AI disabled in settings; message left for admins", "chat", chatID)
+		return
+	}
+	if note := mediaNote(mediaKind(p), text != "", b.store.PaymentSentRecently(chatID, now)); note != "" {
+		text = strings.TrimSpace(text + "\n" + note)
 	}
 	if text == "" {
 		return
@@ -201,7 +226,7 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 	if name == "" {
 		name = str(p, "from_name")
 	}
-	b.enqueue(chatID, phone, name, text, now)
+	b.enqueue(chatID, phone, name, text, now, s)
 }
 
 func (b *Bridge) markSeen(id string, now time.Time) bool {
@@ -226,8 +251,8 @@ func (b *Bridge) isOwnSent(id string) bool {
 	return ok
 }
 
-func (b *Bridge) isAdmin(phone string) bool {
-	for _, a := range b.cfg.AdminNumbers {
+func isAdmin(s Settings, phone string) bool {
+	for _, a := range s.AdminNumbers {
 		if a == phone {
 			return true
 		}
@@ -258,7 +283,7 @@ func (b *Bridge) stopTimer(c *chat) {
 
 // enqueue buffers a message and (re)starts the debounce timer so several quick
 // messages become one AI turn.
-func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time) {
+func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time, s Settings) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c, ok := b.chats[chatID]
@@ -276,16 +301,16 @@ func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time) {
 		}
 	}
 	c.hits = kept
-	if b.cfg.RateLimitPerHr > 0 && len(c.hits) >= b.cfg.RateLimitPerHr {
+	if s.RateLimitPerHour > 0 && len(c.hits) >= s.RateLimitPerHour {
 		if !c.notified {
 			c.notified = true
 			b.wg.Add(1)
 			go func() {
 				defer b.wg.Done()
-				if b.cfg.RateLimitMessage != "" {
-					b.send(chatID, b.cfg.RateLimitMessage)
+				if s.RateLimitMessage != "" {
+					b.send(chatID, s.RateLimitMessage)
 				}
-				b.handoff(chatID, phone, name, text, fmt.Sprintf("batas %d pesan/jam terlampaui", b.cfg.RateLimitPerHr))
+				b.handoff(chatID, phone, name, text, fmt.Sprintf("batas %d pesan/jam terlampaui", s.RateLimitPerHour))
 			}()
 		}
 		b.log.Warn("rate limit reached, message ignored", "chat", chatID)
@@ -301,7 +326,7 @@ func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time) {
 	}
 	c.pending = append(c.pending, text)
 	b.stopTimer(c)
-	wait := b.cfg.Debounce
+	wait := s.Debounce()
 	if rest := b.cfg.DebounceMaxWait - now.Sub(c.firstAt); rest < wait {
 		wait = max(rest, 0)
 	}
@@ -333,40 +358,55 @@ func (b *Bridge) flush(chatID string, c *chat) {
 	if len(texts) == 0 {
 		return
 	}
-	if _, paused := b.store.PausedUntil(chatID, b.now()); paused {
+	now := b.now()
+	if _, paused := b.store.PausedUntil(chatID, now); paused {
+		return
+	}
+	s := b.settings.Get()
+	if !s.Enabled {
 		return
 	}
 	userText := truncate(strings.Join(texts, "\n"), b.cfg.MaxMessageChars)
 
 	ctx, cancel := context.WithTimeout(b.ctx, b.cfg.HermesTimeout+10*time.Second)
 	defer cancel()
-	if b.cfg.Typing {
+	if s.Typing {
 		b.gowa.Typing(ctx, chatID, true)
 		defer b.gowa.Typing(context.WithoutCancel(ctx), chatID, false)
 	}
 
-	system := b.cfg.SystemPrompt + fmt.Sprintf("\n\nNama pengirim di WhatsApp: %s\nWaktu sekarang: %s",
-		orDash(name), b.now().Format("Monday, 2 January 2006 15:04 MST"))
+	system := buildSystemPrompt(s, name, now, b.store.PaymentSentRecently(chatID, now))
 	reply, err := b.agent.Reply(ctx, b.sessionID(chatID, phone), system, userText)
 	if err != nil {
 		b.log.Error("hermes failed", "chat", chatID, "err", err)
-		b.send(chatID, b.cfg.FallbackMessage)
+		b.send(chatID, s.FallbackMessage)
 		b.handoff(chatID, phone, name, userText, "AI tidak tersedia: "+truncate(err.Error(), 120))
 		return
 	}
 
-	clean, reason, isHandoff := parseHandoff(reply)
-	if isHandoff && clean == "" {
-		clean = b.cfg.HandoffMessage
+	out := renderReply(reply, s)
+	for _, w := range out.Warnings {
+		b.log.Warn("reply rendering", "chat", chatID, "detail", w)
 	}
-	if clean == "" {
+	if out.Handoff && out.Text == "" {
+		out.Text = s.HandoffMessage
+	}
+	if out.Text == "" && len(out.Images) == 0 {
 		b.log.Warn("hermes returned empty reply", "chat", chatID)
-		clean = b.cfg.FallbackMessage
-		isHandoff, reason = true, "AI tidak memberi jawaban"
+		out.Text = s.FallbackMessage
+		out.Handoff, out.Reason = true, "AI tidak memberi jawaban"
 	}
-	b.send(chatID, toWhatsAppMarkdown(clean))
-	if isHandoff {
-		b.handoff(chatID, phone, name, userText, reason)
+	if out.Text != "" {
+		b.send(chatID, out.Text)
+	}
+	for _, img := range out.Images {
+		b.sendImage(chatID, img)
+	}
+	if out.PaymentSent {
+		b.store.MarkPaymentSent(chatID, b.now())
+	}
+	if out.Handoff {
+		b.handoff(chatID, phone, name, userText, out.Reason)
 	}
 }
 
@@ -416,7 +456,8 @@ func toWhatsAppMarkdown(s string) string {
 }
 
 func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
-	until := b.now().Add(b.cfg.PauseDuration)
+	s := b.settings.Get()
+	until := b.now().Add(s.PauseDuration())
 	if err := b.store.SetPause(chatID, until, reason); err != nil {
 		b.log.Error("save pause", "err", err)
 	}
@@ -439,7 +480,10 @@ func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
 	fmt.Fprintf(&sb, "\nPesan terakhir:\n%s\n\nAI diam di chat ini sampai %s.\nBalas pengirim dari HP nomor CS, atau kirim \"AI ON %s\" ke nomor CS untuk mengaktifkan AI lagi.",
 		truncate(lastText, 500), until.Format("02 Jan 15:04"), cmdTarget)
 	msg := sb.String()
-	for _, admin := range b.cfg.AdminNumbers {
+	if len(s.AdminNumbers) == 0 {
+		b.log.Warn("handoff without admin numbers; set them at /cs-ai", "chat", chatID)
+	}
+	for _, admin := range s.AdminNumbers {
 		b.send(admin+"@s.whatsapp.net", msg)
 	}
 	b.log.Info("handoff to admin", "chat", chatID, "reason", reason)
@@ -447,6 +491,7 @@ func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
 
 func (b *Bridge) adminCommand(adminChat, cmd, target string) {
 	now := b.now()
+	pause := b.settings.Get().PauseDuration()
 	switch cmd {
 	case "STATUS":
 		pauses := b.store.ActivePauses(now)
@@ -470,11 +515,26 @@ func (b *Bridge) adminCommand(adminChat, cmd, target string) {
 			_ = b.store.ClearPause(chatID)
 			b.send(adminChat, fmt.Sprintf("AI diaktifkan lagi untuk %s.", target))
 		} else {
-			_ = b.store.SetPause(chatID, now.Add(b.cfg.PauseDuration), "dimatikan oleh admin")
+			_ = b.store.SetPause(chatID, now.Add(pause), "dimatikan oleh admin")
 			b.dropPending(chatID)
-			b.send(adminChat, fmt.Sprintf("AI dijeda untuk %s sampai %s.", target, now.Add(b.cfg.PauseDuration).Format("02 Jan 15:04")))
+			b.send(adminChat, fmt.Sprintf("AI dijeda untuk %s sampai %s.", target, now.Add(pause).Format("02 Jan 15:04")))
 		}
 	}
+}
+
+func (b *Bridge) rememberSent(id string) {
+	if id == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	for k, t := range b.sentID {
+		if now.Sub(t) > time.Hour {
+			delete(b.sentID, k)
+		}
+	}
+	b.sentID[id] = now
 }
 
 func (b *Bridge) send(chatID, text string) {
@@ -485,15 +545,16 @@ func (b *Bridge) send(chatID, text string) {
 		b.log.Error("send failed", "chat", chatID, "err", err)
 		return
 	}
-	if id != "" {
-		b.mu.Lock()
-		now := b.now()
-		for k, t := range b.sentID {
-			if now.Sub(t) > time.Hour {
-				delete(b.sentID, k)
-			}
-		}
-		b.sentID[id] = now
-		b.mu.Unlock()
+	b.rememberSent(id)
+}
+
+func (b *Bridge) sendImage(chatID string, m MediaItem) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(b.ctx), 60*time.Second)
+	defer cancel()
+	id, err := b.gowa.SendImage(ctx, chatID, m.Caption, b.settings.MediaPath(m), m.ContentType)
+	if err != nil {
+		b.log.Error("send image failed", "chat", chatID, "image", m.Code, "err", err)
+		return
 	}
+	b.rememberSent(id)
 }

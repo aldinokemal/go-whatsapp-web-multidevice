@@ -191,6 +191,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	defer uiCancel()
 	registerUIRoute(apiGroup, uiCtx)
 
+	// CS AI settings page, proxied to hermes-cs-bridge (no-op unless configured).
+	registerCSAIProxy(apiGroup)
+
 	// Device-scoped operations (header-based). This must stay the LAST
 	// registration on apiGroup: Group("") registers a root "use" route that
 	// matches every path, so DeviceMiddleware would also run for anything

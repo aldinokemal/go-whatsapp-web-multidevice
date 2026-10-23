@@ -145,6 +145,12 @@ func initEnvConfig() {
 	if envUIPin := viper.GetString("app_ui_asset_sha256"); envUIPin != "" {
 		config.AppUIAssetSHA256 = envUIPin
 	}
+	if v := viper.GetString("cs_ai_admin_url"); v != "" {
+		config.CSAIAdminURL = v
+	}
+	if v := viper.GetString("cs_ai_admin_token"); v != "" {
+		config.CSAIAdminToken = v
+	}
 
 	// Database settings
 	if envDBURI := viper.GetString("db_uri"); envDBURI != "" {

@@ -5,6 +5,7 @@ WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
 COPY prompts ./prompts
+COPY admin.html ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o /out/hermes-cs-bridge .
 
 FROM alpine:3.23
