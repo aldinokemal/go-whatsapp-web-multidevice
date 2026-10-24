@@ -47,24 +47,33 @@ type Config struct {
 	// AdminToken protects the /cs-ai settings page. GOWA's proxy sends it after
 	// Basic Auth succeeded; when empty the settings page is disabled.
 	AdminToken string
+
+	// Dashboard CRM: lead events go to DashboardURL + /integrations/cs-ai/events.
+	// Off when the URL or the token is empty.
+	DashboardURL       string
+	DashboardToken     string
+	DashboardOutboxDir string
 }
 
 func loadConfig() (Config, error) {
 	c := Config{
-		ListenAddr:    env("LISTEN_ADDR", "127.0.0.1:8650"),
-		WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
-		GowaURL:       strings.TrimRight(env("GOWA_URL", "http://127.0.0.1:3000"), "/"),
-		GowaUser:      os.Getenv("GOWA_USER"),
-		GowaPass:      os.Getenv("GOWA_PASS"),
-		GowaDeviceID:  os.Getenv("GOWA_DEVICE_ID"),
-		HermesURL:     strings.TrimRight(env("HERMES_URL", "http://127.0.0.1:8642"), "/"),
-		HermesAPIKey:  os.Getenv("HERMES_API_KEY"),
-		HermesModel:   os.Getenv("HERMES_MODEL"),
-		SessionPrefix: env("HERMES_SESSION_PREFIX", "wa-cs-"),
-		StateFile:     env("STATE_FILE", "/data/state.json"),
-		SettingsFile:  env("SETTINGS_FILE", "/data/settings.json"),
-		MediaDir:      env("MEDIA_DIR", "/data/media"),
-		AdminToken:    os.Getenv("ADMIN_TOKEN"),
+		ListenAddr:         env("LISTEN_ADDR", "127.0.0.1:8650"),
+		WebhookSecret:      os.Getenv("WEBHOOK_SECRET"),
+		GowaURL:            strings.TrimRight(env("GOWA_URL", "http://127.0.0.1:3000"), "/"),
+		GowaUser:           os.Getenv("GOWA_USER"),
+		GowaPass:           os.Getenv("GOWA_PASS"),
+		GowaDeviceID:       os.Getenv("GOWA_DEVICE_ID"),
+		HermesURL:          strings.TrimRight(env("HERMES_URL", "http://127.0.0.1:8642"), "/"),
+		HermesAPIKey:       os.Getenv("HERMES_API_KEY"),
+		HermesModel:        os.Getenv("HERMES_MODEL"),
+		SessionPrefix:      env("HERMES_SESSION_PREFIX", "wa-cs-"),
+		StateFile:          env("STATE_FILE", "/data/state.json"),
+		SettingsFile:       env("SETTINGS_FILE", "/data/settings.json"),
+		MediaDir:           env("MEDIA_DIR", "/data/media"),
+		AdminToken:         os.Getenv("ADMIN_TOKEN"),
+		DashboardURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("DASHBOARD_URL")), "/"),
+		DashboardToken:     strings.TrimSpace(os.Getenv("DASHBOARD_INGEST_TOKEN")),
+		DashboardOutboxDir: env("DASHBOARD_OUTBOX_DIR", "/data/outbox-dashboard"),
 		// No technical wording towards leads (Ruang Sanad CS rules).
 		FallbackMessage: env("FALLBACK_MESSAGE", "Terima kasih, Kak. Pesan Kakak sudah kami terima. Admin akan membalas di chat ini secepatnya."),
 		HandoffMessage:  env("HANDOFF_MESSAGE", "Baik, Kak. Agar informasinya tepat, saya teruskan ke admin, ya. Admin akan membalas di chat ini."),
@@ -126,6 +135,12 @@ func loadConfig() (Config, error) {
 	}
 	if c.AdminToken != "" && len(c.AdminToken) < 24 {
 		return c, errors.New("ADMIN_TOKEN must be at least 24 characters (openssl rand -hex 32)")
+	}
+	if c.DashboardToken != "" && len(c.DashboardToken) < 32 {
+		return c, errors.New("DASHBOARD_INGEST_TOKEN must be at least 32 characters (openssl rand -hex 32)")
+	}
+	if c.DashboardURL != "" && !strings.HasPrefix(c.DashboardURL, "http://") && !strings.HasPrefix(c.DashboardURL, "https://") {
+		return c, errors.New("DASHBOARD_URL must start with http:// or https://")
 	}
 	return c, nil
 }

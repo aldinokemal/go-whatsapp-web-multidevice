@@ -12,7 +12,10 @@ type renderedReply struct {
 	Handoff     bool
 	Reason      string
 	PaymentSent bool
-	Warnings    []string // unknown codes etc., for the log
+	FormSent    bool
+	// Package code and price of the last [[REKENING]] (for the Dashboard CRM).
+	PaymentPaket, PaymentNominal string
+	Warnings                     []string // unknown codes etc., for the log
 }
 
 var (
@@ -36,7 +39,10 @@ func renderReply(reply string, s Settings) renderedReply {
 	// Markdown cleanup first, so the official templates are not altered.
 	clean = toWhatsAppMarkdown(clean)
 
-	clean = formRe.ReplaceAllLiteralString(clean, "\n"+strings.TrimSpace(s.FormText)+"\n")
+	if formRe.MatchString(clean) {
+		r.FormSent = true
+		clean = formRe.ReplaceAllLiteralString(clean, "\n"+strings.TrimSpace(s.FormText)+"\n")
+	}
 
 	clean = rekeningRe.ReplaceAllStringFunc(clean, func(m string) string {
 		code := ""
@@ -46,6 +52,7 @@ func renderReply(reply string, s Settings) renderedReply {
 		paket, nominal := "sesuai pilihan Kakak", "akan dikonfirmasi admin"
 		if p, ok := s.Package(code); ok {
 			paket, nominal = p.Name, p.Price
+			r.PaymentPaket, r.PaymentNominal = strings.ToLower(p.Code), p.Price
 		} else {
 			r.Warnings = append(r.Warnings, "unknown package code in [[REKENING]]: "+code)
 		}

@@ -26,6 +26,7 @@ type Bridge struct {
 	agent    Agent
 	store    *Store
 	settings *SettingsStore
+	events   EventSink // lead events for the Dashboard CRM; nil = off
 	log      *slog.Logger
 	now      func() time.Time
 	ctx      context.Context
@@ -71,7 +72,11 @@ func (b *Bridge) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /webhook", b.handleWebhook)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "paused_chats": len(b.store.ActivePauses(b.now()))})
+		out := map[string]any{"status": "ok", "paused_chats": len(b.store.ActivePauses(b.now()))}
+		if o, ok := b.events.(*DashboardOutbox); ok && o != nil {
+			out["dashboard_pending"] = o.Pending()
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	})
 	b.adminRoutes(mux)
 	return mux
@@ -183,9 +188,12 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 		if b.isOwnSent(id) {
 			return
 		}
-		if err := b.store.SetPause(chatID, now.Add(s.PauseDuration()), "admin membalas dari HP"); err != nil {
-			b.log.Error("save pause", "err", err)
-		}
+		ref := b.leadFor(chatID)
+		// A chat with an admin number is not a lead: pause it, record nothing.
+		ref.skipCRM = isAdmin(s, normalizePhone(chatID))
+		b.emit(ref, "message.out", eventIDFor("out", id), messageTime(p, now),
+			map[string]any{"wa_message_id": id, "body": text, "media_type": mediaKind(p), "sender": "admin"})
+		b.pause(ref, now.Add(s.PauseDuration()), "admin membalas dari HP")
 		b.dropPending(chatID)
 		b.log.Info("admin took over chat; AI paused", "chat", chatID, "for", s.PauseDuration())
 		return
@@ -200,11 +208,30 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 	}
 	b.store.RememberPhone(phone, chatID)
 
-	if phone != "" && isAdmin(s, phone) {
+	admin := phone != "" && isAdmin(s, phone)
+	if admin {
 		if m := adminCmdRe.FindStringSubmatch(text); m != nil {
 			b.wg.Add(1)
 			go func() { defer b.wg.Done(); b.adminCommand(chatID, strings.ToUpper(m[1]), normalizePhone(m[2])) }()
 			return
+		}
+	}
+	name := str(p, "sender_display_name")
+	if name == "" {
+		name = str(p, "from_name")
+	}
+	kind := mediaKind(p)
+	paymentSent := b.store.PaymentSentRecently(chatID, now)
+
+	// Every lead message goes to the Dashboard CRM, also while the AI is off
+	// or paused. Admin numbers writing to the CS number are not leads.
+	if !admin {
+		ref := leadRef{chatID: chatID, phone: phone, name: name}
+		at := messageTime(p, now)
+		b.emit(ref, "message.in", eventIDFor("in", id), at,
+			map[string]any{"wa_message_id": id, "body": text, "media_type": kind})
+		if paymentSent && (kind == "gambar" || kind == "dokumen") {
+			b.emit(ref, "proof.received", eventIDFor("proof", id), at, map[string]any{"media_type": kind})
 		}
 	}
 
@@ -212,7 +239,7 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 		b.log.Info("CS AI disabled in settings; message left for admins", "chat", chatID)
 		return
 	}
-	if note := mediaNote(mediaKind(p), text != "", b.store.PaymentSentRecently(chatID, now)); note != "" {
+	if note := mediaNote(kind, text != "", paymentSent); note != "" {
 		text = strings.TrimSpace(text + "\n" + note)
 	}
 	if text == "" {
@@ -221,10 +248,6 @@ func (b *Bridge) handleEvent(ev webhookEvent) {
 	if _, paused := b.store.PausedUntil(chatID, now); paused {
 		b.log.Info("chat paused, AI stays silent", "chat", chatID)
 		return
-	}
-	name := str(p, "sender_display_name")
-	if name == "" {
-		name = str(p, "from_name")
 	}
 	b.enqueue(chatID, phone, name, text, now, s)
 }
@@ -308,7 +331,7 @@ func (b *Bridge) enqueue(chatID, phone, name, text string, now time.Time, s Sett
 			go func() {
 				defer b.wg.Done()
 				if s.RateLimitMessage != "" {
-					b.send(chatID, s.RateLimitMessage)
+					b.sendLead(leadRef{chatID: chatID, phone: phone, name: name}, s.RateLimitMessage)
 				}
 				b.handoff(chatID, phone, name, text, fmt.Sprintf("batas %d pesan/jam terlampaui", s.RateLimitPerHour))
 			}()
@@ -379,7 +402,7 @@ func (b *Bridge) flush(chatID string, c *chat) {
 	reply, err := b.agent.Reply(ctx, b.sessionID(chatID, phone), system, userText)
 	if err != nil {
 		b.log.Error("hermes failed", "chat", chatID, "err", err)
-		b.send(chatID, s.FallbackMessage)
+		b.sendLead(leadRef{chatID: chatID, phone: phone, name: name}, s.FallbackMessage)
 		b.handoff(chatID, phone, name, userText, "AI tidak tersedia: "+truncate(err.Error(), 120))
 		return
 	}
@@ -396,14 +419,20 @@ func (b *Bridge) flush(chatID string, c *chat) {
 		out.Text = s.FallbackMessage
 		out.Handoff, out.Reason = true, "AI tidak memberi jawaban"
 	}
+	ref := leadRef{chatID: chatID, phone: phone, name: name}
 	if out.Text != "" {
-		b.send(chatID, out.Text)
+		b.sendLead(ref, out.Text)
 	}
 	for _, img := range out.Images {
-		b.sendImage(chatID, img)
+		b.sendImage(ref, img)
+	}
+	if out.FormSent {
+		b.emit(ref, "form.sent", "", b.now(), map[string]any{})
 	}
 	if out.PaymentSent {
 		b.store.MarkPaymentSent(chatID, b.now())
+		b.emit(ref, "payment_info.sent", "", b.now(),
+			map[string]any{"paket_kode": out.PaymentPaket, "nominal_text": out.PaymentNominal})
 	}
 	if out.Handoff {
 		b.handoff(chatID, phone, name, userText, out.Reason)
@@ -458,9 +487,7 @@ func toWhatsAppMarkdown(s string) string {
 func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
 	s := b.settings.Get()
 	until := b.now().Add(s.PauseDuration())
-	if err := b.store.SetPause(chatID, until, reason); err != nil {
-		b.log.Error("save pause", "err", err)
-	}
+	ref := leadRef{chatID: chatID, phone: phone, name: name}
 	contact := chatID
 	cmdTarget := chatID
 	if phone != "" {
@@ -480,6 +507,8 @@ func (b *Bridge) handoff(chatID, phone, name, lastText, reason string) {
 	fmt.Fprintf(&sb, "\nPesan terakhir:\n%s\n\nAI diam di chat ini sampai %s.\nBalas pengirim dari HP nomor CS, atau kirim \"AI ON %s\" ke nomor CS untuk mengaktifkan AI lagi.",
 		truncate(lastText, 500), until.Format("02 Jan 15:04"), cmdTarget)
 	msg := sb.String()
+	b.emit(ref, "handoff", "", b.now(), map[string]any{"reason": reason, "summary": summary})
+	b.pause(ref, until, reason)
 	if len(s.AdminNumbers) == 0 {
 		b.log.Warn("handoff without admin numbers; set them at /cs-ai", "chat", chatID)
 	}
@@ -511,11 +540,16 @@ func (b *Bridge) adminCommand(adminChat, cmd, target string) {
 			return
 		}
 		chatID := b.store.ChatForPhone(target)
+		ref := b.leadFor(chatID)
+		if ref.phone == "" {
+			ref.phone = target
+		}
 		if cmd == "ON" {
 			_ = b.store.ClearPause(chatID)
+			b.emit(ref, "ai.resumed", "", now, map[string]any{"reason": "diaktifkan oleh admin"})
 			b.send(adminChat, fmt.Sprintf("AI diaktifkan lagi untuk %s.", target))
 		} else {
-			_ = b.store.SetPause(chatID, now.Add(pause), "dimatikan oleh admin")
+			b.pause(ref, now.Add(pause), "dimatikan oleh admin")
 			b.dropPending(chatID)
 			b.send(adminChat, fmt.Sprintf("AI dijeda untuk %s sampai %s.", target, now.Add(pause).Format("02 Jan 15:04")))
 		}
@@ -537,24 +571,55 @@ func (b *Bridge) rememberSent(id string) {
 	b.sentID[id] = now
 }
 
-func (b *Bridge) send(chatID, text string) {
+// send delivers a text and returns its WhatsApp id ("" on failure).
+func (b *Bridge) send(chatID, text string) string {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(b.ctx), 30*time.Second)
 	defer cancel()
 	id, err := b.gowa.SendText(ctx, chatID, text)
 	if err != nil {
 		b.log.Error("send failed", "chat", chatID, "err", err)
-		return
+		return ""
 	}
 	b.rememberSent(id)
+	return id
 }
 
-func (b *Bridge) sendImage(chatID string, m MediaItem) {
+// sendLead sends an AI text to a lead and records it in the Dashboard CRM.
+func (b *Bridge) sendLead(ref leadRef, text string) {
+	id := b.send(ref.chatID, text)
+	if id == "" {
+		return // not delivered, nothing to record
+	}
+	b.emit(ref, "message.out", eventIDFor("out", id), b.now(),
+		map[string]any{"wa_message_id": id, "body": text, "sender": "ai"})
+}
+
+func (b *Bridge) sendImage(ref leadRef, m MediaItem) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(b.ctx), 60*time.Second)
 	defer cancel()
-	id, err := b.gowa.SendImage(ctx, chatID, m.Caption, b.settings.MediaPath(m), m.ContentType)
+	id, err := b.gowa.SendImage(ctx, ref.chatID, m.Caption, b.settings.MediaPath(m), m.ContentType)
 	if err != nil {
-		b.log.Error("send image failed", "chat", chatID, "image", m.Code, "err", err)
+		b.log.Error("send image failed", "chat", ref.chatID, "image", m.Code, "err", err)
 		return
 	}
 	b.rememberSent(id)
+	b.emit(ref, "message.out", eventIDFor("out", id), b.now(),
+		map[string]any{"wa_message_id": id, "body": m.Caption, "media_type": "gambar", "sender": "ai"})
+}
+
+// pause silences the AI in a chat and tells the Dashboard CRM.
+func (b *Bridge) pause(ref leadRef, until time.Time, reason string) {
+	if err := b.store.SetPause(ref.chatID, until, reason); err != nil {
+		b.log.Error("save pause", "err", err)
+	}
+	b.emit(ref, "ai.paused", "", b.now(), map[string]any{"until": until.UTC().Format(time.RFC3339), "reason": reason})
+}
+
+// eventIDFor derives a stable event id from a WhatsApp message id, so a
+// message is never recorded twice; without an id a random one is used.
+func eventIDFor(kind, waMessageID string) string {
+	if waMessageID == "" {
+		return ""
+	}
+	return "evt_" + kind + "_" + truncate(waMessageID, 100)
 }

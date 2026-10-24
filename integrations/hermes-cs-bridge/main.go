@@ -50,6 +50,18 @@ func main() {
 	defer stop()
 
 	bridge := NewBridge(ctx, cfg, NewGowaClient(cfg), NewHermesClient(cfg), store, settings, log)
+	outbox, err := NewDashboardOutbox(cfg, log)
+	if err != nil {
+		log.Error("cannot open dashboard outbox", "dir", cfg.DashboardOutboxDir, "err", err)
+		os.Exit(1)
+	}
+	if outbox != nil {
+		bridge.events = outbox
+		go outbox.Run(ctx)
+		log.Info("dashboard CRM sync on", "url", cfg.DashboardURL)
+	} else {
+		log.Warn("DASHBOARD_URL or DASHBOARD_INGEST_TOKEN is empty; leads are not sent to the Dashboard CRM")
+	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: bridge.Routes(), ReadHeaderTimeout: 10 * time.Second}
 
 	go func() {

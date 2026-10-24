@@ -21,9 +21,10 @@ nilai), dan jadwal/slot pasti. Semua pengaturan bisa diubah di
 6. [Langkah 3 — Pasang bridge](#langkah-3--pasang-bridge)
 7. [Langkah 4 — Sambungkan webhook GOWA ke bridge](#langkah-4--sambungkan-webhook-gowa-ke-bridge)
 8. [Langkah 5 — Uji coba](#langkah-5--uji-coba)
-9. [Pemakaian sehari-hari](#pemakaian-sehari-hari)
-10. [Troubleshooting](#troubleshooting)
-11. [Risiko dan batasan](#risiko-dan-batasan)
+9. [Langkah 6 — Sambungkan ke CRM Leads Dashboard](#langkah-6--sambungkan-ke-crm-leads-dashboard)
+10. [Pemakaian sehari-hari](#pemakaian-sehari-hari)
+11. [Troubleshooting](#troubleshooting)
+12. [Risiko dan batasan](#risiko-dan-batasan)
 
 ## Cara kerja
 
@@ -517,6 +518,93 @@ docker compose -f /opt/gowa-deploy/compose.yml logs -f hermes_cs_bridge
 hermes -p ruang-sanad logs -f
 ```
 
+## Langkah 6 — Sambungkan ke CRM Leads Dashboard
+
+Setelah langkah ini, setiap calon santri yang chat ke nomor CS otomatis muncul di
+`/app/leads` Dashboard Ruang Sanad, lengkap dengan transkrip. Tahap pipeline terisi
+sendiri dari kejadian di bridge:
+
+| Kejadian di bridge | Event ke Dashboard | Efek di Dashboard |
+|---|---|---|
+| Pesan masuk dari calon santri (juga saat AI dijeda atau mati) | `message.in` | Lead dibuat bila belum ada, pesan masuk transkrip, isian form dibaca |
+| Balasan AI, gambar dari AI | `message.out` (`sender=ai`) | Masuk transkrip |
+| Admin membalas dari HP nomor CS | `message.out` (`sender=admin`) + `ai.paused` | Masuk transkrip, badge "AI dijeda" |
+| AI mengirim `[[FORM]]` | `form.sent` | Tahap → form dikirim |
+| AI mengirim `[[REKENING:1x]]` | `payment_info.sent` (kode paket + harga dari `/cs-ai`) | Tahap → info bayar dikirim, paket dipetakan ke kode kelas |
+| Gambar/dokumen setelah info bayar | `proof.received` | Tahap → bukti masuk, notifikasi ke Keuangan |
+| Handoff ke admin | `handoff` + `ai.paused` | Timeline |
+| `AI ON` / `AI OFF` dari nomor admin | `ai.resumed` / `ai.paused` | Timeline |
+
+Pesan dari nomor admin (`ADMIN_NUMBERS`) tidak dianggap lead.
+
+Event ditulis dulu ke antrean `/data/outbox-dashboard/queue.jsonl`, lalu dikirim per
+batch (maks. 100 event) setiap 2 detik. Kalau Dashboard mati atau salah konfigurasi,
+event tetap di antrean dan dikirim ulang dengan jeda bertambah sampai 10 menit; tidak
+ada yang hilang saat bridge restart. Dashboard mengabaikan event yang sudah pernah
+diterima, jadi pengiriman ulang tidak membuat data ganda.
+
+### 6a. Token bersama
+
+Buat satu token, lalu pasang di dua tempat:
+
+```bash
+openssl rand -hex 32
+```
+
+| File | Variabel |
+|---|---|
+| `/opt/gowa-deploy/cs-bridge.env` (bridge) | `DASHBOARD_INGEST_TOKEN=<token>` |
+| `.env` Dashboard | `CS_BRIDGE_INGEST_TOKEN=<token yang sama>` |
+
+### 6b. Konfigurasi bridge
+
+Tambahkan ke `/opt/gowa-deploy/cs-bridge.env`:
+
+```bash
+# Alamat Dashboard LANGSUNG (bukan lewat Nginx/domain publik). Port = APP_PORT Dashboard.
+DASHBOARD_URL=http://127.0.0.1:8080
+DASHBOARD_INGEST_TOKEN=<token dari 6a>
+```
+
+Pakai `127.0.0.1`, bukan domain Dashboard. Dashboard menolak (403) request yang lewat
+reverse proxy (ada header `X-Forwarded-For`) atau dari IP di luar
+`CS_BRIDGE_ALLOWED_CIDRS`. Bridge memakai jaringan host, jadi `127.0.0.1` sampai ke
+Dashboard di VPS yang sama.
+
+### 6c. Konfigurasi Dashboard
+
+Di `.env` Dashboard:
+
+```bash
+CS_BRIDGE_INGEST_TOKEN=<token dari 6a>
+CS_BRIDGE_ALLOWED_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12
+# Untuk status "Bridge CS AI" di halaman Integrasi WhatsApp (GET /healthz)
+CS_BRIDGE_URL=http://172.17.0.1:8650
+# Akun GOWA untuk status device keuangan / admin-kelas / koord-guru
+GOWA_URL=http://127.0.0.1:3000
+GOWA_USER=dashboard
+GOWA_PASS=<password akun dashboard di APP_BASIC_AUTH GOWA>
+```
+
+Akun `dashboard` harus ada di `APP_BASIC_AUTH` GOWA (`/opt/gowa/src/.env`), dan
+sebaiknya dikunci (langkah 1a-2):
+`APP_BASIC_AUTH_DEVICES=cs-bridge:cs-ai,dashboard:keuangan|admin-kelas|koord-guru`.
+Akun terkunci tetap boleh membaca `GET /devices/<id>/status` untuk device miliknya.
+
+### 6d. Restart dan cek
+
+```bash
+docker compose -f /opt/gowa-deploy/compose.yml up -d --build hermes_cs_bridge
+docker compose -f /opt/gowa-deploy/compose.yml logs --tail=20 hermes_cs_bridge
+# Harus ada: "dashboard CRM sync on"
+curl -s http://172.17.0.1:8650/healthz
+# "dashboard_pending" harus kembali ke 0 beberapa detik setelah ada chat
+```
+
+Restart Dashboard setelah mengubah `.env`-nya. Di halaman **Integrasi WhatsApp**,
+peringatan "Ingest mati" hilang dan status bridge/GOWA menjadi hijau. Kirim satu chat
+uji ke nomor CS; lead baru muncul di `/app/leads`.
+
 ## Pemakaian sehari-hari
 
 | Kebutuhan | Cara |
@@ -550,6 +638,11 @@ lain, teks itu diperlakukan sebagai pertanyaan biasa.
 | AI membalas di chat yang sudah diambil admin | Pastikan admin membalas dari **HP nomor CS**, bukan dari nomor admin pribadi. Atau pakai `AI OFF` |
 | Balasan ganda dari GOWA | `WHATSAPP_AUTO_REPLY` belum dikosongkan (langkah 1a) |
 | Jawaban AI mengarang | Lengkapi info program di SOUL profile. Tambahkan aturan di prompt CS |
+| Log bridge: `DASHBOARD_URL or DASHBOARD_INGEST_TOKEN is empty` | Lead tidak dikirim ke Dashboard. Isi keduanya (langkah 6b) |
+| Log bridge: `dashboard ingest is off (HTTP 404)` | `CS_BRIDGE_INGEST_TOKEN` di `.env` Dashboard kosong, atau Dashboard belum di-restart. Event aman di antrean |
+| Log bridge: `dashboard refused the token (HTTP 401)` | Token di bridge dan Dashboard tidak sama |
+| Log bridge: `dashboard refused this address (HTTP 403)` | `DASHBOARD_URL` lewat domain/Nginx, atau IP bridge tidak ada di `CS_BRIDGE_ALLOWED_CIDRS`. Pakai `http://127.0.0.1:<APP_PORT>` |
+| Log bridge: `dashboard rejected event` | Satu event ditolak karena format; event itu dibuang, sisanya tetap jalan. Laporkan isi log-nya |
 
 ## Risiko dan batasan
 
