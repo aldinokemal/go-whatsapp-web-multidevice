@@ -14,6 +14,11 @@ var (
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
+	// AppBasicAuthDevicesRaw ("user:dev1|dev2,user2:dev3") limits listed Basic Auth
+	// accounts to those devices and to messaging endpoints; parsed into AppBasicAuthDevices
+	// at REST startup. Unlisted accounts keep full access.
+	AppBasicAuthDevicesRaw = ""
+	AppBasicAuthDevices    = map[string][]string{}
 	AppBasePath            = ""
 	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 	AppCORSAllowedOrigins  []string // CORS allowed origins; empty means "*" (any origin)
@@ -28,6 +33,12 @@ var (
 	AppUIUpdateInterval = 3 * time.Hour
 	AppUIGithubToken    = "" // optional, raises the GitHub API rate limit
 	AppUIAssetSHA256    = "" // optional supply-chain pin: only serve the asset with this sha256
+
+	// CS AI settings page: {AppBasePath}/cs-ai is reverse-proxied to the
+	// hermes-cs-bridge admin API after Basic Auth (integrations/hermes-cs-bridge).
+	// Both must be set, and Basic Auth must be enabled, for the route to exist.
+	CSAIAdminURL   = "" // e.g. http://host.docker.internal:8650
+	CSAIAdminToken = "" // shared secret sent as X-CS-AI-Token; same as the bridge's ADMIN_TOKEN
 
 	// MCP (Model Context Protocol) endpoint, served at {AppBasePath}/mcp on
 	// the REST server. Streamable HTTP transport; inherits basic auth.

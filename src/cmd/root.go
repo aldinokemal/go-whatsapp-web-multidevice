@@ -104,6 +104,9 @@ func initEnvConfig() {
 		credential := strings.Split(envBasicAuth, ",")
 		config.AppBasicAuthCredential = credential
 	}
+	if v := viper.GetString("app_basic_auth_devices"); v != "" {
+		config.AppBasicAuthDevicesRaw = v
+	}
 	if envBasePath := viper.GetString("app_base_path"); envBasePath != "" {
 		config.AppBasePath = envBasePath
 	}
@@ -144,6 +147,12 @@ func initEnvConfig() {
 	}
 	if envUIPin := viper.GetString("app_ui_asset_sha256"); envUIPin != "" {
 		config.AppUIAssetSHA256 = envUIPin
+	}
+	if v := viper.GetString("cs_ai_admin_url"); v != "" {
+		config.CSAIAdminURL = v
+	}
+	if v := viper.GetString("cs_ai_admin_token"); v != "" {
+		config.CSAIAdminToken = v
 	}
 
 	// Database settings
@@ -344,6 +353,12 @@ func initFlags() {
 		"basic-auth", "b",
 		config.AppBasicAuthCredential,
 		"basic auth credential | -b=yourUsername:yourPassword",
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppBasicAuthDevicesRaw,
+		"basic-auth-devices", "",
+		config.AppBasicAuthDevicesRaw,
+		`limit Basic Auth accounts to devices and messaging endpoints --basic-auth-devices <string> | example: --basic-auth-devices="dashboard:keuangan|admin-kelas,cs-bridge:cs-ai"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppBasePath,

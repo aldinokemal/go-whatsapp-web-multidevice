@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pengaturan CS AI</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--text:#1d2330;--muted:#667085;--line:#e4e7ec;--accent:#0f8a5f;--accent-weak:#e7f6ef;--danger:#c0362c;--warn:#b25e09;--input:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1e24;--text:#e7eaee;--muted:#98a2b3;--line:#2b313a;--accent:#36b37e;--accent-weak:#16302a;--danger:#f0675c;--warn:#f0a050;--input:#14181d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+.bar{max-width:880px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px}
+.bar h1{font-size:17px;margin:0;flex:1}
+.pill{font-size:12px;padding:3px 10px;border-radius:99px;background:var(--line);color:var(--muted);white-space:nowrap}
+.pill.on{background:var(--accent-weak);color:var(--accent)}
+.pill.off{background:#fde8e6;color:var(--danger)}
+nav{max-width:880px;margin:0 auto;display:flex;overflow-x:auto;padding:0 8px;gap:2px}
+nav button{border:0;background:none;color:var(--muted);padding:10px 12px;font:inherit;font-size:14px;border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer}
+nav button.active{color:var(--accent);border-color:var(--accent);font-weight:600}
+main{max-width:880px;margin:0 auto;padding:16px 16px 110px}
+section{display:none}section.active{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 4px}
+.hint{color:var(--muted);font-size:13px;margin:0 0 12px}
+label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
+input[type=text],input[type=number],textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--input);color:var(--text);font:inherit}
+textarea{min-height:120px;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.45}
+textarea.tall{min-height:420px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:560px){.row{grid-template-columns:1fr}}
+.switch{display:flex;align-items:center;gap:10px;font-weight:600}
+.switch input{width:20px;height:20px}
+button.btn{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--danger)}
+button:disabled{opacity:.55;cursor:default}
+.pkg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;display:grid;grid-template-columns:90px 1fr 1fr 1.4fr;gap:8px}
+.pkg label{margin:0 0 2px;font-size:12px;color:var(--muted);font-weight:600}
+.pkg .foot{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center}
+@media (max-width:560px){.pkg{grid-template-columns:1fr 1fr}}
+.list{list-style:none;margin:0;padding:0}
+.list li{border-top:1px solid var(--line);padding:10px 0;display:flex;gap:10px;align-items:flex-start}
+.list li:first-child{border-top:0}
+.grow{flex:1;min-width:0}
+.small{font-size:12px;color:var(--muted)}
+.media{display:grid;grid-template-columns:88px 1fr;gap:12px;border-top:1px solid var(--line);padding:12px 0}
+.media:first-child{border-top:0}
+.media img{width:88px;height:88px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:12px}
+.savebar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);z-index:6}
+.savebar .in{max-width:880px;margin:0 auto;padding:10px 16px;display:flex;gap:10px;align-items:center}
+.savebar .msg{flex:1;font-size:13px;color:var(--muted)}
+.msg.err{color:var(--danger)}.msg.ok{color:var(--accent)}.msg.dirty{color:var(--warn)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:10px;border-radius:8px;font-size:12px;max-height:420px;overflow:auto}
+details summary{cursor:pointer;color:var(--accent);font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar"><h1>⚙️ Pengaturan CS AI</h1><span id="statusPill" class="pill">memuat…</span></div>
+  <nav id="tabs">
+    <button data-tab="status" class="active">Status</button>
+    <button data-tab="data">Paket &amp; Pembayaran</button>
+    <button data-tab="instr">Instruksi</button>
+    <button data-tab="media">Galeri Gambar</button>
+    <button data-tab="ops">Operasional</button>
+  </nav>
+</header>
+<main>
+  <section id="tab-status" class="active">
+    <div class="card">
+      <label class="switch"><input type="checkbox" id="enabled"> CS AI aktif membalas chat</label>
+      <p class="hint">Kalau dimatikan, semua pesan ke nomor CS tidak dibalas AI. Admin membalas manual dari HP.</p>
+      <div id="statusInfo" class="small"></div>
+    </div>
+    <div class="card">
+      <h2>Chat yang sedang dijeda</h2>
+      <p class="hint">AI diam di chat ini karena dialihkan ke admin atau admin membalas dari HP.</p>
+      <ul id="pauses" class="list"></ul>
+      <button class="btn" id="reloadStatus">↻ Muat ulang</button>
+    </div>
+  </section>
+
+  <section id="tab-data">
+    <div class="card">
+      <h2>Paket &amp; harga</h2>
+      <p class="hint">Kode dipakai AI untuk memilih nominal di info pembayaran. Huruf kecil/angka, contoh <code>1x</code>.</p>
+      <div id="packages"></div>
+      <button class="btn" id="addPkg">+ Tambah paket</button>
+    </div>
+    <div class="card">
+      <h2>Info pembayaran / rekening</h2>
+      <p class="hint">Dikirim persis apa adanya saat AI menutup pendaftaran. <code>{PAKET}</code> dan <code>{NOMINAL}</code> diganti otomatis sesuai paket. Nomor rekening hanya berasal dari teks ini, AI tidak mengetiknya sendiri.</p>
+      <textarea id="payment_text"></textarea>
+      <button class="btn" data-reset="payment_text">Kembalikan default</button>
+    </div>
+    <div class="card">
+      <h2>Form data pendaftaran</h2>
+      <p class="hint">Dikirim sebelum info pembayaran. Format WhatsApp: <code>*tebal*</code>, <code>_miring_</code>.</p>
+      <textarea id="form_text"></textarea>
+      <button class="btn" data-reset="form_text">Kembalikan default</button>
+    </div>
+  </section>
+
+  <section id="tab-instr">
+    <div class="card">
+      <h2>Instruksi CS (gaya, alur, fakta program)</h2>
+      <p class="hint">Gabungan skill <code>whatsapp-cs-closing</code>, Pedoman Closing, dan Script 30 Hari. Berlaku langsung setelah disimpan.</p>
+      <textarea id="instructions" class="tall"></textarea>
+      <button class="btn" data-reset="instructions">Kembalikan default</button>
+    </div>
+    <div class="card">
+      <details><summary>Lihat aturan tetap (tidak bisa diubah)</summary>
+        <p class="hint">Keamanan, larangan mengetik rekening sendiri, larangan menyatakan lunas, pengalihan bukti transfer, dan kode khusus. Selalu ditambahkan ke instruksi.</p>
+        <pre id="locked"></pre></details>
+    </div>
+    <div class="card">
+      <details id="previewBox"><summary>Pratinjau instruksi lengkap yang diterima AI</summary>
+        <p class="hint">Berdasarkan pengaturan yang <b>sudah disimpan</b>.</p>
+        <pre id="preview"></pre></details>
+    </div>
+  </section>
+
+  <section id="tab-media">
+    <div class="card">
+      <h2>Unggah gambar</h2>
+      <p class="hint">JPG/PNG/WEBP, maksimal 5 MB. AI memilih gambar berdasarkan <b>keterangan kapan dikirim</b>. Unggah dengan kode yang sama untuk mengganti gambar. Testimoni hanya yang sudah ada izinnya.</p>
+      <div class="row">
+        <div><label for="m_code">Kode</label><input type="text" id="m_code" placeholder="brosur"></div>
+        <div><label for="m_file">File</label><input type="file" id="m_file" accept="image/jpeg,image/png,image/webp"></div>
+      </div>
+      <label for="m_desc">Kapan dikirim (untuk AI)</label>
+      <input type="text" id="m_desc" placeholder="Saat calon santri minta info program/kelas tahsin">
+      <label for="m_caption">Caption (terlihat calon santri, opsional)</label>
+      <input type="text" id="m_caption" placeholder="Info Kelas Tahsin Reguler Ruang Sanad 📖">
+      <p><button class="btn primary" id="upload">Unggah</button> <span id="uploadMsg" class="small"></span></p>
+    </div>
+    <div class="card">
+      <h2>Galeri</h2>
+      <p class="hint">Ubah keterangan/caption lalu tekan <b>Simpan</b> di bawah.</p>
+      <div id="mediaList"></div>
+    </div>
+  </section>
+
+  <section id="tab-ops">
+    <div class="card">
+      <h2>Nomor admin</h2>
+      <p class="hint">Menerima pemberitahuan pengalihan dan boleh mengirim perintah <code>AI ON/OFF/STATUS</code>. Satu nomor per baris, format 628…</p>
+      <textarea id="admin_numbers" style="min-height:90px"></textarea>
+    </div>
+    <div class="card">
+      <h2>Perilaku</h2>
+      <div class="row">
+        <div><label for="pause_minutes">Lama AI diam setelah dialihkan (menit)</label><input type="number" id="pause_minutes" min="5" max="10080"></div>
+        <div><label for="debounce_seconds">Gabungkan pesan beruntun (detik)</label><input type="number" id="debounce_seconds" min="0" max="60" step="0.5"></div>
+        <div><label for="rate_limit_per_hour">Batas pesan per nomor per jam (0 = tanpa batas)</label><input type="number" id="rate_limit_per_hour" min="0" max="1000"></div>
+        <div><label class="switch" style="margin-top:34px"><input type="checkbox" id="typing"> Tampilkan "mengetik…"</label></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Pesan otomatis</h2>
+      <label for="handoff_message">Saat dialihkan ke admin (jika AI tidak menulis sendiri)</label>
+      <textarea id="handoff_message" style="min-height:70px"></textarea>
+      <label for="fallback_message">Saat AI sedang tidak tersedia</label>
+      <textarea id="fallback_message" style="min-height:70px"></textarea>
+      <label for="rate_limit_message">Saat batas pesan terlampaui (kosong = tidak kirim apa pun, admin tetap diberi tahu)</label>
+      <textarea id="rate_limit_message" style="min-height:60px"></textarea>
+    </div>
+    <p class="small" id="updatedInfo"></p>
+  </section>
+</main>
+<div class="savebar"><div class="in"><span id="saveMsg" class="msg">Belum ada perubahan.</span><button class="btn primary" id="save">Simpan</button></div></div>
+
+<script>
+(function(){
+  "use strict";
+  // Works under any prefix (e.g. /cs-ai or /<APP_BASE_PATH>/cs-ai).
+  var path = location.pathname.replace(/\/+$/, "");
+  var BASE = path.replace(/(\/cs-ai)(\/.*)?$/, "$1") + "/";
+  var $ = function(id){ return document.getElementById(id); };
+  var settings = null, defaults = null, dirty = false;
+
+  function api(method, url, body, isForm){
+    var opts = {method: method, credentials: "same-origin", headers: {"X-CS-AI-Request": "1"}};
+    if (body !== undefined) {
+      if (isForm) { opts.body = body; } else { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    }
+    return fetch(BASE + url, opts).then(function(r){
+      var ct = r.headers.get("Content-Type") || "";
+      var p = ct.indexOf("application/json") >= 0 ? r.json() : r.text();
+      return p.then(function(data){ if (!r.ok) throw new Error((data && data.error) || ("HTTP " + r.status)); return data; });
+    });
+  }
+  function el(tag, attrs, kids){
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function(k){ if (k === "text") e.textContent = attrs[k]; else if (k.indexOf("on") === 0) e.addEventListener(k.slice(2), attrs[k]); else e.setAttribute(k, attrs[k]); });
+    (kids || []).forEach(function(c){ e.appendChild(c); });
+    return e;
+  }
+  function setMsg(text, cls){ var m = $("saveMsg"); m.textContent = text; m.className = "msg " + (cls || ""); }
+  function markDirty(){ dirty = true; setMsg("Ada perubahan yang belum disimpan.", "dirty"); }
+  function fmt(t){ try { return new Date(t).toLocaleString("id-ID", {dateStyle: "medium", timeStyle: "short"}); } catch(e){ return t; } }
+
+  document.querySelectorAll("#tabs button").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll("#tabs button").forEach(function(x){ x.classList.toggle("active", x === b); });
+      document.querySelectorAll("main section").forEach(function(s){ s.classList.toggle("active", s.id === "tab-" + b.dataset.tab); });
+      if (b.dataset.tab === "status") loadStatus();
+    });
+  });
+
+  var textFields = ["payment_text", "form_text", "instructions", "handoff_message", "fallback_message", "rate_limit_message"];
+  var numFields = ["pause_minutes", "rate_limit_per_hour"];
+
+  function render(){
+    var s = settings;
+    $("enabled").checked = !!s.enabled;
+    $("typing").checked = !!s.typing;
+    textFields.forEach(function(f){ $(f).value = s[f] || ""; });
+    numFields.forEach(function(f){ $(f).value = s[f]; });
+    $("debounce_seconds").value = (s.debounce_ms || 0) / 1000;
+    $("admin_numbers").value = (s.admin_numbers || []).join("\n");
+    renderPackages(); renderMedia();
+    $("updatedInfo").textContent = s.updated_at && s.updated_at.indexOf("0001") !== 0 ? ("Terakhir disimpan " + fmt(s.updated_at) + " oleh " + (s.updated_by || "-")) : "";
+    updatePill();
+  }
+  function updatePill(){
+    var p = $("statusPill"), on = $("enabled").checked;
+    p.textContent = on ? "AI aktif" : "AI nonaktif"; p.className = "pill " + (on ? "on" : "off");
+  }
+  function renderPackages(){
+    var box = $("packages"); box.innerHTML = "";
+    (settings.packages || []).forEach(function(p, i){
+      function field(key, label, ph){
+        return el("div", {}, [el("label", {text: label}), el("input", {type: "text", value: p[key] || "", placeholder: ph, "aria-label": label,
+          oninput: function(e){ settings.packages[i][key] = e.target.value; markDirty(); }})]);
+      }
+      box.appendChild(el("div", {"class": "pkg"}, [field("code", "Kode", "1x"), field("name", "Nama paket", "1× sepekan"),
+        field("price", "Harga", "Rp149.000"), field("detail", "Keterangan", "per bulan, 4 pertemuan"),
+        el("div", {"class": "foot"}, [el("span", {"class": "small", text: "[[REKENING:" + (p.code || "kode") + "]]"}),
+          el("button", {"class": "btn danger", type: "button", text: "Hapus paket", onclick: function(){
+            if (!confirm("Hapus paket " + (p.name || p.code) + "?")) return;
+            settings.packages.splice(i, 1); renderPackages(); markDirty(); }})])]));
+    });
+  }
+  $("addPkg").addEventListener("click", function(){ settings.packages.push({code: "", name: "", price: "", detail: ""}); renderPackages(); markDirty(); });
+
+  function renderMedia(){
+    var box = $("mediaList"); box.innerHTML = "";
+    if (!settings.media || !settings.media.length) { box.appendChild(el("p", {"class": "hint", text: "Belum ada gambar."})); return; }
+    settings.media.forEach(function(m, i){
+      var img = el("img", {alt: m.code, src: BASE + "media/" + encodeURIComponent(m.code) + "?t=" + encodeURIComponent(m.uploaded_at || "")});
+      var desc = el("input", {type: "text", value: m.description || "", "aria-label": "keterangan", oninput: function(e){ settings.media[i].description = e.target.value; markDirty(); }});
+      var cap = el("input", {type: "text", value: m.caption || "", placeholder: "caption (opsional)", "aria-label": "caption", oninput: function(e){ settings.media[i].caption = e.target.value; markDirty(); }});
+      var del = el("button", {"class": "btn danger", type: "button", text: "Hapus", onclick: function(){
+        if (!confirm("Hapus gambar " + m.code + "?")) return;
+        api("DELETE", "api/media/" + encodeURIComponent(m.code)).then(load).catch(function(e){ alert(e.message); });
+      }});
+      box.appendChild(el("div", {"class": "media"}, [img, el("div", {}, [
+        el("div", {}, [el("b", {text: m.code}), el("span", {"class": "small", text: "  ·  [[GAMBAR:" + m.code + "]]  ·  " + Math.round((m.size || 0) / 1024) + " KB"})]),
+        el("label", {text: "Kapan dikirim"}), desc, el("label", {text: "Caption"}), cap, el("p", {}, [del])])]));
+    });
+  }
+
+  $("upload").addEventListener("click", function(){
+    var f = $("m_file").files[0], msg = $("uploadMsg");
+    if (!f) { msg.textContent = "Pilih file dulu."; return; }
+    if (dirty && !confirm("Ada perubahan belum disimpan dan akan hilang setelah unggah. Lanjutkan?")) return;
+    var fd = new FormData();
+    fd.append("code", $("m_code").value.trim().toLowerCase()); fd.append("description", $("m_desc").value);
+    fd.append("caption", $("m_caption").value); fd.append("file", f);
+    msg.textContent = "Mengunggah…"; $("upload").disabled = true;
+    api("POST", "api/media", fd, true).then(function(){
+      msg.textContent = "✅ Tersimpan."; ["m_code", "m_desc", "m_caption", "m_file"].forEach(function(id){ $(id).value = ""; });
+      return load();
+    }).catch(function(e){ msg.textContent = "❌ " + e.message; }).then(function(){ $("upload").disabled = false; });
+  });
+
+  document.querySelectorAll("[data-reset]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var f = b.dataset.reset;
+      if (!defaults || !confirm("Ganti isi dengan teks default? Perubahan baru berlaku setelah Simpan.")) return;
+      $(f).value = defaults[f]; markDirty();
+    });
+  });
+  ["enabled", "typing", "debounce_seconds"].concat(textFields, numFields, ["admin_numbers"]).forEach(function(id){
+    $(id).addEventListener("input", function(){ markDirty(); if (id === "enabled") updatePill(); });
+    $(id).addEventListener("change", function(){ markDirty(); if (id === "enabled") updatePill(); });
+  });
+
+  function collect(){
+    var s = JSON.parse(JSON.stringify(settings));
+    s.enabled = $("enabled").checked; s.typing = $("typing").checked;
+    textFields.forEach(function(f){ s[f] = $(f).value; });
+    numFields.forEach(function(f){ s[f] = parseInt($(f).value, 10) || 0; });
+    s.debounce_ms = Math.round((parseFloat($("debounce_seconds").value) || 0) * 1000);
+    s.admin_numbers = $("admin_numbers").value.split(/[\n,]+/).map(function(x){ return x.trim(); }).filter(Boolean);
+    delete s.updated_at; delete s.updated_by;
+    return s;
+  }
+  $("save").addEventListener("click", function(){
+    $("save").disabled = true; setMsg("Menyimpan…");
+    api("PUT", "api/settings", collect()).then(function(s){
+      settings = s; dirty = false; render(); setMsg("✅ Tersimpan dan langsung berlaku.", "ok");
+      if ($("previewBox").open) loadPreview();
+    }).catch(function(e){ setMsg("❌ " + e.message, "err"); }).then(function(){ $("save").disabled = false; });
+  });
+
+  function loadStatus(){
+    return api("GET", "api/status").then(function(st){
+      $("statusInfo").textContent = "Device: " + st.device + " · Hermes: " + st.hermes + " · Nomor admin: " + st.admins;
+      var ul = $("pauses"); ul.innerHTML = "";
+      if (!st.paused || !st.paused.length) { ul.appendChild(el("li", {"class": "small", text: "Tidak ada chat yang dijeda."})); return; }
+      st.paused.forEach(function(p){
+        var num = p.chat.split("@")[0];
+        ul.appendChild(el("li", {}, [el("div", {"class": "grow"}, [
+          el("div", {}, [el("b", {text: num})]),
+          el("div", {"class": "small", text: "sampai " + fmt(p.until) + " · " + (p.reason || "")})]),
+          el("button", {"class": "btn", type: "button", text: "Aktifkan AI", onclick: function(){
+            api("DELETE", "api/pauses/" + encodeURIComponent(p.chat)).then(loadStatus).catch(function(e){ alert(e.message); });
+          }})]));
+      });
+    }).catch(function(e){ $("statusInfo").textContent = "Gagal memuat status: " + e.message; });
+  }
+  $("reloadStatus").addEventListener("click", loadStatus);
+
+  function loadPreview(){ api("GET", "api/prompt-preview").then(function(t){ $("preview").textContent = t; }); }
+  $("previewBox").addEventListener("toggle", function(){ if ($("previewBox").open) loadPreview(); });
+
+  function load(){
+    return api("GET", "api/settings").then(function(s){ settings = s; dirty = false; render(); setMsg("Belum ada perubahan."); });
+  }
+  window.addEventListener("beforeunload", function(e){ if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+  Promise.all([load(), api("GET", "api/defaults").then(function(d){ defaults = d; $("locked").textContent = d.locked_rules; }), loadStatus()])
+    .catch(function(e){ setMsg("❌ Gagal memuat: " + e.message, "err"); });
+})();
+</script>
+</body>
+</html>
