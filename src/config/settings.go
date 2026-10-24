@@ -14,6 +14,11 @@ var (
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
+	// AppBasicAuthDevicesRaw ("user:dev1|dev2,user2:dev3") limits listed Basic Auth
+	// accounts to those devices and to messaging endpoints; parsed into AppBasicAuthDevices
+	// at REST startup. Unlisted accounts keep full access.
+	AppBasicAuthDevicesRaw = ""
+	AppBasicAuthDevices    = map[string][]string{}
 	AppBasePath            = ""
 	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 	AppCORSAllowedOrigins  []string // CORS allowed origins; empty means "*" (any origin)
