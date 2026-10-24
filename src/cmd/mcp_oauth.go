@@ -138,6 +138,11 @@ func mcpOAuthCredentialValidator(credentials []string) (mcpoauth.CredentialValid
 		accounts[parts[0]] = parts[1]
 	}
 	return func(username, password string) bool {
+		// Device-scoped accounts (APP_BASIC_AUTH_DEVICES) never get MCP: its tools
+		// take any device and include device management.
+		if isRestrictedAccount(username) {
+			return false
+		}
 		expected, ok := accounts[username]
 		if !ok {
 			return false

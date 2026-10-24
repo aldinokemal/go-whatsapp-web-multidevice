@@ -233,8 +233,33 @@ Restart GOWA (downtime beberapa detik):
 docker compose -f /opt/gowa-deploy/compose.yml up -d
 ```
 
-Catatan: akun Basic Auth GOWA berlaku untuk **semua** device. Pembatasan bahwa
-bridge hanya mengirim dari device `cs-ai` dilakukan di bridge (`GOWA_DEVICE_ID`).
+### 1a-2. Kunci akun bridge ke device CS (disarankan)
+
+Tanpa pengaturan ini, akun Basic Auth GOWA berlaku untuk **semua** device. Kalau
+kredensial `cs-bridge` bocor, kredensial itu bisa dipakai mengirim dari nomor
+keuangan, atau mengubah webhook dan logout nomor CS. Kunci akunnya dengan menambahkan
+baris ini ke `/opt/gowa/src/.env`:
+
+```bash
+APP_BASIC_AUTH_DEVICES=cs-bridge:cs-ai
+```
+
+Akun yang tercantum di variabel ini:
+- hanya boleh memakai device yang ditulis;
+- hanya boleh memanggil endpoint pesan (send, message, chat, group, user lookup);
+- **tidak** bisa mengelola device (login, logout, hapus, webhook), MCP, websocket,
+  UI GOWA, atau `/cs-ai`.
+
+Akun yang tidak tercantum (misalnya `stage`) tetap admin penuh. Untuk Dashboard
+nanti, cukup tambahkan akunnya, misalnya
+`APP_BASIC_AUTH_DEVICES=cs-bridge:cs-ai,dashboard:keuangan|admin-kelas|koord-guru`.
+
+Setelah mengedit, restart GOWA dengan `docker compose -f /opt/gowa-deploy/compose.yml up -d`,
+lalu cek log-nya. Harus ada baris
+`[AUTH] account "cs-bridge" limited to devices [cs-ai]`.
+
+Kalau nama akun di variabel ini tidak ada di `APP_BASIC_AUTH`, GOWA menolak start dan
+menulis pesan error yang jelas.
 
 ### 1b. Buat device CS dan scan QR
 

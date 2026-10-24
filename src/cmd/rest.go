@@ -45,6 +45,16 @@ func init() {
 func restServer(_ *cobra.Command, _ []string) {
 	// registerMcpOAuth depends on these values being loaded after flag parsing.
 	loadMcpOAuthEnvConfig()
+
+	// Device-scoped accounts must be known before MCP OAuth builds its credential check.
+	scopes, err := parseBasicAuthDevices(config.AppBasicAuthDevicesRaw)
+	if err != nil {
+		logrus.Fatalln(err.Error())
+	}
+	if err := validateBasicAuthDevices(scopes, config.AppBasicAuthCredential); err != nil {
+		logrus.Fatalln(err.Error())
+	}
+	config.AppBasicAuthDevices = scopes
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
@@ -130,6 +140,18 @@ func restServer(_ *cobra.Command, _ []string) {
 
 		app.Use(middleware.WebsocketQueryAuth())
 		app.Use(newBasicAuthMiddleware(account))
+		if len(config.AppBasicAuthDevices) > 0 {
+			app.Use(newDeviceScopeMiddleware(config.AppBasicAuthDevices, config.AppBasePath, func(id string) (string, bool) {
+				if strings.TrimSpace(id) == "" {
+					return "", false
+				}
+				_, resolved, err := dm.ResolveDevice(id)
+				return resolved, err == nil
+			}))
+			for user, devs := range config.AppBasicAuthDevices {
+				logrus.Infof("[AUTH] account %q limited to devices %v (messaging endpoints only)", user, devs)
+			}
+		}
 	}
 
 	// Create base path group or use app directly
