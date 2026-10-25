@@ -68,6 +68,12 @@ const idempotencyProbeSQL = `
 		LIMIT 1
 	`
 
+const reopenConversationSQL = `
+		UPDATE conversations
+		SET status = $1, updated_at = now()
+		WHERE id = $2 AND account_id = $3 AND status = $4
+	`
+
 const touchConversationSQL = `
 		UPDATE conversations
 		SET last_activity_at = GREATEST(COALESCE(last_activity_at, $2), $2),
@@ -922,7 +928,7 @@ func TestFindOrCreateConversation_ExistingReturnsIDNoInsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -961,7 +967,7 @@ func TestFindOrCreateConversation_CreatesWithFirstMessageTimestamp(t *testing.T)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -995,7 +1001,7 @@ func TestFindOrCreateConversation_EmptyMsgsUsesNowish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1031,7 +1037,7 @@ func TestFindOrCreateConversation_ZeroTimeFirstMsgUsesNowish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1059,7 +1065,7 @@ func TestFindOrCreateConversation_SelectErrorPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	_, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	_, _, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if !errors.Is(err, selErr) {
 		t.Errorf("err = %v, want conv select boom", err)
 	}
@@ -1091,7 +1097,7 @@ func TestFindOrCreateConversation_InsertErrorPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	_, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	_, _, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if !errors.Is(err, insErr) {
 		t.Errorf("err = %v, want wrapped conv insert boom", err)
 	}
@@ -1126,7 +1132,7 @@ func TestFindOrCreateConversation_CreatesPendingWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1139,40 +1145,38 @@ func TestFindOrCreateConversation_CreatesPendingWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestFindOrCreateConversation_ReopensResolvedReusedConversation(t *testing.T) {
-	// With CHATWOOT_REOPEN_CONVERSATION=true (default), reusing a *resolved*
-	// conversation flips it back to the new-status via an UPDATE so the returning
-	// customer's thread resurfaces in the agent queue — matching the REST path.
+func TestFindOrCreateConversation_ReusesResolvedWithoutReopening(t *testing.T) {
+	// Reusing a *resolved* conversation must not change its status here, even
+	// with CHATWOOT_REOPEN_CONVERSATION=true. Reopening waits for ImportChat to
+	// know a message was actually written; otherwise a replay whose every row
+	// hits the idempotency probe would reopen a thread the agent resolved and
+	// add nothing to it.
 	imp, mock, cleanup := newUpsertContactTestImporter(t)
 	defer cleanup()
 
 	prevReopen := config.ChatwootReopenConversation
-	prevPending := config.ChatwootConversationPending
-	defer func() {
-		config.ChatwootReopenConversation = prevReopen
-		config.ChatwootConversationPending = prevPending
-	}()
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
 	config.ChatwootReopenConversation = true
-	config.ChatwootConversationPending = false
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
 		WithArgs(imp.accountID, imp.inboxID, 500).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(42, conversationStatusResolved))
-	mock.ExpectExec("UPDATE conversations").
-		WithArgs(conversationStatusOpen, 42, imp.accountID, conversationStatusResolved).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No UPDATE expected: sqlmock fails the test if one is issued.
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, wasResolved, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
 	if id != 42 {
 		t.Errorf("id = %d, want 42", id)
+	}
+	if !wasResolved {
+		t.Error("wasResolved = false, want true so ImportChat can reopen after a write")
 	}
 	_ = tx.Rollback()
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1180,31 +1184,27 @@ func TestFindOrCreateConversation_ReopensResolvedReusedConversation(t *testing.T
 	}
 }
 
-func TestFindOrCreateConversation_NoReopenWhenDisabled(t *testing.T) {
-	// With CHATWOOT_REOPEN_CONVERSATION=false, a reused resolved conversation is
-	// returned as-is with no status UPDATE (no extra query is expected).
+func TestReopenConversation_IssuesGuardedUpdate(t *testing.T) {
+	// The reopen UPDATE flips only a still-resolved row to the new-message
+	// status; the WHERE status guard keeps it idempotent.
 	imp, mock, cleanup := newUpsertContactTestImporter(t)
 	defer cleanup()
 
-	prevReopen := config.ChatwootReopenConversation
-	defer func() { config.ChatwootReopenConversation = prevReopen }()
-	config.ChatwootReopenConversation = false
+	prevPending := config.ChatwootConversationPending
+	defer func() { config.ChatwootConversationPending = prevPending }()
+	config.ChatwootConversationPending = false
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
-		WithArgs(imp.accountID, imp.inboxID, 500).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(42, conversationStatusResolved))
+	mock.ExpectExec(regexp.QuoteMeta(reopenConversationSQL)).
+		WithArgs(conversationStatusOpen, 42, imp.accountID, conversationStatusResolved).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
-	if err != nil {
-		t.Fatalf("findOrCreateConversation: %v", err)
-	}
-	if id != 42 {
-		t.Errorf("id = %d, want 42", id)
+	if err := imp.reopenConversation(context.Background(), tx, 42); err != nil {
+		t.Fatalf("reopenConversation: %v", err)
 	}
 	_ = tx.Rollback()
 	if err := mock.ExpectationsWereMet(); err != nil {
