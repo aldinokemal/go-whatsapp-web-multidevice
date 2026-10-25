@@ -102,23 +102,12 @@ func handleUndecryptableMessage(evt *events.UndecryptableMessage) {
 func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
 	log.Infof("Deleted message %s for %s", evt.MessageID, evt.SenderJID.String())
 
-	// Find the message to get its chat JID
-	message, err := chatStorageRepo.GetMessageByID(evt.MessageID)
-	if err != nil {
-		log.Errorf("Failed to find message %s for deletion: %v", evt.MessageID, err)
-		return
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
 	}
-
+	message := deleteStoredMessageForMe(chatStorageRepo, deviceID, evt.MessageID)
 	if message == nil {
-		log.Warnf("Message %s not found in database, skipping deletion", evt.MessageID)
 		return
-	}
-
-	// Delete the message from database
-	if err := chatStorageRepo.DeleteMessage(evt.MessageID, message.ChatJID); err != nil {
-		log.Errorf("Failed to delete message %s from database: %v", evt.MessageID, err)
-	} else {
-		log.Infof("Successfully deleted message %s from database", evt.MessageID)
 	}
 
 	// Send webhook notification for delete event
@@ -129,6 +118,38 @@ func handleDeleteForMe(ctx context.Context, evt *events.DeleteForMe, chatStorage
 			log.Errorf("Failed to forward delete event to webhook: %v", err)
 		}
 	}(client)
+}
+
+// deleteStoredMessageForMe removes one device's stored copy of a message after
+// that device's account deleted it "for me", and returns the removed row (nil
+// when the device holds none). Each device keeps its own copy, and a delete on
+// one account says nothing about another account's copy, so both the lookup
+// and the delete are scoped to the device that received the event.
+func deleteStoredMessageForMe(chatStorageRepo domainChatStorage.IChatStorageRepository, deviceID, messageID string) *domainChatStorage.Message {
+	if deviceID == "" {
+		log.Warnf("Cannot delete message %s without a device ID", messageID)
+		return nil
+	}
+
+	// Find the message to get its chat JID
+	message, err := chatStorageRepo.GetMessageByIDAndDevice(deviceID, messageID)
+	if err != nil {
+		log.Errorf("Failed to find message %s for deletion: %v", messageID, err)
+		return nil
+	}
+
+	if message == nil {
+		log.Warnf("Message %s not found in database, skipping deletion", messageID)
+		return nil
+	}
+
+	// Delete the message from database
+	if err := chatStorageRepo.DeleteMessageByDevice(deviceID, messageID, message.ChatJID); err != nil {
+		log.Errorf("Failed to delete message %s from database: %v", messageID, err)
+	} else {
+		log.Infof("Successfully deleted message %s from database", messageID)
+	}
+	return message
 }
 
 func resolvePresenceOnConnect() (types.Presence, bool) {

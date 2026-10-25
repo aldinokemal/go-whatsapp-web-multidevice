@@ -125,7 +125,9 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		displayName := conversationChatName(ctx, chatNameResolver, chatJID, jid, conv.GetDisplayName())
 
 		// Get or create chat
-		chatName := chatStorageRepo.GetChatNameWithPushName(jid, chatJID, "", displayName)
+		// Device-scoped: another device's stored name for this chat (for
+		// example a contact name only that account saved) is not this one's.
+		chatName := chatStorageRepo.GetChatNameWithPushNameByDevice(deviceID, jid, chatJID, "", displayName)
 
 		// Extract ephemeral expiration from conversation
 		ephemeralExpiration := conv.GetEphemeralExpiration()

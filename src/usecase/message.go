@@ -89,6 +89,22 @@ func (service serviceMessage) deleteStoredMessage(ctx context.Context, client *w
 	return nil
 }
 
+// storedMessageForAction loads the calling device's own copy of a message in
+// one chat. Each device stores its own row for a message, and the rows differ:
+// the sender's copy is "from me", a recipient's is not, and only a device that
+// received the message holds its media keys. A lookup by ID alone can return
+// another device's row, so it must never back a user-facing action.
+func (service serviceMessage) storedMessageForAction(ctx context.Context, chatJID types.JID, messageID string) (*domainChatStorage.Message, error) {
+	if service.chatStorageRepo == nil {
+		return nil, nil
+	}
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
+		return nil, fmt.Errorf("device identification required")
+	}
+	return service.chatStorageRepo.GetMessageByIDChatAndDevice(deviceID, chatJID.ToNonAD().String(), messageID)
+}
+
 func isGroupReadSenderServer(server string) bool {
 	switch server {
 	case types.DefaultUserServer, types.HiddenUserServer, types.LegacyUserServer, types.MessengerServer:
@@ -619,19 +635,24 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// Query the message from chat storage. The row holds the media keys, so
+	// it must be this device's own copy in the requested chat: a message that
+	// only another device received is "not found" here.
+	if service.chatStorageRepo == nil {
+		return response, fmt.Errorf("cannot download media for message %s without chat storage", request.MessageID)
+	}
+	message, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
 
 	if message == nil {
-		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+		return response, fmt.Errorf("message with ID %s not found in chat %s for current device", request.MessageID, dataWaRecipient.String())
 	}
 
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
@@ -639,11 +660,6 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	// Check if message has media
 	if message.MediaType == "" || directPath == "" {
 		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
-	}
-
-	// Verify the message is from the specified chat
-	if message.ChatJID != dataWaRecipient.String() {
-		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
 	// Create directory structure for organized storage
