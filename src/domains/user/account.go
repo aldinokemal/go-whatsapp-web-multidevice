@@ -85,6 +85,19 @@ type CheckResponse struct {
 	IsOnWhatsApp bool `json:"is_on_whatsapp"`
 }
 
+type BlockRequest struct {
+	Phone string `json:"phone" form:"phone"`
+}
+
+type BlocklistItem struct {
+	LID string `json:"lid"`
+	PN  string `json:"pn,omitempty"`
+}
+
+type BlocklistResponse struct {
+	Data []BlocklistItem `json:"data"`
+}
+
 type BusinessProfileRequest struct {
 	Phone string `json:"phone" query:"phone"`
 }
