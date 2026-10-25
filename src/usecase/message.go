@@ -329,11 +329,14 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	// Resolve the original sender so group admins can revoke other members'
 	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
 	// any other JID is admin-revoke and requires the bot to be group admin.
-	// WhatsApp message IDs are globally unique, so a cross-device lookup
-	// via GetMessageByID yields the same sender regardless of which device
-	// owns the row.
+	// IsFromMe belongs to a device's copy of the message, so resolve it
+	// within the current device and chat before choosing self- or admin-revoke.
 	senderJID := types.EmptyJID
-	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if lookupErr != nil {
 		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
 	} else if message != nil && !message.IsFromMe && message.Sender != "" {
