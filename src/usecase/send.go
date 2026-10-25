@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/gif"
 	"math"
 	"mime"
 	"net/http"
@@ -110,6 +111,58 @@ func buildStickerWebPFFmpegArgs(inputPath, outputPath string) []string {
 		"-an",
 		outputPath,
 	}
+}
+
+// buildGIFStickerFFmpegArgs converts an animated GIF into a 512x512 animated WebP,
+// letterboxed on a transparent canvas as WhatsApp requires for animated stickers.
+func buildGIFStickerFFmpegArgs(inputPath, outputPath string, quality, fps int) []string {
+	return []string{
+		"-y",
+		"-i", inputPath,
+		"-t", "6",
+		"-vf", fmt.Sprintf("fps=%d,scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba,pad=512:512:-1:-1:color=black@0", fps),
+		"-vcodec", "libwebp",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", strconv.Itoa(quality),
+		"-loop", "0",
+		"-an",
+		outputPath,
+	}
+}
+
+// isAnimatedGIF reports whether the file is a GIF with more than one frame.
+func isAnimatedGIF(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	return err == nil && len(g.Image) > 1
+}
+
+// convertGIFToAnimatedWebP lowers quality and frame rate until the sticker fits WhatsApp's 500KB limit.
+func convertGIFToAnimatedWebP(ctx context.Context, inputPath, outputPath string) error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return fmt.Errorf("ffmpeg not found: %w", err)
+	}
+	for _, try := range []struct{ quality, fps int }{{75, 15}, {50, 12}, {30, 10}, {20, 8}} {
+		cmd := exec.CommandContext(ctx, "ffmpeg", buildGIFStickerFFmpegArgs(inputPath, outputPath, try.quality, try.fps)...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("ffmpeg: %v: %s", err, stderr.String())
+		}
+		info, err := os.Stat(outputPath)
+		if err != nil {
+			return err
+		}
+		if info.Size() <= 500*1024 {
+			return nil
+		}
+	}
+	return pkgError.ValidationError("animated GIF is too large to fit the 500KB sticker limit, please use a shorter or smaller GIF")
 }
 
 func buildVideoTranscodeArgs(inputPath, outputPath string, compress, hd bool) ([]string, bool) {
@@ -1784,9 +1837,28 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	}
 
 	// Check if input is animated WebP - if so, handle it specially
-	infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer infoCancel()
-	isAnimatedSticker, webpWidth, webpHeight := getWebPInfo(infoCtx, stickerPath)
+	var (
+		isAnimatedSticker     bool
+		webpWidth, webpHeight int
+	)
+	if isAnimatedGIF(stickerPath) {
+		convertedPath := filepath.Join(absBaseDir, fmt.Sprintf("gif_%s.webp", fiberUtils.UUIDv4()))
+		deletedItems = append(deletedItems, convertedPath)
+		gifCtx, gifCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer gifCancel()
+		if err := convertGIFToAnimatedWebP(gifCtx, stickerPath, convertedPath); err != nil {
+			var tooLarge pkgError.ValidationError
+			if errors.As(err, &tooLarge) {
+				return response, err
+			}
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF sticker: %v", err))
+		}
+		stickerPath, isAnimatedSticker, webpWidth, webpHeight = convertedPath, true, 512, 512
+	} else {
+		infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer infoCancel()
+		isAnimatedSticker, webpWidth, webpHeight = getWebPInfo(infoCtx, stickerPath)
+	}
 	if isAnimatedSticker {
 		logrus.Info("Detected animated WebP sticker")
 
