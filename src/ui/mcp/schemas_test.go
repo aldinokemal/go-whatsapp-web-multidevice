@@ -63,6 +63,9 @@ func TestSchemas(t *testing.T) {
 		{"send weekly integer weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":[1,3]}`, false},
 		{"send weekly string weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":["1"]}`, true},
 		{"send weekday out of range", sendSchema, `{"type":"text","phone":"628","message":"hi","recurrence":"weekly","weekdays":[7]}`, true},
+		{"send poll max_answer zero", sendSchema, `{"type":"poll","phone":"628","question":"q","options":["a","b"],"max_answer":0}`, true},
+		{"send forward duration allowed", sendSchema, `{"type":"forward","phone":"628","message_id":"M1","duration":604800}`, false},
+		{"send forward duration not allowed", sendSchema, `{"type":"forward","phone":"628","message_id":"M1","duration":3600}`, true},
 
 		// ---- whatsapp_schedule ----
 		{"schedule list", scheduleSchema, `{"action":"list"}`, false},
@@ -94,6 +97,11 @@ func TestSchemas(t *testing.T) {
 		{"chat archive ok", chatSchema, `{"action":"archive","chat_jid":"628@s.whatsapp.net","archived":true}`, false},
 		{"chat archive missing flag", chatSchema, `{"action":"archive","chat_jid":"628@s.whatsapp.net"}`, true},
 		{"chat bad action", chatSchema, `{"action":"nuke"}`, true},
+		{"chat list_chats limit at max", chatSchema, `{"action":"list_chats","limit":100}`, false},
+		{"chat list_chats limit over max", chatSchema, `{"action":"list_chats","limit":101}`, true},
+		{"chat list_chats limit zero", chatSchema, `{"action":"list_chats","limit":0}`, true},
+		{"chat list_chats negative offset", chatSchema, `{"action":"list_chats","offset":-1}`, true},
+		{"chat get_messages limit over max", chatSchema, `{"action":"get_messages","chat_jid":"628@s.whatsapp.net","limit":500}`, true},
 
 		// ---- whatsapp_group ----
 		{"group create ok", groupSchema, `{"action":"create","title":"T","participants":["628"]}`, false},
@@ -112,6 +120,7 @@ func TestSchemas(t *testing.T) {
 		{"group invite_link ok", groupSchema, `{"action":"invite_link","group_id":"123@g.us","reset":true}`, false},
 		{"group set_name ok", groupSchema, `{"action":"set_name","group_id":"123@g.us","name":"N"}`, false},
 		{"group set_name missing name", groupSchema, `{"action":"set_name","group_id":"123@g.us"}`, true},
+		{"group set_name too long", groupSchema, `{"action":"set_name","group_id":"123@g.us","name":"abcdefghijklmnopqrstuvwxyz"}`, true},
 		{"group set_topic ok", groupSchema, `{"action":"set_topic","group_id":"123@g.us","topic":"T"}`, false},
 		{"group set_settings announce", groupSchema, `{"action":"set_settings","group_id":"123@g.us","announce":true}`, false},
 		{"group set_settings locked", groupSchema, `{"action":"set_settings","group_id":"123@g.us","locked":false}`, false},

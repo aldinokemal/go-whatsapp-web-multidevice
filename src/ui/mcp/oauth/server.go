@@ -430,7 +430,7 @@ func (s *Server) token(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "invalid token request")
 	}
-	if req.Resource != s.resource.String() {
+	if req.Resource != "" && req.Resource != s.resource.String() {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_target", "resource does not match this MCP server")
 	}
 	var (

@@ -261,7 +261,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -271,7 +271,13 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// Participant field for group chats — required by the WhatsApp protocol.
 	// An empty JID means "message was from me".
 	senderJID := types.EmptyJID
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// IsFromMe is relative to the receiving device, so another device's copy
+	// of the same message cannot determine the reaction's sender.
+	message, err := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if err != nil {
 		logrus.Warnf("Failed to lookup message %s for reaction: %v, using heuristic", request.MessageID, err)
 		if len(request.MessageID) > 22 {
@@ -295,7 +301,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// BuildReaction correctly constructs the MessageKey with Participant field
 	// for group chats, which is required for the reaction to be delivered.
 	msg := client.BuildReaction(dataWaRecipient, senderJID, request.MessageID, request.Emoji)
-	ts, err := client.SendMessage(ctx, dataWaRecipient, msg)
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, msg)
 	if err != nil {
 		return response, err
 	}
@@ -323,11 +329,14 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	// Resolve the original sender so group admins can revoke other members'
 	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
 	// any other JID is admin-revoke and requires the bot to be group admin.
-	// WhatsApp message IDs are globally unique, so a cross-device lookup
-	// via GetMessageByID yields the same sender regardless of which device
-	// owns the row.
+	// IsFromMe belongs to a device's copy of the message, so resolve it
+	// within the current device and chat before choosing self- or admin-revoke.
 	senderJID := types.EmptyJID
-	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if lookupErr != nil {
 		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
 	} else if message != nil && !message.IsFromMe && message.Sender != "" {

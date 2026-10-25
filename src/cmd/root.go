@@ -73,8 +73,15 @@ func init() {
 	// Initialize flags first, before any subcommands are added
 	initFlags()
 
-	// Then initialize other components
-	cobra.OnInitialize(initEnvConfig, initApp)
+	// Then initialize other components. Cobra marks the target command as called
+	// before running initializers, so `version` can skip config and storage setup.
+	cobra.OnInitialize(func() {
+		if versionCmd.CalledAs() != "" {
+			return
+		}
+		initEnvConfig()
+		initApp()
+	})
 }
 
 // initEnvConfig loads configuration from environment variables
