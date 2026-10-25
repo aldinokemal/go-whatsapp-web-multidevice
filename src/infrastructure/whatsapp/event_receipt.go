@@ -99,14 +99,24 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 // would receive 3 "delivered" receipts for the same message. To avoid duplicate
 // webhooks we only forward the receipt from the primary device (Device == 0).
 //
-// The exception is a read receipt sent by one of the current account's own
-// devices (IsFromMe). It means the account owner read the chat on that device
-// (WhatsApp Web, Desktop or another companion), and only the device where the
-// chat was opened sends it, so it is not duplicated per device. Dropping it
-// would hide reads that did not happen on the phone.
+// The exceptions are read and played receipts. Unlike delivery receipts, only
+// the device where the chat was opened (or the media was played) sends them, so
+// they are not duplicated per device. Dropping them would hide reads that did
+// not happen on the phone:
+//   - a contact reading our message on WhatsApp Web, Desktop or another linked
+//     device (common for WhatsApp Business accounts that answer from a PC);
+//   - the current account reading a chat on one of its own linked devices
+//     ("read", or "read-self" when read receipts are disabled).
 func shouldForwardReceipt(evt *events.Receipt) bool {
 	if evt.Sender.Device == 0 {
 		return true
 	}
-	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
+	switch evt.Type {
+	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
+		return true
+	case types.ReceiptTypeReadSelf:
+		return evt.IsFromMe
+	default:
+		return false
+	}
 }
