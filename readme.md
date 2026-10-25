@@ -127,6 +127,7 @@ Download:
   - `--auto-mark-read=true`
 - Automatically download media from incoming messages:
   - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+  - See [Media storage and cleanup](./docs/media-storage.md) for storage locations and manual retention commands.
 - Ignore downloading status media:
   - `--ignore-status-media=true` disables downloading status media (default: `false`).
 - Automatically reject incoming calls:
