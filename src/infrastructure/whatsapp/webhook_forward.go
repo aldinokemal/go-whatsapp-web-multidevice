@@ -1412,13 +1412,12 @@ func isEventWhitelisted(eventName string) bool {
 // getGroupName fetches the group name from WhatsApp using the group JID.
 // Uses a per-device TTL cache to avoid repeated API calls for the same group.
 func getGroupName(ctx context.Context, groupJID string) string {
-	client := ClientFromContext(ctx)
-	if client == nil {
-		logrus.Debug("Chatwoot: ClientFromContext returned nil, trying GetClient()")
-		client = GetClient()
+	instance, ok := DeviceFromContext(ctx)
+	if !ok || instance == nil {
+		return ""
 	}
-	if client == nil {
-		logrus.Warn("Chatwoot: No WhatsApp client available to fetch group name")
+	client := instance.GetClient()
+	if client == nil || groupNameCacheDeviceID(client) == "" {
 		return ""
 	}
 

@@ -13,6 +13,38 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
+func TestGroupNameLookupNeverFallsBackToTheGlobalAccount(t *testing.T) {
+	const group = "120363000000000075@g.us"
+	globalClient, _ := groupNameTestDevice(t, "15550000041")
+	globalStateMu.Lock()
+	originalClient := cli
+	cli = globalClient
+	globalStateMu.Unlock()
+	originalFetch := fetchGroupInfoFn
+	fetchGroupInfoFn = func(context.Context, *whatsmeow.Client, types.JID) (*types.GroupInfo, error) {
+		t.Error("unresolved device queried the global account")
+		return nil, nil
+	}
+	deviceID := groupNameCacheDeviceID(globalClient)
+	setCachedGroupName(deviceID, group, "Global account's group")
+	t.Cleanup(func() {
+		globalStateMu.Lock()
+		cli = originalClient
+		globalStateMu.Unlock()
+		fetchGroupInfoFn = originalFetch
+		invalidateCachedGroupName(deviceID, group)
+	})
+	for _, ctx := range []context.Context{
+		context.Background(), // Replay when the original device cannot be resolved.
+		ContextWithDevice(context.Background(), nil),
+		ContextWithDevice(context.Background(), NewDeviceInstance("logged-out", nil, nil)),
+	} {
+		if got := getGroupName(ctx, group); got != "" {
+			t.Fatalf("unresolved device received group name %q", got)
+		}
+	}
+}
+
 func TestGroupNameInvalidationCannotBeUndoneByAnInflightFetch(t *testing.T) {
 	const group = "120363000000000074@g.us"
 	client, ctx := groupNameTestDevice(t, "15550000031")
@@ -131,11 +163,12 @@ func TestGroupNameCacheIsPerDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse group JID: %v", err)
 	}
-	handleGroupInfo(ctxA, &events.GroupInfo{
+	instance, _ := DeviceFromContext(ctxA)
+	handler(ctxA, instance, &events.GroupInfo{
 		JID:       groupJID,
 		Name:      &types.GroupName{Name: "Renamed"},
 		Timestamp: time.Now(),
-	}, groupNameCacheDeviceID(clientA), clientA)
+	})
 
 	if got := getGroupName(ctxA, group); got != "Renamed" {
 		t.Fatalf("device A group name after a subject change = %q, want the new subject", got)
