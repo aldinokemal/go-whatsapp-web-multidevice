@@ -63,8 +63,9 @@ type groupNameCacheKey struct {
 
 // groupNameCacheEntry holds cached group name with expiration time
 type groupNameCacheEntry struct {
-	name      string
-	expiresAt time.Time
+	name       string
+	expiresAt  time.Time
+	fetchToken *int
 }
 
 var (
@@ -125,6 +126,27 @@ func invalidateCachedGroupName(deviceID, groupJID string) {
 		return
 	}
 	groupNameCache.Delete(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID})
+}
+
+// beginGroupNameCacheFetch reserves a unique cache value before the network
+// read. Deleting or replacing that value prevents an older fetch from caching
+// a name after a subject-change event invalidated it.
+func beginGroupNameCacheFetch(deviceID, groupJID string) func(string) {
+	if deviceID == "" {
+		return func(string) {}
+	}
+	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
+	pending := groupNameCacheEntry{fetchToken: new(int)}
+	groupNameCache.Store(key, pending)
+	return func(name string) {
+		if name == "" {
+			groupNameCache.CompareAndDelete(key, pending)
+			return
+		}
+		groupNameCache.CompareAndSwap(key, pending, groupNameCacheEntry{
+			name: name, expiresAt: time.Now().Add(groupNameCacheTTL),
+		})
+	}
 }
 
 // getContactMutex returns a mutex for the given phone number to serialize contact operations.
@@ -1418,6 +1440,8 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	// (this function is called from a goroutine)
 	freshCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	cacheResult := beginGroupNameCacheFetch(deviceID, groupJID)
+	defer cacheResult("")
 
 	logrus.Debugf("Chatwoot: Fetching group info for %s", groupJID)
 	groupInfo, err := fetchGroupInfoFn(freshCtx, client, jid)
@@ -1429,7 +1453,7 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	if groupInfo != nil && groupInfo.Name != "" {
 		logrus.Infof("Chatwoot: Got group name: %s", groupInfo.Name)
 		// Cache the result
-		setCachedGroupName(deviceID, groupJID, groupInfo.Name)
+		cacheResult(groupInfo.Name)
 		return groupInfo.Name
 	}
 

@@ -13,6 +13,38 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
+func TestGroupNameInvalidationCannotBeUndoneByAnInflightFetch(t *testing.T) {
+	const group = "120363000000000074@g.us"
+	client, ctx := groupNameTestDevice(t, "15550000031")
+	deviceID := groupNameCacheDeviceID(client)
+	original := fetchGroupInfoFn
+	calls := 0
+	fetchGroupInfoFn = func(_ context.Context, _ *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		calls++
+		name := "Renamed"
+		if calls == 1 {
+			// A subject-change event arrives after the request started, before the
+			// server's older response is returned to the cache writer.
+			invalidateCachedGroupName(deviceID, group)
+			name = "Old subject"
+		}
+		return &types.GroupInfo{JID: jid, GroupName: types.GroupName{Name: name}}, nil
+	}
+	t.Cleanup(func() {
+		fetchGroupInfoFn = original
+		invalidateCachedGroupName(deviceID, group)
+	})
+	if got := getGroupName(ctx, group); got != "Old subject" {
+		t.Fatalf("in-flight result = %q", got)
+	}
+	if name, ok := getCachedGroupName(deviceID, group); ok {
+		t.Fatalf("in-flight fetch restored invalidated subject %q", name)
+	}
+	if got := getGroupName(ctx, group); got != "Renamed" || calls != 2 {
+		t.Fatalf("next lookup = %q after %d fetches", got, calls)
+	}
+}
+
 // groupNameTestDevice returns a logged-in client for the given account and a
 // context that carries its device, the way an event for that device does.
 func groupNameTestDevice(t *testing.T, user string) (*whatsmeow.Client, context.Context) {
