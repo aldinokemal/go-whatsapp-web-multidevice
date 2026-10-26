@@ -139,7 +139,8 @@ func TestChatwootDeleteRevokesLegacyLinksOnlyInLegacyMode(t *testing.T) {
 		revokes []string
 	}{
 		{"legacy mode", 0, []string{"WA-0", "WA-3"}},
-		{"per-device mode", 1, []string{"WA-3"}},
+		// Config-0 links are legacy-only: a config-0 route fails closed.
+		{"per-device mode", 1, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newDeleteEnv(t)

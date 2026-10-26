@@ -575,9 +575,10 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 
 	route := h.resolveChatwootWebhookRoute(payload, forced)
 	if forced != nil {
-		// The delete path only needs the device to revoke from; the per-device
-		// endpoint forces it so revokes route to the same device as sends.
+		// The per-device endpoint forces the device and its config: revokes go out
+		// from the same device as sends and stay inside the URL's config.
 		route.DeviceID = forced.DeviceID
+		route.ConfigID = forced.ConfigID
 		route.Unroutable = false
 	}
 	if route.Unroutable {
@@ -602,13 +603,17 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 
 	ctx := whatsapp.ContextWithDevice(c.Context(), instance)
 	// Same account rule as the conversation lookup: a legacy account-0 link
-	// matches only while no per-device config exists.
+	// matches only while no per-device config exists. Legacy mode revokes only
+	// config-0 (env) links; per-device mode only those of the route's config,
+	// since a re-paired JID keeps the links of its earlier config.
 	legacy := h.legacyChatwootMode()
 	total, failed := 0, 0
 	var firstErr error
 	for _, link := range links {
 		inAccount := link.ChatwootAccountID == payload.Account.ID || (legacy && link.ChatwootAccountID == 0)
-		if link.Direction != "outgoing" || !inAccount {
+		inConfig := (legacy && link.ChatwootConfigID == 0) ||
+			(!legacy && route.ConfigID != 0 && link.ChatwootConfigID == route.ConfigID)
+		if link.Direction != "outgoing" || !inAccount || !inConfig {
 			logrus.Debugf("Chatwoot Webhook: Not revoking WhatsApp message %s for Chatwoot delete %d", link.WhatsAppMessageID, payload.ID)
 			continue
 		}
