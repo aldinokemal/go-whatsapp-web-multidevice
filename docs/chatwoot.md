@@ -574,6 +574,30 @@ Text formatting is translated in both directions so emphasis survives the bridge
 
 As in WhatsApp, a WhatsApp-side pair only counts at word boundaries and never inside links, so URLs such as `/_docs_/` or `?utm_source=wa&utm_medium=cta` and `snake_case` ids reach Chatwoot unchanged.
 
+Chatwoot hands an API-channel inbox the agent's reply as stored Markdown, and WhatsApp has no syntax for most of it. Replies sent from Chatwoot are therefore also flattened so the customer does not read raw Markdown:
+
+| Chatwoot reply | Delivered to WhatsApp |
+|----------------|-----------------------|
+| `[Our site](https://example.com/)` | `Our site: https://example.com/` |
+| `[**https://example.com/**](https://example.com/)` (the label is the URL) | `https://example.com/` |
+| `**https://example.com/**: https://example.com/` (how the reply box stores a canned reply holding such a link) | `https://example.com/` |
+| `<https://example.com/>`, `<info@example.com>`, `<tel:+15550100>` | `https://example.com/`, `info@example.com`, `+15550100` |
+| `[Write us](mailto:info@example.com)`, `[Call](tel:+15550100)` | `Write us: info@example.com`, `Call: +15550100` |
+| `R\&D`, `snake\_case`, `1\.`, `https://example.com/?a=1\&b=2` | `R&D`, `snake_case`, `1.`, `https://example.com/?a=1&b=2` |
+| `***bold italic***` | `*_bold italic_*` |
+| `2 * 3 * 4`, `30*40*50 cm`, `* a bullet`, `Price* ... *Terms`, `****1234` | unchanged |
+| a last line holding only `--` | removed |
+
+- A delimiter only formats when it touches the text on its inner side, as in Markdown itself: `** spaced **` and arithmetic such as `2 * 3 * 4` are delivered as written. A single `*` additionally needs a word boundary on its outer side, because WhatsApp does not format inside a word: `30*40*50` stays as typed instead of becoming `30_40_50`.
+- URLs are never formatted: `*`, `_` and `~` inside a link (query strings, `snake_case` paths) are delivered as written, also when the link sits inside bold or italic text.
+  The markers that close bold, italic or strikethrough end the link when punctuation follows them, so `**https://example.com**!Thanks` is delivered as `*https://example.com*!Thanks`.
+- A link label counts as the URL only when it is the same address: scheme and host are compared without regard to case, the rest exactly. `[https://example.com/Invoice_A](https://example.com/invoicea)` keeps its label and is delivered as `https://example.com/Invoice_A: https://example.com/invoicea`.
+- An escaped delimiter (`\*`, `\~`) is delivered as the plain character and does not start formatting.
+- Inline code and fenced code blocks are delivered unchanged; WhatsApp renders both.
+- Lists (`- item`, `1. item`), line breaks, emoji and right-to-left text are delivered as written.
+- The `--` line is the separator Chatwoot appends when an agent sends with the signature switch on but has no signature text. A separator followed by a signature is kept. When nothing but the separator is left, no text message is sent; an attachment on the same reply still goes out, without a caption.
+- With `CHATWOOT_SIGN_MSG=true` the conversion applies to the agent's body; the agent name is added afterwards.
+
 ### Edits & deletions
 
 - **Edits**: when a WhatsApp user edits a message, the new text is mirrored into Chatwoot as a threaded `✏️ **Edited:** …` note (controlled by `CHATWOOT_FORWARD_EDITS`, default on).
