@@ -29,6 +29,9 @@ type IChatStorageRepository interface {
 	GetMessageByID(id string) (*Message, error)                                 // New method for efficient ID-only search
 	GetMessageByIDAndDevice(deviceID, id string) (*Message, error)              // Device-scoped ID lookup for device-isolated flows
 	GetMessageByIDChatAndDevice(deviceID, chatJID, id string) (*Message, error) // Full storage identity lookup for chat-scoped flows
+	// GetQuotedMedia reads, by full storage identity, what a reply quoting a
+	// media message needs from it; nil (no error) when the message is missing.
+	GetQuotedMedia(ctx context.Context, deviceID, chatJID, id string) (*QuotedMedia, error)
 	GetMessageEdits(originalMessageID, deviceID string) ([]*MessageEdit, error)
 	GetMessages(filter *MessageFilter) ([]*Message, error)
 	// GetOldestMessageByDevice returns the earliest stored message for a chat,

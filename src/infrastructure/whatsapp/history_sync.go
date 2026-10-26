@@ -284,6 +284,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 				FileEncSHA256:   fileEncSHA256,
 				FileLength:      fileLength,
 				ContextMetadata: utils.ExtractContextMetadata(msg.GetMessage()),
+				QuotedMedia:     utils.QuotedMediaCopy(msg.GetMessage(), false),
 			}
 
 			messageBatch = append(messageBatch, message)
