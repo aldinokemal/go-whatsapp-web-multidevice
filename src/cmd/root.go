@@ -309,6 +309,9 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_message_delete") {
 		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
 	}
+	if viper.IsSet("chatwoot_revoke_on_delete") {
+		config.ChatwootRevokeOnDelete = viper.GetBool("chatwoot_revoke_on_delete")
+	}
 }
 
 func initFlags() {
@@ -652,6 +655,12 @@ func initFlags() {
 		"chatwoot-message-delete", "",
 		config.ChatwootMessageDelete,
 		`delete linked Chatwoot/WhatsApp messages when deletion is reported by the opposite side --chatwoot-message-delete <true/false> | example: --chatwoot-message-delete=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootRevokeOnDelete,
+		"chatwoot-revoke-on-delete", "",
+		config.ChatwootRevokeOnDelete,
+		`revoke on WhatsApp the messages deleted in Chatwoot, without deleting in Chatwoot what WhatsApp deletes --chatwoot-revoke-on-delete <true/false> | example: --chatwoot-revoke-on-delete=true`,
 	)
 }
 

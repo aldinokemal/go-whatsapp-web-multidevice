@@ -165,4 +165,10 @@ var (
 	// message when the opposite side reports deletion.
 	ChatwootMessageRead   = false
 	ChatwootMessageDelete = false
+
+	// ChatwootRevokeOnDelete is the Chatwoot-to-WhatsApp half of
+	// ChatwootMessageDelete alone: a message the agent deletes in Chatwoot is
+	// revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in
+	// Chatwoot.
+	ChatwootRevokeOnDelete = false
 )

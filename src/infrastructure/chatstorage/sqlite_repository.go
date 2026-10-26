@@ -1073,22 +1073,30 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 	return link, err
 }
 
-func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	query := `
+func (r *SQLiteRepository) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
+	rows, err := r.db.Query(`
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
-		LIMIT 1
-	`
-
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, chatwootMessageID))
-	if err == sql.ErrNoRows {
-		return nil, nil
+		ORDER BY created_at, rowid
+	`, deviceID, chatwootMessageID)
+	if err != nil {
+		return nil, err
 	}
-	return link, err
+	defer rows.Close()
+
+	links := []*domainChatStorage.ChatwootMessageLink{}
+	for rows.Next() {
+		link, err := r.scanChatwootMessageLink(rows)
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
 }
 
 func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
