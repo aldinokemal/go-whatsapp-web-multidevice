@@ -27,6 +27,13 @@ func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByIdentifier(identifier s
 	return nil, nil
 }
 
+func (r *deviceWebhookTestRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.cfg == nil {
+		return nil, nil
+	}
+	return []*domainChatStorage.ChatwootDeviceConfig{r.cfg}, nil
+}
+
 func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	return nil, nil
 }
