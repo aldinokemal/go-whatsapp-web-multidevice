@@ -23,11 +23,27 @@ import (
 
 // deleteRepo serves, for the env's device, the links of Chatwoot message 90:
 // WA-1 and WA-2 went out from account 3, WA-IN was received and WA-X belongs
-// to account 4. Message 91 has WA-3 from account 3 and WA-0, a legacy
-// account-0 link.
+// to account 4. Message 91 has WA-3 from account 3, WA-0, a legacy account-0
+// link, and WA-3B from account 3 under config 2. Message 92 went out from
+// account 3 under three configs: WA-LEGACY (0), WA-OLD-SERVER (1) and
+// WA-CURRENT-SERVER (2).
 type deleteRepo struct {
 	chatwootRouteTestRepo
-	calls int
+	calls  int
+	config *domainChatStorage.ChatwootDeviceConfig
+}
+
+func (r *deleteRepo) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.config != nil && (identifier == r.config.DeviceID || identifier == r.config.DeviceJID) {
+		return r.config, nil
+	}
+	return nil, nil
+}
+
+// GetChatwootDeviceConfigByInbox finds nothing: two servers share account 3
+// and inbox 5, so only the per-device URL can give the config.
+func (r *deleteRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return nil, nil
 }
 
 func (r *deleteRepo) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
@@ -36,7 +52,8 @@ func (r *deleteRepo) ListChatwootMessageLinksByChatwootID(deviceID string, chatw
 	if deviceID != "device-a@s.whatsapp.net" {
 		return links, nil
 	}
-	ids := map[int][]string{90: {"WA-1", "WA-2", "WA-IN", "WA-X"}, 91: {"WA-0", "WA-3"}}[chatwootMessageID]
+	ids := map[int][]string{90: {"WA-1", "WA-2", "WA-IN", "WA-X"}, 91: {"WA-0", "WA-3", "WA-3B"},
+		92: {"WA-LEGACY", "WA-OLD-SERVER", "WA-CURRENT-SERVER"}}[chatwootMessageID]
 	for _, id := range ids {
 		link := &domainChatStorage.ChatwootMessageLink{DeviceID: deviceID, WhatsAppMessageID: id,
 			WhatsAppChatJID: "5500900000001@s.whatsapp.net", ChatwootMessageID: chatwootMessageID, ChatwootAccountID: 3, Direction: "outgoing"}
@@ -47,6 +64,10 @@ func (r *deleteRepo) ListChatwootMessageLinksByChatwootID(deviceID string, chatw
 			link.ChatwootAccountID = 4
 		case "WA-0":
 			link.ChatwootAccountID = 0
+		case "WA-OLD-SERVER":
+			link.ChatwootConfigID = 1
+		case "WA-3B", "WA-CURRENT-SERVER":
+			link.ChatwootConfigID = 2
 		}
 		links = append(links, link)
 	}
@@ -71,11 +92,12 @@ type deleteEnv struct {
 	usecase *deleteUsecase
 	repo    *deleteRepo
 	notes   []string
+	webhook string
 }
 
 func newDeleteEnv(t *testing.T) *deleteEnv {
 	t.Helper()
-	env := &deleteEnv{usecase: &deleteUsecase{fail: map[string]error{}}, repo: &deleteRepo{}}
+	env := &deleteEnv{usecase: &deleteUsecase{fail: map[string]error{}}, repo: &deleteRepo{}, webhook: "/chatwoot/webhook"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -103,15 +125,17 @@ func newDeleteEnv(t *testing.T) *deleteEnv {
 	handler := &ChatwootHandler{MessageUsecase: env.usecase, DeviceManager: env.dm, ChatStorageRepo: env.repo}
 	env.app = fiber.New()
 	env.app.Post("/chatwoot/webhook", handler.HandleWebhook)
+	env.app.Post("/chatwoot/webhook/:device_id", handler.HandleDeviceWebhook)
 	return env
 }
 
-// deleted delivers Chatwoot's message_updated for a deleted outgoing message.
+// deleted delivers Chatwoot's message_updated for a deleted outgoing message
+// to the env's webhook.
 func (e *deleteEnv) deleted(t *testing.T, id int) {
 	t.Helper()
 	body := fmt.Sprintf(`{"event":"message_updated","message_type":"outgoing","id":%d,"content_attributes":{"deleted":true},`+
 		`"account":{"id":3},"conversation":{"id":7,"inbox_id":5,"meta":{"sender":{"id":11,"phone_number":"+5500900000001"}}}}`, id)
-	if resp, raw := doJSON(t, e.app, http.MethodPost, "/chatwoot/webhook", body); resp.StatusCode != fiber.StatusOK {
+	if resp, raw := doJSON(t, e.app, http.MethodPost, e.webhook, body); resp.StatusCode != fiber.StatusOK {
 		t.Fatalf("webhook status = %d (%s), want 200", resp.StatusCode, raw)
 	}
 }
@@ -131,26 +155,49 @@ func TestChatwootDeleteRevokesEveryOutgoingLink(t *testing.T) {
 }
 
 // A legacy account-0 link is revoked only while no per-device config exists,
-// as in the conversation lookup.
+// as in the conversation lookup. Legacy mode revokes only config-0 links; in
+// per-device mode a link must belong to the route's config, here the one of
+// the conversation link.
 func TestChatwootDeleteRevokesLegacyLinksOnlyInLegacyMode(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		configs int
-		revokes []string
+		name       string
+		configs    int
+		linkConfig int64
+		revokes    []string
 	}{
-		{"legacy mode", 0, []string{"WA-0", "WA-3"}},
+		// Legacy mode keeps a config only from a removed per-device config,
+		// possibly another server's.
+		{"legacy mode, conversation link of a removed config", 0, 2, []string{"WA-0", "WA-3"}},
+		{"per-device mode", 1, 2, []string{"WA-3B"}},
 		// Config-0 links are legacy-only: a config-0 route fails closed.
-		{"per-device mode", 1, nil},
+		{"per-device mode, config-0 route", 1, 0, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newDeleteEnv(t)
 			env.repo.count = tc.configs
 			env.repo.link = &domainChatStorage.ChatwootMessageLink{DeviceID: "slot-a", WhatsAppChatJID: "5500900000001@s.whatsapp.net",
-				ChatwootConversationID: 7, ChatwootAccountID: 3}
+				ChatwootConversationID: 7, ChatwootAccountID: 3, ChatwootConfigID: tc.linkConfig}
 			env.deleted(t, 91)
 			deleteEqual(t, "revokes", env.usecase.ids, tc.revokes)
 		})
 	}
+}
+
+// A slot that re-pairs keeps the links of its earlier number: config 1 sent
+// WA-OLD-SERVER from device-a before its slot moved on, and config 2 then
+// paired device-a for another Chatwoot server. Both servers use account 3 and
+// message 92, so config 2's delete must leave config 1's message alone, and
+// WA-LEGACY from the env era too. With no conversation link stored and the
+// inbox map ambiguous, only the URL can give the config.
+func TestChatwootDeleteRevokesOnlyItsConfigAfterARePair(t *testing.T) {
+	env := newDeleteEnv(t)
+	env.repo.count = 2
+	env.repo.config = &domainChatStorage.ChatwootDeviceConfig{ID: 2, DeviceID: "slot-a", DeviceJID: "device-a@s.whatsapp.net",
+		ChatwootURL: "https://chat.example.com", APIToken: "t", AccountID: 3, InboxID: 5, Enabled: true}
+	chatwoot.InitClientRegistry(env.repo)
+	env.webhook = "/chatwoot/webhook/slot-a"
+	env.deleted(t, 92)
+	deleteEqual(t, "revokes", env.usecase.ids, []string{"WA-CURRENT-SERVER"})
 }
 
 func TestChatwootDeleteNotesRefusedRevokesOnce(t *testing.T) {
