@@ -114,3 +114,47 @@ func TestUpdateMessageWithMediaTypeEditsCaption(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateMessageRejectsMediaTypeOfAnotherStoredType(t *testing.T) {
+	tests := []struct {
+		name      string
+		messageID string
+		mediaType string
+		wantErr   string
+	}{
+		{"image type on a document", "document-1", "image", "media_type: message document-1 is document, not image."},
+		{"document type on an image", "image-1", "document", "media_type: message image-1 is image, not document."},
+		{"image type on a text message", "message-1", "image", "media_type: message message-1 is text, not image."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, repo, ctx := newMessageActionTestService(t, nil)
+			image := storedMediaMessage("image-1", "image", "photo.jpg")
+			document := storedMediaMessage("document-1", "document", "invoice.pdf")
+			require.NoError(t, repo.StoreMessage(&image))
+			require.NoError(t, repo.StoreMessage(&document))
+			service.sendMessageFn = func(_ context.Context, _ *whatsmeow.Client, _ types.JID, _ *waE2E.Message) (whatsmeow.SendResponse, error) {
+				t.Fatal("a mismatched caption edit must not reach WhatsApp")
+				return whatsmeow.SendResponse{}, nil
+			}
+			before, err := repo.GetMessageByIDAndDevice("device-a@s.whatsapp.net", tt.messageID)
+			require.NoError(t, err)
+			require.NotNil(t, before)
+
+			_, err = service.UpdateMessage(ctx, domainMessage.UpdateMessageRequest{
+				MessageID: tt.messageID,
+				Phone:     "628123456789@s.whatsapp.net",
+				Message:   "new caption",
+				MediaType: tt.mediaType,
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+
+			after, err := repo.GetMessageByIDAndDevice("device-a@s.whatsapp.net", tt.messageID)
+			require.NoError(t, err)
+			require.NotNil(t, after)
+			assert.Equal(t, before.Content, after.Content, "a refused edit must leave the stored copy unchanged")
+		})
+	}
+}

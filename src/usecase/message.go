@@ -491,7 +491,8 @@ func (service serviceMessage) updateStoredMessage(
 
 // UpdateMessage implements message.IMessageService. It edits a sent message;
 // with MediaType set, it replaces that image or document's caption instead of
-// sending a text edit.
+// sending a text edit, and refuses a MediaType that differs from the stored
+// copy's type.
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
@@ -505,6 +506,22 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
+	}
+
+	if request.MediaType != "" {
+		// WhatsApp ignores a caption edit of another message type, while the local
+		// copy would still change. With no stored copy the type cannot be checked.
+		stored, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
+		if err != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+		}
+		if stored != nil && stored.MediaType != request.MediaType {
+			storedType := stored.MediaType
+			if storedType == "" {
+				storedType = "text"
+			}
+			return response, pkgError.ValidationError(fmt.Sprintf("media_type: message %s is %s, not %s.", request.MessageID, storedType, request.MediaType))
+		}
 	}
 
 	text := request.Message

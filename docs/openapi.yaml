@@ -2348,7 +2348,7 @@ paths:
                   type: string
                   enum: [image, document]
                   example: 'image'
-                  description: Set when message_id is an image or document message; the edit replaces its caption. WhatsApp ignores a plain-text edit of a media message. Cannot be combined with link.
+                  description: Set when message_id is an image or document message; the edit replaces its caption. WhatsApp ignores a plain-text edit of a media message. Rejected when it differs from the stored message's type. Cannot be combined with link.
               required:
                 - phone
                 - message
