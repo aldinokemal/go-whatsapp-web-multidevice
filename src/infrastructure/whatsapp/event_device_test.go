@@ -171,7 +171,7 @@ func TestHandlerReachoutTimelockBroadcastsAndForwards(t *testing.T) {
 }
 
 // The keep-slot reset that a remote logout triggers clears the device's JID, and the
-// webhook config and session id are found by that JID. The logout webhook must still
+// webhook config is found by that JID. The logout webhook must still
 // reach a device-only webhook, addressed to the JID the device had.
 func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 	got := captureDeviceWebhooks(t)
@@ -188,12 +188,6 @@ func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 	}
 
 	inst := &DeviceInstance{id: "slot-out", jid: jid, createdAt: time.Now()}
-	sessionIDForJIDFn = func(deviceJID string) string {
-		if deviceJID != "" && deviceJID == inst.JID() {
-			return inst.ID()
-		}
-		return ""
-	}
 	// Stands in for the device manager's keep-slot callback.
 	inst.SetOnLoggedOut(func(string) {
 		reset.Store(true)
@@ -218,4 +212,77 @@ func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 	}, delivered.body["payload"])
 
 	assert.Empty(t, inst.JID(), "the keep-slot reset should still clear the JID")
+}
+
+// Two slots linked to one number share the bare JID. The record lookup rejects a shared
+// JID as ambiguous, and a JID-to-session lookup can return the sibling, so a device event
+// must be routed by the emitting slot's companion JID and carry that slot's id.
+func TestDeviceEventRoutesSharedNumberToEmittingSlot(t *testing.T) {
+	got := captureDeviceWebhooks(t)
+	config.WhatsappWebhook = nil
+
+	const bareJID = "6284444444444@s.whatsapp.net"
+	urlA, urlB := "https://slot-a.example.test/webhook", "https://slot-b.example.test/webhook"
+	records := []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", JID: bareJID, ADJID: "6284444444444:5@s.whatsapp.net", WebhookURL: &urlA},
+		{DeviceID: "slot-b", JID: bareJID, ADJID: "6284444444444:7@s.whatsapp.net", WebhookURL: &urlB},
+	}
+	// Mirrors GetDeviceRecordByJID: match jid or ad_jid, and ignore an ambiguous match.
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		var matches []*domainChatStorage.DeviceRecord
+		for _, rec := range records {
+			if rec.JID == deviceJID || rec.ADJID == deviceJID {
+				matches = append(matches, rec)
+			}
+		}
+		if len(matches) != 1 {
+			return nil, nil
+		}
+		return matches[0], nil
+	}
+	// Mirrors getDeviceByJID resolving the shared bare JID to the first slot.
+	sessionIDForJIDFn = func(deviceJID string) string {
+		if deviceJID == bareJID {
+			return "slot-a"
+		}
+		return ""
+	}
+
+	slotB := &DeviceInstance{id: "slot-b", jid: bareJID, adJID: "6284444444444:7@s.whatsapp.net", createdAt: time.Now()}
+	go handler(context.Background(), slotB, &events.TemporaryBan{Code: events.TempBanSentTooManySameMessage})
+	recvBroadcast(t)
+
+	delivered := recvWebhook(t, got)
+	assert.Equal(t, urlB, delivered.url)
+	assert.Equal(t, "slot-b", delivered.body["session_id"])
+	assert.Equal(t, bareJID, delivered.body["device_id"])
+}
+
+// The websocket hub writes to each browser in turn with no deadline, so it can stop
+// taking broadcasts. The webhook must still go out promptly, and the handler return.
+func TestDeviceEventWebhookDoesNotWaitForStalledWebsocket(t *testing.T) {
+	got := captureDeviceWebhooks(t)
+	origTimeout := deviceBroadcastTimeout
+	deviceBroadcastTimeout = time.Second
+	t.Cleanup(func() { deviceBroadcastTimeout = origTimeout })
+
+	inst := &DeviceInstance{id: "slot-stalled", jid: "6285555555555@s.whatsapp.net", createdAt: time.Now()}
+	returned := make(chan struct{})
+	// Nothing receives from websocket.Broadcast here, as with a stalled hub.
+	go func() {
+		handler(context.Background(), inst, &events.NotifyAccountReachoutTimelock{IsActive: true})
+		close(returned)
+	}()
+
+	select {
+	case delivered := <-got:
+		assert.Equal(t, EventTypeDeviceReachoutTimelock, delivered.body["event"])
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("webhook waited for the websocket broadcast")
+	}
+	select {
+	case <-returned:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not return while the websocket hub was stalled")
+	}
 }

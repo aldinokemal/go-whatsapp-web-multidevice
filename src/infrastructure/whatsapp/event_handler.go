@@ -256,7 +256,7 @@ func handleLoggedOut(ctx context.Context, instance *DeviceInstance, evt *events.
 	deviceID := instance.ID()
 
 	// Before TriggerLoggedOut: the webhook is addressed by the JID it clears.
-	forwardDeviceEvent(ctx, EventTypeDeviceLoggedOut, instance.JID(), loggedOutPayload(evt))
+	forwardDeviceEvent(ctx, EventTypeDeviceLoggedOut, instance, loggedOutPayload(evt))
 
 	// TriggerLoggedOut fires the manager's keep-slot callback (resets the in-memory
 	// client + clears the persisted JID, but keeps the slot id and display name).

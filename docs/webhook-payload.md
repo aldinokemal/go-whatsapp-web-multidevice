@@ -1026,6 +1026,9 @@ timelock only shows as sends failing with error 463.
 The codes are WhatsApp's, forwarded unchanged; the reason texts are whatsmeow's descriptions of them. A code whatsmeow
 does not know is still forwarded, with its generic reason text. Device events are not sent to Chatwoot.
 
+`session_id` is always set on device events, to the slot the event is about, so slots that share one WhatsApp number
+can be told apart.
+
 ### Device Logged Out
 
 Triggered when the device is logged out remotely: unlinked from the phone, or logged out by WhatsApp. The device slot

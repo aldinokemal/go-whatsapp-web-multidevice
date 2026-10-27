@@ -16,8 +16,10 @@ This package owns clients, device lifecycle, JIDs, events, presence, and forward
   Keep work bounded and failures observable without blocking the event loop.
   Preserve the `shouldForwardReceipt` guard: contacts' linked-device receipts stay
   dropped to prevent duplicates; only the account's own read receipts pass from any device.
-  Device events (`event_device.go`) resolve the webhook config and session id by JID
-  before returning: `handleLoggedOut` forwards before `TriggerLoggedOut` clears that JID.
+  Device events (`event_device.go`) take the webhook config (by companion JID first) and
+  session id from the emitting slot before returning, since `handleLoggedOut` forwards
+  just before `TriggerLoggedOut` clears the JID; delivery starts before the bounded
+  websocket broadcast.
 - Chatwoot retries: `StartChatwootForwardRetryWorker` uses durable chat-storage jobs
   keyed by device, event name, and WhatsApp message ID. Initialize the client registry
   before the retry worker; preserve device routing when replaying queued events.

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types/events"
@@ -63,8 +64,8 @@ func handleTemporaryBan(ctx context.Context, instance *DeviceInstance, evt *even
 	logrus.Warnf("[TEMPORARY_BAN] Device %s: %s", instance.ID(), evt)
 
 	payload := temporaryBanPayload(evt, time.Now())
+	forwardDeviceEvent(ctx, EventTypeDeviceTemporaryBan, instance, payload)
 	broadcastDeviceEvent("DEVICE_TEMPORARY_BAN", evt.String(), instance.ID(), payload)
-	forwardDeviceEvent(ctx, EventTypeDeviceTemporaryBan, instance.JID(), payload)
 }
 
 func handleReachoutTimelock(ctx context.Context, instance *DeviceInstance, evt *events.NotifyAccountReachoutTimelock) {
@@ -81,11 +82,16 @@ func handleReachoutTimelock(ctx context.Context, instance *DeviceInstance, evt *
 		logrus.Infof("[REACHOUT_TIMELOCK] Device %s: %s", instance.ID(), message)
 	}
 
+	forwardDeviceEvent(ctx, EventTypeDeviceReachoutTimelock, instance, payload)
 	broadcastDeviceEvent("DEVICE_REACHOUT_TIMELOCK", message, instance.ID(), payload)
-	forwardDeviceEvent(ctx, EventTypeDeviceReachoutTimelock, instance.JID(), payload)
 }
 
+// deviceBroadcastTimeout bounds how long a device event waits for the websocket hub,
+// which writes to each browser in turn with no deadline.
+var deviceBroadcastTimeout = 5 * time.Second
+
 // broadcastDeviceEvent tells the websocket clients, adding the device_id the UI routes by.
+// A hub stalled on a slow browser drops the message rather than holding the event loop.
 func broadcastDeviceEvent(code, message, deviceID string, payload map[string]any) {
 	result := make(map[string]any, len(payload)+1)
 	for key, value := range payload {
@@ -93,27 +99,27 @@ func broadcastDeviceEvent(code, message, deviceID string, payload map[string]any
 	}
 	result["device_id"] = deviceID
 
-	websocket.Broadcast <- websocket.BroadcastMessage{
-		Code:    code,
-		Message: message,
-		Result:  result,
+	select {
+	case websocket.Broadcast <- websocket.BroadcastMessage{Code: code, Message: message, Result: result}:
+	case <-time.After(deviceBroadcastTimeout):
+		logrus.Warnf("Dropped websocket %s broadcast for device %s: the hub did not take it within %s", code, deviceID, deviceBroadcastTimeout)
 	}
 }
 
-// forwardDeviceEvent sends a device event to the webhooks. The device's webhook config
-// and session id are looked up by its JID before this returns, because a remote logout
-// clears that JID right after (keep-slot reset). Only the delivery runs in the background.
-func forwardDeviceEvent(ctx context.Context, eventName, deviceJID string, payload map[string]any) {
+// forwardDeviceEvent sends a device event to the webhooks. The webhook config and session
+// id come from the emitting slot and are read before this returns, because a remote logout
+// clears its JID right after (keep-slot reset). Only the delivery runs in the background.
+func forwardDeviceEvent(ctx context.Context, eventName string, instance *DeviceInstance, payload map[string]any) {
 	body := map[string]any{
-		"event":     eventName,
-		"payload":   payload,
-		"timestamp": time.Now().Format(time.RFC3339),
+		"event":      eventName,
+		"payload":    payload,
+		"timestamp":  time.Now().Format(time.RFC3339),
+		"session_id": instance.ID(),
 	}
-	if deviceJID != "" {
-		body["device_id"] = deviceJID
+	if jid := instance.JID(); jid != "" {
+		body["device_id"] = jid
 	}
-	webhookConfig := resolveWebhookConfig(deviceJID)
-	addWebhookSessionID(body)
+	webhookConfig := instanceWebhookConfig(instance)
 
 	go func() {
 		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -122,4 +128,16 @@ func forwardDeviceEvent(ctx context.Context, eventName, deviceJID string, payloa
 			logrus.Errorf("Failed to forward %s event to webhook: %v", eventName, err)
 		}
 	}()
+}
+
+// instanceWebhookConfig resolves the slot's webhook config by its exact companion JID
+// first: two slots on one number share the bare JID, which the record lookup rejects as
+// ambiguous. The bare JID is the fallback for records saved without a companion JID.
+func instanceWebhookConfig(instance *DeviceInstance) *domainChatStorage.DeviceWebhookConfig {
+	if adJID := instance.ADJID(); adJID != "" {
+		if webhookConfig := resolveWebhookConfig(adJID); webhookConfig != nil {
+			return webhookConfig
+		}
+	}
+	return resolveWebhookConfig(instance.JID())
 }
