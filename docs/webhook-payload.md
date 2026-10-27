@@ -1107,7 +1107,7 @@ reports the restriction as no longer active.
 |------------------------------|----------|---------------------------------------------------------------------------------------------------------------------|
 | `event`                      | string   | `device.logged_out`, `device.temporary_ban` or `device.reachout_timelock`                                           |
 | `device_id`                  | string   | JID of the device the event is about; omitted when the slot has no JID yet                                          |
-| `session_id`                 | string   | Session ID of the slot the event is about (registered via `POST /devices`); always set                              |
+| `session_id`                 | string   | Slot ID: the ID registered via `POST /devices`, or a WhatsApp JID for slots gowa created; always set                |
 | `timestamp`                  | string   | RFC3339 formatted timestamp when the event was received                                                             |
 | `payload.code`               | number   | Logged out and temporary ban: the reason code                                                                       |
 | `payload.reason`             | string   | Logged out and temporary ban: whatsmeow's description of the code                                                   |
