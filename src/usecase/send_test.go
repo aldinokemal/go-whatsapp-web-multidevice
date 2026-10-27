@@ -262,6 +262,9 @@ func TestConvertGIFStickerToAnimatedWebPKeepsSingleFrameGIFStatic(t *testing.T) 
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not installed")
 	}
+	if _, err := exec.LookPath("webpmux"); err != nil {
+		t.Skip("webpmux not installed")
+	}
 
 	dir := t.TempDir()
 	gifPath := filepath.Join(dir, "sticker.gif")
@@ -274,7 +277,12 @@ func TestConvertGIFStickerToAnimatedWebPKeepsSingleFrameGIFStatic(t *testing.T) 
 
 	// A one-frame GIF must not be reported as animated, so SendSticker falls
 	// through to the static path instead of sending a bogus animated sticker.
-	isAnimated, _, _, _ := getWebPInfo(ctx, webpPath)
+	// getWebPInfo also returns zero dimensions when webpmux fails, which would
+	// make the assertion below pass for the wrong reason, so require the canvas
+	// size to prove the inspection really ran.
+	isAnimated, width, height, _ := getWebPInfo(ctx, webpPath)
+	require.Equal(t, 512, width, "getWebPInfo must report the canvas size of the converted sticker")
+	require.Equal(t, 512, height)
 	assert.False(t, isAnimated)
 }
 
