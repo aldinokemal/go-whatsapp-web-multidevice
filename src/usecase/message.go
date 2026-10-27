@@ -489,6 +489,9 @@ func (service serviceMessage) updateStoredMessage(
 	return nil
 }
 
+// UpdateMessage implements message.IMessageService. It edits a sent message;
+// with MediaType set, it replaces that image or document's caption instead of
+// sending a text edit.
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err

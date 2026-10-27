@@ -37,6 +37,9 @@ func ValidateRevokeMessage(ctx context.Context, request domainMessage.RevokeRequ
 	return nil
 }
 
+// ValidateUpdateMessage checks an edit request. MediaType, when set, must be
+// image or document, and it cannot be combined with Link, which only applies to
+// text edits.
 func ValidateUpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),

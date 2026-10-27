@@ -35,6 +35,7 @@ func (h *MessageHandler) AddMessageTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(tool, h.handleMessage)
 }
 
+// handleMessage runs a whatsapp_message action on an existing message.
 func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToolRequest) (*mcpg.CallToolResult, error) {
 	ctx, _, err := resolveDeviceContext(ctx, request, h.resolver)
 	if err != nil {
