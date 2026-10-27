@@ -187,6 +187,9 @@ Download:
   | `newsletter.message` | New message(s) posted in a newsletter         |
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
+  | `device.logged_out`  | The device was logged out, with the reason    |
+  | `device.temporary_ban` | WhatsApp temporarily banned the account     |
+  | `device.reachout_timelock` | WhatsApp restricted starting new chats  |
 
   If this setting is empty, all events are forwarded.
 - **Webhook JID filtering**

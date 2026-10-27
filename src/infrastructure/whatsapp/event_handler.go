@@ -45,7 +45,11 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.PairPasskeyError:
 		handlePairPasskeyError(instance, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(instance)
+		handleLoggedOut(ctx, instance, evt)
+	case *events.TemporaryBan:
+		handleTemporaryBan(ctx, instance, evt)
+	case *events.NotifyAccountReachoutTimelock:
+		handleReachoutTimelock(ctx, instance, evt)
 	case *events.Connected, *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
@@ -236,8 +240,8 @@ func handlePairPasskeyError(instance *DeviceInstance, evt *events.PairPasskeyErr
 	}
 }
 
-func handleLoggedOut(instance *DeviceInstance) {
-	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
+func handleLoggedOut(ctx context.Context, instance *DeviceInstance, evt *events.LoggedOut) {
+	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s (reason %s)", instance.ID(), evt.Reason)
 	instance.ClearPasskeyState()
 
 	if client := instance.GetClient(); client != nil {
@@ -251,6 +255,9 @@ func handleLoggedOut(instance *DeviceInstance) {
 
 	deviceID := instance.ID()
 
+	// Before TriggerLoggedOut: the webhook is addressed by the JID it clears.
+	forwardDeviceEvent(ctx, EventTypeDeviceLoggedOut, instance.JID(), loggedOutPayload(evt))
+
 	// TriggerLoggedOut fires the manager's keep-slot callback (resets the in-memory
 	// client + clears the persisted JID, but keeps the slot id and display name).
 	instance.TriggerLoggedOut()
@@ -258,7 +265,7 @@ func handleLoggedOut(instance *DeviceInstance) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "DEVICE_LOGGED_OUT",
 		Message: "Device logged out (slot kept)",
-		Result:  map[string]string{"device_id": deviceID},
+		Result:  map[string]string{"device_id": deviceID, "reason": evt.Reason.String()},
 	}
 }
 

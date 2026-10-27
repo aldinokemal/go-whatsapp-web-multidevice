@@ -162,14 +162,25 @@ func getContactMutex(phone string) *sync.Mutex {
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
+	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, resolveWebhookConfig(deviceJID))
+}
+
+// resolveWebhookConfig returns the device-specific webhook config, or nil to use the global one.
+func resolveWebhookConfig(deviceJID string) *domainChatStorage.DeviceWebhookConfig {
 	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
 	if err != nil {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
-		webhookConfig = nil
+		return nil
 	}
+	return webhookConfig
+}
 
+// forwardPayloadWithWebhookConfig is forwardPayloadToConfiguredWebhooks with the device's
+// webhook config already resolved, for callers that must look it up before the device
+// record changes.
+func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any, eventName string, webhookConfig *domainChatStorage.DeviceWebhookConfig) error {
 	jidAllowed := !shouldIgnoreWebhookJID(payload)
 	webhookAllowed := jidAllowed && isEventWhitelistedForDevice(eventName, webhookConfig)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
