@@ -506,6 +506,14 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 
 	text := request.Message
 	msg := &waE2E.Message{Conversation: proto.String(text)}
+	// WhatsApp applies a caption edit only when it carries the media message's own
+	// type; a Conversation edit of an image or document is accepted and then ignored.
+	switch request.MediaType {
+	case "image":
+		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(text)}}
+	case "document":
+		msg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{Caption: proto.String(text)}}
+	}
 	if link := strings.TrimSpace(request.Link); link != "" {
 		if !containsLinkToken(text, link) {
 			text = buildLinkMessageText(text, link)

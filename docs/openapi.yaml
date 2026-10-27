@@ -2344,6 +2344,11 @@ paths:
                   type: string
                   example: 'https://example.com/page'
                   description: Optional URL. When set, the edit is sent with a rich link preview (title, description, thumbnail) like /send/link. Appended to the message if not already present.
+                media_type:
+                  type: string
+                  enum: [image, document]
+                  example: 'image'
+                  description: Set when message_id is an image or document message; the edit replaces its caption. WhatsApp ignores a plain-text edit of a media message. Cannot be combined with link.
               required:
                 - phone
                 - message

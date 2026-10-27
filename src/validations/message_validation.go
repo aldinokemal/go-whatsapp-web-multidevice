@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"strings"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -42,10 +43,15 @@ func ValidateUpdateMessage(ctx context.Context, request domainMessage.UpdateMess
 		validation.Field(&request.MessageID, validation.Required),
 		validation.Field(&request.Message, validation.Required),
 		validation.Field(&request.Link, is.URL),
+		validation.Field(&request.MediaType, validation.In("image", "document")),
 	)
 
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
+	}
+
+	if request.MediaType != "" && strings.TrimSpace(request.Link) != "" {
+		return pkgError.ValidationError("link: cannot be combined with media_type.")
 	}
 
 	return nil

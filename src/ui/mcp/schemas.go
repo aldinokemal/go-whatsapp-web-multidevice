@@ -89,7 +89,8 @@ const messageSchema = `{
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "emoji": {"type": "string", "description": "action=react: emoji to react with; empty string removes the reaction"},
     "message": {"type": "string", "description": "action=edit: replacement text (works ~15 minutes after send)"},
-    "link": {"type": "string", "description": "action=edit: optional URL; the edit is sent with a rich link preview for it, like send link (appended to message if absent)"}
+    "link": {"type": "string", "description": "action=edit: optional URL; the edit is sent with a rich link preview for it, like send link (appended to message if absent)"},
+    "media_type": {"type": "string", "enum": ["image","document"], "description": "action=edit: set when message_id is an image or document; the edit replaces its caption. Cannot be combined with link"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["message"]}}
