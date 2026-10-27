@@ -3,7 +3,6 @@ package whatsapp
 import (
 	"encoding/binary"
 	"io"
-	"math"
 	"time"
 
 	"github.com/purpshell/meowcaller"
@@ -62,7 +61,9 @@ func (s *channelAudioSource) takeFrame() []float32 {
 	}
 	for i := 0; i*2+1 < bytes; i++ {
 		sample := int16(binary.LittleEndian.Uint16(s.pending[i*2:]))
-		frame[i] = float32(sample) / float32(math.MaxInt16)
+		// Division by the full negative range, matching meowcaller's own decode:
+		// -32768 maps to -1.0 and the value round-trips without peak distortion.
+		frame[i] = float32(sample) / 32768.0
 	}
 	s.pending = s.pending[bytes:]
 	return frame

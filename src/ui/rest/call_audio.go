@@ -118,12 +118,18 @@ func deviceFromConn(conn *websocket.Conn) *whatsapp.DeviceInstance {
 }
 
 // pcmToS16LE converts meowcaller's float32 frames to the wire format the browser
-// worklet consumes. Samples are clamped so loud input cannot wrap around.
+// worklet consumes. Samples are clamped so loud input cannot wrap around, and the
+// full negative range is used so -1.0 encodes as -32768 and a library frame
+// round-trips unchanged.
 func pcmToS16LE(frame []float32) []byte {
 	out := make([]byte, len(frame)*2)
 	for i, sample := range frame {
 		clamped := math.Max(-1, math.Min(1, float64(sample)))
-		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(clamped*math.MaxInt16)))
+		value := int(math.Round(clamped * 32768))
+		if value > math.MaxInt16 {
+			value = math.MaxInt16
+		}
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(value)))
 	}
 	return out
 }

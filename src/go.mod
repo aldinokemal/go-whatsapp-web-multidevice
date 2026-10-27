@@ -15,6 +15,8 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/mark3labs/mcp-go v0.56.0
 	github.com/mattn/go-sqlite3 v1.14.52
+	// Pinned to the last whatsmeow-compatible commit, later tags use the hypermeow
+	// fork. purpshell/meowcaller#49 (relay election, late accept) needs a backport.
 	github.com/purpshell/meowcaller v0.0.0-20260726180203-6d9b7b2c1807
 	github.com/rs/zerolog v1.35.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

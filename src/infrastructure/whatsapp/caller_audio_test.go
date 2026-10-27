@@ -33,7 +33,23 @@ func TestChannelAudioSourceFramesMicrophoneBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, frame, meowcaller.FrameSamples)
 	require.InDelta(t, 0, frame[0], 0.0001)
-	require.InDelta(t, float32(500)/float32(32767), frame[500], 0.0001)
+	require.InDelta(t, float32(500)/float32(32768), frame[500], 0.0001)
+}
+
+// TestChannelAudioSourceUsesFullNegativeRange pins the symmetric scale: the most
+// negative s16 sample maps to -1.0 instead of overshooting past it.
+func TestChannelAudioSourceUsesFullNegativeRange(t *testing.T) {
+	raw := make([]byte, meowcaller.FrameSamples*2)
+	sample := int16(-32768) // constant conversion through uint16 needs a non-constant
+	binary.LittleEndian.PutUint16(raw, uint16(sample))
+
+	frames := make(chan []byte, 1)
+	frames <- raw
+
+	frame, err := newChannelAudioSource(frames).ReadFrame()
+	require.NoError(t, err)
+	require.Equal(t, float32(-1), frame[0])
+	require.Zero(t, frame[1])
 }
 
 func TestChannelAudioSourcePadsPartialFrameAndEnds(t *testing.T) {
@@ -44,8 +60,8 @@ func TestChannelAudioSourcePadsPartialFrameAndEnds(t *testing.T) {
 	source := newChannelAudioSource(frames)
 	frame, err := source.ReadFrame()
 	require.NoError(t, err)
-	require.InDelta(t, float32(16)/float32(32767), frame[0], 0.0001)
-	require.InDelta(t, float32(32)/float32(32767), frame[1], 0.0001)
+	require.InDelta(t, float32(16)/float32(32768), frame[0], 0.0001)
+	require.InDelta(t, float32(32)/float32(32768), frame[1], 0.0001)
 	require.Zero(t, frame[2])
 
 	_, err = source.ReadFrame()
