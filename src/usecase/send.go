@@ -152,6 +152,9 @@ func removeFPSModeOption(args []string) []string {
 // maxAnimatedStickerSize is the largest animated sticker WhatsApp accepts.
 const maxAnimatedStickerSize = 500 * 1024
 
+// maxAnimatedStickerDuration is the longest animated sticker WhatsApp accepts.
+const maxAnimatedStickerDuration = 10 * time.Second
+
 // isGIFSticker reports whether the file at path holds a GIF, detected from its
 // magic bytes: uploaded and downloaded stickers both land in extension-less
 // temporary files, so the extension cannot be trusted here.
@@ -1875,7 +1878,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Check if input is animated WebP - if so, handle it specially
 	infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer infoCancel()
-	isAnimatedSticker, webpWidth, webpHeight := getWebPInfo(infoCtx, stickerPath)
+	isAnimatedSticker, webpWidth, webpHeight, stickerDuration := getWebPInfo(infoCtx, stickerPath)
 
 	// GIFs are re-encoded into animated WebP stickers; a GIF is never a valid
 	// animated WebP, so this only ever applies to non-WebP input.
@@ -1897,7 +1900,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		// animated sticker: a one-frame GIF yields a still WebP, and that case
 		// keeps working through the static path below rather than erroring out.
 		infoCtx, infoCancel = context.WithTimeout(ctx, 5*time.Second)
-		isAnimatedSticker, webpWidth, webpHeight = getWebPInfo(infoCtx, stickerPath)
+		isAnimatedSticker, webpWidth, webpHeight, stickerDuration = getWebPInfo(infoCtx, stickerPath)
 		infoCancel()
 		if isAnimatedSticker && (webpWidth != 512 || webpHeight != 512) {
 			return response, pkgError.InternalServerError(
@@ -1931,6 +1934,12 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		if fileInfo.Size() > maxAnimatedStickerSize {
 			return response, pkgError.ValidationError(
 				fmt.Sprintf("animated WebP stickers must be under 500KB (got %d KB). Please reduce the file size.", fileInfo.Size()/1024))
+		}
+
+		// Validate animation duration - must be at most 10 seconds
+		if stickerDuration > maxAnimatedStickerDuration {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("animated WebP stickers must be at most 10 seconds long (got %.1f seconds). Please shorten the animation.", stickerDuration.Seconds()))
 		}
 
 		// Use the animated WebP file directly
@@ -2171,13 +2180,14 @@ func uploadMediaForRecipient(ctx context.Context, client *whatsmeow.Client, medi
 	return uploaded, err
 }
 
-// getWebPInfo returns whether the file is animated WebP and its dimensions.
-// It validates the file exists and is a regular file before executing webpmux.
-func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width int, height int) {
+// getWebPInfo returns whether the file is animated WebP, its dimensions and its
+// total animation duration. It validates the file exists and is a regular file
+// before executing webpmux.
+func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width int, height int, duration time.Duration) {
 	// Validate file exists and is a regular file (prevents command injection)
 	fileInfo, err := os.Stat(filePath)
 	if err != nil || !fileInfo.Mode().IsRegular() {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
 
 	// Clean path to prevent path traversal
@@ -2186,7 +2196,7 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 	cmd := exec.CommandContext(ctx, "webpmux", "-info", cleanPath)
 	output, err := cmd.Output()
 	if err != nil {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
 
 	outputStr := string(output)
@@ -2200,11 +2210,36 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 		height, errH = strconv.Atoi(matches[2])
 		if errW != nil || errH != nil {
 			logrus.Warnf("Failed to parse WebP dimensions from '%s': width=%v, height=%v", outputStr, errW, errH)
-			return isAnimated, 0, 0
+			return isAnimated, 0, 0, 0
 		}
 	}
 
-	return isAnimated, width, height
+	return isAnimated, width, height, parseWebPAnimationDuration(outputStr)
+}
+
+// parseWebPAnimationDuration sums the per-frame duration column of `webpmux
+// -info` output, which is reported in milliseconds. Frame rows look like:
+//
+//	1:   512   512   yes        0        0      500       none   yes        894       lossy
+//
+// Non-frame lines are ignored, so a still WebP yields zero.
+func parseWebPAnimationDuration(output string) time.Duration {
+	var totalMs int64
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 7 || !strings.HasSuffix(fields[0], ":") {
+			continue
+		}
+		if _, err := strconv.Atoi(strings.TrimSuffix(fields[0], ":")); err != nil {
+			continue
+		}
+		frameMs, err := strconv.ParseInt(fields[6], 10, 64)
+		if err != nil {
+			continue
+		}
+		totalMs += frameMs
+	}
+	return time.Duration(totalMs) * time.Millisecond
 }
 
 // getDefaultEphemeralExpiration returns the disappearing-message timer this

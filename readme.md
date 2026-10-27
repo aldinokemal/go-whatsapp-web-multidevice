@@ -109,9 +109,9 @@ Download:
     - Exactly **512×512 pixels**.
     - Less than **500 KB**.
     - No more than **10 seconds** long.
-    - If an animated WebP does not meet the size or dimension requirements, resize it before uploading with a tool
-      such as [ezgif.com](https://ezgif.com/resize). Animated WebP input is validated, not re-encoded; GIF input is
-      re-encoded and rejected with an error if the result still exceeds 500 KB or cannot be animated.
+    - If an animated WebP does not meet the size, dimension, or duration requirements, resize or shorten it before
+      uploading with a tool such as [ezgif.com](https://ezgif.com/resize). Animated WebP input is validated, not
+      re-encoded; GIF input is re-encoded and rejected with an error if the result still exceeds 500 KB or 10 seconds.
 - Compress images before sending.
 - Compress videos before sending.
 - Customize the OS name shown as the linked device name in WhatsApp:

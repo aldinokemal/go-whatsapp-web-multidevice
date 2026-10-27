@@ -274,8 +274,64 @@ func TestConvertGIFStickerToAnimatedWebPKeepsSingleFrameGIFStatic(t *testing.T) 
 
 	// A one-frame GIF must not be reported as animated, so SendSticker falls
 	// through to the static path instead of sending a bogus animated sticker.
-	isAnimated, _, _ := getWebPInfo(ctx, webpPath)
+	isAnimated, _, _, _ := getWebPInfo(ctx, webpPath)
 	assert.False(t, isAnimated)
+}
+
+func TestParseWebPAnimationDurationSumsFrameDurations(t *testing.T) {
+	output := `Canvas size: 512 x 512
+Features present: animation transparency
+Background color : 0xFFFFFFFF  Loop Count : 0
+Number of frames: 4
+No.: width height alpha x_offset y_offset duration   dispose blend image_size  compression
+  1:   512   512   yes        0        0      500       none   yes        894       lossy
+  2:   512   512   yes        0        0      100       none   yes        812       lossy
+  3:   512   512   yes        0        0      100       none   yes        910       lossy
+  4:   512   512   yes        0        0      100       none   yes        932       lossy
+`
+
+	assert.Equal(t, 800*time.Millisecond, parseWebPAnimationDuration(output))
+}
+
+func TestParseWebPAnimationDurationIsZeroForStillWebP(t *testing.T) {
+	output := `Canvas size: 512 x 512
+Features present: transparency
+Size of the image (with alpha): 780
+`
+
+	assert.Equal(t, time.Duration(0), parseWebPAnimationDuration(output))
+}
+
+func TestParseWebPAnimationDurationIgnoresMalformedRows(t *testing.T) {
+	output := `Number of frames: 2
+  1:   512   512   yes        0        0      250       none   yes        894       lossy
+  2:   512   512   yes        0        0        x       none   yes        894       lossy
+`
+
+	assert.Equal(t, 250*time.Millisecond, parseWebPAnimationDuration(output))
+}
+
+func TestConvertedGIFStickerDurationIsMeasured(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	if _, err := exec.LookPath("webpmux"); err != nil {
+		t.Skip("webpmux not installed")
+	}
+
+	dir := t.TempDir()
+	gifPath := filepath.Join(dir, "sticker.gif")
+	writeTestGIF(t, gifPath, 3) // three frames of 10 centiseconds = 300ms
+
+	webpPath := filepath.Join(dir, "sticker.webp")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	require.NoError(t, convertGIFStickerToAnimatedWebP(ctx, gifPath, webpPath))
+
+	isAnimated, _, _, duration := getWebPInfo(ctx, webpPath)
+	require.True(t, isAnimated)
+	assert.Greater(t, duration, time.Duration(0))
+	assert.LessOrEqual(t, duration, maxAnimatedStickerDuration)
 }
 
 func TestBuildStickerWebPFFmpegArgsConvertWithInstalledFFmpeg(t *testing.T) {
