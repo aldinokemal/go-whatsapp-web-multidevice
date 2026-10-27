@@ -483,6 +483,48 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 	assert.Equal(suite.T(), "test.jpg", filename)
 }
 
+func (suite *UtilsTestSuite) TestDownloadStickerFromURLAcceptsGIF() {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sticker.gif" {
+			w.Header().Set("Content-Type", "image/gif")
+			w.Write([]byte("gif data"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	data, fileName, err := utils.DownloadStickerFromURL(server.URL + "/sticker.gif?v=1")
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), []byte("gif data"), data)
+	assert.Equal(suite.T(), "sticker.gif", fileName)
+
+	// GIF stays unsupported for the image path.
+	_, _, err = utils.DownloadImageFromURL(server.URL + "/sticker.gif")
+	assert.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "unsupported file type")
+}
+
+func (suite *UtilsTestSuite) TestDownloadStickerFromURLRejectsOversizedBodyWithoutContentLength() {
+	origMaxSize := config.WhatsappSettingMaxImageSize
+	config.WhatsappSettingMaxImageSize = 10
+	defer func() {
+		config.WhatsappSettingMaxImageSize = origMaxSize
+	}()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/gif")
+		// Streaming without Content-Length: the limit must still be enforced.
+		w.(http.Flusher).Flush()
+		w.Write(bytes.Repeat([]byte("a"), 64))
+	}))
+	defer server.Close()
+
+	_, _, err := utils.DownloadStickerFromURL(server.URL + "/sticker.gif")
+	assert.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "exceeds maximum allowed size")
+}
+
 func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	// Mock original config values
 	origMaxSize := config.WhatsappSettingMaxDownloadSize

@@ -112,6 +112,95 @@ func buildStickerWebPFFmpegArgs(inputPath, outputPath string) []string {
 	}
 }
 
+// buildAnimatedStickerWebPFFmpegArgs converts an animated GIF into an animated
+// 512x512 WebP sticker. It must not pass -vsync: ffmpeg deprecated it in 5.1
+// and removed it in 9.0. -fps_mode passthrough carries the GIF frame timestamps
+// through unchanged, so per-frame delays survive the conversion.
+func buildAnimatedStickerWebPFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-y",
+		"-i", inputPath,
+		"-vcodec", "libwebp",
+		"-filter_complex", "[0:v] scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:-1:-1:color=white@0.0",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "40",
+		"-loop", "0",
+		"-preset", "default",
+		"-an",
+		"-fps_mode", "passthrough",
+		outputPath,
+	}
+}
+
+// removeFPSModeOption drops -fps_mode and its value from an argument list.
+// ffmpeg builds older than 5.1 (Ubuntu 22.04 still ships 4.4) reject the option
+// outright, and their default vsync mode already preserves frame timestamps, so
+// the animated sticker conversion retries without it instead of failing.
+func removeFPSModeOption(args []string) []string {
+	trimmed := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-fps_mode" {
+			i++ // skip the option value as well
+			continue
+		}
+		trimmed = append(trimmed, args[i])
+	}
+	return trimmed
+}
+
+// maxAnimatedStickerSize is the largest animated sticker WhatsApp accepts.
+const maxAnimatedStickerSize = 500 * 1024
+
+// isGIFSticker reports whether the file at path holds a GIF, detected from its
+// magic bytes: uploaded and downloaded stickers both land in extension-less
+// temporary files, so the extension cannot be trusted here.
+func isGIFSticker(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	header := make([]byte, 512)
+	n, err := f.Read(header)
+	if err != nil && n == 0 {
+		return false
+	}
+	return http.DetectContentType(header[:n]) == "image/gif"
+}
+
+// convertGIFStickerToAnimatedWebP renders a GIF into an animated 512x512 WebP.
+// ffmpeg builds older than 5.1 reject -fps_mode, so the conversion is retried
+// without it; their default vsync mode also preserves the input frame timing.
+func convertGIFStickerToAnimatedWebP(ctx context.Context, inputPath, outputPath string) error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return fmt.Errorf("ffmpeg is required to convert GIF stickers into animated WebP: %w", err)
+	}
+
+	args := buildAnimatedStickerWebPFFmpegArgs(inputPath, outputPath)
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	if runErr == nil {
+		return nil
+	}
+	// ffmpeg reports the rejected option as 'fps_mode', without the leading dash.
+	if !strings.Contains(stderr.String(), "fps_mode") {
+		return fmt.Errorf("%v, stderr: %s", runErr, stderr.String())
+	}
+
+	stderr.Reset()
+	retryCmd := exec.CommandContext(ctx, "ffmpeg", removeFPSModeOption(args)...)
+	retryCmd.Stderr = &stderr
+	if err := retryCmd.Run(); err != nil {
+		return fmt.Errorf("%v, stderr: %s", err, stderr.String())
+	}
+	return nil
+}
+
 func buildVideoTranscodeArgs(inputPath, outputPath string, compress, hd bool) ([]string, bool) {
 	if hd {
 		return buildHDVideoFFmpegArgs(inputPath, outputPath), true
@@ -1749,7 +1838,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Handle sticker from URL or file
 	if request.StickerURL != nil && *request.StickerURL != "" {
 		// Download sticker from URL
-		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
+		imageData, _, err := utils.DownloadStickerFromURL(*request.StickerURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
 		}
@@ -1787,6 +1876,44 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	infoCtx, infoCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer infoCancel()
 	isAnimatedSticker, webpWidth, webpHeight := getWebPInfo(infoCtx, stickerPath)
+
+	// GIFs are re-encoded into animated WebP stickers; a GIF is never a valid
+	// animated WebP, so this only ever applies to non-WebP input.
+	if !isAnimatedSticker && isGIFSticker(stickerPath) {
+		logrus.Info("Detected GIF sticker, converting to animated WebP")
+
+		gifPath := stickerPath
+		stickerPath = filepath.Join(absBaseDir, fmt.Sprintf("sticker_gif_%s.webp", fiberUtils.UUIDv4()))
+		deletedItems = append(deletedItems, stickerPath)
+
+		convertCtx, convertCancel := context.WithTimeout(ctx, 60*time.Second)
+		convertErr := convertGIFStickerToAnimatedWebP(convertCtx, gifPath, stickerPath)
+		convertCancel()
+		if convertErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert GIF sticker: %v", convertErr))
+		}
+
+		// Re-inspect the result instead of assuming ffmpeg produced a usable
+		// animated sticker: a one-frame GIF yields a still WebP, and that case
+		// keeps working through the static path below rather than erroring out.
+		infoCtx, infoCancel = context.WithTimeout(ctx, 5*time.Second)
+		isAnimatedSticker, webpWidth, webpHeight = getWebPInfo(infoCtx, stickerPath)
+		infoCancel()
+		if isAnimatedSticker && (webpWidth != 512 || webpHeight != 512) {
+			return response, pkgError.InternalServerError(
+				fmt.Sprintf("converted GIF sticker has an unexpected canvas size %dx%d", webpWidth, webpHeight))
+		}
+
+		fileInfo, statErr := os.Stat(stickerPath)
+		if statErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to stat converted sticker file: %v", statErr))
+		}
+		if fileInfo.Size() > maxAnimatedStickerSize {
+			return response, pkgError.ValidationError(
+				fmt.Sprintf("converted animated sticker is %d KB, which exceeds the 500KB WhatsApp limit. Use a shorter or smaller GIF.", fileInfo.Size()/1024))
+		}
+	}
+
 	if isAnimatedSticker {
 		logrus.Info("Detected animated WebP sticker")
 
@@ -1801,7 +1928,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		if statErr != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to stat sticker file: %v", statErr))
 		}
-		if fileInfo.Size() > 500*1024 {
+		if fileInfo.Size() > maxAnimatedStickerSize {
 			return response, pkgError.ValidationError(
 				fmt.Sprintf("animated WebP stickers must be under 500KB (got %d KB). Please reduce the file size.", fileInfo.Size()/1024))
 		}

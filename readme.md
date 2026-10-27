@@ -103,12 +103,15 @@ Download:
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.
   - Preserves transparency in PNG images.
+  - **GIF stickers are converted into animated WebP stickers** before sending, so the animation is kept instead of
+    being flattened to the first frame. GIF input needs `ffmpeg` installed (bundled in the Docker image).
   - **Animated WebP stickers** are supported but must meet WhatsApp requirements:
     - Exactly **512×512 pixels**.
     - Less than **500 KB**.
     - No more than **10 seconds** long.
-    - If an animated sticker does not meet these requirements, resize it before uploading with a tool such as
-      [ezgif.com](https://ezgif.com/resize).
+    - If an animated WebP does not meet the size or dimension requirements, resize it before uploading with a tool
+      such as [ezgif.com](https://ezgif.com/resize). Animated WebP input is validated, not re-encoded; GIF input is
+      re-encoded and rejected with an error if the result still exceeds 500 KB or cannot be animated.
 - Compress images before sending.
 - Compress videos before sending.
 - Customize the OS name shown as the linked device name in WhatsApp:

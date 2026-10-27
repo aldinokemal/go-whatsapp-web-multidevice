@@ -345,6 +345,18 @@ func ContainsMention(message string) []string {
 }
 
 func DownloadImageFromURL(url string) ([]byte, string, error) {
+	return downloadImageFromURL(url, false)
+}
+
+// DownloadStickerFromURL downloads a sticker image, additionally accepting GIF
+// so animated GIF stickers can be converted into animated WebP. GIF stays out of
+// DownloadImageFromURL because SendImage stores the source bytes as the message
+// payload, where a GIF would produce a mimetype WhatsApp does not accept.
+func DownloadStickerFromURL(stickerURL string) ([]byte, string, error) {
+	return downloadImageFromURL(stickerURL, true)
+}
+
+func downloadImageFromURL(url string, allowGIF bool) ([]byte, string, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -364,7 +376,7 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("HTTP request failed with status: %s", response.Status)
 	}
 
-	contentType := response.Header.Get("Content-Type")
+	contentType := strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])
 	if !strings.HasPrefix(contentType, "image/") {
 		return nil, "", fmt.Errorf("invalid content type: %s", contentType)
 	}
@@ -372,8 +384,10 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 	if contentLength := response.ContentLength; contentLength > int64(config.WhatsappSettingMaxImageSize) {
 		return nil, "", fmt.Errorf("image size %d exceeds maximum allowed size %d", contentLength, config.WhatsappSettingMaxImageSize)
 	}
-	// Limit the size from config
-	reader := io.LimitReader(response.Body, int64(config.WhatsappSettingMaxImageSize))
+	// Limit the size from config, reading one byte past the cap so an oversized
+	// body without a Content-Length header is rejected instead of truncated.
+	limit := int64(config.WhatsappSettingMaxImageSize) + 1
+	reader := io.LimitReader(response.Body, limit)
 	// Extract the file name from the URL and remove query parameters if present
 	segments := strings.Split(url, "/")
 	fileName := segments[len(segments)-1]
@@ -385,6 +399,9 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 		".png":  true,
 		".webp": true,
 	}
+	if allowGIF {
+		allowedExtensions[".gif"] = true
+	}
 	extension := strings.ToLower(filepath.Ext(fileName))
 	if !allowedExtensions[extension] {
 		return nil, "", fmt.Errorf("unsupported file type: %s", extension)
@@ -392,6 +409,9 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 	imageData, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, "", err
+	}
+	if int64(len(imageData)) > int64(config.WhatsappSettingMaxImageSize) {
+		return nil, "", fmt.Errorf("image size exceeds maximum allowed size %d", config.WhatsappSettingMaxImageSize)
 	}
 	return imageData, fileName, nil
 }

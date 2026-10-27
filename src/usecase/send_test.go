@@ -5,13 +5,17 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -153,6 +157,125 @@ func TestBuildStickerWebPFFmpegArgs(t *testing.T) {
 	got := buildStickerWebPFFmpegArgs("input.png", "output.webp")
 	assert.Equal(t, want, got)
 	assert.NotContains(t, got, "-vsync", "ffmpeg 9 removed -vsync; passing it fails the whole conversion")
+}
+
+func TestBuildAnimatedStickerWebPFFmpegArgs(t *testing.T) {
+	want := []string{
+		"-y",
+		"-i", "input.gif",
+		"-vcodec", "libwebp",
+		"-filter_complex", "[0:v] scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:-1:-1:color=white@0.0",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "40",
+		"-loop", "0",
+		"-preset", "default",
+		"-an",
+		"-fps_mode", "passthrough",
+		"output.webp",
+	}
+
+	got := buildAnimatedStickerWebPFFmpegArgs("input.gif", "output.webp")
+	assert.Equal(t, want, got)
+	assert.NotContains(t, got, "-vsync", "ffmpeg 9 removed -vsync; passing it fails the whole conversion")
+	assert.NotContains(t, got, "-filter:v", "a -filter:v alongside -filter_complex makes ffmpeg refuse the second scale filter")
+}
+
+func TestRemoveFPSModeOptionDropsFlagAndValue(t *testing.T) {
+	args := []string{"-i", "input.gif", "-fps_mode", "passthrough", "-an", "output.webp"}
+	assert.Equal(t, []string{"-i", "input.gif", "-an", "output.webp"}, removeFPSModeOption(args))
+}
+
+func TestRemoveFPSModeOptionLeavesOtherArgsUntouched(t *testing.T) {
+	args := buildStickerWebPFFmpegArgs("input.png", "output.webp")
+	assert.Equal(t, args, removeFPSModeOption(args))
+}
+
+func writeTestGIF(t *testing.T, path string, frames int) {
+	t.Helper()
+
+	palette := color.Palette{
+		color.RGBA{R: 255, A: 255},
+		color.RGBA{G: 255, A: 255},
+		color.RGBA{B: 255, A: 255},
+	}
+
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	defer file.Close()
+
+	frame := image.NewPaletted(image.Rect(0, 0, 20, 20), palette)
+	frame.Pix[0] = 1
+	animation := &gif.GIF{LoopCount: 0}
+	for i := 0; i < frames; i++ {
+		animation.Image = append(animation.Image, frame)
+		animation.Delay = append(animation.Delay, 10)
+	}
+	require.NoError(t, gif.EncodeAll(file, animation))
+}
+
+func TestIsGIFStickerDetectsGIFAndRejectsPNG(t *testing.T) {
+	dir := t.TempDir()
+
+	gifPath := filepath.Join(dir, "sticker.gif")
+	writeTestGIF(t, gifPath, 2)
+	assert.True(t, isGIFSticker(gifPath))
+
+	pngPath := filepath.Join(dir, "sticker.png")
+	pngFile, err := os.Create(pngPath)
+	require.NoError(t, err)
+	require.NoError(t, png.Encode(pngFile, image.NewNRGBA(image.Rect(0, 0, 4, 4))))
+	require.NoError(t, pngFile.Close())
+	assert.False(t, isGIFSticker(pngPath))
+
+	assert.False(t, isGIFSticker(filepath.Join(dir, "missing.gif")))
+}
+
+func TestConvertGIFStickerToAnimatedWebPProduces512AnimatedWebP(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	if _, err := exec.LookPath("webpmux"); err != nil {
+		t.Skip("webpmux not installed")
+	}
+
+	dir := t.TempDir()
+	gifPath := filepath.Join(dir, "sticker.gif")
+	writeTestGIF(t, gifPath, 3)
+
+	webpPath := filepath.Join(dir, "sticker.webp")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	require.NoError(t, convertGIFStickerToAnimatedWebP(ctx, gifPath, webpPath))
+
+	output, err := exec.Command("webpmux", "-info", webpPath).Output()
+	require.NoError(t, err)
+	assert.Contains(t, strings.ToLower(string(output)), "animation")
+	assert.Contains(t, string(output), "Canvas size: 512 x 512")
+
+	info, err := os.Stat(webpPath)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, info.Size(), int64(maxAnimatedStickerSize))
+}
+
+func TestConvertGIFStickerToAnimatedWebPKeepsSingleFrameGIFStatic(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+
+	dir := t.TempDir()
+	gifPath := filepath.Join(dir, "sticker.gif")
+	writeTestGIF(t, gifPath, 1)
+
+	webpPath := filepath.Join(dir, "sticker.webp")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	require.NoError(t, convertGIFStickerToAnimatedWebP(ctx, gifPath, webpPath))
+
+	// A one-frame GIF must not be reported as animated, so SendSticker falls
+	// through to the static path instead of sending a bogus animated sticker.
+	isAnimated, _, _ := getWebPInfo(ctx, webpPath)
+	assert.False(t, isAnimated)
 }
 
 func TestBuildStickerWebPFFmpegArgsConvertWithInstalledFFmpeg(t *testing.T) {

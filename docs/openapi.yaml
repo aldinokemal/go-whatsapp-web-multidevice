@@ -1506,7 +1506,7 @@ paths:
       tags:
         - send
       summary: Send Sticker
-      description: Send sticker with automatic conversion to WebP format
+      description: Send sticker with automatic conversion to WebP format (GIF is converted to animated WebP)
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
       requestBody:
@@ -1524,11 +1524,15 @@ paths:
                 sticker:
                   type: string
                   format: binary
-                  description: Sticker image file (jpg/jpeg/png/webp/gif)
+                  description: >-
+                    Sticker image file (jpg/jpeg/png/webp/gif). GIF files are converted into animated WebP
+                    stickers, so their animation is preserved.
                 sticker_url:
                   type: string
                   example: https://example.com/sticker.png
-                  description: URL of sticker image to send
+                  description: >-
+                    URL of sticker image to send (jpg/jpeg/png/webp/gif). GIF URLs are converted into animated
+                    WebP stickers, so their animation is preserved.
                 duration:
                   type: integer
                   example: 86400
