@@ -10,6 +10,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/purpshell/meowcaller"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -26,6 +27,30 @@ func useTempStorages(t *testing.T) string {
 	config.PathStorages = directory
 	t.Cleanup(func() { config.PathStorages = previous })
 	return directory
+}
+
+// TestCallerLoggerFollowsWhatsappLogLevel keeps the meowcaller log level tied to
+// the server log level, while never going quieter than warnings. The config value
+// is a package global, so this stays serial and restores it.
+func TestCallerLoggerFollowsWhatsappLogLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		level string
+		want  zerolog.Level
+	}{
+		{name: "debug surfaces relay and media diagnostics", level: "DEBUG", want: zerolog.DebugLevel},
+		{name: "error keeps warnings visible", level: "ERROR", want: zerolog.WarnLevel},
+		{name: "unknown level falls back to warnings", level: "loud", want: zerolog.WarnLevel},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			previous := config.WhatsappLogLevel
+			config.WhatsappLogLevel = tt.level
+			t.Cleanup(func() { config.WhatsappLogLevel = previous })
+
+			require.Equal(t, tt.want, callerLogger().GetLevel())
+		})
+	}
 }
 
 func TestOpenCallAudioSourceValidatesInput(t *testing.T) {

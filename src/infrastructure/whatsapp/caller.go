@@ -137,10 +137,17 @@ func CallerForInstance(inst *DeviceInstance) *Caller {
 	return nil
 }
 
-// callerLogger adapts logrus to the zerolog logger meowcaller expects. Only
-// warnings and above are surfaced so call media logs do not flood the server.
+// callerLogger adapts logrus to the zerolog logger meowcaller expects. Warnings
+// and above are always surfaced so call media logs do not flood the server, but
+// APP_DEBUG=true or WHATSAPP_LOG_LEVEL=DEBUG raises it to the library's relay and
+// media diagnostics, which is the only way to tell "no inbound RTP" from a local
+// audio problem.
 func callerLogger() zerolog.Logger {
-	return zerolog.New(callerLogWriter{}).Level(zerolog.WarnLevel).With().Timestamp().Logger()
+	level := zerolog.WarnLevel
+	if parsed, err := zerolog.ParseLevel(strings.ToLower(config.WhatsappLogLevel)); err == nil && parsed < level {
+		level = parsed
+	}
+	return zerolog.New(callerLogWriter{}).Level(level).With().Timestamp().Logger()
 }
 
 type callerLogWriter struct{}
