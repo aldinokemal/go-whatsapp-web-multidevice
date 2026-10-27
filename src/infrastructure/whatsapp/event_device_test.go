@@ -286,3 +286,28 @@ func TestDeviceEventWebhookDoesNotWaitForStalledWebsocket(t *testing.T) {
 		t.Fatal("handler did not return while the websocket hub was stalled")
 	}
 }
+
+// When the emitting slot's own record has no JID saved (auto-created slots are not
+// persisted on connect), the shared bare JID can find only the sibling's record. That
+// webhook is the sibling's, so the event must go to the global webhook instead.
+func TestDeviceEventIgnoresSiblingRecordFoundByBareJID(t *testing.T) {
+	got := captureDeviceWebhooks(t)
+
+	const bareJID = "6286666666666@s.whatsapp.net"
+	siblingURL := "https://slot-a.example.test/webhook"
+	sibling := &domainChatStorage.DeviceRecord{DeviceID: "slot-a", JID: bareJID, ADJID: "6286666666666:5@s.whatsapp.net", WebhookURL: &siblingURL}
+	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
+		if deviceJID == sibling.JID || deviceJID == sibling.ADJID {
+			return sibling, nil
+		}
+		return nil, nil
+	}
+
+	slotB := &DeviceInstance{id: "slot-b", jid: bareJID, adJID: "6286666666666:7@s.whatsapp.net", createdAt: time.Now()}
+	go handler(context.Background(), slotB, &events.TemporaryBan{Code: events.TempBanBlockedByUsers})
+	recvBroadcast(t)
+
+	delivered := recvWebhook(t, got)
+	assert.Equal(t, "https://global.example.test/webhook", delivered.url)
+	assert.Equal(t, "slot-b", delivered.body["session_id"])
+}

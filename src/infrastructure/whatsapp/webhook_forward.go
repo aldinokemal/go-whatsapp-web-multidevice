@@ -295,17 +295,25 @@ func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebho
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device record: %w", err)
 	}
-	if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
+	if webhookConfig := webhookConfigFromRecord(record); webhookConfig != nil {
 		logrus.Debugf("Using device-specific webhook config for %s", deviceJID)
-		return &domainChatStorage.DeviceWebhookConfig{
-			WebhookURL:                record.WebhookURL,
-			WebhookSecret:             record.WebhookSecret,
-			WebhookEvents:             record.WebhookEvents,
-			WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
-		}, nil
+		return webhookConfig, nil
 	}
 
 	return nil, nil
+}
+
+// webhookConfigFromRecord returns the record's own webhook config, or nil when it has none.
+func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChatStorage.DeviceWebhookConfig {
+	if record == nil || record.WebhookURL == nil || *record.WebhookURL == "" {
+		return nil
+	}
+	return &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL:                record.WebhookURL,
+		WebhookSecret:             record.WebhookSecret,
+		WebhookEvents:             record.WebhookEvents,
+		WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+	}
 }
 
 // getWebhookURLsFromConfig extracts webhook URLs from the config.

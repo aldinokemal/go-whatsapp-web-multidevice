@@ -132,12 +132,27 @@ func forwardDeviceEvent(ctx context.Context, eventName string, instance *DeviceI
 
 // instanceWebhookConfig resolves the slot's webhook config by its exact companion JID
 // first: two slots on one number share the bare JID, which the record lookup rejects as
-// ambiguous. The bare JID is the fallback for records saved without a companion JID.
+// ambiguous. The bare JID is the fallback for records saved without a companion JID, and
+// only counts when the record it finds is this slot's: a sibling whose record holds the
+// shared JID would otherwise lend this slot its webhook. Anything else uses the global config.
 func instanceWebhookConfig(instance *DeviceInstance) *domainChatStorage.DeviceWebhookConfig {
 	if adJID := instance.ADJID(); adJID != "" {
 		if webhookConfig := resolveWebhookConfig(adJID); webhookConfig != nil {
 			return webhookConfig
 		}
 	}
-	return resolveWebhookConfig(instance.JID())
+
+	jid := instance.JID()
+	if jid == "" {
+		return nil
+	}
+	record, err := getDeviceRecordForTest(jid)
+	if err != nil {
+		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", jid, err)
+		return nil
+	}
+	if record == nil || record.DeviceID != instance.ID() {
+		return nil
+	}
+	return webhookConfigFromRecord(record)
 }
