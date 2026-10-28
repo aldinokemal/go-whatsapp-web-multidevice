@@ -9,6 +9,7 @@
 </div>
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 **If you're using this tool to generate income, consider supporting its development by becoming a Patreon member!**
 
