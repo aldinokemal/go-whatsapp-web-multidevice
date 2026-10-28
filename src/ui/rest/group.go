@@ -171,11 +171,11 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 		}
 
 		record := []string{
-			participant.JID,
-			participant.PhoneNumber,
-			participant.LID,
-			participant.DisplayName,
-			role,
+			spreadsheetSafeCell(participant.JID),
+			spreadsheetSafeCell(participant.PhoneNumber),
+			spreadsheetSafeCell(participant.LID),
+			spreadsheetSafeCell(participant.DisplayName),
+			spreadsheetSafeCell(role),
 		}
 
 		utils.PanicIfNeeded(writer.Write(record))
@@ -190,6 +190,20 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 	c.Attachment(fileName)
 
 	return c.Send(buffer.Bytes())
+}
+
+// spreadsheetSafeCell prefixes cells that spreadsheet applications would
+// treat as formulas. A leading apostrophe forces the value to be text.
+func spreadsheetSafeCell(value string) string {
+	if value == "" {
+		return value
+	}
+	switch value[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + value
+	default:
+		return value
+	}
 }
 
 func (controller *Group) AddParticipants(c fiber.Ctx) error {
