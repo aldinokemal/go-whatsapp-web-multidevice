@@ -56,8 +56,9 @@ func mutatingGET(c fiber.Ctx) bool {
 	}
 }
 
-// canonicalRequestPath strips the configured base path, one trailing slash,
-// and letter case so the guard sees the same route Fiber will run.
+// canonicalRequestPath strips the configured base path, letter case, and every
+// trailing slash so the guard sees the same route Fiber runs with strict
+// routing off. A lone slash stays "/".
 func canonicalRequestPath(path, base string) string {
 	if path == "" {
 		path = "/"
@@ -69,10 +70,10 @@ func canonicalRequestPath(path, base string) string {
 			path = rest
 		}
 	}
-	if len(path) > 1 && strings.HasSuffix(path, "/") {
+	path = strings.ToLower(path)
+	for len(path) > 1 && strings.HasSuffix(path, "/") {
 		path = path[:len(path)-1]
 	}
-	path = strings.ToLower(path)
 	if path == "" {
 		return "/"
 	}
@@ -83,14 +84,15 @@ func canonicalRequestPath(path, base string) string {
 }
 
 // inviteLinkReset reports whether any reset query value would make
-// GetGroupInviteLink regenerate the link. gofiber/schema convertBool treats
-// the exact string "on" and strconv.ParseBool truths as true, and matches the
-// key case-insensitively. Any truthy value fails closed, including when a
-// later value is false, so a repeated key cannot hide the reset.
+// GetGroupInviteLink regenerate the link. The binder lowercases keys and
+// turns a trailing "[]" into the field name, so reset[] and Reset[] are reset.
+// gofiber/schema convertBool treats the exact string "on" and strconv.ParseBool
+// truths as true. Any truthy value fails closed. reset[0] stays reset.0 and
+// does not set the field.
 func inviteLinkReset(c fiber.Ctx) bool {
 	reset := false
 	c.RequestCtx().QueryArgs().VisitAll(func(key, value []byte) {
-		if !strings.EqualFold(string(key), "reset") {
+		if !queryKeyIsReset(string(key)) {
 			return
 		}
 		if schemaBoolTrue(string(value)) {
@@ -98,6 +100,16 @@ func inviteLinkReset(c fiber.Ctx) bool {
 		}
 	})
 	return reset
+}
+
+// queryKeyIsReset reports whether key is the binder's reset field. Query
+// decoding has already turned %5B%5D into []. Empty bracket pairs at the end
+// of the key are removed, matching parseParamSquareBrackets for "[]".
+func queryKeyIsReset(key string) bool {
+	for len(key) >= 2 && strings.EqualFold(key[len(key)-2:], "[]") {
+		key = key[:len(key)-2]
+	}
+	return strings.EqualFold(key, "reset")
 }
 
 // schemaBoolTrue matches gofiber/schema convertBool's true results:

@@ -133,6 +133,13 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 		{name: "invite trailing slash", method: fiber.MethodGet, target: "http://gowa.example/group/invite-link/?reset=true"},
 		{name: "invite different case", method: fiber.MethodGet, target: "http://gowa.example/GROUP/INVITE-LINK?reset=true"},
 		{name: "invite head", method: fiber.MethodHead, target: "http://gowa.example/group/invite-link?reset=true"},
+		{name: "logout two slashes", method: fiber.MethodGet, target: "http://gowa.example/app/logout//"},
+		{name: "logout three slashes", method: fiber.MethodGet, target: "http://gowa.example/app/logout///"},
+		{name: "logout case and two slashes", method: fiber.MethodGet, target: "http://gowa.example/APP/LOGOUT//"},
+		{name: "logout head two slashes", method: fiber.MethodHead, target: "http://gowa.example/app/logout//"},
+		{name: "reconnect two slashes", method: fiber.MethodGet, target: "http://gowa.example/app/reconnect//"},
+		{name: "invite two slashes", method: fiber.MethodGet, target: "http://gowa.example/group/invite-link//?reset=true"},
+		{name: "invite head two slashes", method: fiber.MethodHead, target: "http://gowa.example/group/invite-link//?reset=true"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,6 +159,15 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 		require.NoError(t, resp.Body.Close())
 	})
 
+	t.Run("double slash logout without origin is allowed", func(t *testing.T) {
+		req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/app/logout//", nil)
+		req.Host = "gowa.example"
+		resp, err := newApp().Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	})
+
 	t.Run("base path trailing slash", func(t *testing.T) {
 		prev := config.AppBasePath
 		config.AppBasePath = "/gowa"
@@ -160,10 +176,22 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 		app := fiber.New()
 		app.Use(BrowserOriginGuard())
 		app.Get("/gowa/app/logout", func(c fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
-		resp, err := app.Test(evil(fiber.MethodGet, "http://gowa.example/gowa/app/logout/"))
-		require.NoError(t, err)
-		require.Equal(t, fiber.StatusForbidden, resp.StatusCode)
-		require.NoError(t, resp.Body.Close())
+		app.Get("/gowa/group/invite-link", func(c fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+		for _, target := range []struct {
+			method string
+			url    string
+		}{
+			{fiber.MethodGet, "http://gowa.example/gowa/app/logout/"},
+			{fiber.MethodGet, "http://gowa.example/gowa/app/logout//"},
+			{fiber.MethodGet, "http://gowa.example/GOWA/APP/LOGOUT//"},
+			{fiber.MethodHead, "http://gowa.example/gowa/app/logout//"},
+			{fiber.MethodGet, "http://gowa.example/gowa/group/invite-link//?reset=true"},
+		} {
+			resp, err := app.Test(evil(target.method, target.url))
+			require.NoError(t, err)
+			require.Equal(t, fiber.StatusForbidden, resp.StatusCode, target.url)
+			require.NoError(t, resp.Body.Close())
+		}
 	})
 }
 
@@ -178,6 +206,14 @@ func TestInviteLinkResetMatchesBinder(t *testing.T) {
 		"http://gowa.example/group/invite-link?reset=false&reset=true",
 		"http://gowa.example/group/invite-link?reset=false&reset=on",
 		"http://gowa.example/group/invite-link?reset=true&reset=false",
+		"http://gowa.example/group/invite-link?reset=TRUE",
+		"http://gowa.example/group/invite-link?reset=t",
+		"http://gowa.example/group/invite-link?reset=1",
+		"http://gowa.example/group/invite-link?reset[]=true",
+		"http://gowa.example/group/invite-link?reset[]=on",
+		"http://gowa.example/group/invite-link?Reset[]=true",
+		"http://gowa.example/group/invite-link?reset%5B%5D=true",
+		"http://gowa.example/group/invite-link?reset=false&reset[]=true",
 	} {
 		t.Run(target, func(t *testing.T) {
 			req := httptest.NewRequest(fiber.MethodGet, target, nil)
@@ -189,6 +225,16 @@ func TestInviteLinkResetMatchesBinder(t *testing.T) {
 			require.NoError(t, resp.Body.Close())
 		})
 	}
+
+	t.Run("indexed reset does not set the field", func(t *testing.T) {
+		req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/group/invite-link?reset[0]=true", nil)
+		req.Host = "gowa.example"
+		req.Header.Set("Origin", "https://evil.example")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	})
 
 	t.Run("final false only is not a reset", func(t *testing.T) {
 		req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/group/invite-link?reset=false", nil)
