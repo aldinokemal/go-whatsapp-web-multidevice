@@ -64,9 +64,9 @@ type GetMessageUpdatesRequest struct {
 // GetMessagesRequest or GetMessageUpdatesRequest.
 type Message struct {
 	ServerID       int            `json:"server_id"`
-	MessageID      string         `json:"message_id"`
-	Type           string         `json:"type"`
-	Timestamp      string         `json:"timestamp"`
+	MessageID      string         `json:"message_id,omitempty"`
+	Type           string         `json:"type,omitempty"`
+	Timestamp      string         `json:"timestamp,omitempty"`
 	ViewsCount     int            `json:"views_count"`
 	ForwardsCount  int            `json:"forwards_count"`
 	ReactionCounts map[string]int `json:"reaction_counts,omitempty"`

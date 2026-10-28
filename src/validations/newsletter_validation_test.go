@@ -224,6 +224,10 @@ func TestValidateGetNewsletterMessageUpdates(t *testing.T) {
 	assert.Equal(t, pkgError.ValidationError("after: must be a message server ID; WhatsApp does not answer message_updates without it."),
 		ValidateGetNewsletterMessageUpdates(context.Background(), &request))
 
+	request = domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter", After: -5}
+	assert.Equal(t, pkgError.ValidationError("after: must be no less than 1."),
+		ValidateGetNewsletterMessageUpdates(context.Background(), &request))
+
 	request = domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter", After: 100, Count: 101}
 	assert.Equal(t, pkgError.ValidationError("count: must be no greater than 100."),
 		ValidateGetNewsletterMessageUpdates(context.Background(), &request))

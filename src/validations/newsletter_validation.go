@@ -81,7 +81,7 @@ func ValidateGetNewsletterMessageUpdates(ctx context.Context, request *domainNew
 		validation.Field(&request.NewsletterID, validation.Required, validation.By(validateNewsletterJIDShape)),
 		validation.Field(&request.Count, validation.Min(1), validation.Max(100)),
 		validation.Field(&request.Since, validation.Min(int64(0))),
-		validation.Field(&request.After, validation.Required.Error("must be a message server ID; WhatsApp does not answer message_updates without it")),
+		validation.Field(&request.After, validation.Required.Error("must be a message server ID; WhatsApp does not answer message_updates without it"), validation.Min(1)),
 	)
 
 	if err != nil {

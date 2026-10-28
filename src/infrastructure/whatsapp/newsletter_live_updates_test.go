@@ -15,14 +15,17 @@ import (
 type fakeLiveUpdatesClient struct {
 	mu        sync.Mutex
 	connected bool
+	account   string
 	duration  time.Duration
 	err       error
 	calls     int
 	called    chan struct{}
+	// block, when set, holds NewsletterSubscribeLiveUpdates until it is closed.
+	block chan struct{}
 }
 
 func newFakeLiveUpdatesClient(duration time.Duration) *fakeLiveUpdatesClient {
-	return &fakeLiveUpdatesClient{connected: true, duration: duration, called: make(chan struct{}, 16)}
+	return &fakeLiveUpdatesClient{connected: true, account: "628123@s.whatsapp.net", duration: duration, called: make(chan struct{}, 16)}
 }
 
 func (f *fakeLiveUpdatesClient) IsConnected() bool {
@@ -34,9 +37,12 @@ func (f *fakeLiveUpdatesClient) IsConnected() bool {
 func (f *fakeLiveUpdatesClient) NewsletterSubscribeLiveUpdates(context.Context, types.JID) (time.Duration, error) {
 	f.mu.Lock()
 	f.calls++
-	duration, err := f.duration, f.err
+	duration, err, block := f.duration, f.err, f.block
 	f.mu.Unlock()
 	f.called <- struct{}{}
+	if block != nil {
+		<-block
+	}
 	return duration, err
 }
 
@@ -46,8 +52,12 @@ func (f *fakeLiveUpdatesClient) callCount() int {
 	return f.calls
 }
 
-func sourceOf(client liveUpdatesClient) liveUpdatesClientSource {
-	return func() liveUpdatesClient { return client }
+func sourceOf(client *fakeLiveUpdatesClient) liveUpdatesClientSource {
+	return func() (liveUpdatesClient, string) {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		return client, client.account
+	}
 }
 
 func waitCall(t *testing.T, client *fakeLiveUpdatesClient) {
@@ -87,7 +97,7 @@ func TestLiveUpdatesSubscribeRejectsDisconnectedDevice(t *testing.T) {
 	require.EqualError(t, err, "device device-a is not connected")
 	assert.Empty(t, manager.list("device-a"))
 
-	_, err = manager.subscribe(context.Background(), "device-a", testNewsletterJID, func() liveUpdatesClient { return nil })
+	_, err = manager.subscribe(context.Background(), "device-a", testNewsletterJID, func() (liveUpdatesClient, string) { return nil, "" })
 	require.Error(t, err)
 }
 
@@ -169,4 +179,58 @@ func TestLiveUpdatesBackoff(t *testing.T) {
 	assert.Equal(t, liveUpdatesRetryDelay, liveUpdatesBackoff(1))
 	assert.Equal(t, 2*liveUpdatesRetryDelay, liveUpdatesBackoff(2))
 	assert.Equal(t, liveUpdatesMaxRetryDelay, liveUpdatesBackoff(20))
+}
+
+func TestLiveUpdatesStopWhenAccountChanges(t *testing.T) {
+	manager := newNewsletterLiveUpdatesManager()
+	client := newFakeLiveUpdatesClient(time.Hour)
+
+	_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+	require.NoError(t, err)
+	waitCall(t, client)
+
+	// Another account is paired in the same slot: the old subscription must
+	// end instead of being renewed through the new account.
+	client.mu.Lock()
+	client.account = "628999@s.whatsapp.net"
+	client.mu.Unlock()
+	manager.renewDevice("device-a")
+
+	require.Eventually(t, func() bool { return len(manager.list("device-a")) == 0 }, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, 1, client.callCount())
+}
+
+func TestLiveUpdatesDiscardSubscribeFinishedAfterStop(t *testing.T) {
+	manager := newNewsletterLiveUpdatesManager()
+	client := newFakeLiveUpdatesClient(time.Hour)
+	client.block = make(chan struct{})
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+		result <- err
+	}()
+	waitCall(t, client)
+
+	manager.stopDevice("device-a")
+	close(client.block)
+
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "logged out or removed while subscribing")
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscribe did not return")
+	}
+	assert.Empty(t, manager.list("device-a"))
+}
+
+func TestLiveUpdatesResubscribeAfterStop(t *testing.T) {
+	manager := newNewsletterLiveUpdatesManager()
+	client := newFakeLiveUpdatesClient(time.Hour)
+
+	manager.stopDevice("device-a")
+	_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+	require.NoError(t, err)
+	defer manager.stopDevice("device-a")
+	assert.Len(t, manager.list("device-a"), 1)
 }

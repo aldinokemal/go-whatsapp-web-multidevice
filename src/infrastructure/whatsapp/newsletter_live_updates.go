@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -27,9 +28,14 @@ type liveUpdatesClient interface {
 	NewsletterSubscribeLiveUpdates(ctx context.Context, jid types.JID) (time.Duration, error)
 }
 
-// liveUpdatesClientSource resolves the device's current client on every
-// renewal, because reconnects and re-pairing replace the whatsmeow client.
-type liveUpdatesClientSource func() liveUpdatesClient
+// liveUpdatesClientSource resolves the device's current client and the account
+// it is logged in as on every renewal, because reconnects and re-pairing
+// replace the whatsmeow client.
+type liveUpdatesClientSource func() (liveUpdatesClient, string)
+
+// errLiveUpdatesAccountChanged ends a subscription whose device slot is now
+// logged in as a different account than the one that created it.
+var errLiveUpdatesAccountChanged = errors.New("device is logged in as a different account")
 
 // LiveUpdatesStatus is a snapshot of one subscription.
 type LiveUpdatesStatus struct {
@@ -41,10 +47,11 @@ type LiveUpdatesStatus struct {
 }
 
 type liveUpdatesSubscription struct {
-	jid    types.JID
-	source liveUpdatesClientSource
-	stop   chan struct{}
-	kick   chan struct{}
+	jid     types.JID
+	account string
+	source  liveUpdatesClientSource
+	stop    chan struct{}
+	kick    chan struct{}
 
 	mu        sync.Mutex
 	duration  time.Duration
@@ -56,15 +63,19 @@ type liveUpdatesSubscription struct {
 type newsletterLiveUpdatesManager struct {
 	mu   sync.Mutex
 	subs map[string]map[string]*liveUpdatesSubscription // device ID -> newsletter JID -> subscription
-	now  func() time.Time
+	// generation is bumped whenever a device's subscriptions are stopped, so a
+	// subscribe call that was waiting on WhatsApp at that moment is discarded.
+	generation map[string]uint64
+	now        func() time.Time
 }
 
 var newsletterLiveUpdates = newNewsletterLiveUpdatesManager()
 
 func newNewsletterLiveUpdatesManager() *newsletterLiveUpdatesManager {
 	return &newsletterLiveUpdatesManager{
-		subs: make(map[string]map[string]*liveUpdatesSubscription),
-		now:  time.Now,
+		subs:       make(map[string]map[string]*liveUpdatesSubscription),
+		generation: make(map[string]uint64),
+		now:        time.Now,
 	}
 }
 
@@ -91,20 +102,29 @@ func ListNewsletterLiveUpdates(deviceID string) []LiveUpdatesStatus {
 }
 
 func instanceLiveUpdatesSource(instance *DeviceInstance) liveUpdatesClientSource {
-	return func() liveUpdatesClient {
+	return func() (liveUpdatesClient, string) {
 		client := instance.GetClient()
 		if client == nil {
-			return nil
+			return nil, ""
 		}
-		return client
+		account := ""
+		if client.Store != nil && client.Store.ID != nil {
+			account = client.Store.ID.ToNonAD().String()
+		}
+		return client, account
 	}
 }
 
 func (m *newsletterLiveUpdatesManager) subscribe(ctx context.Context, deviceID string, jid types.JID, source liveUpdatesClientSource) (LiveUpdatesStatus, error) {
-	client := source()
+	client, account := source()
 	if client == nil || !client.IsConnected() {
 		return LiveUpdatesStatus{}, fmt.Errorf("device %s is not connected", deviceID)
 	}
+
+	m.mu.Lock()
+	generation := m.generation[deviceID]
+	m.mu.Unlock()
+
 	duration, err := client.NewsletterSubscribeLiveUpdates(ctx, jid)
 	if err != nil {
 		return LiveUpdatesStatus{}, fmt.Errorf("failed to subscribe to newsletter live updates: %w", err)
@@ -114,20 +134,28 @@ func (m *newsletterLiveUpdatesManager) subscribe(ctx context.Context, deviceID s
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.generation[deviceID] != generation {
+		return LiveUpdatesStatus{}, fmt.Errorf("device %s was logged out or removed while subscribing", deviceID)
+	}
+
 	if existing := m.subs[deviceID][jid.String()]; existing != nil {
-		existing.mu.Lock()
-		existing.source = source
-		existing.mu.Unlock()
-		existing.recordSuccess(now, duration)
-		existing.signal()
-		return existing.status(), nil
+		if existing.account == account {
+			existing.mu.Lock()
+			existing.source = source
+			existing.mu.Unlock()
+			existing.recordSuccess(now, duration)
+			existing.signal()
+			return existing.status(), nil
+		}
+		close(existing.stop)
 	}
 
 	sub := &liveUpdatesSubscription{
-		jid:    jid,
-		source: source,
-		stop:   make(chan struct{}),
-		kick:   make(chan struct{}, 1),
+		jid:     jid,
+		account: account,
+		source:  source,
+		stop:    make(chan struct{}),
+		kick:    make(chan struct{}, 1),
 	}
 	sub.recordSuccess(now, duration)
 	if m.subs[deviceID] == nil {
@@ -157,6 +185,7 @@ func (m *newsletterLiveUpdatesManager) unsubscribe(deviceID string, jid types.JI
 func (m *newsletterLiveUpdatesManager) stopDevice(deviceID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.generation[deviceID]++
 	for _, sub := range m.subs[deviceID] {
 		close(sub.stop)
 	}
@@ -206,6 +235,11 @@ func (m *newsletterLiveUpdatesManager) renewLoop(deviceID string, sub *liveUpdat
 			return
 		default:
 		}
+		if errors.Is(err, errLiveUpdatesAccountChanged) {
+			logrus.Warnf("Newsletter live updates for %s on device %s stopped: %v", sub.jid, deviceID, err)
+			m.remove(deviceID, sub)
+			return
+		}
 		if err != nil {
 			failures++
 			delay = liveUpdatesBackoff(failures)
@@ -218,10 +252,27 @@ func (m *newsletterLiveUpdatesManager) renewLoop(deviceID string, sub *liveUpdat
 	}
 }
 
+// remove drops sub from the registry if it is still the registered one.
+func (m *newsletterLiveUpdatesManager) remove(deviceID string, sub *liveUpdatesSubscription) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subs[deviceID][sub.jid.String()] != sub {
+		return
+	}
+	close(sub.stop)
+	delete(m.subs[deviceID], sub.jid.String())
+	if len(m.subs[deviceID]) == 0 {
+		delete(m.subs, deviceID)
+	}
+}
+
 func (m *newsletterLiveUpdatesManager) renew(sub *liveUpdatesSubscription) error {
-	client := sub.currentSource()()
+	client, account := sub.currentSource()()
 	if client == nil || !client.IsConnected() {
 		return fmt.Errorf("device is not connected")
+	}
+	if account != sub.account {
+		return errLiveUpdatesAccountChanged
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveUpdatesRequestTimeout)
 	defer cancel()

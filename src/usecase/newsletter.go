@@ -246,11 +246,17 @@ func newsletterMessagesToDomain(messages []*types.NewsletterMessage) []domainNew
 		if msg == nil {
 			continue
 		}
+		// message_updates carries counters only: the server omits the ID, type
+		// and timestamp, so keep them empty instead of formatting a zero time.
+		timestamp := ""
+		if !msg.Timestamp.IsZero() {
+			timestamp = msg.Timestamp.Format(time.RFC3339)
+		}
 		result = append(result, domainNewsletter.Message{
 			ServerID:       int(msg.MessageServerID),
 			MessageID:      string(msg.MessageID),
 			Type:           msg.Type,
-			Timestamp:      msg.Timestamp.Format(time.RFC3339),
+			Timestamp:      timestamp,
 			ViewsCount:     msg.ViewsCount,
 			ForwardsCount:  msg.ForwardsCount,
 			ReactionCounts: msg.ReactionCounts,
