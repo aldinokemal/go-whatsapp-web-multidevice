@@ -100,9 +100,10 @@ func TestValidateChatwootURL_SSRF(t *testing.T) {
 	}
 }
 
-// TestChatwootClientSSRFGuardWiring verifies per-device clients get the
-// connect-time SSRF guard by default, the env client does not, and an explicit
-// allowlist disables the guard (the operator opted into trusting those hosts).
+// TestChatwootClientSSRFGuardWiring verifies per-device clients keep the
+// connect-time guard whether or not an allowlist is set. The env client stays
+// unguarded so a private self-host on CHATWOOT_URL keeps working. A stored URL
+// that is no longer on the allowlist is not a usable client.
 func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	origHosts := config.ChatwootAllowedHosts
 	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
@@ -116,8 +117,16 @@ func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	}
 
 	config.ChatwootAllowedHosts = []string{"x.example.com"}
-	if c := NewClientFromConfig("https://x.example.com", "t", 1, 1); c.HTTPClient.Transport != nil {
-		t.Error("per-device client WITH allowlist should not be guarded (allowlist is the control)")
+	allowed := NewClientFromConfig("https://x.example.com", "t", 1, 1)
+	if allowed.HTTPClient == nil || allowed.HTTPClient.Transport == nil {
+		t.Error("per-device client with allowlist should still filter connections")
+	}
+	if !allowed.IsConfigured() {
+		t.Error("allowlisted stored URL should stay usable")
+	}
+	removed := NewClientFromConfig("https://old.example.net", "t", 1, 1)
+	if removed.IsConfigured() {
+		t.Error("stored URL removed from the allowlist must not be usable")
 	}
 
 	// Sanity: the guard transport is a real *http.Transport.
@@ -169,5 +178,60 @@ func TestValidateChatwootURL_Allowlist(t *testing.T) {
 	}
 	if err := ValidateChatwootURL("https://evil.example.com"); err == nil {
 		t.Error("non-allowlisted host accepted, want rejection")
+	}
+}
+
+func TestChatwootAllowlistPermitsPrivateHostAndRejectsRedirect(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"127.0.0.1"}
+
+	okSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer okSrv.Close()
+
+	allowed := NewClientFromConfig(okSrv.URL, "t", 1, 1)
+	resp, err := allowed.HTTPClient.Get(okSrv.URL)
+	if err != nil {
+		t.Fatalf("allowlisted loopback should connect: %v", err)
+	}
+	resp.Body.Close()
+
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://evil.example/steal", http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	redirected := NewClientFromConfig(redirectSrv.URL, "t", 1, 1)
+	if _, err := redirected.HTTPClient.Get(redirectSrv.URL + "/v1"); err == nil || !strings.Contains(err.Error(), "evil.example") {
+		t.Fatalf("redirect off the allowlist: err=%v", err)
+	}
+}
+
+func TestFindContactByIdentifierCapsErrorBody(t *testing.T) {
+	const huge = 70 << 10
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("A", huge)))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		BaseURL:    srv.URL,
+		APIToken:   "t",
+		AccountID:  1,
+		InboxID:    1,
+		HTTPClient: srv.Client(),
+	}
+	_, err := c.FindContactByIdentifier("628123456789", false)
+	if err == nil {
+		t.Fatal("expected search error")
+	}
+	if strings.Contains(err.Error(), strings.Repeat("A", 1024)) {
+		t.Fatal("error included a large slice of the response body")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want the size cap", err)
 	}
 }
