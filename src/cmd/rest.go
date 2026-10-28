@@ -26,7 +26,6 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/basicauth"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
-	"github.com/gofiber/fiber/v3/middleware/static"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -62,7 +61,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// fetch media under /statics and authenticate with the headers below.
 	app.Use(newCORSMiddleware())
 
-	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
+	registerStoredStatic(app)
 
 	app.Use(middleware.Recovery())
 	app.Use(middleware.RequestTimeout(middleware.DefaultRequestTimeout))
