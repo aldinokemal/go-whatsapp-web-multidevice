@@ -50,15 +50,46 @@ func NewChatwootHandler(
 // with literal "\n" escapes expanded). Returns "" when the reply has no text
 // body, which includes a message holding only Chatwoot's "--" signature
 // separator; callers must not send an empty text.
-func composeOutgoingText(payload chatwoot.WebhookPayload) string {
+// rc supplies the sending device's signature settings; nil inherits globals.
+func composeOutgoingText(payload chatwoot.WebhookPayload, rc *chatwoot.ResolvedConfig) string {
 	text := utils.ChatwootToWhatsAppMarkdown(payload.Content)
-	if config.ChatwootSignMsg && text != "" {
-		if agent := strings.TrimSpace(payload.Sender.Name); agent != "" {
-			delimiter := strings.ReplaceAll(config.ChatwootSignDelimiter, "\\n", "\n")
+	if rc.SignMsgEnabled() && text != "" {
+		if agent := chatwootAgentSignatureName(payload); agent != "" {
+			delimiter := strings.ReplaceAll(rc.SignDelimiterValue(), "\\n", "\n")
 			text = "*" + agent + "*" + delimiter + text
 		}
 	}
 	return text
+}
+
+// chatwootAgentSignatureName preserves Chatwoot's public display name, as
+// Evolution did. Webhooks carry it on the matching conversation message;
+// recovered replies from the messages API carry it on the top-level sender.
+// Never borrow the name of a different message or agent in the conversation.
+func chatwootAgentSignatureName(payload chatwoot.WebhookPayload) string {
+	publicName := func(sender chatwoot.Contact) string {
+		for _, name := range []string{sender.AvailableName, sender.DisplayName} {
+			if name = strings.TrimSpace(name); name != "" {
+				return name
+			}
+		}
+		return ""
+	}
+	if name := publicName(payload.Sender); name != "" {
+		return name
+	}
+	for _, message := range payload.Conversation.Messages {
+		if message.ID != payload.ID || payload.ID == 0 {
+			continue
+		}
+		if payload.Sender.ID != 0 && message.Sender.ID != payload.Sender.ID {
+			continue
+		}
+		if name := publicName(message.Sender); name != "" {
+			return name
+		}
+	}
+	return strings.TrimSpace(payload.Sender.Name)
 }
 
 // isEchoOfForwardedMessage reports whether a Chatwoot webhook message is one
@@ -304,6 +335,42 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 	return rc
 }
 
+// signConfigForDevice returns the config whose sign_msg / sign_delimiter apply
+// to an agent reply sent from deviceID, or nil when the global settings apply.
+// The registry resolves nothing for a disabled config, yet a reply routed
+// through a stored conversation link is still delivered, so the stored row is
+// read directly in that case: a device that switched its signature off must
+// not start signing because forwarding was paused.
+//
+// Authentication rejects unreadable configs with 503 before delivery. If a
+// later signature lookup fails, compose unsigned text rather than borrow the
+// global setting: the device
+// may have switched the signature off, and adding the agent's name to a
+// message is the one outcome that cannot be taken back.
+func (h *ChatwootHandler) signConfigForDevice(deviceID string) *chatwoot.ResolvedConfig {
+	if reg := chatwoot.GetClientRegistry(); reg != nil {
+		rc, err := reg.Resolve(deviceID)
+		if err != nil {
+			logrus.Errorf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
+		} else if rc != nil {
+			return rc
+		}
+	}
+	if h.ChatStorageRepo == nil {
+		return nil
+	}
+	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(deviceID)
+	if err != nil {
+		logrus.Errorf("Chatwoot: failed to read signature settings for device %s; sending the reply unsigned: %v", deviceID, err)
+		unsigned := false
+		return &chatwoot.ResolvedConfig{DeviceID: deviceID, SignMsg: &unsigned}
+	}
+	if cfg == nil {
+		return nil
+	}
+	return &chatwoot.ResolvedConfig{ConfigID: cfg.ID, DeviceID: cfg.DeviceID, SignMsg: cfg.SignMsg, SignDelimiter: cfg.SignDelimiter}
+}
+
 // HandleWebhook is the shared (legacy / single-webhook) Chatwoot endpoint. The
 // device is resolved from the payload (conversation link, contact attrs, inbox
 // map, or env fallback).
@@ -543,8 +610,8 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 	// Translate Chatwoot markdown to WhatsApp formatting and apply the optional
 	// agent signature once, so both the attachment caption and the text path use
-	// the same composed body.
-	outgoingText := composeOutgoingText(payload)
+	// the same composed body. The signature follows the sending device's config.
+	outgoingText := composeOutgoingText(payload, h.signConfigForDevice(resolvedID))
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
@@ -899,6 +966,7 @@ func (h *ChatwootHandler) SyncHistory(c fiber.Ctx) error {
 	// Build sync options
 	opts := chatwoot.DefaultSyncOptions()
 	opts.DaysLimit = req.DaysLimit
+	opts.IgnoreJids = resolved.IgnoreJids
 	if req.IncludeMedia != nil {
 		opts.IncludeMedia = *req.IncludeMedia
 	} else if c.Query("media") != "" {

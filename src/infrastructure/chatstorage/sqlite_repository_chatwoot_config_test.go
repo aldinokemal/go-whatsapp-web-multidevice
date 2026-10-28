@@ -473,3 +473,130 @@ func TestSQLiteRepositoryWebhookSecretMigrationKeepsExistingConfigs(t *testing.T
 		t.Fatalf("secret on upgraded row: %v (%+v)", err, got)
 	}
 }
+
+func TestSQLiteRepositoryChatwootDeviceConfigBehaviourOverrides(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	// Unset overrides round-trip as "inherit the global setting".
+	cfg := &domainChatStorage.ChatwootDeviceConfig{
+		DeviceID: "busine", ChatwootURL: "https://chat.example.com",
+		AccountID: 1, InboxID: 5, APIToken: "tok", Enabled: true, WebhookSecret: "original-secret",
+	}
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	got, err := repo.GetChatwootDeviceConfig("busine")
+	if err != nil || got == nil {
+		t.Fatalf("get config: %v (got=%v)", err, got)
+	}
+	if len(got.IgnoreJids) != 0 || got.SignMsg != nil || got.SignDelimiter != nil || got.WebhookSecret != "original-secret" {
+		t.Fatalf("unset overrides should stay unset: %+v", got)
+	}
+
+	// Explicit values persist, including the falsy ones (sign_msg=false and an
+	// empty delimiter are overrides, not "unset").
+	signOff, noDelimiter := false, ""
+	cfg.WebhookSecret = "updated-secret"
+	cfg.IgnoreJids = []string{"120363000000000001@g.us", "@lid"}
+	cfg.SignMsg = &signOff
+	cfg.SignDelimiter = &noDelimiter
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+	// Every read path shares the scanner; cover the registry lookups too.
+	byInbox, err := repo.GetChatwootDeviceConfigByInbox(1, 5)
+	if err != nil || byInbox == nil {
+		t.Fatalf("get by inbox: %v (got=%v)", err, byInbox)
+	}
+	byIdentifier, err := repo.GetChatwootDeviceConfigByIdentifier("busine")
+	if err != nil || byIdentifier == nil {
+		t.Fatalf("get by identifier: %v (got=%v)", err, byIdentifier)
+	}
+	list, err := repo.ListChatwootDeviceConfigs()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list configs: %v (len=%d)", err, len(list))
+	}
+	byDevice, err := repo.GetChatwootDeviceConfig("busine")
+	if err != nil || byDevice == nil {
+		t.Fatalf("get by device: %v", err)
+	}
+	for name, c := range map[string]*domainChatStorage.ChatwootDeviceConfig{"device": byDevice, "inbox": byInbox, "identifier": byIdentifier, "list": list[0]} {
+		if c.WebhookSecret != "updated-secret" {
+			t.Fatalf("%s: webhook secret changed: %q", name, c.WebhookSecret)
+		}
+		if len(c.IgnoreJids) != 2 || c.IgnoreJids[0] != "120363000000000001@g.us" || c.IgnoreJids[1] != "@lid" {
+			t.Fatalf("%s: ignore_jids not persisted: %v", name, c.IgnoreJids)
+		}
+		if c.SignMsg == nil || *c.SignMsg {
+			t.Fatalf("%s: sign_msg=false not persisted: %v", name, c.SignMsg)
+		}
+		if c.SignDelimiter == nil || *c.SignDelimiter != "" {
+			t.Fatalf("%s: empty sign_delimiter not persisted: %v", name, c.SignDelimiter)
+		}
+	}
+
+	// Clearing the overrides goes back to inheriting.
+	cfg.IgnoreJids, cfg.SignMsg, cfg.SignDelimiter = nil, nil, nil
+	if err := repo.SaveChatwootDeviceConfig(cfg); err != nil {
+		t.Fatalf("clear overrides: %v", err)
+	}
+	got, _ = repo.GetChatwootDeviceConfig("busine")
+	if got == nil || len(got.IgnoreJids) != 0 || got.SignMsg != nil || got.SignDelimiter != nil || got.WebhookSecret != "updated-secret" {
+		t.Fatalf("cleared overrides should be unset: %+v", got)
+	}
+}
+
+// A database created before the per-device behaviour columns existed must
+// upgrade in place, with its existing config rows inheriting the globals.
+func TestSQLiteRepositoryChatwootDeviceConfigOverrideMigration(t *testing.T) {
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chatstorage.db"))
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &SQLiteRepository{db: db}
+
+	// Build the landed webhook schema (v50) before settings overrides.
+	if _, err := repo.getSchemaVersion(); err != nil {
+		t.Fatalf("create schema_info: %v", err)
+	}
+	const legacyVersion = 50
+	for i, migration := range repo.getMigrations()[:legacyVersion] {
+		if err := repo.runMigration(migration, i+1); err != nil {
+			t.Fatalf("run migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO chatwoot_device_configs (device_id, device_jid, chatwoot_url, account_id, inbox_id, api_token, enabled, webhook_secret)
+		VALUES ('legacy', '628@s.whatsapp.net', 'https://chat.example.com', 1, 5, 'tok', 1, 'legacy-secret')
+	`); err != nil {
+		t.Fatalf("insert legacy config: %v", err)
+	}
+
+	if err := repo.InitializeSchema(); err != nil {
+		t.Fatalf("upgrade schema: %v", err)
+	}
+
+	got, err := repo.GetChatwootDeviceConfig("legacy")
+	if err != nil || got == nil {
+		t.Fatalf("get legacy config after upgrade: %v (got=%v)", err, got)
+	}
+	if got.APIToken != "tok" || !got.Enabled || got.InboxID != 5 || got.WebhookSecret != "legacy-secret" {
+		t.Fatalf("legacy config changed by upgrade: %+v", got)
+	}
+	if len(got.IgnoreJids) != 0 || got.SignMsg != nil || got.SignDelimiter != nil || got.WebhookSecret != "legacy-secret" {
+		t.Fatalf("legacy config must inherit the global settings: %+v", got)
+	}
+
+	// The upgraded row accepts overrides like a new one.
+	signOn := true
+	got.IgnoreJids = []string{"@g.us"}
+	got.SignMsg = &signOn
+	if err := repo.SaveChatwootDeviceConfig(got); err != nil {
+		t.Fatalf("save overrides on upgraded row: %v", err)
+	}
+	got, _ = repo.GetChatwootDeviceConfig("legacy")
+	if got == nil || len(got.IgnoreJids) != 1 || got.SignMsg == nil || !*got.SignMsg || got.WebhookSecret != "legacy-secret" {
+		t.Fatalf("overrides not persisted on upgraded row: %+v", got)
+	}
+}

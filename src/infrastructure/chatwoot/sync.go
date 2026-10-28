@@ -212,6 +212,11 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 	// 2. Calculate time boundary
 	sinceTime := time.Now().AddDate(0, 0, -opts.DaysLimit)
 
+	// The ignore list is fixed for the run; stored JIDs carry one address form,
+	// so the other is resolved from the device's LID mappings where known.
+	ignore := EffectiveIgnoreJids(opts.IgnoreJids)
+	jidForms := newJIDFormResolver(waClient)
+
 	// 3. Process each chat
 	for _, chat := range chats {
 		if err := ctx.Err(); err != nil {
@@ -221,11 +226,16 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 
 		// status@broadcast, 0@s.whatsapp.net and @newsletter channels carry no
 		// actionable conversation for an agent, and operators can ignore
-		// additional JIDs (or whole address spaces) via CHATWOOT_IGNORE_JIDS.
-		// Skipping at the chat level (rather than per-message) keeps the
-		// totals honest in the progress tracker — the chat is excluded
-		// entirely instead of counted as "synced 0".
-		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) || utils.MatchesIgnoredJID(chat.JID, config.ChatwootIgnoreJids) {
+		// additional JIDs (or whole address spaces) via CHATWOOT_IGNORE_JIDS
+		// and, per device, the config's ignore_jids (opts.IgnoreJids). The
+		// chat is matched in both its phone-JID and LID form, like the live
+		// forward. Skipping at the chat level keeps the totals honest in the
+		// progress tracker — the chat is excluded entirely instead of counted
+		// as "synced 0". Ignored senders inside a chat that is itself mirrored
+		// are dropped per message in filterIgnoredSenders.
+		chatJID, chatLID := jidForms.forms(ctx, chat.JID)
+		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) ||
+			ShouldIgnoreMessage(MessageIdentity{ChatJID: chatJID, ChatLID: chatLID}, ignore) {
 			logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s", chat.JID)
 			continue
 		}
@@ -244,9 +254,9 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 
 		var err error
 		if importer != nil {
-			err = s.syncChatPG(ctx, importer, deviceID, chat, sinceTime, waClient, opts, progress)
+			err = s.syncChatPG(ctx, importer, deviceID, chat, sinceTime, waClient, opts, progress, jidForms)
 		} else {
-			err = s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress)
+			err = s.syncChat(ctx, deviceID, chat, sinceTime, waClient, opts, progress, jidForms)
 		}
 		if err != nil {
 			logrus.Errorf("Chatwoot Sync: Failed to sync chat %s: %v", chat.JID, err)
@@ -273,6 +283,7 @@ func (s *SyncService) syncChat(
 	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	progress *SyncProgress,
+	jidForms *jidFormResolver,
 ) error {
 	isGroup := strings.HasSuffix(chat.JID, "@g.us")
 
@@ -323,6 +334,7 @@ func (s *SyncService) syncChat(
 	if err != nil {
 		return fmt.Errorf("failed to get messages: %w", err)
 	}
+	messages = filterIgnoredSenders(ctx, messages, EffectiveIgnoreJids(opts.IgnoreJids), jidForms)
 
 	if len(messages) == 0 {
 		logrus.Debugf("Chatwoot Sync: No messages to sync for %s", chat.JID)
@@ -380,6 +392,7 @@ func (s *SyncService) syncChatPG(
 	waClient *whatsmeow.Client,
 	opts SyncOptions,
 	progress *SyncProgress,
+	jidForms *jidFormResolver,
 ) error {
 	isGroup := strings.HasSuffix(chat.JID, "@g.us")
 	if isGroup && !opts.IncludeGroups {
@@ -398,6 +411,7 @@ func (s *SyncService) syncChatPG(
 	if err != nil {
 		return fmt.Errorf("failed to get messages: %w", err)
 	}
+	messages = filterIgnoredSenders(ctx, messages, EffectiveIgnoreJids(opts.IgnoreJids), jidForms)
 	if len(messages) == 0 {
 		logrus.Debugf("Chatwoot pgimport: No messages to sync for %s", chat.JID)
 		return nil
@@ -451,6 +465,34 @@ func (s *SyncService) syncChatPG(
 	logrus.Infof("Chatwoot pgimport: %s wrote=%d skipped=%d failed=%d",
 		chat.JID, result.MessagesWrote, result.MessagesSkipped, result.MessagesFailed)
 	return nil
+}
+
+// filterIgnoredSenders drops the stored messages whose sender is on the ignore
+// list, so history sync leaves out exactly what live forwarding suppresses: a
+// participant ignored by JID stays out of a group that is otherwise mirrored.
+// The sender is matched in its stored form and, where the device's LID mapping
+// knows it, in the other form too. The chat itself was already checked by the
+// caller.
+func filterIgnoredSenders(ctx context.Context, messages []*domainChatStorage.Message, ignore []string, jidForms *jidFormResolver) []*domainChatStorage.Message {
+	if len(ignore) == 0 || len(messages) == 0 {
+		return messages
+	}
+	if jidForms == nil {
+		jidForms = newJIDFormResolver(nil)
+	}
+	kept := make([]*domainChatStorage.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		senderJID, senderLID := jidForms.forms(ctx, msg.Sender)
+		if ShouldIgnoreMessage(MessageIdentity{SenderJID: senderJID, SenderLID: senderLID}, ignore) {
+			logrus.Debugf("Chatwoot Sync: Skipping message %s from ignored sender %s", msg.ID, msg.Sender)
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	return kept
 }
 
 func hasDownloadableChatwootMedia(msg *domainChatStorage.Message) bool {
@@ -921,6 +963,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 	go func() {
 		opts := DefaultSyncOptions()
 		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
+		opts.IgnoreJids = rc.IgnoreJids
 
 		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
 

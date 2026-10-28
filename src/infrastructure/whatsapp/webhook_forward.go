@@ -454,6 +454,19 @@ type chatwootSyncResult struct {
 	InboxID        int
 }
 
+// chatwootPayloadIdentity returns the chat and sender of an event payload in
+// every address form it carries. chat_id/from hold the phone JID when a LID
+// was resolved (see buildFromFields), with the original LID kept in
+// chat_lid/from_lid; an unresolved LID stays in chat_id/from.
+func chatwootPayloadIdentity(data map[string]any) chatwoot.MessageIdentity {
+	var id chatwoot.MessageIdentity
+	id.ChatJID, _ = data["chat_id"].(string)
+	id.ChatLID, _ = data["chat_lid"].(string)
+	id.SenderJID, _ = data["from"].(string)
+	id.SenderLID, _ = data["from_lid"].(string)
+	return id
+}
+
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
 // For groups, uses the group JID as identifier and tries to fetch group name.
 // For private chats, uses the sender's phone number.
@@ -488,7 +501,7 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
 	// always-ignored system JIDs — supports exact JIDs and the "@g.us" /
 	// "@s.whatsapp.net" / "@lid" address-space wildcards.
-	if utils.MatchesIgnoredJID(chatID, config.ChatwootIgnoreJids) || utils.MatchesIgnoredJID(from, config.ChatwootIgnoreJids) {
+	if chatwoot.ShouldIgnoreMessage(chatwootPayloadIdentity(data), chatwoot.EffectiveIgnoreJids(nil)) {
 		return nil, fmt.Errorf("skipping ignored JID chat=%s from=%s", chatID, from)
 	}
 
@@ -1226,6 +1239,19 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		if !config.ChatwootForwardDeletes {
 			return nil
 		}
+	}
+
+	// Ignore lists: the global CHATWOOT_IGNORE_JIDS plus the device config's
+	// ignore_jids, matched against the phone-JID and LID form of both the chat
+	// and the sender. Checked before contact extraction so an ignored chat costs
+	// no group-info or address-book lookup. Read receipts and delete-for-everyone
+	// of an already mirrored message were handled above on purpose: they only
+	// update content Chatwoot already holds (see docs/chatwoot.md, "Ignoring a
+	// chat that is already in Chatwoot"). Everything from here on creates
+	// something new, which an ignored chat or sender must not do.
+	if id := chatwootPayloadIdentity(data); chatwoot.ShouldIgnoreMessage(id, resolved.EffectiveIgnoreJids()) {
+		logrus.Debugf("Chatwoot: Skipping %s: ignored JID chat=%s from=%s for device %s", eventName, id.ChatJID, id.SenderJID, deviceID)
+		return nil
 	}
 
 	// Extract contact information

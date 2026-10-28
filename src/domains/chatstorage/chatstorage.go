@@ -102,6 +102,12 @@ type ChatwootMessageLink struct {
 // inbox. DeviceID is the user-facing device id; DeviceJID mirrors the WhatsApp
 // storage JID so the registry can resolve a client from either identity (the
 // forward/link paths key on the JID, the REST/reverse paths on the device id).
+//
+// IgnoreJids, SignMsg and SignDelimiter are optional per-device behaviour
+// settings. IgnoreJids is added to the global CHATWOOT_IGNORE_JIDS list for
+// this device. SignMsg and SignDelimiter replace CHATWOOT_SIGN_MSG and
+// CHATWOOT_SIGN_DELIMITER for this device when non-nil; nil inherits the
+// global value.
 type ChatwootDeviceConfig struct {
 	ID          int64     `db:"id"`
 	DeviceID    string    `db:"device_id"`
@@ -116,6 +122,10 @@ type ChatwootDeviceConfig struct {
 	// WebhookSecret authenticates Chatwoot's webhooks on this device's own
 	// endpoint. Empty means the global CHATWOOT_WEBHOOK_SECRET applies.
 	WebhookSecret string `db:"webhook_secret"`
+
+	IgnoreJids    []string `db:"ignore_jids"`
+	SignMsg       *bool    `db:"sign_msg"`
+	SignDelimiter *string  `db:"sign_delimiter"`
 }
 
 // ChatwootForwardEvent is a durable retry record for a live WhatsApp event

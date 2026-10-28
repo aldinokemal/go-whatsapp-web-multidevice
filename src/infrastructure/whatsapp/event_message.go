@@ -273,16 +273,33 @@ func buildFromFields(ctx context.Context, client *whatsmeow.Client, evt *events.
 	if chatJID.Server == "lid" {
 		payload["chat_lid"] = chatJID.String()
 		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
+	} else {
+		addKnownPhoneLID(ctx, client, chatJID, payload, "chat_lid")
 	}
 	payload["chat_id"] = chatJID.String()
 
 	senderJID := evt.Info.Sender
 	if senderJID.Server == "lid" {
 		payload["from_lid"] = senderJID.ToNonAD().String()
+	} else {
+		addKnownPhoneLID(ctx, client, senderJID.ToNonAD(), payload, "from_lid")
 	}
 
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+}
+
+// A phone-addressed event can still have a known LID. Carry both identities so
+// live ignore rules see the same forms as history import, using only this
+// device's local mapping store. Never infer a LID from the phone-number digits.
+func addKnownPhoneLID(ctx context.Context, client *whatsmeow.Client, phone types.JID, payload map[string]any, key string) {
+	if phone.Server != types.DefaultUserServer || client == nil || client.Store == nil || client.Store.LIDs == nil {
+		return
+	}
+	lid, err := client.Store.LIDs.GetLIDForPN(ctx, phone.ToNonAD())
+	if err == nil && !lid.IsEmpty() && lid.Server == types.HiddenUserServer {
+		payload[key] = lid.ToNonAD().String()
+	}
 }
 
 func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events.Message, payload map[string]any) error {

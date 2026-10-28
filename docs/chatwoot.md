@@ -341,6 +341,49 @@ webhook path lets agent replies route deterministically back to the right device
 against the device's configured account/inbox, so a webhook for one device cannot be delivered
 through another's path.
 
+### Per-device ignore list and agent signature
+
+`CHATWOOT_IGNORE_JIDS`, `CHATWOOT_SIGN_MSG` and `CHATWOOT_SIGN_DELIMITER` apply to every device.
+A per-device config can carry its own values in three optional fields:
+
+| Field | Type | Effect when set | When unset |
+|-------|------|-----------------|------------|
+| `ignore_jids` | array of strings | These JIDs are never mirrored to Chatwoot for this device, **in addition to** `CHATWOOT_IGNORE_JIDS`. Same syntax: exact JIDs or the wildcards `@g.us`, `@s.whatsapp.net`, `@lid`. | Only `CHATWOOT_IGNORE_JIDS` applies. |
+| `sign_msg` | boolean or `null` | Replaces `CHATWOOT_SIGN_MSG` for this device (`false` switches the signature off even when the global setting is on). | `CHATWOOT_SIGN_MSG` applies. |
+| `sign_delimiter` | string or `null` | Replaces `CHATWOOT_SIGN_DELIMITER` for this device (a literal `\n` is expanded). | `CHATWOOT_SIGN_DELIMITER` applies. |
+
+The ignore list is additive: a device ignores the always-ignored system JIDs, the global list and
+its own list. It cannot un-ignore a JID that the global list ignores. The list applies to live
+forwarding and to history sync, with the matching rules described under
+[Ignoring chats](#ignoring-chats); the signature settings apply to agent replies sent through that
+device. If the routed device's configuration cannot be read for authentication, the webhook
+returns HTTP 503 and sends nothing. If a later signature-settings lookup fails after
+authentication, signature composition falls back to unsigned text without borrowing the global setting.
+
+A typical use is a WhatsApp group that contains several of your own numbers: ignore the group on
+every device except the one whose inbox should receive it.
+
+```bash
+# Ignore two groups on this device and switch the agent signature off for it
+curl -X PUT http://your-api:3000/devices/<device_id>/chatwoot/config \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chatwoot_url": "https://app.chatwoot.com",
+    "account_id": 12345,
+    "inbox_id": 67890,
+    "ignore_jids": ["120363000000000001@g.us", "120363000000000002@g.us"],
+    "sign_msg": false
+  }'
+```
+
+The PUT body always needs `chatwoot_url`, `account_id` and `inbox_id`. For the three fields above,
+like `api_token` and `enabled`, leaving a key out of an update keeps the stored value, so rotating
+a token does not reset them. Send `null` (or `[]` for `ignore_jids`) to clear a field and go back
+to the global setting. Responses always include all three: `ignore_jids` as a list (empty when
+none), `sign_msg` and `sign_delimiter` as `null` while the global value applies. An entry that is
+neither a JID nor a wildcard is rejected with `400 INVALID_REQUEST`. Changes take effect on the
+next message; a history sync that is already running keeps the list it started with.
+
 ### Behavior & safety notes
 
 - **api_token** is stored as-is in the local database and is masked (last 4 chars) in all API
@@ -560,7 +603,7 @@ With `CHATWOOT_CONVERSATION_PENDING=true`, newly-created conversations land in `
 
 ### Agent signature
 
-With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline).
+With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline). With per-device configs, `sign_msg` and `sign_delimiter` set either one per device; see [Per-device ignore list and agent signature](#per-device-ignore-list-and-agent-signature).
 
 ### Formatting translation
 
@@ -622,6 +665,26 @@ Inbound replies and reactions are threaded onto the message they reference (agai
 # Ignore all groups and one specific contact
 CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
+
+With per-device configs, each device can add its own entries through the `ignore_jids` field; see [Per-device ignore list and agent signature](#per-device-ignore-list-and-agent-signature).
+
+#### What an entry matches
+
+An entry is compared with both the **chat** a message belongs to and the **sender** of the message, so listing a contact's JID also keeps that contact's messages out of every group that is otherwise mirrored.
+
+WhatsApp addresses the same account in two forms: the phone-number JID (`628123456789@s.whatsapp.net`) and a LID (`251556368777322@lid`). Each entry is compared with both forms of the chat and of the sender whenever both are known, so `251556368777322@lid` matches that contact even when GOWA resolved the LID to a phone number, and the phone-number JID matches a message that arrived under the LID. The `@lid` wildcard therefore matches every chat or sender whose LID is known, not only contacts that could not be resolved to a phone number.
+
+Live forwarding, the forward-retry queue and history sync use the same rule. History sync reads stored messages, which keep one form per chat and sender; the other form comes from the device's LID mapping table and is unknown when the device is not connected or WhatsApp never supplied the mapping. In that case only the stored form is compared.
+
+#### Ignoring a chat that is already in Chatwoot
+
+Adding a chat or contact to an ignore list after its conversation exists in Chatwoot stops new content and leaves the existing conversation in place:
+
+- **Not sent to Chatwoot any more:** new messages (incoming and outgoing), edits, reactions and the "message deleted" note. No contact, conversation or message is created for an ignored chat or sender, and history sync skips it.
+- **Still applied:** a read receipt or a delete-for-everyone for a message that Chatwoot already holds (when `CHATWOOT_MESSAGE_READ` / `CHATWOOT_MESSAGE_DELETE` are on). These only update or remove content that was mirrored earlier, so the existing conversation does not keep showing a message the sender deleted or an unread state that is no longer true.
+- **Unchanged:** the conversation itself and its earlier messages stay in Chatwoot; nothing is deleted when you add the entry. An agent reply written in that conversation is still delivered to WhatsApp. The ignore lists only filter the WhatsApp → Chatwoot direction.
+
+Removing the entry resumes mirroring from the next message. Messages that arrived while the chat was ignored are not sent afterwards unless you run a history sync.
 
 ## Supported Features
 

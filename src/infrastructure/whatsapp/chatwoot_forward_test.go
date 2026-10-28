@@ -3,6 +3,9 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -29,6 +32,59 @@ func TestSyncPayloadToChatwootFailFast(t *testing.T) {
 	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) { return nil, wantErr }
 	if err := syncPayloadToChatwoot(context.Background(), payload, "message", "dev", nil); !errors.Is(err, wantErr) {
 		t.Fatalf("resolution error should propagate, got %v", err)
+	}
+}
+
+// TestSyncPayloadToChatwootAppliesPerDeviceIgnoreJids verifies the live forward
+// path honours the ignore list carried on the device's resolved config: a group
+// ignored on one device makes no Chatwoot call there, while another device
+// (with no list) still mirrors the same group.
+func TestSyncPayloadToChatwootAppliesPerDeviceIgnoreJids(t *testing.T) {
+	orig := getChatwootClientFn
+	t.Cleanup(func() { getChatwootClientFn = orig })
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	const group = "120363000000000001@g.us"
+	client := &chatwoot.Client{BaseURL: srv.URL, APIToken: "t", AccountID: 1, InboxID: 1, HTTPClient: srv.Client()}
+	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
+		rc := &chatwoot.ResolvedConfig{ConfigID: 1, DeviceID: deviceID, Client: client}
+		if deviceID == "dev-ignoring" {
+			rc.IgnoreJids = []string{group}
+		}
+		return rc, nil
+	}
+
+	payload := map[string]any{"payload": map[string]any{
+		"id": "wa-1", "chat_id": group, "from": "628111@s.whatsapp.net", "from_name": "Ana", "body": "hello",
+	}}
+
+	if err := syncPayloadToChatwoot(context.Background(), payload, "message", "dev-ignoring", nil); err != nil {
+		t.Fatalf("ignored chat should skip with nil, got %v", err)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("ignored chat reached Chatwoot %d time(s)", n)
+	}
+
+	// The same group on a device without the entry is still forwarded (the stub
+	// server rejects the call; only the attempt matters here).
+	_ = syncPayloadToChatwoot(context.Background(), payload, "message", "dev-mirroring", nil)
+	if calls.Load() == 0 {
+		t.Fatal("a device without the ignore entry must still forward the chat")
+	}
+
+	// A sender on the device list is ignored in any chat, like the global list.
+	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{ConfigID: 1, DeviceID: deviceID, Client: client, IgnoreJids: []string{"628111@s.whatsapp.net"}}, nil
+	}
+	calls.Store(0)
+	if err := syncPayloadToChatwoot(context.Background(), payload, "message", "dev-ignoring", nil); err != nil || calls.Load() != 0 {
+		t.Fatalf("ignored sender should skip without a Chatwoot call: err=%v calls=%d", err, calls.Load())
 	}
 }
 
