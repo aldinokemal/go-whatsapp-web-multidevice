@@ -2,13 +2,17 @@ package whatsapp
 
 import (
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"github.com/lib/pq"
 )
 
 func TestApplyPostgresTLSDefault(t *testing.T) {
+	isolatePostgresDialEnv(t)
+
 	tests := []struct {
 		name     string
 		dsn      string
@@ -71,6 +75,11 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 			wantMode: "verify-full",
 		},
 		{
+			name:     "localhost.evil.com stays verify-full",
+			dsn:      "postgres://user:secret@localhost.evil.com/whatsapp",
+			wantMode: "verify-full",
+		},
+		{
 			name:     "userinfo is not the host",
 			dsn:      "postgres://localhost:secret@db.example.com/whatsapp",
 			wantMode: "verify-full",
@@ -109,6 +118,199 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplyPostgresTLSDefaultUsesDialTarget(t *testing.T) {
+	isolatePostgresDialEnv(t)
+
+	t.Run("hostaddr overrides localhost", func(t *testing.T) {
+		in := "postgres://user:secret@localhost/whatsapp?hostaddr=203.0.113.10"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Hostaddr.String() != "203.0.113.10" {
+			t.Fatalf("dial hostaddr = %s, want 203.0.113.10", cfg.Hostaddr.String())
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("query host overrides localhost", func(t *testing.T) {
+		in := "postgres://user:secret@localhost/whatsapp?host=prod.example.com"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "prod.example.com" {
+			t.Fatalf("dial host = %q, want prod.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("PGHOST on empty authority", func(t *testing.T) {
+		t.Setenv("PGHOST", "db.example.com")
+		in := "postgres://user:secret@/whatsapp"
+		got := mustApplyPostgresTLSDefault(t, in)
+		if strings.Contains(got, "sslmode=disable") {
+			t.Fatalf("remote PGHOST was given sslmode=disable: %s", got)
+		}
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "db.example.com" {
+			t.Fatalf("dial host = %q, want db.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("PGSSLMODE verify-full is not replaced with disable", func(t *testing.T) {
+		t.Setenv("PGHOST", "db.example.com")
+		t.Setenv("PGSSLMODE", "verify-full")
+		in := "postgres://user:secret@/whatsapp"
+		got := mustApplyPostgresTLSDefault(t, in)
+		if strings.Contains(got, "sslmode=disable") {
+			t.Fatalf("PGSSLMODE=verify-full was rewritten to disable: %s", got)
+		}
+		if got != in {
+			t.Fatalf("DSN was rewritten even though PGSSLMODE=verify-full\n got %s\nwant %s", got, in)
+		}
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "db.example.com" {
+			t.Fatalf("dial host = %q, want db.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("PGHOSTADDR overrides localhost", func(t *testing.T) {
+		t.Setenv("PGHOSTADDR", "203.0.113.10")
+		in := "postgres://user:secret@localhost/whatsapp"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Hostaddr.String() != "203.0.113.10" {
+			t.Fatalf("dial hostaddr = %s, want 203.0.113.10", cfg.Hostaddr.String())
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("blank sslmode is not explicit", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode="
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "db.example.com" {
+			t.Fatalf("dial host = %q, want db.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("fragment stays a fragment", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp#frag"
+		got := mustApplyPostgresTLSDefault(t, in)
+		u, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("parse result: %v", err)
+		}
+		if u.Fragment != "frag" {
+			t.Fatalf("fragment = %q, want frag in %s", u.Fragment, got)
+		}
+		if u.Query().Get("sslmode") != "verify-full" {
+			t.Fatalf("sslmode = %q, want verify-full in %s", u.Query().Get("sslmode"), got)
+		}
+		if strings.Contains(u.Fragment, "sslmode") {
+			t.Fatalf("sslmode was appended to the fragment: %s", got)
+		}
+		cfg := mustPostgresConfig(t, got)
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("localhost without override stays disable", func(t *testing.T) {
+		in := "postgres://user:secret@localhost/whatsapp"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "disable")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "localhost" {
+			t.Fatalf("dial host = %q, want localhost", cfg.Host)
+		}
+		if cfg.Hostaddr.IsValid() {
+			t.Fatalf("dial hostaddr = %s, want none", cfg.Hostaddr.String())
+		}
+		if cfg.SSLMode != pq.SSLModeDisable {
+			t.Fatalf("SSLMode = %q, want disable", cfg.SSLMode)
+		}
+	})
+
+	t.Run("explicit require stays require", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode=require"
+		got := mustApplyPostgresTLSDefault(t, in)
+		if got != in {
+			t.Fatalf("explicit sslmode changed\n got %s\nwant %s", got, in)
+		}
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "db.example.com" {
+			t.Fatalf("dial host = %q, want db.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeRequire {
+			t.Fatalf("SSLMode = %q, want require", cfg.SSLMode)
+		}
+	})
+}
+
+func isolatePostgresDialEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"PGHOST", "PGHOSTADDR", "PGSSLMODE", "PGSERVICE"} {
+		value, ok := os.LookupEnv(key)
+		t.Cleanup(func() {
+			if ok {
+				os.Setenv(key, value)
+			} else {
+				os.Unsetenv(key)
+			}
+		})
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func mustApplyPostgresTLSDefault(t *testing.T, dsn string) string {
+	t.Helper()
+	got, err := applyPostgresTLSDefault(dsn)
+	if err != nil {
+		t.Fatalf("applyPostgresTLSDefault(%q): %v", dsn, err)
+	}
+	return got
+}
+
+func assertPostgresSSLMode(t *testing.T, dsn, want string) {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse %q: %v", dsn, err)
+	}
+	if got := u.Query().Get("sslmode"); got != want {
+		t.Fatalf("sslmode = %q, want %q in %s", got, want, dsn)
+	}
+}
+
+func mustPostgresConfig(t *testing.T, dsn string) pq.Config {
+	t.Helper()
+	cfg, err := pq.NewConfig(dsn)
+	if err != nil {
+		t.Fatalf("pq.NewConfig(%q): %v", dsn, err)
+	}
+	return cfg
 }
 
 func TestSQLiteDatabasePathSurvivesPragmas(t *testing.T) {

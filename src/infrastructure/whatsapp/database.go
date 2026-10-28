@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"github.com/lib/pq"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -55,9 +57,9 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 		}
 		return container, nil
 	} else if strings.HasPrefix(DBURI, "postgres:") {
-		// applyPostgresTLSDefault preserves an explicit sslmode. Otherwise
-		// loopback hosts use sslmode=disable and every other host uses
-		// sslmode=verify-full. Set sslmode in DB_URI or DB_KEYS_URI to override.
+		// applyPostgresTLSDefault preserves a non-empty sslmode. Otherwise the
+		// host lib/pq will dial selects sslmode=disable or sslmode=verify-full.
+		// Set sslmode in DB_URI or DB_KEYS_URI to override.
 		secured, err := applyPostgresTLSDefault(DBURI)
 		if err != nil {
 			return nil, err
@@ -199,20 +201,21 @@ func chmodExistingFile(path string, mode os.FileMode) error {
 }
 
 // applyPostgresTLSDefault sets a TLS mode when the DSN does not already
-// contain an sslmode query parameter.
+// contain a non-empty sslmode query parameter.
 //
-// An explicit sslmode is preserved, including disable, require, verify-ca,
-// and verify-full. Override the defaults by setting sslmode in DB_URI or
-// DB_KEYS_URI.
+// A non-empty sslmode is preserved, including disable, require, verify-ca,
+// and verify-full. A missing or blank sslmode (sslmode=) is not a choice:
+// lib/pq drops the blank value and would otherwise leave certificate checks
+// off. Override the defaults with a non-empty sslmode in DB_URI or DB_KEYS_URI.
 //
-// Loopback hosts (localhost, 127.0.0.1, and ::1) and an empty host, which
-// lib/pq treats as localhost, default to sslmode=disable so a local Postgres
-// that does not speak TLS still accepts the connection. lib/pq's implicit
-// default requires TLS and does not verify the server certificate, which
-// rejects that local server. Every other host defaults to sslmode=verify-full,
-// which checks the certificate against the system trust store and the
-// requested hostname. This package has no separate CA bundle, so verify-ca
-// is not used.
+// The mode follows the address lib/pq will dial, from pq.NewConfig: URL
+// authority, query host and hostaddr, PGHOST, and PGHOSTADDR. If any dial
+// target is not loopback (localhost, 127.0.0.1, ::1) and not a unix-socket
+// path, the default is sslmode=verify-full. Loopback and unix-socket targets
+// use sslmode=disable so a local Postgres without TLS still connects.
+// PGSSLMODE=verify-full is left in place when the DSN does not need a
+// replacement value. The query is written on the parsed URL so a fragment
+// stays a fragment.
 func applyPostgresTLSDefault(dsn string) (string, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -221,14 +224,79 @@ func applyPostgresTLSDefault(dsn string) (string, error) {
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return "", fmt.Errorf("unsupported postgres scheme %q", u.Scheme)
 	}
-	if u.Query().Has("sslmode") {
+	if explicit, ok := explicitPostgresSSLMode(u); ok && explicit != "" {
 		return dsn, nil
 	}
-	mode := "verify-full"
-	if isLocalPostgresHost(u.Hostname()) {
-		mode = "disable"
+
+	remote, err := postgresDialTargetIsRemote(dsn)
+	if err != nil {
+		return "", err
 	}
-	return appendDSNQuery(dsn, "sslmode="+mode), nil
+	// PGSSLMODE=verify-full already verifies the server. lib/pq drops a blank
+	// sslmode, so that environment value still applies. Leave the DSN unchanged
+	// instead of writing sslmode=disable over it.
+	if strings.TrimSpace(os.Getenv("PGSSLMODE")) == "verify-full" {
+		return dsn, nil
+	}
+	mode := "disable"
+	if remote {
+		mode = "verify-full"
+	}
+	return setPostgresSSLMode(u, mode), nil
+}
+
+// explicitPostgresSSLMode reports a non-empty sslmode query value.
+// Blank values are ignored so sslmode= is treated as absent.
+func explicitPostgresSSLMode(u *url.URL) (string, bool) {
+	values, ok := u.Query()["sslmode"]
+	if !ok {
+		return "", false
+	}
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed, true
+		}
+	}
+	return "", false
+}
+
+// postgresDialTargetIsRemote reports whether lib/pq will dial any TCP address
+// that is not the loopback names this package treats as local.
+func postgresDialTargetIsRemote(dsn string) (bool, error) {
+	cfg, err := pq.NewConfig(dsn)
+	if err != nil {
+		return false, fmt.Errorf("parse postgres dial target: %w", err)
+	}
+	if postgresTargetIsRemote(cfg.Host, cfg.Hostaddr) {
+		return true, nil
+	}
+	for _, extra := range cfg.Multi {
+		if postgresTargetIsRemote(extra.Host, extra.Hostaddr) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func postgresTargetIsRemote(host string, addr netip.Addr) bool {
+	if addr.IsValid() {
+		return !isPostgresLoopbackIP(addr)
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || filepath.IsAbs(host) || strings.HasPrefix(host, "@") {
+		return false
+	}
+	return !isLocalPostgresHost(host)
+}
+
+func isPostgresLoopbackIP(addr netip.Addr) bool {
+	if !addr.IsValid() {
+		return false
+	}
+	if addr.Is4() {
+		return addr == netip.MustParseAddr("127.0.0.1")
+	}
+	return addr == netip.MustParseAddr("::1")
 }
 
 func isLocalPostgresHost(host string) bool {
@@ -244,13 +312,10 @@ func isLocalPostgresHost(host string) bool {
 	return ip.Equal(net.ParseIP("127.0.0.1")) || ip.Equal(net.IPv6loopback)
 }
 
-func appendDSNQuery(dsn, pair string) string {
-	sep := "?"
-	if strings.Contains(dsn, "?") {
-		sep = "&"
-	}
-	if strings.HasSuffix(dsn, "?") || strings.HasSuffix(dsn, "&") {
-		sep = ""
-	}
-	return dsn + sep + pair
+func setPostgresSSLMode(u *url.URL, mode string) string {
+	cloned := *u
+	query := cloned.Query()
+	query.Set("sslmode", mode)
+	cloned.RawQuery = query.Encode()
+	return cloned.String()
 }
