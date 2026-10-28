@@ -521,8 +521,10 @@ func TestChatwootWebhookEmptyReplyText(t *testing.T) {
 				body += `,"attachments":` + tt.attachments
 			}
 			body += `}`
+			withChatwootWebhookSecret(t, "reply-secret")
 			req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Chatwoot-Webhook-Secret", "reply-secret")
 			resp, err := app.Test(req)
 			if err != nil {
 				t.Fatalf("app.Test: %v", err)

@@ -51,6 +51,7 @@ func (r *deviceWebhookTestRepo) CountChatwootDeviceConfigs() (int, error) {
 // configured account/inbox is rejected (401), while a matching payload passes
 // the gate (here a non-action event, so it returns 200 without sending).
 func TestHandleDeviceWebhookValidatesAccountInbox(t *testing.T) {
+	withChatwootWebhookSecret(t, "device-gate")
 	repo := &deviceWebhookTestRepo{
 		cfg:   &domainChatStorage.ChatwootDeviceConfig{ID: 1, DeviceID: "d", ChatwootURL: "https://chat.example.com", AccountID: 1, InboxID: 2, APIToken: "t", Enabled: true},
 		count: 1,
@@ -65,6 +66,7 @@ func TestHandleDeviceWebhookValidatesAccountInbox(t *testing.T) {
 	post := func(body string) int {
 		req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook/d", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Chatwoot-Webhook-Secret", "device-gate")
 		resp, err := app.Test(req)
 		if err != nil {
 			t.Fatalf("app.Test: %v", err)
@@ -112,11 +114,13 @@ func TestProcessChatwootWebhookDropsUnroutablePayload(t *testing.T) {
 	// End-to-end: the webhook handler must return 200 without touching the
 	// device manager (nil here — a delivery attempt would resolve the default
 	// device and panic on the nil usecases before responding).
+	withChatwootWebhookSecret(t, "gate-secret")
 	app := fiber.New()
 	app.Post("/chatwoot/webhook", handler.HandleWebhook)
 	body := `{"event":"message_created","message_type":"outgoing","account":{"id":1},"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628999999999"}}},"content":"hi"}`
 	req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Chatwoot-Webhook-Secret", "gate-secret")
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)

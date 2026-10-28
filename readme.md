@@ -157,10 +157,12 @@ Download:
     device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
     device URL keeps its own secret and event filter.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
-  header, generated with the default key `secret`.
+  header. Set a private key with `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`. The old published
+  default `secret` is not used. If no secret is configured, the process generates a random key and
+  logs a warning; that key changes on restart, so receivers should not rely on it.
 
-  Change the key with:
-  - `--webhook-secret="secret"`
+  Set a stable key with:
+  - `--webhook-secret="your-private-key"`
 - **Webhook payload documentation** — For detailed schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md).
 - **Webhook event filtering** — Filter which events are forwarded to your webhook with:
@@ -244,7 +246,9 @@ To use environment variables:
 | `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
 | `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
 | `APP_OS`                                | OS name (device name in WhatsApp)                             | `GOWA`                                       | `APP_OS=MyApp`                                |
-| `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_BASIC_AUTH`                        | Basic authentication credentials. Required for a non-loopback bind; loopback stays open for local dev | -                             | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_ALLOW_UNAUTHENTICATED`             | Expose the API with no Basic Auth on a non-loopback bind (insecure; for reverse proxies) | `false`                       | `APP_ALLOW_UNAUTHENTICATED=true`              |
+| `APP_TRUSTED_ORIGINS`                   | Extra browser origins for state-changing requests (request host and specific CORS origins are included) | -          | `APP_TRUSTED_ORIGINS=https://ui.example.com`  |
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
 | `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty)                  | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
@@ -269,7 +273,7 @@ To use environment variables:
 | `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
-| `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook HMAC secret. Empty or the old public value `secret` is replaced by a random per-process key | -            | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
@@ -295,7 +299,8 @@ To use environment variables:
 | `CHATWOOT_AUTO_CREATE`                  | Auto-create or reuse the Chatwoot API inbox at startup        | `false`                                      | `CHATWOOT_AUTO_CREATE=true`                   |
 | `CHATWOOT_INBOX_NAME`                   | Inbox name used when auto-create is enabled                   | `WhatsApp`                                   | `CHATWOOT_INBOX_NAME=WhatsApp Support`        |
 | `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook` |
-| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature) | -                                     | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature). Empty rejects calls | -               | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED`       | Accept Chatwoot webhooks when no secret is configured (insecure) | `false`                                  | `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true`        |
 | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE`  | Maximum age of a signed Chatwoot webhook's timestamp           | `5m`                                         | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE=2m`     |
 | `CHATWOOT_REOPEN_CONVERSATION`          | Reopen resolved Chatwoot conversations for returning contacts  | `true`                                       | `CHATWOOT_REOPEN_CONVERSATION=false`          |
 | `CHATWOOT_CONVERSATION_PENDING`         | Create new Chatwoot conversations as pending                  | `false`                                      | `CHATWOOT_CONVERSATION_PENDING=true`          |

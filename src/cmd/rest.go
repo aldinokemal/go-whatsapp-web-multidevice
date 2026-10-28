@@ -40,10 +40,31 @@ var restCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(restCmd)
+	rootCmd.PersistentFlags().BoolVar(
+		&config.AppAllowUnauthenticated,
+		"allow-unauthenticated",
+		config.AppAllowUnauthenticated,
+		"expose the API without Basic Auth on a non-loopback bind (INSECURE). Use only behind a reverse proxy that authenticates clients",
+	)
+	rootCmd.PersistentFlags().StringSliceVar(
+		&config.AppTrustedOrigins,
+		"trusted-origins",
+		config.AppTrustedOrigins,
+		"extra browser origins allowed to perform state-changing requests, alongside the request host and APP_CORS_ALLOWED_ORIGINS",
+	)
+	rootCmd.PersistentFlags().BoolVar(
+		&config.ChatwootWebhookAllowUnsigned,
+		"chatwoot-webhook-allow-unsigned",
+		config.ChatwootWebhookAllowUnsigned,
+		"accept Chatwoot webhooks when no webhook secret is configured (INSECURE)",
+	)
 }
 func restServer(_ *cobra.Command, _ []string) {
 	// registerMcpOAuth depends on these values being loaded after flag parsing.
 	loadMcpOAuthEnvConfig()
+	loadHTTPHardeningConfig()
+	ensureWebhookSigningSecret()
+	enforceAuthenticationPolicy()
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
@@ -82,15 +103,19 @@ func restServer(_ *cobra.Command, _ []string) {
 		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
 	})
 
-	// Chatwoot webhook - registered BEFORE basic auth middleware
-	// This allows Chatwoot to send webhooks without authentication. The handler
-	// is stateless and shared with the authenticated sync routes registered below.
+	// Chatwoot webhook - registered BEFORE basic auth middleware so Chatwoot can
+	// reach it. The handler rejects an empty effective secret unless
+	// CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is set. It is shared with the
+	// authenticated sync routes registered below.
 	var chatwootHandler *rest.ChatwootHandler
 	if config.ChatwootEnabled {
 		// Auto-provision the inbox, install the per-device client registry, then
 		// start the retry worker (registry before worker — see initChatwootForwarding).
 		initChatwootForwarding(chatStorageRepo)
 
+		if config.ChatwootWebhookAllowUnsigned {
+			logrus.Warn("CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is enabled: Chatwoot webhooks are accepted when the effective secret is empty. Leave this off unless the endpoint is only reachable on a trusted network.")
+		}
 		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"
 		if config.AppBasePath != "" {

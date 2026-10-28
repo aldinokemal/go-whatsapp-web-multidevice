@@ -14,6 +14,12 @@ var (
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
+	// AppAllowUnauthenticated exposes device admin, send, logout, and MCP
+	// routes without Basic Auth. It is required when credentials are empty and
+	// AppHost is not a loopback address (the default 0.0.0.0). Loopback binds
+	// stay open for local development. Intended for a reverse proxy that
+	// authenticates in front of this process.
+	AppAllowUnauthenticated = false
 	// AppTrustedOrigins lists browser origins allowed to call state-changing
 	// routes, in addition to the request's own host and any specific
 	// AppCORSAllowedOrigins. A CORS wildcard does not allow cross-site mutations.
@@ -46,12 +52,15 @@ var (
 	DBURI     = "file:storages/whatsapp.db"
 	DBKeysURI = ""
 
-	WhatsappAutoReplyMessage          string
-	WhatsappAutoMarkRead              = false // Auto-mark incoming messages as read
-	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
-	WhatsappIgnoreStatusMedia         = false // Ignore downloading status media
-	WhatsappWebhook                   []string
-	WhatsappWebhookSecret             = "secret"
+	WhatsappAutoReplyMessage  string
+	WhatsappAutoMarkRead      = false // Auto-mark incoming messages as read
+	WhatsappAutoDownloadMedia = true  // Auto-download media from incoming messages
+	WhatsappIgnoreStatusMedia = false // Ignore downloading status media
+	WhatsappWebhook           []string
+	// WhatsappWebhookSecret signs outbound webhooks. Empty, and the published
+	// default "secret", are replaced at startup with a random per-process key
+	// so receivers are not asked to trust a key that ships in the documentation.
+	WhatsappWebhookSecret             = ""
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
 	WhatsappWebhookIgnoreJids         []string         // JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks
@@ -126,9 +135,11 @@ var (
 	ChatwootAutoCreate = false
 	ChatwootInboxName  = "WhatsApp"
 	ChatwootWebhookURL = ""
-	// Optional shared secret for incoming Chatwoot webhooks. When empty, inbound
-	// webhook requests remain unauthenticated for backward compatibility.
-	ChatwootWebhookSecret = ""
+	// Optional shared secret for incoming Chatwoot webhooks. An empty effective
+	// secret rejects the request. ChatwootWebhookAllowUnsigned restores the
+	// previous open behavior and must be set explicitly.
+	ChatwootWebhookSecret        = ""
+	ChatwootWebhookAllowUnsigned = false
 	// ChatwootWebhookSignatureTolerance bounds the age (and clock skew) of the
 	// X-Chatwoot-Timestamp accepted with Chatwoot's signed webhooks, which
 	// limits how long a captured request can be replayed.
