@@ -170,3 +170,78 @@ func TestResolveChatwootWebhookRouteFailsFastWhenConfigsExist(t *testing.T) {
 		t.Fatalf("legacy mode should use env device, got %q", route.DeviceID)
 	}
 }
+
+type linkRouteRepo struct {
+	deviceWebhookTestRepo
+	link *domainChatStorage.ChatwootMessageLink
+}
+
+func (r *linkRouteRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	if r.link == nil || r.link.ChatwootConversationID != conversationID {
+		return nil, nil
+	}
+	if r.link.ChatwootAccountID != accountID && !(allowLegacyZero && r.link.ChatwootAccountID == 0) {
+		return nil, nil
+	}
+	if configID != 0 && r.link.ChatwootConfigID != configID {
+		return nil, nil
+	}
+	cloned := *r.link
+	return &cloned, nil
+}
+
+func TestContactDeviceOverridePreservesConfigID(t *testing.T) {
+	repo := &deviceWebhookTestRepo{
+		cfg: &domainChatStorage.ChatwootDeviceConfig{
+			ID: 42, DeviceID: "sales", ChatwootURL: "https://chat.example.com",
+			AccountID: 7, InboxID: 3, APIToken: "t", Enabled: true,
+		},
+		count: 1,
+	}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	route := (&ChatwootHandler{ChatStorageRepo: repo}).resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+		Account: chatwoot.Account{ID: 7},
+		Conversation: chatwoot.ConversationWebhook{
+			ID: 4, InboxID: 3,
+			Meta: chatwoot.ConversationMeta{Sender: chatwoot.Contact{CustomAttributes: map[string]any{
+				"gowa_device_id":    "sales",
+				"gowa_whatsapp_jid": "628111@s.whatsapp.net",
+			}}},
+		},
+	}, nil)
+	if route.Unroutable || route.DeviceID != "sales" || route.ConfigID != 42 || route.AccountID != 7 || route.InboxID != 3 {
+		t.Fatalf("override dropped configuration identity: %+v", route)
+	}
+}
+
+func TestConversationLinkDisabledConfigDoesNotRoute(t *testing.T) {
+	repo := &linkRouteRepo{
+		deviceWebhookTestRepo: deviceWebhookTestRepo{
+			cfg: &domainChatStorage.ChatwootDeviceConfig{
+				ID: 42, DeviceID: "sales", ChatwootURL: "https://chat.example.com",
+				AccountID: 7, InboxID: 3, APIToken: "t", Enabled: false,
+			},
+			count: 1,
+		},
+		link: &domainChatStorage.ChatwootMessageLink{
+			DeviceID: "sales", WhatsAppChatJID: "628111@s.whatsapp.net",
+			ChatwootConversationID: 4, ChatwootConfigID: 42, ChatwootAccountID: 7,
+		},
+	}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	handler := &ChatwootHandler{ChatStorageRepo: repo}
+	route := handler.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+		Account:      chatwoot.Account{ID: 7},
+		Conversation: chatwoot.ConversationWebhook{ID: 4, InboxID: 3},
+	}, nil)
+	if route.DeviceID == "" || route.Destination == "" {
+		t.Fatalf("stored link should still identify the conversation: %+v", route)
+	}
+	if handler.chatwootRouteEnabled(route) {
+		t.Fatalf("disabled configuration must not send: %+v", route)
+	}
+}

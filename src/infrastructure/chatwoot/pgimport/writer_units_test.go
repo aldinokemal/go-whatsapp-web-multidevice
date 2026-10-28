@@ -173,6 +173,14 @@ func TestInsertMessage_IdempotencyHitReturnsFalseNoInsert(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
 		WithArgs(imp.inboxID, "WAID:wa-dup").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
+	// Conversation 300 is not the caller's conversation (10). It is still this
+	// chat when it belongs to the same contact (a resolve/reopen).
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT contact_id FROM conversations
+		WHERE id = $1 AND account_id = $2 AND inbox_id = $3
+	`)).
+		WithArgs(300, imp.accountID, imp.inboxID).
+		WillReturnRows(sqlmock.NewRows([]string{"contact_id"}).AddRow(20))
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -185,6 +193,66 @@ func TestInsertMessage_IdempotencyHitReturnsFalseNoInsert(t *testing.T) {
 	}
 	if wrote {
 		t.Errorf("wrote = true, want false on idempotency hit")
+	}
+	_ = tx.Rollback()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestInsertMessage_ForeignConversationIsNotLinked(t *testing.T) {
+	imp, mock, cleanup := newUpsertContactTestImporter(t)
+	defer cleanup()
+
+	now := time.Date(2026, time.June, 6, 12, 0, 0, 0, time.UTC)
+	msg := &domainChatStorage.Message{
+		ID:        "wa-foreign",
+		DeviceID:  "device-a@s.whatsapp.net",
+		ChatJID:   "628123456789@s.whatsapp.net",
+		Content:   "this chat",
+		Timestamp: now,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
+		WithArgs(imp.inboxID, "WAID:wa-foreign").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(9, 300))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT contact_id FROM conversations
+		WHERE id = $1 AND account_id = $2 AND inbox_id = $3
+	`)).
+		WithArgs(300, imp.accountID, imp.inboxID).
+		WillReturnRows(sqlmock.NewRows([]string{"contact_id"}).AddRow(99))
+	mock.ExpectQuery(`INSERT INTO messages`).
+		WithArgs(
+			"this chat",
+			imp.accountID,
+			imp.inboxID,
+			10,
+			messageTypeIncoming,
+			now,
+			messageStatusDelivered,
+			"WAID:wa-foreign",
+			contentTypeText,
+			"Contact",
+			int64(20),
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(404))
+
+	tx, err := imp.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	link, wrote, err := imp.insertMessage(context.Background(), tx, 10, 20, msg, false)
+	if err != nil {
+		t.Fatalf("insertMessage: %v", err)
+	}
+	if !wrote {
+		t.Fatal("wrote = false, want a new row in this chat's conversation")
+	}
+	if link == nil || link.ChatwootConversationID != 10 || link.WhatsAppChatJID != msg.ChatJID {
+		t.Fatalf("foreign conversation was linked: %+v", link)
 	}
 	_ = tx.Rollback()
 	if err := mock.ExpectationsWereMet(); err != nil {
