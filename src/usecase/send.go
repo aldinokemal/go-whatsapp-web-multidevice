@@ -343,7 +343,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, request.BaseRequest.Phone))
 	}
 
 	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
@@ -1850,6 +1850,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 		}
 
+		msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
+
 		content := "🎨 Animated Sticker"
 
 		// Send the animated sticker message
@@ -2014,6 +2016,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
+	msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
+
 	content := "🎨 Sticker"
 
 	// Send the sticker message
@@ -2076,13 +2080,20 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 	return isAnimated, width, height
 }
 
-func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
+// getDefaultEphemeralExpiration returns the disappearing-message timer this
+// device has stored for the chat. Another device's timer for the same chat is
+// not this device's setting, so the lookup is device-scoped.
+func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, jid string) (expiration uint32) {
 	expiration = 0
-	if jid == "" {
+	if jid == "" || service.chatStorageRepo == nil {
+		return expiration
+	}
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
 		return expiration
 	}
 
-	chat, err := service.chatStorageRepo.GetChat(jid)
+	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid)
 	if err != nil {
 		return expiration
 	}

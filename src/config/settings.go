@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v9.6.0"
+	AppVersion             = "v9.7.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -125,6 +125,10 @@ var (
 	// Optional shared secret for incoming Chatwoot webhooks. When empty, inbound
 	// webhook requests remain unauthenticated for backward compatibility.
 	ChatwootWebhookSecret = ""
+	// ChatwootWebhookSignatureTolerance bounds the age (and clock skew) of the
+	// X-Chatwoot-Timestamp accepted with Chatwoot's signed webhooks, which
+	// limits how long a captured request can be replayed.
+	ChatwootWebhookSignatureTolerance = 5 * time.Minute
 
 	// ChatwootAllowedHosts optionally restricts which Chatwoot hosts a
 	// per-device config may point at. When non-empty, a config's chatwoot_url

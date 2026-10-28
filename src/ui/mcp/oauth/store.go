@@ -291,7 +291,7 @@ WHERE code_hash = ?`, hashSecret(req.Code)).Scan(
 	if usedAt.Valid || now.Unix() >= expiresAt || clientID != req.ClientID || redirectURI != req.RedirectURI {
 		return TokenPair{}, ErrInvalidGrant
 	}
-	if resource != req.Resource {
+	if req.Resource != "" && resource != req.Resource {
 		return TokenPair{}, ErrInvalidTarget
 	}
 	if !verifyPKCES256(req.CodeVerifier, codeChallenge) {
@@ -382,7 +382,7 @@ WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
 	if now.Unix() >= expiresAt || clientID != req.ClientID {
 		return TokenPair{}, ErrInvalidGrant
 	}
-	if resource != req.Resource {
+	if req.Resource != "" && resource != req.Resource {
 		return TokenPair{}, ErrInvalidTarget
 	}
 
