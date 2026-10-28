@@ -10,11 +10,12 @@ import (
 )
 
 // BrowserOriginGuard rejects cross-site browser requests on state-changing
-// routes, including GET handlers that mutate (logout, reconnect, and
+// routes, including GET handlers that mutate (login, logout, reconnect, and
 // invite-link reset). API clients that omit Origin and Referer are allowed
 // so curl and server integrations keep working. When either header is
-// present it must match the trusted-origin allowlist. A browser Sec-Fetch-Site
-// of cross-site with neither header is also rejected.
+// present it must match the trusted-origin allowlist. With neither header, a
+// Sec-Fetch-Site of same-site or cross-site is rejected, and so is a mutating
+// GET from a browser User-Agent that sent no Sec-Fetch-Site.
 func BrowserOriginGuard() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		if !stateChangingRequest(c) || browserSourceAllowed(c) {
@@ -29,7 +30,17 @@ func BrowserOriginGuard() fiber.Handler {
 }
 
 func browserSourceAllowed(c fiber.Ctx) bool {
-	return config.BrowserSourceAllowed(c.Scheme(), c.Host(), c.Get(fiber.HeaderOrigin), c.Get(fiber.HeaderReferer), c.Get("Sec-Fetch-Site"))
+	origin, referer, fetchSite := c.Get(fiber.HeaderOrigin), c.Get(fiber.HeaderReferer), c.Get("Sec-Fetch-Site")
+	// Browsers send no Fetch Metadata to a plain-HTTP origin, and a page can
+	// hide its referrer on a navigation or an <img> or <script> load. Such a
+	// mutating GET is only trusted from a client that is not a browser: every
+	// browser User-Agent contains "Mozilla/", and a page cannot change it.
+	method := strings.ToUpper(c.Method())
+	if (method == fiber.MethodGet || method == fiber.MethodHead) && origin == "" && referer == "" && fetchSite == "" &&
+		strings.Contains(c.Get(fiber.HeaderUserAgent), "Mozilla/") {
+		return false
+	}
+	return config.BrowserSourceAllowed(c.Host(), origin, referer, fetchSite)
 }
 
 func stateChangingRequest(c fiber.Ctx) bool {
@@ -46,13 +57,15 @@ func stateChangingRequest(c fiber.Ctx) bool {
 }
 
 func mutatingGET(c fiber.Ctx) bool {
-	switch canonicalRequestPath(c.Path(), config.AppBasePath) {
-	case "/app/logout", "/app/reconnect":
+	p := canonicalRequestPath(c.Path(), config.AppBasePath)
+	switch p {
+	case "/app/login", "/app/login-with-code", "/app/logout", "/app/reconnect":
 		return true
 	case "/group/invite-link":
 		return inviteLinkReset(c)
 	default:
-		return false
+		// /devices/:device_id/login
+		return strings.HasPrefix(p, "/devices/") && strings.HasSuffix(p, "/login") && strings.Count(p, "/") == 3
 	}
 }
 

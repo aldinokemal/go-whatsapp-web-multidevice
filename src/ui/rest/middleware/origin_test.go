@@ -100,6 +100,94 @@ func TestBrowserOriginGuard(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusForbidden, resp.StatusCode)
 	})
+
+	t.Run("request host is trusted under https behind a TLS proxy", func(t *testing.T) {
+		for _, target := range []struct {
+			method string
+			path   string
+			header string
+			value  string
+			want   int
+		}{
+			{fiber.MethodPost, "/send/message", "Origin", "https://gowa.example", fiber.StatusOK},
+			{fiber.MethodGet, "/app/logout", "Referer", "https://gowa.example/", fiber.StatusOK},
+			{fiber.MethodPost, "/send/message", "Origin", "https://gowa.example:8443", fiber.StatusForbidden},
+			{fiber.MethodPost, "/send/message", "Origin", "https://evil.gowa.example", fiber.StatusForbidden},
+		} {
+			req := httptest.NewRequest(target.method, "http://gowa.example"+target.path, nil)
+			req.Host = "gowa.example"
+			req.Header.Set(target.header, target.value)
+			resp, err := newApp().Test(req)
+			require.NoError(t, err)
+			require.Equal(t, target.want, resp.StatusCode, target.value)
+			require.NoError(t, resp.Body.Close())
+		}
+	})
+
+	t.Run("configured app origin is matched as written", func(t *testing.T) {
+		prev := config.AppTrustedOrigins
+		config.AppTrustedOrigins = []string{"Capacitor://LocalHost/", "chrome-extension://abcdefgh", "null"}
+		t.Cleanup(func() { config.AppTrustedOrigins = prev })
+
+		for origin, want := range map[string]int{
+			"capacitor://localhost":       fiber.StatusOK,
+			"chrome-extension://abcdefgh": fiber.StatusOK,
+			"capacitor://evil":            fiber.StatusForbidden,
+			"chrome-extension://zzzzzzzz": fiber.StatusForbidden,
+			"null":                        fiber.StatusForbidden,
+		} {
+			req := httptest.NewRequest(fiber.MethodPost, "http://gowa.example/send/message", nil)
+			req.Host = "gowa.example"
+			req.Header.Set("Origin", origin)
+			resp, err := newApp().Test(req)
+			require.NoError(t, err)
+			require.Equal(t, want, resp.StatusCode, origin)
+			require.NoError(t, resp.Body.Close())
+		}
+	})
+}
+
+func TestBrowserOriginGuardWithoutOriginOrReferer(t *testing.T) {
+	app := fiber.New()
+	app.Use(BrowserOriginGuard())
+	ok := func(c fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) }
+	app.Post("/send/message", ok)
+	app.Get("/app/logout", ok)
+	app.Get("/app/status", ok)
+
+	const browser = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+	cases := []struct {
+		name    string
+		method  string
+		path    string
+		headers map[string]string
+		want    int
+	}{
+		{"curl logout", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": "curl/8.7.1"}, fiber.StatusOK},
+		{"n8n logout", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": "axios/1.7.9"}, fiber.StatusOK},
+		{"browser logout with no referrer", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": browser}, fiber.StatusForbidden},
+		{"browser head logout with no referrer", fiber.MethodHead, "/app/logout", map[string]string{"User-Agent": browser}, fiber.StatusForbidden},
+		{"same-site logout", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": browser, "Sec-Fetch-Site": "same-site"}, fiber.StatusForbidden},
+		{"same-site post", fiber.MethodPost, "/send/message", map[string]string{"User-Agent": browser, "Sec-Fetch-Site": "same-site"}, fiber.StatusForbidden},
+		{"same-origin referer logout", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": browser, "Referer": "http://gowa.example/"}, fiber.StatusOK},
+		{"typed logout url", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": browser, "Sec-Fetch-Site": "none"}, fiber.StatusOK},
+		{"same-origin fetch metadata logout", fiber.MethodGet, "/app/logout", map[string]string{"User-Agent": browser, "Sec-Fetch-Site": "same-origin"}, fiber.StatusOK},
+		{"browser post with no origin", fiber.MethodPost, "/send/message", map[string]string{"User-Agent": browser}, fiber.StatusOK},
+		{"browser read with no referrer", fiber.MethodGet, "/app/status", map[string]string{"User-Agent": browser}, fiber.StatusOK},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "http://gowa.example"+tt.path, nil)
+			req.Host = "gowa.example"
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+		})
+	}
 }
 
 func TestMutatingGETAliasesAreRejected(t *testing.T) {
@@ -110,6 +198,10 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 		app.Get("/app/logout", ok)
 		app.Get("/app/reconnect", ok)
 		app.Get("/group/invite-link", ok)
+		app.Get("/app/login", ok)
+		app.Get("/app/login-with-code", ok)
+		app.Get("/devices/:device_id", ok)
+		app.Get("/devices/:device_id/login", ok)
 		return app
 	}
 	evil := func(method, target string) *http.Request {
@@ -140,6 +232,15 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 		{name: "reconnect two slashes", method: fiber.MethodGet, target: "http://gowa.example/app/reconnect//"},
 		{name: "invite two slashes", method: fiber.MethodGet, target: "http://gowa.example/group/invite-link//?reset=true"},
 		{name: "invite head two slashes", method: fiber.MethodHead, target: "http://gowa.example/group/invite-link//?reset=true"},
+		{name: "login", method: fiber.MethodGet, target: "http://gowa.example/app/login"},
+		{name: "login head", method: fiber.MethodHead, target: "http://gowa.example/app/login"},
+		{name: "login case and slashes", method: fiber.MethodGet, target: "http://gowa.example/APP/LOGIN//"},
+		{name: "login with code", method: fiber.MethodGet, target: "http://gowa.example/app/login-with-code?phone=628111"},
+		{name: "login with code head and slash", method: fiber.MethodHead, target: "http://gowa.example/App/Login-With-Code/?phone=628111"},
+		{name: "device login", method: fiber.MethodGet, target: "http://gowa.example/devices/dev-1/login"},
+		{name: "device login head", method: fiber.MethodHead, target: "http://gowa.example/devices/dev-1/login"},
+		{name: "device login case and slashes", method: fiber.MethodGet, target: "http://gowa.example/DEVICES/DEV-1/LOGIN//"},
+		{name: "device login escaped id", method: fiber.MethodGet, target: "http://gowa.example/devices/a%2Fb/login"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,6 +250,13 @@ func TestMutatingGETAliasesAreRejected(t *testing.T) {
 			require.NoError(t, resp.Body.Close())
 		})
 	}
+
+	t.Run("device read is not guarded", func(t *testing.T) {
+		resp, err := newApp().Test(evil(fiber.MethodGet, "http://gowa.example/devices/login"))
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	})
 
 	t.Run("non-canonical logout without origin is allowed", func(t *testing.T) {
 		req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/APP/LOGOUT", nil)
@@ -279,4 +387,6 @@ func TestNormalizeOrigin(t *testing.T) {
 	require.Equal(t, "https://ui.example", config.NormalizeOrigin("https://ui.example:443"))
 	require.Empty(t, config.NormalizeOrigin("null"))
 	require.Empty(t, config.NormalizeOrigin("*"))
+	require.Equal(t, "capacitor://localhost", config.NormalizeOrigin("Capacitor://LocalHost/"))
+	require.Empty(t, config.NormalizeOrigin("file://"))
 }

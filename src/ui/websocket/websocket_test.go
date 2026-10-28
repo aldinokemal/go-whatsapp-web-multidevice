@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fasthttp/websocket"
+	fiberws "github.com/gofiber/contrib/v3/websocket"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +96,28 @@ func waitForClients(t *testing.T, n int) {
 	t.Fatalf("timed out waiting for %d websocket clients", n)
 }
 
+// waitForSockets waits until exactly n subscribers on a real websocket are
+// registered. The fake connections of the hub tests are not counted.
+func waitForSockets(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		got := 0
+		clientsMu.Lock()
+		for sub := range clients {
+			if _, ok := sub.conn.(*fiberws.Conn); ok {
+				got++
+			}
+		}
+		clientsMu.Unlock()
+		if got == n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d websocket connections", n)
+}
+
 func TestHubDoesNotBlockWhenClientStopsReading(t *testing.T) {
 	prevTimeout := writeTimeout
 	prevQueue := clientQueueSize
@@ -108,10 +131,19 @@ func TestHubDoesNotBlockWhenClientStopsReading(t *testing.T) {
 
 	stalled := newBlockingConn()
 	healthy := &recordingConn{}
-	t.Cleanup(func() { _ = stalled.Close() })
+	subs := []*subscriber{newSubscriber(stalled), newSubscriber(healthy)}
+	// Runs before the cleanup above: the writers read writeTimeout, so they
+	// must exit before it is restored.
+	t.Cleanup(func() {
+		for _, sub := range subs {
+			sub.failSlow()
+			<-sub.done
+		}
+	})
 
-	Register <- newSubscriber(stalled)
-	Register <- newSubscriber(healthy)
+	for _, sub := range subs {
+		Register <- sub
+	}
 	waitForClients(t, 2)
 
 	send := func() time.Duration {
@@ -187,7 +219,14 @@ func TestWebsocketRejectsUntrustedOrigin(t *testing.T) {
 	}
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	_ = conn.Close()
+
+	// A TLS-terminating proxy forwards the dashboard's https origin over http.
+	proxied, resp, err := dialer.Dial(endpoint, http.Header{"Origin": []string{"https://" + ln.Addr().String()}})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	require.NotNil(t, proxied)
 
 	missing, resp, err := dialer.Dial(endpoint, nil)
 	if resp != nil && resp.Body != nil {
@@ -195,5 +234,12 @@ func TestWebsocketRejectsUntrustedOrigin(t *testing.T) {
 	}
 	require.NoError(t, err)
 	require.NotNil(t, missing)
+
+	// Each server handler must register and exit before the next test
+	// changes the globals it reads.
+	waitForSockets(t, 3)
+	_ = conn.Close()
+	_ = proxied.Close()
 	_ = missing.Close()
+	waitForSockets(t, 0)
 }

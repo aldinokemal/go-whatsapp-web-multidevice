@@ -28,6 +28,7 @@ type subscriber struct {
 	mu     sync.Mutex
 	closed bool
 	once   sync.Once
+	done   chan struct{} // closed when writeLoop returns
 }
 
 // clientQueueSize bounds how many messages may wait for one client. A full
@@ -43,7 +44,7 @@ func newSubscriber(conn wsConn) *subscriber {
 	if size < 1 {
 		size = 1
 	}
-	return &subscriber{conn: conn, send: make(chan []byte, size)}
+	return &subscriber{conn: conn, send: make(chan []byte, size), done: make(chan struct{})}
 }
 
 // trySend enqueues payload without blocking. A full or closed queue reports
@@ -79,6 +80,7 @@ func (s *subscriber) closeConn() {
 }
 
 func (s *subscriber) writeLoop() {
+	defer close(s.done)
 	defer func() {
 		s.failSlow()
 		Unregister <- s
@@ -195,13 +197,13 @@ func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 		// Reject before the upgrade so an untrusted browser never joins the hub.
 		// The upgrader repeats the same allowlist, and non-browser clients that
 		// omit Origin stay allowed.
-		if !config.BrowserSourceAllowed(c.Scheme(), c.Host(), c.Get(fiber.HeaderOrigin), c.Get(fiber.HeaderReferer), c.Get("Sec-Fetch-Site")) {
+		if !config.BrowserSourceAllowed(c.Host(), c.Get(fiber.HeaderOrigin), c.Get(fiber.HeaderReferer), c.Get("Sec-Fetch-Site")) {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"code":    "CROSS_SITE_REQUEST_BLOCKED",
 				"message": "browser request origin is not allowed",
 			})
 		}
-		origins := config.TrustedBrowserOrigins(c.Scheme(), c.Host())
+		origins := config.TrustedBrowserOrigins(c.Host())
 		if len(origins) == 0 {
 			// An empty list makes the adapter allow every origin.
 			origins = []string{"http://127.0.0.1"}
@@ -210,6 +212,10 @@ func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 			sub := newSubscriber(conn)
 			defer func() {
 				sub.failSlow()
+				// The adapter recycles conn once this handler returns, so the
+				// writer must stop first. failSlow closed the socket, which
+				// ends a pending write.
+				<-sub.done
 				Unregister <- sub
 			}()
 

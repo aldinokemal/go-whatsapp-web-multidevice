@@ -4,10 +4,12 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/gofiber/fiber/v3"
@@ -53,6 +55,10 @@ func serveStoredStatic(c fiber.Ctx) error {
 	if err != nil || info.IsDir() {
 		return c.SendStatus(fiber.StatusNotFound)
 	}
+	c.Set(fiber.HeaderLastModified, info.ModTime().UTC().Format(http.TimeFormat))
+	if c.Fresh() {
+		return c.SendStatus(fiber.StatusNotModified)
+	}
 	file, err := os.Open(full)
 	if err != nil {
 		return c.SendStatus(fiber.StatusNotFound)
@@ -79,12 +85,8 @@ func serveStoredStatic(c fiber.Ctx) error {
 		c.Set(fiber.HeaderContentType, "application/octet-stream")
 		c.Set(fiber.HeaderContentDisposition, attachmentDisposition(info.Name()))
 	}
-	if c.Method() == fiber.MethodHead {
-		_ = file.Close()
-		c.Status(fiber.StatusOK)
-		return nil
-	}
-	// fasthttp closes the stream after writing the response.
+	// fasthttp closes the stream after writing the response. A HEAD response
+	// keeps the Content-Length and skips the body.
 	return c.SendStream(file, int(info.Size()))
 }
 
@@ -95,6 +97,13 @@ func storedStaticRelative(requestPath string) (string, bool) {
 	}
 	rel := strings.TrimPrefix(requestPath, prefix)
 	rel = strings.TrimPrefix(rel, "/")
+	// c.Path() is the raw request path, and stored file URLs escape each
+	// segment. Decode first so the traversal and backslash checks below see
+	// the real name.
+	rel, err := url.PathUnescape(rel)
+	if err != nil || strings.ContainsRune(rel, 0) {
+		return "", false
+	}
 	if rel == "" || rel == "." {
 		return "", false
 	}
@@ -145,5 +154,9 @@ func attachmentDisposition(name string) string {
 	if cleaned == "" {
 		cleaned = "download"
 	}
-	return `attachment; filename="` + cleaned + `"`
+	disposition := `attachment; filename="` + cleaned + `"`
+	if strings.ContainsFunc(cleaned, func(r rune) bool { return r > unicode.MaxASCII }) {
+		disposition += `; filename*=UTF-8''` + url.PathEscape(cleaned)
+	}
+	return disposition
 }

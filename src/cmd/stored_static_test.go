@@ -3,8 +3,10 @@ package cmd
 import (
 	"io"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -75,6 +77,70 @@ func TestStoredDocumentsAreAttachmentsAndUIStillServesHTML(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(uiBody), "gowa")
 	require.Contains(t, string(uiBody), "dashboard has not been downloaded yet")
+}
+
+func TestStoredStaticEscapedNamesAndConditionalRequests(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "statics")
+	prevRoot := storedStaticRoot
+	prevBase := config.AppBasePath
+	storedStaticRoot = root
+	config.AppBasePath = ""
+	t.Cleanup(func() {
+		storedStaticRoot = prevRoot
+		config.AppBasePath = prevBase
+	})
+
+	pdf := []byte("%PDF-1.4\n%gowa\n")
+	names := []string{"1700-uuid.final draft", "отчёт.pdf", "v1#2.pdf"}
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "media"), 0o755))
+	for _, name := range names {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "media", name), pdf, 0o644))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "storages"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "storages", "whatsapp.db"), []byte("secret"), 0o644))
+
+	app := fiber.New()
+	registerStoredStatic(app)
+
+	// Stored file URLs escape each path segment.
+	for _, name := range names {
+		resp := mustGet(t, app, "/statics/media/"+url.PathEscape(name))
+		require.Equal(t, fiber.StatusOK, resp.StatusCode, name)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, pdf, body)
+	}
+	unicodeResp := mustGet(t, app, "/statics/media/"+url.PathEscape("отчёт.pdf"))
+	require.Contains(t, unicodeResp.Header.Get(fiber.HeaderContentDisposition), "filename*=UTF-8''"+url.PathEscape("отчёт.pdf"))
+
+	head, err := app.Test(httptest.NewRequest(fiber.MethodHead, "/statics/media/v1%232.pdf", nil))
+	require.NoError(t, err)
+	require.NoError(t, head.Body.Close())
+	require.Equal(t, fiber.StatusOK, head.StatusCode)
+	require.Equal(t, strconv.Itoa(len(pdf)), head.Header.Get(fiber.HeaderContentLength))
+	lastModified := head.Header.Get(fiber.HeaderLastModified)
+	require.NotEmpty(t, lastModified)
+
+	conditional := httptest.NewRequest(fiber.MethodGet, "/statics/media/v1%232.pdf", nil)
+	conditional.Header.Set(fiber.HeaderIfModifiedSince, lastModified)
+	cached, err := app.Test(conditional)
+	require.NoError(t, err)
+	require.NoError(t, cached.Body.Close())
+	require.Equal(t, fiber.StatusNotModified, cached.StatusCode)
+
+	for _, target := range []string{
+		"/statics/%2e%2e/storages/whatsapp.db",
+		"/statics/..%2fstorages%2fwhatsapp.db",
+		"/statics/media/..%2f..%2fstorages/whatsapp.db",
+		"/statics/%252e%252e/storages/whatsapp.db",
+		"/statics/media/v1%232.pdf%00.png",
+		"/statics/media%5c..%5c..%5cstorages%5cwhatsapp.db",
+	} {
+		require.Equal(t, fiber.StatusNotFound, mustGet(t, app, target).StatusCode, target)
+	}
+	_, ok := storedStaticRelative("/statics/media/%zz")
+	require.False(t, ok)
 }
 
 func mustGet(t *testing.T, app *fiber.App, path string) *httpResponse {

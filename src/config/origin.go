@@ -6,23 +6,20 @@ import (
 )
 
 // BrowserSourceAllowed reports whether a browser-supplied source is trusted.
-// A request with no Origin, no Referer, and no cross-site fetch metadata is
-// treated as a non-browser client. scheme and host are the request's own
-// public scheme and host, including a non-default port.
-func BrowserSourceAllowed(scheme, host, origin, referer, fetchSite string) bool {
+// A request with no Origin and no Referer is treated as a non-browser client
+// unless Sec-Fetch-Site marks it as a same-site or cross-site browser request.
+// host is the request's own public host, including a non-default port.
+func BrowserSourceAllowed(host, origin, referer, fetchSite string) bool {
 	origin = strings.TrimSpace(origin)
 	referer = strings.TrimSpace(referer)
 	fetchSite = strings.ToLower(strings.TrimSpace(fetchSite))
-	if origin == "" && referer == "" && fetchSite != "cross-site" {
-		return true
+	if origin == "" && referer == "" {
+		return fetchSite == "" || fetchSite == "same-origin" || fetchSite == "none"
 	}
-	if origin != "" && !OriginAllowed(scheme, host, origin) {
+	if origin != "" && !OriginAllowed(host, origin) {
 		return false
 	}
-	if referer != "" && !refererAllowed(scheme, host, referer) {
-		return false
-	}
-	if fetchSite == "cross-site" && origin == "" && referer == "" {
+	if referer != "" && !refererAllowed(host, referer) {
 		return false
 	}
 	return true
@@ -30,12 +27,12 @@ func BrowserSourceAllowed(scheme, host, origin, referer, fetchSite string) bool 
 
 // OriginAllowed reports whether origin matches the request host or a
 // configured trusted origin. The literal "null" origin is never trusted.
-func OriginAllowed(scheme, host, origin string) bool {
+func OriginAllowed(host, origin string) bool {
 	normalized := NormalizeOrigin(origin)
 	if normalized == "" {
 		return false
 	}
-	for _, allowed := range TrustedBrowserOrigins(scheme, host) {
+	for _, allowed := range TrustedBrowserOrigins(host) {
 		if strings.EqualFold(normalized, allowed) {
 			return true
 		}
@@ -44,11 +41,11 @@ func OriginAllowed(scheme, host, origin string) bool {
 }
 
 // TrustedBrowserOrigins is the allowlist shared by the HTTP guard and the
-// WebSocket upgrader. It includes the request's own scheme and host (the
-// embedded dashboard), APP_TRUSTED_ORIGINS, specific CORS origins, and the
-// public app URLs already configured for OAuth and Chatwoot. A CORS wildcard
-// is not trusted.
-func TrustedBrowserOrigins(scheme, host string) []string {
+// WebSocket upgrader. It includes the request's own host (the embedded
+// dashboard), APP_TRUSTED_ORIGINS, specific CORS origins, and the public app
+// URLs already configured for OAuth and Chatwoot. A CORS wildcard is not
+// trusted.
+func TrustedBrowserOrigins(host string) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	add := func(raw string) {
@@ -62,7 +59,12 @@ func TrustedBrowserOrigins(scheme, host string) []string {
 		seen[normalized] = struct{}{}
 		out = append(out, normalized)
 	}
-	add(requestOrigin(scheme, host))
+	// The request's own host is trusted under either scheme, like Go's
+	// CrossOriginProtection: a TLS-terminating proxy forwards https traffic
+	// over plain http.
+	host = strings.TrimSpace(host)
+	add("https://" + host)
+	add("http://" + host)
 	for _, raw := range AppTrustedOrigins {
 		add(raw)
 	}
@@ -75,7 +77,9 @@ func TrustedBrowserOrigins(scheme, host string) []string {
 }
 
 // NormalizeOrigin returns scheme://host[:port] for an http(s) URL or origin.
-// Default ports are omitted. An empty string means the value is not a usable origin.
+// Default ports are omitted. An app or extension origin such as
+// capacitor://localhost is kept as written, lower-cased and without a
+// trailing slash. An empty string means the value is not a usable origin.
 func NormalizeOrigin(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "*" || strings.EqualFold(raw, "null") {
@@ -87,7 +91,7 @@ func NormalizeOrigin(raw string) string {
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return ""
+		return strings.TrimRight(strings.ToLower(raw), "/")
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if host == "" {
@@ -103,18 +107,10 @@ func NormalizeOrigin(raw string) string {
 	return scheme + "://" + host + ":" + port
 }
 
-func requestOrigin(scheme, host string) string {
-	scheme = strings.ToLower(strings.TrimSpace(scheme))
-	if scheme != "http" && scheme != "https" {
-		scheme = "http"
-	}
-	return NormalizeOrigin(scheme + "://" + strings.TrimSpace(host))
-}
-
-func refererAllowed(scheme, host, referer string) bool {
+func refererAllowed(host, referer string) bool {
 	parsed, err := url.Parse(referer)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return false
 	}
-	return OriginAllowed(scheme, host, parsed.Scheme+"://"+parsed.Host)
+	return OriginAllowed(host, parsed.Scheme+"://"+parsed.Host)
 }
