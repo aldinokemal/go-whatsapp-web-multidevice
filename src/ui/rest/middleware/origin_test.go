@@ -214,11 +214,19 @@ func TestInviteLinkResetMatchesBinder(t *testing.T) {
 		"http://gowa.example/group/invite-link?Reset[]=true",
 		"http://gowa.example/group/invite-link?reset%5B%5D=true",
 		"http://gowa.example/group/invite-link?reset=false&reset[]=true",
+		"http://gowa.example/group/invite-link?[]reset=true",
+		"http://gowa.example/group/invite-link?re[]set=true",
+		"http://gowa.example/group/invite-link?[]reset[]=true",
+		"http://gowa.example/group/invite-link?r[]e[]s[]e[]t=true",
+		"http://gowa.example/group/invite-link?reset=false&[]reset=true",
+		"http://gowa.example/group/invite-link?[]Reset=true",
+		"http://gowa.example/group/invite-link?%5B%5Dreset=true",
 	} {
 		t.Run(target, func(t *testing.T) {
 			req := httptest.NewRequest(fiber.MethodGet, target, nil)
 			req.Host = "gowa.example"
 			req.Header.Set("Origin", "https://evil.example")
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, fiber.StatusForbidden, resp.StatusCode)
@@ -227,13 +235,31 @@ func TestInviteLinkResetMatchesBinder(t *testing.T) {
 	}
 
 	t.Run("indexed reset does not set the field", func(t *testing.T) {
+		var reset bool
+		var ran bool
+		indexed := fiber.New()
+		indexed.Use(BrowserOriginGuard())
+		indexed.Get("/group/invite-link", func(c fiber.Ctx) error {
+			ran = true
+			var request struct {
+				Reset bool `query:"reset"`
+			}
+			if err := c.Bind().Query(&request); err != nil {
+				return err
+			}
+			reset = request.Reset
+			return c.SendStatus(fiber.StatusOK)
+		})
 		req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/group/invite-link?reset[0]=true", nil)
 		req.Host = "gowa.example"
 		req.Header.Set("Origin", "https://evil.example")
-		resp, err := app.Test(req)
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		resp, err := indexed.Test(req)
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusOK, resp.StatusCode)
 		require.NoError(t, resp.Body.Close())
+		require.True(t, ran)
+		require.False(t, reset)
 	})
 
 	t.Run("final false only is not a reset", func(t *testing.T) {

@@ -85,7 +85,7 @@ func canonicalRequestPath(path, base string) string {
 
 // inviteLinkReset reports whether any reset query value would make
 // GetGroupInviteLink regenerate the link. The binder lowercases keys and
-// turns a trailing "[]" into the field name, so reset[] and Reset[] are reset.
+// deletes every empty "[]" in the key, so []reset and re[]set are reset.
 // gofiber/schema convertBool treats the exact string "on" and strconv.ParseBool
 // truths as true. Any truthy value fails closed. reset[0] stays reset.0 and
 // does not set the field.
@@ -103,13 +103,48 @@ func inviteLinkReset(c fiber.Ctx) bool {
 }
 
 // queryKeyIsReset reports whether key is the binder's reset field. Query
-// decoding has already turned %5B%5D into []. Empty bracket pairs at the end
-// of the key are removed, matching parseParamSquareBrackets for "[]".
+// decoding has already turned %5B%5D into []. Empty "[]" pairs are removed
+// wherever they sit in the key, matching parseParamSquareBrackets, so
+// "[]reset" and "re[]set" become "reset". A non-empty index such as
+// "reset[0]" becomes "reset.0" and is not the field.
 func queryKeyIsReset(key string) bool {
-	for len(key) >= 2 && strings.EqualFold(key[len(key)-2:], "[]") {
-		key = key[:len(key)-2]
+	normalized, ok := normalizeQueryBrackets(key)
+	if !ok {
+		return false
 	}
-	return strings.EqualFold(key, "reset")
+	return strings.EqualFold(normalized, "reset")
+}
+
+// normalizeQueryBrackets copies Fiber's parseParamSquareBrackets: an empty
+// "[]" is deleted, and "[index]" becomes ".index". Unmatched brackets do not
+// bind.
+func normalizeQueryBrackets(key string) (string, bool) {
+	if !strings.Contains(key, "[") {
+		return key, true
+	}
+	var b strings.Builder
+	b.Grow(len(key))
+	open := 0
+	for i := 0; i < len(key); i++ {
+		switch key[i] {
+		case '[':
+			open++
+			if i+1 < len(key) && key[i+1] != ']' {
+				b.WriteByte('.')
+			}
+		case ']':
+			open--
+			if open < 0 {
+				return "", false
+			}
+		default:
+			b.WriteByte(key[i])
+		}
+	}
+	if open != 0 {
+		return "", false
+	}
+	return b.String(), true
 }
 
 // schemaBoolTrue matches gofiber/schema convertBool's true results:
