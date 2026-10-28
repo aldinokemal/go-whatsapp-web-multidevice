@@ -290,7 +290,7 @@ func (s *Server) protectedResourceMetadata(c fiber.Ctx) error {
 
 func (s *Server) registerClient(c fiber.Ctx) error {
 	s.setNoStore(c)
-	if err := rejectCompressedOAuthBody(c); err != nil {
+	if rejected, err := rejectCompressedOAuthBody(c); rejected {
 		return err
 	}
 	if len(c.Body()) > maxOAuthBodyBytes {
@@ -390,7 +390,7 @@ func (s *Server) authorizeGET(c fiber.Ctx) error {
 }
 
 func (s *Server) authorizePOST(c fiber.Ctx) error {
-	if err := rejectCompressedOAuthBody(c); err != nil {
+	if rejected, err := rejectCompressedOAuthBody(c); rejected {
 		return err
 	}
 	var req authorizationRequest
@@ -435,7 +435,7 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 
 func (s *Server) token(c fiber.Ctx) error {
 	s.setNoStore(c)
-	if err := rejectCompressedOAuthBody(c); err != nil {
+	if rejected, err := rejectCompressedOAuthBody(c); rejected {
 		return err
 	}
 	var req tokenRequest
@@ -766,11 +766,14 @@ func decodeBasicCredentials(encoded string) (string, string, bool) {
 // Registration, authorize, and token bodies are small identity-encoded JSON or
 // form documents. Calling Body or Bind first would expand gzip, deflate, or
 // brotli up to the application-wide limit instead of maxOAuthBodyBytes.
-func rejectCompressedOAuthBody(c fiber.Ctx) error {
+//
+// The bool is true when a response was written. oauthError's JSON write returns
+// nil, so callers must stop on that bool instead of only checking the error.
+func rejectCompressedOAuthBody(c fiber.Ctx) (bool, error) {
 	if !compressedContentEncoding(c.Get(fiber.HeaderContentEncoding)) {
-		return nil
+		return false, nil
 	}
-	return oauthError(c, fiber.StatusUnsupportedMediaType, "invalid_request", "compressed request bodies are not supported")
+	return true, oauthError(c, fiber.StatusUnsupportedMediaType, "invalid_request", "compressed request bodies are not supported")
 }
 
 func compressedContentEncoding(header string) bool {
