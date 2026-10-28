@@ -175,8 +175,11 @@ func (s *Server) RegisterPublic(app *fiber.App) {
 	app.Post(s.issuerEndpointPath("/oauth/token"), s.token)
 }
 
-// limitPublicPOSTBodies applies the OAuth cap in fasthttp immediately after
+// limitPublicPOSTBodies applies maxOAuthBodyBytes in fasthttp immediately after
 // headers are received, before the unauthenticated request body is buffered.
+// The cap is the raw on-the-wire size. Fiber decompresses Content-Encoding
+// later, inside Body and Bind, up to the separate application-wide body limit,
+// so the OAuth POST handlers reject compressed encodings before reading a body.
 func (s *Server) limitPublicPOSTBodies(app *fiber.App) {
 	paths := []string{
 		routingPathKey(s.issuerEndpointPath("/oauth/register")),
@@ -287,6 +290,9 @@ func (s *Server) protectedResourceMetadata(c fiber.Ctx) error {
 
 func (s *Server) registerClient(c fiber.Ctx) error {
 	s.setNoStore(c)
+	if err := rejectCompressedOAuthBody(c); err != nil {
+		return err
+	}
 	if len(c.Body()) > maxOAuthBodyBytes {
 		return oauthError(c, fiber.StatusRequestEntityTooLarge, "invalid_client_metadata", "registration document is too large")
 	}
@@ -384,6 +390,9 @@ func (s *Server) authorizeGET(c fiber.Ctx) error {
 }
 
 func (s *Server) authorizePOST(c fiber.Ctx) error {
+	if err := rejectCompressedOAuthBody(c); err != nil {
+		return err
+	}
 	var req authorizationRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "invalid authorization request")
@@ -426,6 +435,9 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 
 func (s *Server) token(c fiber.Ctx) error {
 	s.setNoStore(c)
+	if err := rejectCompressedOAuthBody(c); err != nil {
+		return err
+	}
 	var req tokenRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "invalid token request")
@@ -748,6 +760,28 @@ func decodeBasicCredentials(encoded string) (string, string, bool) {
 		return "", "", false
 	}
 	return username, password, true
+}
+
+// rejectCompressedOAuthBody refuses every Content-Encoding other than identity.
+// Registration, authorize, and token bodies are small identity-encoded JSON or
+// form documents. Calling Body or Bind first would expand gzip, deflate, or
+// brotli up to the application-wide limit instead of maxOAuthBodyBytes.
+func rejectCompressedOAuthBody(c fiber.Ctx) error {
+	if !compressedContentEncoding(c.Get(fiber.HeaderContentEncoding)) {
+		return nil
+	}
+	return oauthError(c, fiber.StatusUnsupportedMediaType, "invalid_request", "compressed request bodies are not supported")
+}
+
+func compressedContentEncoding(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		coding := strings.ToLower(strings.TrimSpace(part))
+		if coding == "" || coding == "identity" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func oauthError(c fiber.Ctx, status int, code, description string) error {
