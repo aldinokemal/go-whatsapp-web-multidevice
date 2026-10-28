@@ -33,8 +33,7 @@ func newScheduleTestServiceAt(t *testing.T, path, mediaRoot string, base domainS
 // TestScheduledCrashMidSendResumesTheOccurrenceUnderItsMessageID: the process
 // stops after the occurrence's id was pinned, with the send possibly on its
 // way. The restarted scheduler must send that same occurrence under that same
-// id (WhatsApp then delivers it once), not drop it and not move a recurring
-// schedule on to its next slot.
+// id and secret, keeping a recurring schedule on the interrupted slot.
 func TestScheduledCrashMidSendResumesTheOccurrenceUnderItsMessageID(t *testing.T) {
 	for _, recurrence := range []string{"once", "daily"} {
 		t.Run(recurrence, func(t *testing.T) {
@@ -202,6 +201,7 @@ func TestScheduleResumeAtALaterSlotDropsTheMessageID(t *testing.T) {
 			job.Status = scheduleStatusPaused
 			job.Attempts = 1
 			job.PendingMessageID = "3EB0PAUSED"
+			job.PendingPollSecret = make([]byte, 32)
 			require.NoError(t, repo.CreateScheduledSend(job))
 
 			require.NoError(t, service.Resume(scheduleTestContext(), "job"))
@@ -210,6 +210,11 @@ func TestScheduleResumeAtALaterSlotDropsTheMessageID(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, scheduleStatusActive, stored.Status)
 			require.Equal(t, want, stored.PendingMessageID)
+			if recurrence == "once" {
+				require.Len(t, stored.PendingPollSecret, 32)
+			} else {
+				require.Empty(t, stored.PendingPollSecret)
+			}
 		})
 	}
 }

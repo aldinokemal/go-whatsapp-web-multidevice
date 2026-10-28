@@ -46,8 +46,8 @@ func reclaimScheduleTestJob(t *testing.T, repo domainChatStorage.IChatStorageRep
 // TestScheduledRetryReusesTheMessageID pins the fix: the scheduler retries
 // after any send error, including one where WhatsApp accepted the message and
 // only the acknowledgment was lost. The retry used to go out under a new
-// random id, which the customer receives as a second message; under the same
-// id WhatsApp delivers it once.
+// random id. Reusing the identity avoids creating a fresh message on retry;
+// it does not establish exactly-once delivery.
 func TestScheduledRetryReusesTheMessageID(t *testing.T) {
 	base := &scheduleIDSendStub{fail: func(attempt int) error {
 		if attempt <= 2 {
@@ -145,7 +145,7 @@ type scheduleFailingPinRepo struct {
 	domainChatStorage.IChatStorageRepository
 }
 
-func (r scheduleFailingPinRepo) SetScheduledSendPendingMessageID(string, string, string) (bool, error) {
+func (r scheduleFailingPinRepo) SetScheduledSendPendingAttempt(string, string, string, []byte) (bool, error) {
 	return false, errors.New("database is locked")
 }
 

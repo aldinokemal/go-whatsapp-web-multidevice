@@ -23,10 +23,12 @@ the matching domain interface; keep Fiber/MCP response types in the adapters.
   (slot alias) so the worker can resolve them with `DeviceManager.GetDevice`.
   Every attempt of an occurrence is sent under the WhatsApp message id stored in
   `pending_message_id` before the first attempt (`pinOccurrenceMessageID`), so a
-  retry after a lost acknowledgment is not delivered twice. An occurrence whose
+  retry after a lost acknowledgment does not create a fresh message identity. An occurrence whose
   lease lapsed (crash, or a send that outlived it) is requeued by
   `recoverInterrupted` and resent under that id, not skipped; a send path the worker
   dispatches to must go through `wrapSendMessage`, which applies the pinned id.
+  Polls also persist `pending_poll_secret` with the id and reuse it in the builder.
+  Legacy unknown attempts are skipped/failed; no exactly-once delivery is promised.
 - `chat.go` owns history queries; `message.go` owns reactions, revokes, edits, and
   other message actions. Message actions read the calling device's own stored copy
   in the requested chat; a lookup by ID alone can return another device's row,

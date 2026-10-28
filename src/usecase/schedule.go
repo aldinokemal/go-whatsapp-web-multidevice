@@ -447,13 +447,10 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 // recoverInterrupted returns occurrences whose lease lapsed to the queue: the
 // process stopped mid-send, or the send outlived its lease.
 //
-// Whether the interrupted send reached WhatsApp is unknown, so the occurrence
-// is neither dropped nor sent as a new message: it is attempted again under
-// the message id pinned before its first attempt, and WhatsApp delivers a
-// repeated id once. That is also the only reason two workers may send the same
-// occurrence, which happens when a lease lapses while its send is still in
-// flight: both use the pinned id, and only the current lease holder records
-// the result. An occurrence with no pinned id never reached the send.
+// New-protocol attempts reuse their persisted identity and poll secret. This
+// avoids creating a fresh message identity after an ambiguous outcome; it does
+// not guarantee exactly-once delivery. Only the current lease holder records
+// the result. Legacy unknown attempts retain conservative skip/fail recovery.
 //
 // The slot (next_run_at) and the occurrence count are left alone, so a
 // recurring schedule resumes the interrupted occurrence, not the one after it.
@@ -472,7 +469,7 @@ func (s *ScheduleService) recoverInterrupted() {
 		if job.PendingMessageID != "" {
 			attempts++
 		}
-		if attempts >= scheduleMaxAttempts {
+		if job.LegacyAttemptUnknown || attempts >= scheduleMaxAttempts {
 			err = s.skipOccurrence(job, reason)
 		} else {
 			err = s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, attempts, job.NextRunAt)
@@ -512,16 +509,19 @@ func (s *ScheduleService) processJob(parent context.Context, job *domainChatStor
 // pinOccurrenceMessageID returns ctx carrying the WhatsApp message id of the
 // occurrence being attempted, choosing and storing one on the first attempt.
 //
-// A retry follows a send whose outcome is unknown: WhatsApp may have accepted
-// the message while its acknowledgment was lost (a timeout, a dropped
-// connection). Sent again under a new random id, the customer receives it
-// twice; sent again under the same id, WhatsApp delivers it once. The id is
-// stored before the first attempt so that no attempt can go out under an id
-// the next one would not know.
+// The identity and poll secret are stored together before dispatch. Every retry
+// reuses them, including after a crash, without claiming exactly-once delivery.
 func (s *ScheduleService) pinOccurrenceMessageID(ctx context.Context, job *domainChatStorage.ScheduledSend) (context.Context, error) {
 	if job.PendingMessageID == "" {
 		messageID := s.newMessageID(ctx)
-		held, err := s.repo.SetScheduledSendPendingMessageID(job.ID, job.LeaseToken, messageID)
+		var pollSecret []byte
+		if job.MessageType == "poll" {
+			pollSecret = make([]byte, 32)
+			if _, err := rand.Read(pollSecret); err != nil {
+				return ctx, fmt.Errorf("generate poll secret: %w", err)
+			}
+		}
+		held, err := s.repo.SetScheduledSendPendingAttempt(job.ID, job.LeaseToken, messageID, pollSecret)
 		if err != nil {
 			return ctx, fmt.Errorf("store the message id of the occurrence: %w", err)
 		}
@@ -529,8 +529,10 @@ func (s *ScheduleService) pinOccurrenceMessageID(ctx context.Context, job *domai
 			return ctx, errScheduleLeaseLost
 		}
 		job.PendingMessageID = messageID
+		job.PendingPollSecret = pollSecret
 	}
-	return whatsapp.ContextWithSendMessageID(ctx, job.PendingMessageID), nil
+	ctx = whatsapp.ContextWithSendMessageID(ctx, job.PendingMessageID)
+	return whatsapp.ContextWithPollSecret(ctx, job.PendingPollSecret), nil
 }
 
 // errScheduleLeaseLost: the job was taken from this worker (cancelled,
@@ -548,6 +550,11 @@ func newScheduledMessageID(ctx context.Context) string {
 }
 
 func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.ScheduledSend) error {
+	// Legacy active retries and resumed paused attempts also have an unknown
+	// outcome; they must not acquire a new identity and repeat that occurrence.
+	if job.LegacyAttemptUnknown {
+		return s.skipOccurrence(job, "legacy attempt outcome is unknown")
+	}
 	ctx, err := s.pinOccurrenceMessageID(ctx, job)
 	if errors.Is(err, errScheduleLeaseLost) {
 		// Nothing was sent and the job is no longer ours to reschedule.

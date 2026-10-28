@@ -1524,6 +1524,16 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	return response, nil
 }
 
+// buildPollCreation uses whatsmeow's builder and preserves the scheduled
+// occurrence's secret, which its durable secret store associates with the ID.
+func buildPollCreation(ctx context.Context, client *whatsmeow.Client, request domainSend.PollRequest) *waE2E.Message {
+	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	if secret := whatsapp.PollSecretFromContext(ctx); len(secret) > 0 {
+		msg.MessageContextInfo.MessageSecret = secret
+	}
+	return msg
+}
+
 func (service serviceSend) SendPoll(ctx context.Context, request domainSend.PollRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendPoll(ctx, request)
 	if err != nil {
@@ -1542,7 +1552,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	content := "📊 " + request.Question
 
-	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	msg := buildPollCreation(ctx, client, request)
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.PollCreationMessage.ContextInfo == nil {

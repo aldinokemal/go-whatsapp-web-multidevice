@@ -27,13 +27,15 @@ type ScheduledSend struct {
 	LeaseUntil      *time.Time
 	LastRunAt       *time.Time
 	LastMessageID   string
-	// PendingMessageID is the WhatsApp message id of the occurrence being
-	// attempted. It is chosen before the first attempt and reused by every
-	// retry of that occurrence, so a send WhatsApp accepted but whose
-	// acknowledgment was lost is not delivered a second time. It is empty
-	// between occurrences.
+	// PendingMessageID identifies an occurrence across attempts, avoiding a
+	// fresh message identity after an ambiguous send outcome.
 	PendingMessageID string
-	LastError        string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// PendingPollSecret is persisted with the ID before dispatching a poll.
+	PendingPollSecret []byte
+	// LegacyAttemptUnknown marks pre-ID-protocol attempts whose outcome and
+	// message identity are unknown. Recovery conservatively skips them.
+	LegacyAttemptUnknown bool
+	LastError            string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }

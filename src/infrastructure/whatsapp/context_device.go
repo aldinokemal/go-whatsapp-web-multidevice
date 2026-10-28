@@ -61,3 +61,23 @@ func ClientFromContext(ctx context.Context) *whatsmeow.Client {
 	// No device in context - fall back to global client for backward compatibility
 	return GetClient()
 }
+
+// pollSecretContextKey carries a durable scheduled occurrence's poll secret.
+type pollSecretContextKey struct{}
+
+// ContextWithPollSecret carries the persisted secret for a scheduled poll.
+func ContextWithPollSecret(ctx context.Context, secret []byte) context.Context {
+	if len(secret) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, pollSecretContextKey{}, append([]byte(nil), secret...))
+}
+
+// PollSecretFromContext returns a copy of the scheduled poll secret, if any.
+func PollSecretFromContext(ctx context.Context) []byte {
+	if ctx == nil {
+		return nil
+	}
+	secret, _ := ctx.Value(pollSecretContextKey{}).([]byte)
+	return append([]byte(nil), secret...)
+}
