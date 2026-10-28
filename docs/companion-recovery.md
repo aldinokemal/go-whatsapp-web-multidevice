@@ -124,6 +124,11 @@ subsequently become healthy. A partially recovered multi-host account is not a s
 Final multi-host acceptance requires every backend healthy with distinct full
 companion JIDs.
 
+Pairing cannot bypass WhatsApp restrictions, an account ban, or the provider's
+account-review process. These conditions require owner/provider action and must
+not trigger repeated relinking. A successful recovery is a point-in-time result:
+the provider can revoke those companions again afterward.
+
 Codes pass through process pipes and one-character phone input with pauses. The
 controller suppresses adapter stderr and reports only bounded symbolic errors.
 GoWA itself may log pairing codes; protect its logs separately. PNG/XML evidence
@@ -210,6 +215,9 @@ authentication, independent native IDs, all per-host line policies, unchanged
 active/standby ownership, integration health and phone cleanup were verified; a
 final Go apply returned healthy and resolved the authenticated pairing intents.
 No customer messages, calls or failed-message replays were used as canaries.
+That account was subsequently banned by the provider and its companions remotely
+logged out again. The earlier acceptance remains historical evidence, not a claim
+that the account is currently healthy or that this controller fixes provider bans.
 
 This was not fully unattended UI acceptance: an operator prepared a full-slot
 phone by removing a separately verified obsolete logged-out entry. The phone
