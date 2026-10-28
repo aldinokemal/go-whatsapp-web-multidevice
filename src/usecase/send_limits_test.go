@@ -156,6 +156,7 @@ func TestGeneratePDFThumbnailAttemptsRenderForLetterPage(t *testing.T) {
 	origOut := runExternalOutput
 	runExternal = func(ctx context.Context, name string, args ...string) error {
 		rendered = append(rendered, name)
+		rendered = append(rendered, args...)
 		return fmt.Errorf("stub")
 	}
 	runExternalOutput = func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -169,6 +170,51 @@ func TestGeneratePDFThumbnailAttemptsRenderForLetterPage(t *testing.T) {
 	got := generatePDFThumbnail(pdfWithMediaBox(612, 792), "letter")
 	require.Nil(t, got)
 	require.Contains(t, rendered, "pdftoppm")
+	require.Contains(t, rendered, "-scale-to-x")
+	require.Contains(t, rendered, "-scale-to-y")
+	require.Contains(t, rendered, "1275")
+	require.Contains(t, rendered, "1650")
+	require.NotContains(t, rendered, "-r")
+}
+
+func TestGeneratePDFThumbnailDoesNotRasterizeWhenPDFInfoFails(t *testing.T) {
+	withSendItemsDir(t)
+	var rendered []string
+	origRun := runExternal
+	origOut := runExternalOutput
+	runExternal = func(ctx context.Context, name string, args ...string) error {
+		rendered = append(rendered, name)
+		return nil
+	}
+	runExternalOutput = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("pdfinfo failed")
+	}
+	t.Cleanup(func() {
+		runExternal = origRun
+		runExternalOutput = origOut
+	})
+
+	// A decoy small MediaBox must not authorize pdftoppm when pdfinfo errors.
+	got := generatePDFThumbnail(pdfWithMediaBox(612, 792), "decoy")
+	require.Nil(t, got)
+	require.NotContains(t, rendered, "pdftoppm")
+	require.NotContains(t, rendered, "convert")
+}
+
+func TestOpenVideoThumbnailRejectsExtremeFrameBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "frame.png")
+	require.NoError(t, os.WriteFile(path, pngWithIHDR(2, 65535), 0600))
+	img, err := openVideoThumbnail(path)
+	require.ErrorIs(t, err, utils.ErrImageTooLarge)
+	require.Nil(t, img)
+}
+
+func TestOpenStickerImageRejectsHugeHeaderBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sticker.png")
+	require.NoError(t, os.WriteFile(path, pngWithIHDR(30000, 30000), 0600))
+	img, err := openStickerImage(path)
+	require.ErrorIs(t, err, utils.ErrImageTooLarge)
+	require.Nil(t, img)
 }
 
 type infiniteByteReader struct{ b byte }

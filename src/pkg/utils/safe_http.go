@@ -181,10 +181,30 @@ func isBlockedFetchIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return true
 	}
-	if v4 := ip.To4(); v4 != nil && v4[0] == 255 && v4[1] == 255 && v4[2] == 255 && v4[3] == 255 {
-		return true
+	// To4 also matches IPv4-mapped IPv6, so the ranges below cover both forms.
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
 	}
-	return false
+	switch {
+	case v4[0] == 0:
+		// 0.0.0.0/8, including "this host" and 0.0.0.1.
+		return true
+	case v4[0] == 100 && v4[1]&0xc0 == 64:
+		// 100.64.0.0/10 carrier-grade NAT, including Alibaba metadata 100.100.100.200.
+		return true
+	case v4[0] == 192 && v4[1] == 0 && v4[2] == 0:
+		// 192.0.0.0/24 IETF protocol assignments.
+		return true
+	case v4[0] == 198 && (v4[1] == 18 || v4[1] == 19):
+		// 198.18.0.0/15 network benchmark tests.
+		return true
+	case v4[0] >= 240:
+		// 240.0.0.0/4 reserved (includes limited broadcast).
+		return true
+	default:
+		return false
+	}
 }
 
 // dialUntrusted resolves the dial address, refuses non-public results, and

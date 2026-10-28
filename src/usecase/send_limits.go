@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	pdfThumbnailDPI = 150.0
+	pdfThumbnailDPI = 150
 
 	// waveformSampleRate is the PCM rate used to build a 64-point voice waveform.
 	waveformSampleRate = 8000
@@ -42,41 +42,82 @@ var pdfMediaBoxPattern = regexp.MustCompile(`/MediaBox\s*\[\s*([+-]?(?:\d+\.?\d*
 // pdfRasterWithinBudget reports whether a page of the given size in points
 // stays inside the shared image budget when rasterized at pdfThumbnailDPI.
 func pdfRasterWithinBudget(widthPts, heightPts float64) bool {
-	if math.IsNaN(widthPts) || math.IsNaN(heightPts) || math.IsInf(widthPts, 0) || math.IsInf(heightPts, 0) {
+	widthPx := ceilPDFPixels(widthPts)
+	heightPx := ceilPDFPixels(heightPts)
+	if widthPx <= 0 || heightPx <= 0 {
 		return false
 	}
-	if widthPts <= 0 || heightPts <= 0 {
-		return false
-	}
-	scale := pdfThumbnailDPI / 72.0
-	widthPx := widthPts * scale
-	heightPx := heightPts * scale
-	if math.IsNaN(widthPx) || math.IsNaN(heightPx) || math.IsInf(widthPx, 0) || math.IsInf(heightPx, 0) {
-		return false
-	}
-	if widthPx > float64(math.MaxInt32) || heightPx > float64(math.MaxInt32) {
-		return false
-	}
-	return utils.ValidateImageDimensions(int(math.Ceil(widthPx)), int(math.Ceil(heightPx))) == nil
+	return utils.ValidateImageDimensions(widthPx, heightPx) == nil
 }
 
-// pdfFileWithinRenderBudget accepts a PDF only when every discovered page box
-// fits in the raster budget. Unknown sizes are rejected so a rasterizer is
-// not asked to allocate an unbounded page.
-func pdfFileWithinRenderBudget(path string) bool {
+// ceilPDFPixels is ceil(points * 150 / 72) in integer arithmetic so a page
+// that lands on a whole pixel is not rounded up by float error.
+func ceilPDFPixels(pts float64) int {
+	if math.IsNaN(pts) || math.IsInf(pts, 0) || pts <= 0 || pts > 1e12 {
+		return 0
+	}
+	milli := int64(math.Round(pts * 1000))
+	if milli <= 0 {
+		return 0
+	}
+	den := int64(1000 * 72)
+	num := milli * int64(pdfThumbnailDPI)
+	if num/milli != int64(pdfThumbnailDPI) {
+		return 0
+	}
+	px := (num + den - 1) / den
+	if px > int64(math.MaxInt32) {
+		return 0
+	}
+	return int(px)
+}
+
+// pdfApprovedRasterPixels returns the pixel size pdfinfo measured for page 1
+// when that size fits the shared image budget. A plaintext MediaBox is never
+// enough on its own: if pdfinfo is missing, errors, or does not report an
+// in-budget size, ok is false and the caller must not rasterize.
+func pdfApprovedRasterPixels(path string) (width, height int, ok bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return 0, 0, false
 	}
 	foundBox, boxOK := mediaBoxesWithinBudget(data)
 	if foundBox && !boxOK {
-		return false
+		return 0, 0, false
 	}
 	infoW, infoH, infoOK := pdfInfoPagePoints(path)
-	if infoOK && !pdfRasterWithinBudget(infoW, infoH) {
-		return false
+	if !infoOK {
+		return 0, 0, false
 	}
-	return foundBox || infoOK
+	return pdfRasterPixels(infoW, infoH)
+}
+
+// pdfPopplerArgs renders a page to an exact pixel size already accepted by
+// pdfApprovedRasterPixels. It does not use an uncapped DPI flag.
+func pdfPopplerArgs(pdfPath, outPrefix string, pxW, pxH int) []string {
+	if pxW < 1 {
+		pxW = 1
+	}
+	if pxH < 1 {
+		pxH = 1
+	}
+	return []string{
+		"-png",
+		"-f", "1",
+		"-l", "1",
+		"-scale-to-x", strconv.Itoa(pxW),
+		"-scale-to-y", strconv.Itoa(pxH),
+		"-singlefile",
+		pdfPath,
+		outPrefix,
+	}
+}
+
+func pdfRasterPixels(widthPts, heightPts float64) (int, int, bool) {
+	if !pdfRasterWithinBudget(widthPts, heightPts) {
+		return 0, 0, false
+	}
+	return ceilPDFPixels(widthPts), ceilPDFPixels(heightPts), true
 }
 
 func mediaBoxesWithinBudget(data []byte) (found bool, ok bool) {

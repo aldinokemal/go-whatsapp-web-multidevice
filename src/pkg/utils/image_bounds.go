@@ -54,26 +54,33 @@ func ValidateImageDimensions(width, height int) error {
 // ThumbnailSize fits srcW x srcH inside the thumbnail box without upscaling.
 // The result never exceeds ThumbnailMaxWidth, ThumbnailMaxHeight, or their product.
 func ThumbnailSize(srcW, srcH int) (int, int) {
-	if srcW <= 0 || srcH <= 0 {
+	return FitBoxSize(srcW, srcH, ThumbnailMaxWidth, ThumbnailMaxHeight)
+}
+
+// FitBoxSize fits srcW x srcH inside maxW x maxH without upscaling.
+// Neither returned edge exceeds its cap, and the product stays within maxW*maxH.
+// A zero requested dimension is not used to derive an unbounded edge.
+func FitBoxSize(srcW, srcH, maxW, maxH int) (int, int) {
+	if srcW <= 0 || srcH <= 0 || maxW <= 0 || maxH <= 0 {
 		return 0, 0
 	}
 	dstW := int64(srcW)
 	dstH := int64(srcH)
-	maxW := int64(ThumbnailMaxWidth)
-	maxH := int64(ThumbnailMaxHeight)
-	if dstW > maxW {
-		dstH = dstH * maxW / dstW
+	limitW := int64(maxW)
+	limitH := int64(maxH)
+	if dstW > limitW {
+		dstH = dstH * limitW / dstW
 		if dstH < 1 {
 			dstH = 1
 		}
-		dstW = maxW
+		dstW = limitW
 	}
-	if dstH > maxH {
-		dstW = dstW * maxH / dstH
+	if dstH > limitH {
+		dstW = dstW * limitH / dstH
 		if dstW < 1 {
 			dstW = 1
 		}
-		dstH = maxH
+		dstH = limitH
 	}
 	if dstW < 1 {
 		dstW = 1
@@ -81,7 +88,7 @@ func ThumbnailSize(srcW, srcH int) (int, int) {
 	if dstH < 1 {
 		dstH = 1
 	}
-	maxPixels := maxW * maxH
+	maxPixels := limitW * limitH
 	if dstH > 0 && dstW > maxPixels/dstH {
 		dstW = maxPixels / dstH
 		if dstW < 1 {
@@ -91,14 +98,15 @@ func ThumbnailSize(srcW, srcH int) (int, int) {
 	return int(dstW), int(dstH)
 }
 
-// FitThumbnail scales src down into the thumbnail box. It does not enlarge a
-// small image, and it does not derive an unbounded height from a fixed width.
-func FitThumbnail(src image.Image) image.Image {
+// FitBox scales src down so both edges stay inside the box. It does not
+// enlarge a smaller image and does not derive an unbounded height from a
+// fixed width.
+func FitBox(src image.Image, maxW, maxH int) image.Image {
 	if src == nil {
 		return nil
 	}
 	bounds := src.Bounds()
-	dstW, dstH := ThumbnailSize(bounds.Dx(), bounds.Dy())
+	dstW, dstH := FitBoxSize(bounds.Dx(), bounds.Dy(), maxW, maxH)
 	if dstW <= 0 || dstH <= 0 {
 		return src
 	}
@@ -106,6 +114,12 @@ func FitThumbnail(src image.Image) image.Image {
 		return src
 	}
 	return imaging.Resize(src, dstW, dstH, imaging.Lanczos)
+}
+
+// FitThumbnail scales src down into the thumbnail box. It does not enlarge a
+// small image, and it does not derive an unbounded height from a fixed width.
+func FitThumbnail(src image.Image) image.Image {
+	return FitBox(src, ThumbnailMaxWidth, ThumbnailMaxHeight)
 }
 
 // DecodeImageWithinBudget reads image dimensions before allocating the raster.

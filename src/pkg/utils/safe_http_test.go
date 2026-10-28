@@ -33,6 +33,12 @@ func TestUntrustedFetchBlocksPrivateAndNonHTTPDestinations(t *testing.T) {
 		"http://[::ffff:169.254.169.254]/latest/meta-data",
 		"http://224.0.0.1/",
 		"http://255.255.255.255/",
+		"http://100.100.100.200/latest/meta-data",
+		"http://[::ffff:100.100.100.200]/",
+		"http://198.18.0.1/",
+		"http://192.0.0.1/",
+		"http://240.0.0.1/",
+		"http://0.0.0.1/",
 		"ftp://example.com/file",
 		"file:///etc/passwd",
 		"gopher://example.com/",
@@ -51,6 +57,28 @@ func TestUntrustedFetchBlocksPrivateAndNonHTTPDestinations(t *testing.T) {
 			_, metaErr := utils.GetMetaDataFromURL(raw)
 			require.Error(t, metaErr)
 			require.False(t, dialed)
+		})
+	}
+}
+
+func TestUntrustedFetchAllowsOrdinaryPublicLiteral(t *testing.T) {
+	for _, raw := range []string{
+		"http://1.1.1.1/status",
+		"http://8.8.8.8/status",
+		"http://[::ffff:8.8.8.8]/status",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			dialed := false
+			restore := utils.SetUntrustedFetchTestHooks(nil, func(context.Context, string, string) (net.Conn, error) {
+				dialed = true
+				return nil, errors.New("stopped after allow")
+			}, false)
+			t.Cleanup(restore)
+
+			_, _, err := utils.DownloadFileFromURL(raw)
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "non-public")
+			require.True(t, dialed)
 		})
 	}
 }

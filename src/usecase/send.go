@@ -43,6 +43,14 @@ var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
 
 const hdImageMaxEdge = 2560
 
+// compressedImageMaxEdge is the long edge for the legacy compress=true send.
+// Both axes are capped so a narrow source cannot grow a fixed width into a
+// multi-megapixel height.
+const compressedImageMaxEdge = 600
+
+// stickerMaxEdge is the longest side of a static sticker before WebP conversion.
+const stickerMaxEdge = 512
+
 type videoMetadata struct {
 	Width   uint32
 	Height  uint32
@@ -58,13 +66,42 @@ func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool)
 		return resizeImageForHD(src), true
 	}
 	if compress {
-		return imaging.Resize(src, 600, 0, imaging.Lanczos), true
+		return utils.FitBox(src, compressedImageMaxEdge, compressedImageMaxEdge), true
 	}
 	return src, false
 }
 
 func openImageForSend(imagePath string, hd bool) (image.Image, error) {
 	return utils.DecodeImageFileWithinBudget(imagePath, imaging.AutoOrientation(hd))
+}
+
+// videoThumbnailFFmpegArgs extracts one frame already fitted inside the
+// 100x512 thumbnail box. force_original_aspect_ratio=decrease does not
+// enlarge a short edge to fill the box.
+func videoThumbnailFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-i", inputPath,
+		"-ss", "00:00:01.000",
+		"-vframes", "1",
+		"-vf", "scale=100:512:force_original_aspect_ratio=decrease",
+		outputPath,
+	}
+}
+
+// openVideoThumbnail decodes a frame only after its header fits the shared
+// pixel budget, then fits it inside the thumbnail box.
+func openVideoThumbnail(path string) (image.Image, error) {
+	img, err := utils.DecodeImageFileWithinBudget(path)
+	if err != nil {
+		return nil, err
+	}
+	return utils.FitThumbnail(img), nil
+}
+
+// openStickerImage decodes a sticker only after its header fits the shared
+// pixel budget.
+func openStickerImage(path string) (image.Image, error) {
+	return utils.DecodeImageFileWithinBudget(path)
 }
 
 func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
@@ -677,18 +714,19 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		return nil
 	}
 
-	if !pdfFileWithinRenderBudget(tempPDF) {
+	pxW, pxH, ok := pdfApprovedRasterPixels(tempPDF)
+	if !ok {
 		logrus.Warnf("skipping PDF thumbnail: page exceeds render budget or size is unknown")
 		return nil
 	}
 
-	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed.
-	// The page size was accepted above, so 150 DPI stays inside the pixel budget.
+	// pdftoppm is pinned to the approved pixel size. A missing or failed
+	// pdfinfo measurement never reaches this command.
 	pngGenerated := false
 	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
 	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := runExternal(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut); err == nil {
+	if err := runExternal(cmdCtx, "pdftoppm", pdfPopplerArgs(tempPDF, pdftoppmOut, pxW, pxH)...); err == nil {
 		// pdftoppm with -singlefile outputs to {prefix}.png
 		actualOut := pdftoppmOut + ".png"
 		if _, statErr := os.Stat(actualOut); statErr == nil {
@@ -1002,22 +1040,23 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError("ffmpeg not installed")
 	}
 
-	// Generate thumbnail using ffmpeg
+	// Generate thumbnail using ffmpeg. The scale filter fits the frame inside
+	// the thumbnail box without stretching a tiny edge into a tall raster.
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
-	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
+	cmdThumbnail := exec.Command("ffmpeg", videoThumbnailFFmpegArgs(oriVideoPath, thumbnailVideoPath)...)
 	err = cmdThumbnail.Run()
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create thumbnail %v", err))
 	}
 
-	// Resize Thumbnail
-	srcImage, err := imaging.Open(thumbnailVideoPath)
+	// Reject an extracted frame that still exceeds the shared pixel budget
+	// before imaging fully decodes it, then keep the preview inside 100x512.
+	srcImage, err := openVideoThumbnail(thumbnailVideoPath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open generated video thumbnail image '%s': %v. Possible causes: file not found, unsupported format, or permission denied.", thumbnailVideoPath, err))
 	}
-	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
 	thumbnailResizeVideoPath := fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, generateUUID+".png")
-	if err = imaging.Save(resizedImage, thumbnailResizeVideoPath); err != nil {
+	if err = imaging.Save(srcImage, thumbnailResizeVideoPath); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
 
@@ -1889,11 +1928,15 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		return response, nil
 	}
 
-	// Convert image to WebP format for sticker (512x512 max size)
-	srcImage, err := imaging.Open(stickerPath)
+	// Convert image to WebP format for sticker (512x512 max size).
+	// Header dimensions are checked before the raster is allocated.
+	srcImage, err := openStickerImage(stickerPath)
 	if err != nil {
-		// Fallback for animated WebP (imaging.Open doesn't support animated WebP)
-		logrus.Warnf("imaging.Open failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
+		if errors.Is(err, utils.ErrImageTooLarge) {
+			return response, pkgError.InternalServerError(fmt.Sprintf("sticker image exceeds pixel budget: %v", err))
+		}
+		// Fallback for animated WebP (the still decoder does not support it).
+		logrus.Warnf("sticker decode failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
 
 		fallbackPngPath := filepath.Join(absBaseDir, fmt.Sprintf("fallback_%s.png", fiberUtils.UUIDv4()))
 		deletedItems = append(deletedItems, fallbackPngPath)
@@ -1939,25 +1982,16 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v (animated WebP requires webpmux and dwebp tools)", err))
 		}
 
-		srcImage, err = imaging.Open(fallbackPngPath)
+		srcImage, err = openStickerImage(fallbackPngPath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open fallback PNG image: %v", err))
 		}
 		logrus.Info("Fallback conversion successful")
 	}
 
-	// Resize image to max 512x512 maintaining aspect ratio
-	bounds := srcImage.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-
-	if width > 512 || height > 512 {
-		if width > height {
-			srcImage = imaging.Resize(srcImage, 512, 0, imaging.Lanczos)
-		} else {
-			srcImage = imaging.Resize(srcImage, 0, 512, imaging.Lanczos)
-		}
-	}
+	// Fit inside 512x512. Both edges are capped; a narrow source is not
+	// stretched by deriving an unbounded height from a fixed width.
+	srcImage = utils.FitBox(srcImage, stickerMaxEdge, stickerMaxEdge)
 
 	// Convert to WebP using external command (ffmpeg or cwebp)
 	webpPath := filepath.Join(absBaseDir, fmt.Sprintf("sticker_%s.webp", fiberUtils.UUIDv4()))
