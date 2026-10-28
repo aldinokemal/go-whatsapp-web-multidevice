@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/companion"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/companion"
 )
 
 func main() { os.Exit(run()) }

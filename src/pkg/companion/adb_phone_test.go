@@ -153,3 +153,54 @@ func TestADBGuardStopsAfterProfileSwitch(t *testing.T) {
 		}
 	}
 }
+
+func TestADBCaptureWakesAfterDisplayTimeoutAndRestoresOriginalSleep(t *testing.T) {
+	w := &adbWorld{user: "0", packageName: testPackage}
+	a := adbSetup(t, w)
+	ctx := context.Background()
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	w.on = false
+	w.commands = nil
+	if _, err := a.Capture(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !w.on || !strings.Contains(w.commands[0], "'keyevent' '224'") {
+		t.Fatal(w.commands)
+	}
+	w.on = false
+	if err := a.Restore(ctx, "Chats"); err != nil || w.on {
+		t.Fatal(err, w.on)
+	}
+}
+func TestADBCaptureWakeNeverBypassesProtectedLockOrProfile(t *testing.T) {
+	for _, mode := range []string{"lock", "profile", "app"} {
+		t.Run(mode, func(t *testing.T) {
+			w := &adbWorld{user: "0", packageName: testPackage}
+			a := adbSetup(t, w)
+			ctx := context.Background()
+			if err := a.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			w.on = false
+			switch mode {
+			case "lock":
+				w.locked = true
+			case "profile":
+				w.user = "10"
+			case "app":
+				w.packageName = "other.app"
+			}
+			w.commands = nil
+			if _, err := a.Capture(ctx); err == nil {
+				t.Fatal("captured protected screen")
+			}
+			for _, cmd := range w.commands {
+				if strings.Contains(cmd, "exec-out") || strings.Contains(cmd, "'tap'") || strings.Contains(cmd, "'text'") || strings.Contains(cmd, "'uiautomator'") {
+					t.Fatal(cmd)
+				}
+			}
+		})
+	}
+}

@@ -2,11 +2,12 @@ package companion
 
 import (
 	"database/sql"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 )
 
 // State shares the original controller's schema and flock names. Never copy or reset

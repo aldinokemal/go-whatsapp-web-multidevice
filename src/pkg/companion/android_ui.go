@@ -422,6 +422,66 @@ func pause(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
+
+// namingField recognizes only the post-link device-label form, not an arbitrary
+// text prompt. Existing labels, extra fields and owner verification fail closed.
+func (u *PairingUI) namingField(s *Screen, expected string) (*Node, error) {
+	if !s.Title("Device name") || !strings.Contains(s.Words, "this helps you assign and manage devices.") || len(s.Matching("SAVE")) != 1 {
+		return nil, block("unknown_screen")
+	}
+	fields := s.fields()
+	if len(fields) != 1 || fields[0].get("package") != u.Package || fields[0].get("enabled") != "true" || fields[0].get("text") != expected {
+		return nil, block("unknown_screen")
+	}
+	return fields[0], nil
+}
+
+func (u *PairingUI) nameDevice(ctx context.Context, s *Screen, delay time.Duration) (*Screen, error) {
+	field, e := u.namingField(s, "")
+	if e != nil {
+		return nil, e
+	}
+	if field.get("focused") != "true" {
+		x, y, e := s.Point(field)
+		if e != nil {
+			return nil, e
+		}
+		if e = u.Transport.Tap(ctx, x, y); e != nil {
+			return nil, e
+		}
+		s, e = u.capture(ctx)
+		if e != nil {
+			return nil, e
+		}
+		field, e = u.namingField(s, "")
+		if e != nil {
+			return nil, e
+		}
+	}
+	if field.get("focused") != "true" {
+		return nil, block("unknown_screen")
+	}
+	// A generic app label, entered through the same character-only private pipe.
+	// Do not overwrite a pre-existing name or copy account/host names into it.
+	const label = "GOWA"
+	for _, c := range label {
+		if e = u.Transport.Text(ctx, string(c)); e != nil {
+			return nil, e
+		}
+		if e = pause(ctx, delay); e != nil {
+			return nil, e
+		}
+	}
+	s, e = u.capture(ctx)
+	if e != nil {
+		return nil, e
+	}
+	if _, e = u.namingField(s, label); e != nil {
+		return nil, e
+	}
+	return u.click(ctx, s, "SAVE")
+}
+
 func (u *PairingUI) Enter(ctx context.Context, code string) (Object, error) {
 	if !u.prepared || !pairingCode.MatchString(code) {
 		return nil, block("invalid_request")
@@ -463,10 +523,21 @@ func (u *PairingUI) Enter(ctx context.Context, code string) (Object, error) {
 		poll = 2 * time.Second
 	}
 	deadline := time.Now().Add(timeout)
+	namingHandled := false
 	for time.Now().Before(deadline) {
 		s, e = u.capture(ctx)
 		if e != nil {
 			return nil, e
+		}
+		if s.Title("Device name") {
+			if namingHandled {
+				return nil, block("pairing_unconfirmed")
+			}
+			namingHandled = true
+			s, e = u.nameDevice(ctx, s, delay)
+			if e != nil {
+				return nil, e
+			}
 		}
 		if s.Title("Linked devices") {
 			return Object{"submitted": true}, nil

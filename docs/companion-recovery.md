@@ -28,8 +28,10 @@ mkdir -m 700 /private/recovery-state
 An example controller configuration using the built-in adapters follows. Replace
 all paths and synthetic identity values. `not_before` is optional RFC3339 with a
 timezone; an early apply inspects servers without phone input or pairing changes.
-List the primary backend first, followed by independent standbys. Host locks are
-acquired in sorted backend-ID order, while pairing follows configuration order.
+For adapters that can verify independent native companion IDs, list the primary
+backend first, followed by standbys. Host locks are acquired in sorted backend-ID
+order, while pairing follows configuration order. The built-in HTTP adapter
+supports a single backend per account; see the identity limitation below.
 
 ```json
 {
@@ -79,6 +81,16 @@ disables proxies and redirects, validates the account JID, and scopes every
 request with `X-Device-Id`. Basic credentials come from the named environment
 variable as `username:password`; they do not belong in the URL or argv.
 
+The API's `/devices/{id}.jid` is the normalized **account JID**, without the
+companion device component. It identifies the account but cannot prove that two
+servers have independent companions. The HTTP adapter reports
+`identity_scope: "account"`; multi-host workflows reject it with
+`companion_identity_unavailable` before acquiring host locks or requesting codes.
+For multiple backends, provide adapters that verify the sole matching full native
+companion JID (`number:device@s.whatsapp.net`) against authenticated state, reject
+ambiguous/mismatched stores, and return distinct IDs. Do not substitute host labels,
+invent a device suffix, or treat normalized and full JIDs as independent identities.
+
 The generic HTTP adapter does not implement deployment-specific call admission,
 HA claims, or native database checks. Deployments with those requirements should
 supply their own adapter that retains the existing deployment lock and verifies
@@ -107,7 +119,8 @@ countdown persists with a five-minute margin, or a six-hour cooldown when no
 countdown is accessible. A failed cleanup also blocks success and retains any
 cooldown. A prior cleanup failure requires operator review even when server sessions
 subsequently become healthy. A partially recovered multi-host account is not a successful recovery.
-Final acceptance requires every backend healthy with distinct companion JIDs.
+Final multi-host acceptance requires every backend healthy with distinct full
+companion JIDs.
 
 Codes pass through process pipes and one-character phone input with pauses. The
 controller suppresses adapter stderr and reports only bounded symbolic errors.
@@ -116,6 +129,8 @@ can contain private conversations. The local ADB adapter writes it under the
 configured private directory, restores the starting app screen and sleep state,
 and releases its reservation. It refuses another foreground app/profile or a
 protected lock screen; it does not bypass owner authentication.
+Before capture, it wakes the display and rechecks the foreground app/profile and
+keyguard so a display timeout cannot silently interrupt confirmation or cleanup.
 
 ## Adapter protocol
 
@@ -133,6 +148,9 @@ Server operations (`device`, `phone` on every request):
 
 - `inspect`: return boolean `connected`, `logged_in`, `policy_ok`, nonnegative
   integer `saved_sessions`, and string `companion_jid` (empty when logged out).
+  Multi-host adapters must provide full native companion IDs after authentication;
+  account-only adapters must advertise `identity_scope: "account"` even while
+  logged out, so unsupported recovery stops before pairing.
 - `acquire`: obtain the deployment/host lock and retain it until process exit.
 - `reconnect`: reconnect existing credentials under the lock.
 - `pair_code`: request one code, returning `pair_code`; refuse existing credentials
@@ -159,8 +177,14 @@ uses accessibility XML labels and observed bounds, not fixed screen coordinates.
 It recognizes the selected Chats tab when there is no Chats title, and enabled
 popup ListView rows even when Android reports `clickable=false`. It restores an
 unambiguously logged-out GoWA row through LOG IN, or uses LINK A DEVICE without
-removing another linked application. Other versions, languages, accessibility
-trees and OEM dialogs require separate validation; unknown UI fails closed.
+removing another linked application. After code submission, the recognized Device
+name form (known explanatory text, one blank enabled field and a single SAVE
+button) receives the generic label `GOWA` through character input. The driver
+verifies the entered label before saving once and still requires Linked devices
+confirmation. Populated, ambiguous or unfamiliar naming forms stop for review.
+Other versions, languages, accessibility trees and OEM dialogs require separate
+validation; unknown UI fails closed. Full slots require separate operator review;
+the controller never deletes an unrelated or retired slot automatically.
 
 Synthetic tests cover workflow ordering, durable interruption and partial recovery,
 reconnect, shared locks, cooldowns, identity and policy checks, UI regressions,
@@ -172,6 +196,19 @@ go test -tags purego ./pkg/companion ./tools/companion
 go vet ./pkg/companion ./tools/companion
 ```
 
-Synthetic tests and inspection do not establish real Android pairing compatibility.
-Validate live pairing only in an authorized recovery, preserving healthy sessions
-and unrelated linked devices; never revoke a healthy companion to manufacture a test.
+Operator-assisted live acceptance drove two independent code-based pairings with
+the Go controller through pre-existing external deployment/phone adapters. After
+authentication, independent native IDs, all per-host line policies, unchanged
+active/standby ownership, integration health and phone cleanup were verified; a
+final Go apply returned healthy and resolved the authenticated pairing intents.
+No customer messages, calls or failed-message replays were used as canaries.
+
+This was not fully unattended UI acceptance: an operator prepared a full-slot
+phone by removing a separately verified obsolete logged-out entry. The phone
+adapter initially timed out on the post-link naming form, and native authenticated
+state was independently checked afterward without requesting another code. The
+generic Go ADB/UI implementation, including wake and naming regressions, has
+**synthetic validation only**; the live run used external adapters. An earlier
+blocked attempt does not count as successful acceptance. Preserve healthy sessions
+when validating other Android versions; never revoke a companion to manufacture
+a test.

@@ -135,3 +135,23 @@ func TestHTTPReconnectAcceptsUpstreamNullResult(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestHTTPReportsNormalizedAccountIdentityScope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result := Object{"jid": testPhone + "@s.whatsapp.net"}
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			result = Object{"is_connected": true, "is_logged_in": true}
+		}
+		json.NewEncoder(w).Encode(Object{"results": result})
+	}))
+	defer server.Close()
+	h, err := NewHTTPBackend(httpConfig(t, server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	result, err := h.Call(context.Background(), "inspect", Object{"device": "sales", "phone": testPhone})
+	if err != nil || result["identity_scope"] != "account" || result["companion_jid"] != testPhone+"@s.whatsapp.net" {
+		t.Fatal(result, err)
+	}
+}

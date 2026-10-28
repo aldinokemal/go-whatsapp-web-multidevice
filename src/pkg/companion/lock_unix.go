@@ -3,8 +3,9 @@
 package companion
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 type fileLock struct{ file *os.File }

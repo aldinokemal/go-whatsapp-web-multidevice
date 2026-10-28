@@ -95,7 +95,10 @@ func (h *HTTPBackend) inspect(ctx context.Context) (Object, error) {
 	if h.config.ConfirmedRemoteLogout {
 		saved = 0
 	}
-	return Object{"connected": status["is_connected"] == true, "logged_in": status["is_logged_in"] == true, "companion_jid": jid, "policy_ok": true, "saved_sessions": saved}, nil
+	// The device API normalizes its JID to the account. It cannot establish
+	// independent companion identities across servers; advertise that limitation
+	// even while logged out, so a multi-host workflow stops before requesting codes.
+	return Object{"connected": status["is_connected"] == true, "logged_in": status["is_logged_in"] == true, "companion_jid": jid, "identity_scope": "account", "policy_ok": true, "saved_sessions": saved}, nil
 }
 func (h *HTTPBackend) Call(ctx context.Context, op string, r Object) (Object, error) {
 	if r["device"] != h.config.Device || r["phone"] != h.config.Phone {

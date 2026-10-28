@@ -363,3 +363,50 @@ func TestHealthySessionsCannotHidePriorCleanupFailure(t *testing.T) {
 		t.Fatal(out, w.calls)
 	}
 }
+
+func TestMultiHostAccountScopedAdapterStopsBeforeMutations(t *testing.T) {
+	for _, connected := range []bool{false, true} {
+		t.Run(map[bool]string{false: "logged out", true: "connected"}[connected], func(t *testing.T) {
+			s, w, r := setupRecovery(t)
+			w.snapshots["backup"] = snapshot(connected, "")
+			w.snapshots["backup"]["identity_scope"] = "account"
+			if connected {
+				w.snapshots["backup"]["companion_jid"] = testPhone + "@s.whatsapp.net"
+			}
+			_, err := r.Recover(context.Background(), testAccount(), s, true)
+			b, ok := err.(*Blocked)
+			if !ok || b.Reason != "companion_identity_unavailable" {
+				t.Fatal(err)
+			}
+			for _, op := range []string{":acquire", ":reconnect", ":begin", ":pair_code"} {
+				if hasCall(w, op) {
+					t.Fatal(w.calls)
+				}
+			}
+		})
+	}
+}
+func TestMultiHostNormalizedJIDIsNotIndependenceProof(t *testing.T) {
+	s, w, r := setupRecovery(t)
+	w.snapshots["primary"] = snapshot(true, testPhone+"@s.whatsapp.net")
+	w.snapshots["backup"] = snapshot(true, testPhone+":2@s.whatsapp.net")
+	_, err := r.Recover(context.Background(), testAccount(), s, true)
+	b, ok := err.(*Blocked)
+	if !ok || b.Reason != "companion_identity_unavailable" {
+		t.Fatal(err)
+	}
+	if hasCall(w, ":begin") || hasCall(w, ":pair_code") {
+		t.Fatal(w.calls)
+	}
+}
+func TestSingleHostHTTPAccountIdentityRemainsSupported(t *testing.T) {
+	s, w, r := setupRecovery(t)
+	a := testAccount()
+	a.Backends = a.Backends[:1]
+	w.snapshots["primary"] = snapshot(true, testPhone+"@s.whatsapp.net")
+	w.snapshots["primary"]["identity_scope"] = "account"
+	out := runRecovery(t, r, a, s, true)
+	if out["state"] != "healthy" || hasCall(w, ":begin") {
+		t.Fatal(out, w.calls)
+	}
+}
