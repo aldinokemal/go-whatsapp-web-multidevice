@@ -70,7 +70,7 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 				deviceWebhookTestRepo: deviceWebhookTestRepo{
 					cfg: &domainChatStorage.ChatwootDeviceConfig{
 						ID: 1, DeviceID: "dev", ChatwootURL: "https://chat.example.com",
-						AccountID: 1, InboxID: 2, APIToken: "t", Enabled: tt.enabled, SignMsg: tt.signMsg,
+						AccountID: 1, InboxID: 2, APIToken: "t", Enabled: tt.enabled, SignMsg: tt.signMsg, WebhookSecret: "channel-secret",
 					},
 					count: 1,
 				},
@@ -93,6 +93,7 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Chatwoot-Webhook-Secret", "channel-secret")
 			resp, err := app.Test(req)
 			if err != nil {
 				t.Fatalf("app.Test: %v", err)
@@ -140,27 +141,25 @@ func TestAgentReplySignatureUsesPublicDisplayName(t *testing.T) {
 	}
 }
 
-// failingConfigRepo is signTestRepo with a per-device config lookup that
+// failingSignConfigRepo is signTestRepo with a per-device config lookup that
 // always fails, as during a storage outage.
-type failingConfigRepo struct {
+type failingSignConfigRepo struct {
 	signTestRepo
 	lookups int
 }
 
-func (r *failingConfigRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+func (r *failingSignConfigRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	r.lookups++
 	return nil, errors.New("database is locked")
 }
 
-// TestAgentReplyIsUnsignedWhenSignatureLookupFails covers the fail-closed
-// rule: with CHATWOOT_SIGN_MSG on and the device's sign_msg off, a reply
-// routed through a stored conversation link while the config cannot be read
-// must go out without the agent's name, not with the global setting.
-func TestAgentReplyIsUnsignedWhenSignatureLookupFails(t *testing.T) {
+// Authentication precedes signature composition: an unreadable device config
+// must fail closed with 503, without sending a reply.
+func TestAgentReplyConfigFailureRefusesDelivery(t *testing.T) {
 	withSignConfig(t, true, "\n\n")
 
 	off := false
-	repo := &failingConfigRepo{signTestRepo: signTestRepo{
+	repo := &failingSignConfigRepo{signTestRepo: signTestRepo{
 		deviceWebhookTestRepo: deviceWebhookTestRepo{
 			// The stored row says "do not sign", but it cannot be read.
 			cfg: &domainChatStorage.ChatwootDeviceConfig{
@@ -194,13 +193,27 @@ func TestAgentReplyIsUnsignedWhenSignatureLookupFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
 	}
-	if resp.StatusCode != fiber.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	if resp.StatusCode != fiber.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
 	if repo.lookups == 0 {
 		t.Fatal("the test must exercise a failing config lookup")
 	}
-	if len(sender.sent) != 1 || sender.sent[0] != "Hello" {
-		t.Fatalf("sent text = %q, want [\"Hello\"] (unsigned)", sender.sent)
+	if len(sender.sent) != 0 {
+		t.Fatalf("sent text = %q, want no delivery after auth config failure", sender.sent)
+	}
+}
+
+// A later settings failure must still not turn on global signing. The handler
+// regression above separately verifies the earlier authentication failure gate.
+func TestSignatureCompositionDoesNotBorrowGlobalOnLookupFailure(t *testing.T) {
+	withSignConfig(t, true, "\n\n")
+	chatwoot.InitClientRegistry(nil)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+	repo := &failingSignConfigRepo{}
+	handler := &ChatwootHandler{ChatStorageRepo: repo}
+	payload := chatwoot.WebhookPayload{Content: "Hello", Sender: chatwoot.Contact{Name: "Jane"}}
+	if got := composeOutgoingText(payload, handler.signConfigForDevice("dev")); got != "Hello" {
+		t.Fatalf("composed text = %q, want unsigned text", got)
 	}
 }

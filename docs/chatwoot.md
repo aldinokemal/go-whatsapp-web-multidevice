@@ -356,8 +356,9 @@ The ignore list is additive: a device ignores the always-ignored system JIDs, th
 its own list. It cannot un-ignore a JID that the global list ignores. The list applies to live
 forwarding and to history sync, with the matching rules described under
 [Ignoring chats](#ignoring-chats); the signature settings apply to agent replies sent through that
-device. If a device's settings cannot be read when a reply is sent (a storage error), the reply
-goes out without a signature rather than with the global setting.
+device. If the routed device's configuration cannot be read for authentication, the webhook
+returns HTTP 503 and sends nothing. If a later signature-settings lookup fails after
+authentication, signature composition falls back to unsigned text without borrowing the global setting.
 
 A typical use is a WhatsApp group that contains several of your own numbers: ignore the group on
 every device except the one whose inbox should receive it.

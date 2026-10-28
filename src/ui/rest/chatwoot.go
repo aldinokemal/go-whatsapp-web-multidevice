@@ -342,8 +342,9 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 // read directly in that case: a device that switched its signature off must
 // not start signing because forwarding was paused.
 //
-// It fails closed. When the device's settings cannot be read (storage error),
-// the reply is sent unsigned rather than with the global setting: the device
+// Authentication rejects unreadable configs with 503 before delivery. If a
+// later signature lookup fails, compose unsigned text rather than borrow the
+// global setting: the device
 // may have switched the signature off, and adding the agent's name to a
 // message is the one outcome that cannot be taken back.
 func (h *ChatwootHandler) signConfigForDevice(deviceID string) *chatwoot.ResolvedConfig {
