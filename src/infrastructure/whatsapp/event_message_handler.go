@@ -17,12 +17,13 @@ import (
 )
 
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	// Log message metadata
+	// Log message metadata. Sender name and JID are escaped so a newline in
+	// notify metadata cannot forge a second log line.
 	metaParts := buildMessageMetaParts(evt)
 	log.Infof("Received message %s from %s (%s): %+v",
 		evt.Info.ID,
-		evt.Info.SourceString(),
-		strings.Join(metaParts, ", "),
+		sanitizeLogText(evt.Info.SourceString()),
+		sanitizeLogText(strings.Join(metaParts, ", ")),
 		evt.Message,
 	)
 
@@ -63,7 +64,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 func buildMessageMetaParts(evt *events.Message) []string {
 	metaParts := []string{
-		fmt.Sprintf("pushname: %s", evt.Info.PushName),
+		fmt.Sprintf("pushname: %s", sanitizeLogText(evt.Info.PushName)),
 		fmt.Sprintf("timestamp: %s", evt.Info.Timestamp),
 	}
 	if evt.Info.Type != "" {
@@ -76,6 +77,43 @@ func buildMessageMetaParts(evt *events.Message) []string {
 		metaParts = append(metaParts, "view once")
 	}
 	return metaParts
+}
+
+// sanitizeLogText escapes ASCII control characters so one log record stays one line.
+func sanitizeLogText(s string) string {
+	if s == "" || !hasASCIIControl(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if c < 0x20 || c == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, c)
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	return b.String()
+}
+
+func hasASCIIControl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {

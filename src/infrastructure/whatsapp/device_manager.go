@@ -13,6 +13,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	fiberUtils "github.com/gofiber/utils/v2"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -836,7 +837,8 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	client := whatsmeow.NewClient(storeDevice, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q for device %s: %v", redactProxyURL(proxyURL), deviceID, err)
+			// url.Parse errors include the raw URL. Log scheme and host only.
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY for device %s: %s", deviceID, utils.FormatProxyParseFailure(proxyURL))
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY for device %s", deviceID)
 		}
