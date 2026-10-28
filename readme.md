@@ -223,6 +223,8 @@ Download:
 
 ## Configuration
 
+To store WhatsApp sessions and keys in managed PostgreSQL, follow the [Neon setup guide](./docs/neon.md).
+
 Configuration is loaded in this order of priority:
 
 1. Command-line flags (highest priority)
