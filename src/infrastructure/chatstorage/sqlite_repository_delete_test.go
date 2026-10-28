@@ -24,6 +24,15 @@ func TestCreateMessageRevokeDeletesTargetForActiveDevice(t *testing.T) {
 
 	seedChatMessage(t, repo, deviceID, chatJID, "message-1", "remove me", timestamp)
 	seedChatMessage(t, repo, otherDeviceID, chatJID, "message-1", "keep me", timestamp)
+	// The revoke sender is the author. seedChatMessage stores a different sender.
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "message-1",
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    "628123456789@s.whatsapp.net",
+		Content:   "remove me",
+		Timestamp: timestamp,
+	}))
 
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
 	revoke := &events.Message{
@@ -163,4 +172,41 @@ func TestDeleteMessageRollsBackDependentDeletesWhenMessageDeleteFails(t *testing
 			require.Len(t, edits, 1)
 		})
 	}
+}
+
+func TestCreateMessageRevokeIgnoresNonAuthor(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+	seedChatMessage(t, repo, deviceID, chatJID, "message-1", "keep me", timestamp)
+
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+	revoke := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   types.NewJID("628123456789", types.DefaultUserServer),
+				Sender: types.NewJID("628000000001", types.DefaultUserServer),
+			},
+			ID:        "revoke-event-foreign",
+			Timestamp: timestamp.Add(time.Minute),
+		},
+		Message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+			Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+			Key: &waCommon.MessageKey{
+				RemoteJID: proto.String(chatJID),
+				ID:        proto.String("message-1"),
+			},
+		}},
+	}
+	require.NoError(t, repo.CreateMessage(ctx, revoke))
+
+	kept, err := repo.GetMessageByIDAndDevice(deviceID, "message-1")
+	require.NoError(t, err)
+	require.NotNil(t, kept)
+	require.Equal(t, "keep me", kept.Content)
+
+	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-1")
+	require.True(t, ok)
+	require.False(t, authorized)
 }

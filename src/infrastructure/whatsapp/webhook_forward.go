@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"slices"
@@ -162,7 +163,13 @@ func getContactMutex(phone string) *sync.Mutex {
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
-	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
+	webhookConfig, err := webhookConfigForPayload(ctx, payload)
+	if errors.Is(err, errAmbiguousWebhookDevice) {
+		// Sibling companion slots share the bare account JID. Delivering with the
+		// global policy would replace the originating slot's event filter.
+		logrus.Warnf("Skipping event %s: %v (device_id=%s)", eventName, err, deviceJID)
+		return nil
+	}
 	if err != nil {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
@@ -272,6 +279,75 @@ func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, 
 	return nil, nil
 }
 
+// errAmbiguousWebhookDevice means the event's account JID is shared by more
+// than one companion slot and the originating slot could not be selected.
+var errAmbiguousWebhookDevice = errors.New("webhook device identity is ambiguous across companion slots")
+
+// webhookConfigForPayload selects webhook policy for the originating device
+// slot. payload["device_id"] stays the public account JID; policy uses the
+// companion AD JID from the device context when that slot is known. A bare
+// account JID that matches several in-memory slots does not fall back to the
+// global filter.
+func webhookConfigForPayload(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceWebhookConfig, error) {
+	payloadID, _ := payload["device_id"].(string)
+	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+		ad := strings.TrimSpace(inst.ADJID())
+		if ad != "" && ad != payloadID {
+			rec, err := getDeviceRecordForTest(ad)
+			if err != nil {
+				return nil, err
+			}
+			if rec != nil {
+				return webhookConfigFromRecord(rec), nil
+			}
+			bare := inst.JID()
+			if bare == "" {
+				bare = payloadID
+			}
+			if siblingCompanionCount(bare) > 1 {
+				return nil, errAmbiguousWebhookDevice
+			}
+		}
+	}
+	if siblingCompanionCount(payloadID) > 1 {
+		return nil, errAmbiguousWebhookDevice
+	}
+	return getWebhookConfigForDevice(payloadID)
+}
+
+// siblingCompanionCount reports how many registered slots share a bare account
+// JID. Zero means the manager is absent or the id is not a shared account JID.
+func siblingCompanionCount(bareJID string) int {
+	bareJID = strings.TrimSpace(bareJID)
+	if bareJID == "" || !strings.Contains(bareJID, "@") {
+		return 0
+	}
+	dm := GetDeviceManager()
+	if dm == nil {
+		return 0
+	}
+	n := 0
+	for _, inst := range dm.ListDevices() {
+		if inst != nil && inst.JID() == bareJID {
+			n++
+		}
+	}
+	return n
+}
+
+func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChatStorage.DeviceWebhookConfig {
+	if record == nil || record.WebhookURL == nil || *record.WebhookURL == "" {
+		return nil
+	}
+	logrus.Debugf("Using device-specific webhook config for %s", record.DeviceID)
+	return &domainChatStorage.DeviceWebhookConfig{
+		WebhookURL:                record.WebhookURL,
+		WebhookSecret:             record.WebhookSecret,
+		WebhookEvents:             record.WebhookEvents,
+		WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+	}
+}
+
 // getWebhookConfigForDevice returns the webhook configuration to use for a given device.
 // If the device has a custom webhook config, it returns that config.
 // Otherwise, it returns nil (caller should use global config).
@@ -284,17 +360,7 @@ func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebho
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device record: %w", err)
 	}
-	if record != nil && record.WebhookURL != nil && *record.WebhookURL != "" {
-		logrus.Debugf("Using device-specific webhook config for %s", deviceJID)
-		return &domainChatStorage.DeviceWebhookConfig{
-			WebhookURL:                record.WebhookURL,
-			WebhookSecret:             record.WebhookSecret,
-			WebhookEvents:             record.WebhookEvents,
-			WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
-		}, nil
-	}
-
-	return nil, nil
+	return webhookConfigFromRecord(record), nil
 }
 
 // getWebhookURLsFromConfig extracts webhook URLs from the config.
@@ -487,8 +553,11 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 
 	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
 	// always-ignored system JIDs — supports exact JIDs and the "@g.us" /
-	// "@s.whatsapp.net" / "@lid" address-space wildcards.
-	if utils.MatchesIgnoredJID(chatID, config.ChatwootIgnoreJids) || utils.MatchesIgnoredJID(from, config.ChatwootIgnoreJids) {
+	// "@s.whatsapp.net" / "@lid" address-space wildcards. Phone-normalized
+	// chat_id/from are not enough: a resolved LID keeps its original id in
+	// chat_lid/from_lid, and an exclusion written against that alias must
+	// still match.
+	if chatwootPayloadExcluded(data) {
 		return nil, fmt.Errorf("skipping ignored JID chat=%s from=%s", chatID, from)
 	}
 
@@ -1017,13 +1086,133 @@ func deleteTargetMessageID(eventName string, data map[string]any) string {
 	return ""
 }
 
-func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, data map[string]any) {
+// chatwootPayloadIdentityKeys are the original and normalized JIDs a Chatwoot
+// event can carry. An exclusion configured against a LID must still match after
+// that LID is resolved to a phone JID and stored beside it.
+var chatwootPayloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid"}
+
+func chatwootPayloadExcluded(data map[string]any) bool {
+	if len(config.ChatwootIgnoreJids) == 0 || data == nil {
+		return false
+	}
+	for _, key := range chatwootPayloadIdentityKeys {
+		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatwootJIDExcluded(jid string) bool {
+	return utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids)
+}
+
+// MessageAuthorMatches reports whether an edit or revoke was sent by the stored
+// message's author. whatsmeow sets IsFromMe from the authenticated account, so
+// the account may rewrite its own messages even when companion devices differ
+// in the sender string. Otherwise the event sender — or the pre-normalization
+// alias, when one was kept — must equal the stored sender.
+func MessageAuthorMatches(storedSender string, storedFromMe bool, eventSender, eventAlias string, eventFromMe bool) bool {
+	if storedFromMe && eventFromMe {
+		return true
+	}
+	storedSender = strings.TrimSpace(storedSender)
+	if storedSender == "" {
+		return false
+	}
+	for _, candidate := range []string{eventSender, eventAlias} {
+		if s := strings.TrimSpace(candidate); s != "" && s == storedSender {
+			return true
+		}
+	}
+	return false
+}
+
+type revokeAuthRecord struct {
+	authorized bool
+	expires    time.Time
+}
+
+var revokeAuthNotes sync.Map
+
+func revokeAuthKey(deviceID, chatJID, messageID string) string {
+	return deviceID + "\n" + chatJID + "\n" + messageID
+}
+
+// NoteMessageRevokeAuthorization remembers whether a revoke was authorized
+// against the stored author. Chatwoot forwarding runs after that row is
+// deleted and would otherwise be unable to tell a real revoke from a forged one.
+func NoteMessageRevokeAuthorization(deviceID, chatJID, messageID string, authorized bool) {
+	deviceID = strings.TrimSpace(deviceID)
+	messageID = strings.TrimSpace(messageID)
+	if deviceID == "" || messageID == "" {
+		return
+	}
+	revokeAuthNotes.Store(revokeAuthKey(deviceID, chatJID, messageID), revokeAuthRecord{
+		authorized: authorized,
+		expires:    time.Now().Add(24 * time.Hour),
+	})
+}
+
+// MessageRevokeAuthorized reports a previously recorded revoke decision.
+func MessageRevokeAuthorized(deviceID, chatJID, messageID string) (authorized bool, ok bool) {
+	key := revokeAuthKey(strings.TrimSpace(deviceID), chatJID, strings.TrimSpace(messageID))
+	v, found := revokeAuthNotes.Load(key)
+	if !found {
+		return false, false
+	}
+	rec, _ := v.(revokeAuthRecord)
+	if time.Now().After(rec.expires) {
+		revokeAuthNotes.Delete(key)
+		return false, false
+	}
+	return rec.authorized, true
+}
+
+func chatwootEventChatMatches(data map[string]any, chatJID string) bool {
+	chatJID = strings.TrimSpace(chatJID)
+	if chatJID == "" || data == nil {
+		return false
+	}
+	for _, key := range []string{"chat_id", "chat_lid", "revoked_chat"} {
+		if v, _ := data[key].(string); strings.TrimSpace(v) == chatJID {
+			return true
+		}
+	}
+	return false
+}
+
+func chatwootRevokeAuthorized(deviceID string, linkRepo domainChatStorage.IChatStorageRepository, data map[string]any, link *domainChatStorage.ChatwootMessageLink, targetID string) bool {
+	if link == nil || !chatwootEventChatMatches(data, link.WhatsAppChatJID) {
+		return false
+	}
+	if authorized, ok := MessageRevokeAuthorized(deviceID, link.WhatsAppChatJID, targetID); ok {
+		return authorized
+	}
+	if linkRepo == nil {
+		return false
+	}
+	msg, err := linkRepo.GetMessageByIDChatAndDevice(deviceID, link.WhatsAppChatJID, targetID)
+	if err != nil || msg == nil {
+		return false
+	}
+	from, _ := data["from"].(string)
+	alias, _ := data["from_lid"].(string)
+	isFromMe, _ := data["is_from_me"].(bool)
+	return MessageAuthorMatches(msg.Sender, msg.IsFromMe, from, alias, isFromMe)
+}
+
+func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, configID int64, data map[string]any) {
 	receiptType, _ := data["receipt_type"].(string)
 	if receiptType != string(types.ReceiptTypeRead) && receiptType != string(types.ReceiptTypeReadSelf) {
 		return
 	}
 	if deviceID == "" || linkRepo == nil {
 		logrus.Warn("Chatwoot: Cannot sync read receipt without message-link storage")
+		return
+	}
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping read receipt for excluded chat")
 		return
 	}
 
@@ -1036,10 +1225,14 @@ func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo d
 		if link == nil || link.ChatwootConversationID == 0 {
 			continue
 		}
-		if !chatwootLinkMatchesClient(link, cw) {
-			// The link was written under a different Chatwoot account (e.g. before
-			// a delete-and-recreate rebind): its conversation id means nothing on
-			// the current destination.
+		if !chatwootLinkMatchesClient(link, cw, configID) {
+			// The link was written under a different Chatwoot account or server
+			// (e.g. before a delete-and-recreate rebind): its conversation id
+			// means nothing on the current destination.
+			continue
+		}
+		if chatwootJIDExcluded(link.WhatsAppChatJID) {
+			logrus.Debugf("Chatwoot: skipping read receipt for excluded chat %s", link.WhatsAppChatJID)
 			continue
 		}
 
@@ -1062,8 +1255,12 @@ func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo d
 	}
 }
 
-func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, eventName string, data map[string]any) bool {
+func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, configID int64, eventName string, data map[string]any) bool {
 	if !config.ChatwootMessageDelete || deviceID == "" || linkRepo == nil {
+		return false
+	}
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping linked delete for excluded chat")
 		return false
 	}
 
@@ -1080,9 +1277,17 @@ func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo 
 	if link == nil || link.ChatwootConversationID == 0 || link.ChatwootMessageID == 0 {
 		return false
 	}
-	if !chatwootLinkMatchesClient(link, cw) {
-		// Cross-account link (pre-rebind): the (conversation, message) ids would
-		// address an unrelated message on the current destination.
+	if !chatwootLinkMatchesClient(link, cw, configID) {
+		// Cross-account or cross-server link (pre-rebind): the (conversation,
+		// message) ids would address an unrelated message on the current destination.
+		return false
+	}
+	if chatwootJIDExcluded(link.WhatsAppChatJID) {
+		logrus.Debugf("Chatwoot: skipping linked delete for excluded chat %s", link.WhatsAppChatJID)
+		return false
+	}
+	if eventName == "message.revoked" && !chatwootRevokeAuthorized(deviceID, linkRepo, data, link, targetID) {
+		logrus.Warnf("Chatwoot: not deleting linked message %s; revoke is not authorized", targetID)
 		return false
 	}
 
@@ -1094,12 +1299,18 @@ func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo 
 }
 
 // chatwootLinkMatchesClient reports whether a stored message link belongs to
-// the Chatwoot account the client is bound to. Links with account id 0
-// (pre-migration legacy rows not yet backfilled) are accepted for
-// compatibility; any other mismatch means the link predates a rebind and its
-// Chatwoot ids must not be replayed against the current destination.
-func chatwootLinkMatchesClient(link *domainChatStorage.ChatwootMessageLink, cw *chatwoot.Client) bool {
+// the Chatwoot destination the client is bound to. Account numbers collide
+// across servers, so a per-device client (configID != 0) must match the link's
+// configuration id. The legacy env client (configID 0) accepts only legacy
+// links, and then only when the account id matches or was never backfilled.
+func chatwootLinkMatchesClient(link *domainChatStorage.ChatwootMessageLink, cw *chatwoot.Client, configID int64) bool {
 	if link == nil || cw == nil {
+		return false
+	}
+	if configID != 0 {
+		return link.ChatwootConfigID == configID
+	}
+	if link.ChatwootConfigID != 0 {
 		return false
 	}
 	return link.ChatwootAccountID == 0 || link.ChatwootAccountID == cw.AccountID
@@ -1213,10 +1424,10 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 
 	switch eventName {
 	case "message.ack":
-		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, data)
+		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, resolved.ConfigID, data)
 		return nil
 	case "message.revoked", "message.deleted":
-		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, eventName, data) {
+		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, resolved.ConfigID, eventName, data) {
 			return nil
 		}
 		// The hard delete was attempted (or there was no link to delete). The
@@ -1322,11 +1533,18 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 	// fall back to the global default device — the wrong client in multi-device
 	// deployments.
 	ctx := context.Background()
-	if dm := GetDeviceManager(); dm != nil {
-		if instance, _, err := dm.ResolveDevice(event.DeviceID); err == nil && instance != nil {
-			ctx = ContextWithDevice(ctx, instance)
-		}
+	dm := GetDeviceManager()
+	if dm == nil {
+		return fmt.Errorf("chatwoot retry: device manager unavailable, not replaying %s for device %s", event.EventName, event.DeviceID)
 	}
+	instance, _, err := dm.ResolveDevice(event.DeviceID)
+	if err != nil || instance == nil {
+		if err == nil {
+			err = errors.New("device not found")
+		}
+		return fmt.Errorf("chatwoot retry: device %s is not available: %w", event.DeviceID, err)
+	}
+	ctx = ContextWithDevice(ctx, instance)
 	return syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
 }
 

@@ -1095,25 +1095,49 @@ func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversati
 	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
 	// single-account mode). The `? = 1` guard keeps this a single query: when the
 	// flag is 0 the OR branch is never satisfied and the match is exact-account.
-	// The same trick scopes by config id when one is given (per-device callers):
-	// configID 0 leaves the match account-wide.
+	// A non-zero configID pins one chatwoot_device_configs row. That row is the
+	// server identity (URL + account + inbox): numeric account and conversation
+	// ids are reused across Chatwoot servers. configID 0 is the shared webhook,
+	// which has no server of its own — it may return a row only when every
+	// non-zero config id in the match set is the same one. Legacy config-id 0
+	// rows do not count as a second server, and they lose to a real config.
+	legacyZero := 0
+	if allowLegacyZero {
+		legacyZero = 1
+	}
+	where := `chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))`
+	args := []any{conversationID, accountID, legacyZero}
+	if configID != 0 {
+		where += ` AND chatwoot_config_id = ?`
+		args = append(args, configID)
+	} else {
+		var configs int
+		err := r.db.QueryRow(`
+			SELECT COUNT(DISTINCT chatwoot_config_id) FROM chatwoot_message_links
+			WHERE `+where+` AND chatwoot_config_id != 0
+		`, args...).Scan(&configs)
+		if err != nil {
+			return nil, err
+		}
+		if configs > 1 {
+			return nil, nil
+		}
+		if configs == 1 {
+			where += ` AND chatwoot_config_id != 0`
+		}
+	}
+
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
-		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
-			AND (? = 0 OR chatwoot_config_id = ?)
+		WHERE ` + where + `
 		ORDER BY updated_at DESC, created_at DESC
 		LIMIT 1
 	`
-
-	legacyZero := 0
-	if allowLegacyZero {
-		legacyZero = 1
-	}
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero, configID, configID))
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, args...))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -2204,7 +2228,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	sender := normalizedSender.ToNonAD().String()
 
 	if revokedMessageID := extractRevokedMessageID(evt.Message); revokedMessageID != "" {
-		return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+		return r.revokeMessageByAuthor(deviceID, chatJID, sender, evt, revokedMessageID)
 	}
 
 	// PushName belongs to the sender. For messages sent from this account, using
@@ -2314,6 +2338,34 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	return r.StoreMessage(message)
 }
 
+// revokeMessageByAuthor deletes a stored message only when the revoke event
+// was sent by its author. A peer who names another message id must not remove
+// that row. The decision is recorded for Chatwoot forwarding, which runs after
+// the row is gone and would otherwise be unable to tell the two apart.
+func (r *SQLiteRepository) revokeMessageByAuthor(deviceID, chatJID, sender string, evt *events.Message, revokedMessageID string) error {
+	existing, err := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, revokedMessageID)
+	if err != nil {
+		return fmt.Errorf("failed to load message %s for revoke: %w", revokedMessageID, err)
+	}
+	if existing == nil {
+		whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, false)
+		return nil
+	}
+	rawSender := ""
+	fromMe := false
+	if evt != nil {
+		rawSender = evt.Info.Sender.ToNonAD().String()
+		fromMe = evt.Info.IsFromMe
+	}
+	authorized := whatsapp.MessageAuthorMatches(existing.Sender, existing.IsFromMe, sender, rawSender, fromMe)
+	whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, authorized)
+	if !authorized {
+		logrus.Warnf("Ignoring revoke of message %s by %s: sender is not the author", revokedMessageID, sender)
+		return nil
+	}
+	return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+}
+
 func extractRevokedMessageID(msg *waE2E.Message) string {
 	if msg == nil {
 		return ""
@@ -2389,6 +2441,11 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 	}
 
 	currentMessage.ContextMetadata = utils.ExtractContextMetadata(editedMessage)
+
+	if messageExists && !whatsapp.MessageAuthorMatches(existingMessage.Sender, existingMessage.IsFromMe, sender, evt.Info.Sender.ToNonAD().String(), evt.Info.IsFromMe) {
+		logrus.Warnf("Ignoring edit of message %s by %s: sender is not the author", originalMessageID, sender)
+		return nil
+	}
 
 	edit := &domainChatStorage.MessageEdit{
 		OriginalMessageID: originalMessageID,
