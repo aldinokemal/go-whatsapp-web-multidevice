@@ -195,6 +195,14 @@ func (a *ADB) guard(ctx context.Context) error {
 	return nil
 }
 func (a *ADB) Capture(ctx context.Context) (string, error) {
+	// Network confirmation can outlast Android's display timeout. Wake without
+	// unlocking, then recheck the actual foreground profile/app and keyguard.
+	if !a.awakened || a.lock == nil {
+		return "", block("invalid_request")
+	}
+	if _, e := a.shell(ctx, "input", "keyevent", "224"); e != nil {
+		return "", e
+	}
 	if e := a.guard(ctx); e != nil {
 		return "", e
 	}

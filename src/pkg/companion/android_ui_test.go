@@ -207,3 +207,67 @@ func TestUIRequiresFocusedCodeField(t *testing.T) {
 		t.Fatal(e, transport.actions)
 	}
 }
+
+func namingScreen(value string, focused bool) string {
+	return screenXML(node("Device name", ""), node("This helps you assign and manage devices. Customers won't see it. You can always change it.", ""),
+		fmt.Sprintf(`<node package="com.whatsapp.w4b" class="android.widget.EditText" text="%s" focused="%t" %s />`, value, focused, actionable), node("SAVE", actionable))
+}
+func TestUIPostLinkDeviceNameForm(t *testing.T) {
+	transport := &uiTransport{screens: []string{codeScreen(true), namingScreen("", false), namingScreen("", true), namingScreen("GOWA", true), linkedScreen()}}
+	u := &PairingUI{Transport: transport, Package: testPackage, prepared: true, CharacterPause: time.Nanosecond}
+	out, err := u.Enter(context.Background(), "ABCD-1234")
+	if err != nil || out["submitted"] != true {
+		t.Fatal(out, err, transport.actions)
+	}
+	var typed string
+	for _, action := range transport.actions {
+		if strings.HasPrefix(action, "text:") {
+			typed += strings.TrimPrefix(action, "text:")
+		}
+	}
+	if typed != "ABCD1234GOWA" {
+		t.Fatal(transport.actions)
+	}
+	if u.prepared {
+		t.Fatal("code entry can be replayed")
+	}
+}
+func TestUIPostLinkNamingFailsClosed(t *testing.T) {
+	for name, source := range map[string]string{
+		"existing name":         namingScreen("Existing", true),
+		"other form":            strings.ReplaceAll(namingScreen("", true), "This helps you assign and manage devices.", "Verify your business details."),
+		"multiple fields":       strings.Replace(namingScreen("", true), "</hierarchy>", `<node package="com.whatsapp.w4b" class="android.widget.EditText" /></hierarchy>`, 1),
+		"multiple save buttons": strings.Replace(namingScreen("", true), "</hierarchy>", node("SAVE", actionable)+"</hierarchy>", 1),
+		"owner verification":    strings.Replace(namingScreen("", true), "</hierarchy>", node("Enter your PIN", "")+"</hierarchy>", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			transport := &uiTransport{screens: []string{codeScreen(true), source}}
+			u := &PairingUI{Transport: transport, Package: testPackage, prepared: true, CharacterPause: time.Nanosecond}
+			_, err := u.Enter(context.Background(), "ABCD1234")
+			if err == nil || len(transport.actions) != 8 {
+				t.Fatal(err, transport.actions)
+			}
+		})
+	}
+}
+func TestUIPostLinkNamingRequiresVerifiedInputBeforeSave(t *testing.T) {
+	transport := &uiTransport{screens: []string{codeScreen(true), namingScreen("", true), namingScreen("GOW", true)}}
+	u := &PairingUI{Transport: transport, Package: testPackage, prepared: true, CharacterPause: time.Nanosecond}
+	_, err := u.Enter(context.Background(), "ABCD1234")
+	if err == nil || len(transport.actions) != 12 {
+		t.Fatal(err, transport.actions)
+	}
+	for _, action := range transport.actions {
+		if strings.HasPrefix(action, "tap:") {
+			t.Fatal("saved incomplete name")
+		}
+	}
+}
+func TestUIPostLinkNamingIsNotReplayed(t *testing.T) {
+	transport := &uiTransport{screens: []string{codeScreen(true), namingScreen("", true), namingScreen("GOWA", true), namingScreen("", true), namingScreen("", true)}}
+	u := &PairingUI{Transport: transport, Package: testPackage, prepared: true, CharacterPause: time.Nanosecond, PollInterval: time.Nanosecond}
+	_, err := u.Enter(context.Background(), "ABCD1234")
+	if err == nil || len(transport.actions) != 13 {
+		t.Fatal(err, transport.actions)
+	}
+}

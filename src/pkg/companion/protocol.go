@@ -22,7 +22,7 @@ func block(reason string) error  { return &Blocked{Reason: reason} }
 var reasons = map[string]bool{}
 
 func init() {
-	for _, r := range []string{"adapter_timeout", "adapter_disconnected", "adapter_failed", "adapter_protocol_error", "adapter_response_too_large", "restriction", "owner_verification", "unknown_screen", "identity_mismatch", "phone_busy", "phone_unavailable", "profile_mismatch", "slots_full", "ambiguous_device", "credentials_present", "active_calls", "ownership_changed", "backend_unavailable", "pairing_unconfirmed", "cleanup_failed", "invalid_request", "lock_busy", "not_before", "attempt_needs_review", "policy_failed"} {
+	for _, r := range []string{"adapter_timeout", "adapter_disconnected", "adapter_failed", "adapter_protocol_error", "adapter_response_too_large", "restriction", "owner_verification", "unknown_screen", "identity_mismatch", "companion_identity_unavailable", "phone_busy", "phone_unavailable", "profile_mismatch", "slots_full", "ambiguous_device", "credentials_present", "active_calls", "ownership_changed", "backend_unavailable", "pairing_unconfirmed", "cleanup_failed", "invalid_request", "lock_busy", "not_before", "attempt_needs_review", "policy_failed"} {
 		reasons[r] = true
 	}
 }

@@ -73,6 +73,9 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 		result, e := adapter.Call(c, op, values)
 		if e == nil && op == "inspect" {
 			e = validateSnapshot(result, a.Phone)
+			if e == nil && len(a.Backends) > 1 && result["identity_scope"] == "account" {
+				e = block("companion_identity_unavailable")
+			}
 		}
 		return result, e
 	}
@@ -100,6 +103,7 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 	// Even an already-connected account must have independent, verified identities.
 	verify := func(snapshots []Object) error {
 		seen := map[string]bool{}
+		fullJID := regexp.MustCompile(`^` + regexp.QuoteMeta(a.Phone) + `:[0-9]+@s\.whatsapp\.net$`)
 		for _, s := range snapshots {
 			if !Healthy(s) {
 				return block("policy_failed")
@@ -107,6 +111,9 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 			jid, ok := s["companion_jid"].(string)
 			if !ok || jid == "" || seen[jid] {
 				return block("identity_mismatch")
+			}
+			if len(a.Backends) > 1 && !fullJID.MatchString(jid) {
+				return block("companion_identity_unavailable")
 			}
 			seen[jid] = true
 		}
