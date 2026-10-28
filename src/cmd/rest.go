@@ -135,6 +135,11 @@ func restServer(_ *cobra.Command, _ []string) {
 		app.Use(newBasicAuthMiddleware(account))
 	}
 
+	// State-changing browser requests must come from a trusted origin. Routes
+	// registered above (health, stored files, Chatwoot webhooks, OAuth) are
+	// unchanged. Clients that send no Origin or Referer are still accepted.
+	app.Use(middleware.BrowserOriginGuard())
+
 	// Create base path group or use app directly
 	var apiGroup fiber.Router = app
 	if config.AppBasePath != "" {

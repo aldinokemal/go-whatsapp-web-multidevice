@@ -6,6 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/gofiber/contrib/v3/websocket"
 	"github.com/gofiber/fiber/v3"
@@ -85,41 +86,60 @@ func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 		return c.SendStatus(fiber.StatusUpgradeRequired)
 	})
 
-	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
-		defer func() {
-			Unregister <- conn
-			_ = conn.Close()
-		}()
+	app.Get("/ws", func(c fiber.Ctx) error {
+		// Reject before the upgrade so an untrusted browser never joins the hub.
+		// The upgrader repeats the same allowlist, and non-browser clients that
+		// omit Origin stay allowed.
+		if !config.BrowserSourceAllowed(c.Scheme(), c.Host(), c.Get(fiber.HeaderOrigin), c.Get(fiber.HeaderReferer), c.Get("Sec-Fetch-Site")) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"code":    "CROSS_SITE_REQUEST_BLOCKED",
+				"message": "browser request origin is not allowed",
+			})
+		}
+		origins := config.TrustedBrowserOrigins(c.Scheme(), c.Host())
+		if len(origins) == 0 {
+			// An empty list makes the adapter allow every origin.
+			origins = []string{"http://127.0.0.1"}
+		}
+		return websocket.New(func(conn *websocket.Conn) {
+			defer func() {
+				Unregister <- conn
+				_ = conn.Close()
+			}()
 
-		Register <- conn
+			Register <- conn
 
-		for {
-			messageType, message, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					logrus.Println("read error:", err)
-				}
-				return
-			}
-
-			if messageType == websocket.TextMessage {
-				var messageData BroadcastMessage
-				if err := json.Unmarshal(message, &messageData); err != nil {
-					logrus.Println("unmarshal error:", err)
+			for {
+				messageType, message, err := conn.ReadMessage()
+				if err != nil {
+					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						logrus.Println("read error:", err)
+					}
 					return
 				}
 
-				if messageData.Code == "FETCH_DEVICES" {
-					devices, _ := service.FetchDevices(context.Background())
-					Broadcast <- BroadcastMessage{
-						Code:    "LIST_DEVICES",
-						Message: "Device found",
-						Result:  devices,
+				if messageType == websocket.TextMessage {
+					var messageData BroadcastMessage
+					if err := json.Unmarshal(message, &messageData); err != nil {
+						logrus.Println("unmarshal error:", err)
+						return
 					}
+
+					if messageData.Code == "FETCH_DEVICES" {
+						devices, _ := service.FetchDevices(context.Background())
+						Broadcast <- BroadcastMessage{
+							Code:    "LIST_DEVICES",
+							Message: "Device found",
+							Result:  devices,
+						}
+					}
+				} else {
+					logrus.Println("unsupported message type:", messageType)
 				}
-			} else {
-				logrus.Println("unsupported message type:", messageType)
 			}
-		}
-	}))
+		}, websocket.Config{
+			Origins:          origins,
+			AllowEmptyOrigin: true,
+		})(c)
+	})
 }

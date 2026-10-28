@@ -14,9 +14,13 @@ var (
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
-	AppBasePath            = ""
-	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
-	AppCORSAllowedOrigins  []string // CORS allowed origins; empty means "*" (any origin)
+	// AppTrustedOrigins lists browser origins allowed to call state-changing
+	// routes, in addition to the request's own host and any specific
+	// AppCORSAllowedOrigins. A CORS wildcard does not allow cross-site mutations.
+	AppTrustedOrigins     []string
+	AppBasePath           = ""
+	AppTrustedProxies     []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
+	AppCORSAllowedOrigins []string // CORS allowed origins; empty means "*" (any origin)
 
 	// Web UI (gowa-ui) runtime download settings. The dashboard is a separate
 	// project released as a single HTML file; gowa fetches the latest release
