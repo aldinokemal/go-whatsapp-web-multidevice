@@ -2,7 +2,9 @@ package utils
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -475,5 +477,52 @@ func TestBuildButtonsPayloadTopLevelInteractive(t *testing.T) {
 		Body: &waE2E.InteractiveMessage_Body{Text: proto.String("só texto")},
 	}}); got != nil {
 		t.Fatalf("interactive without buttons should not produce a payload: %+v", got)
+	}
+}
+
+func nestCarouselSummary(body string, levels int) *waE2E.InteractiveMessage {
+	msg := &waE2E.InteractiveMessage{Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)}}
+	for i := 0; i < levels; i++ {
+		msg = &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_CarouselMessage_{
+				CarouselMessage: &waE2E.InteractiveMessage_CarouselMessage{
+					Cards: []*waE2E.InteractiveMessage{msg},
+				},
+			},
+		}
+	}
+	return msg
+}
+
+func TestFormatInteractiveMessageSummaryBoundsNestedCarousel(t *testing.T) {
+	leaf := strings.Repeat("LeafText", 40)
+	deep := nestCarouselSummary(leaf, 12)
+	start := time.Now()
+	got := FormatInteractiveMessageSummary(deep)
+	if time.Since(start) > time.Second {
+		t.Fatalf("nested summary took %s", time.Since(start))
+	}
+	if strings.Contains(got, "LeafText") {
+		t.Fatalf("depth limit kept the leaf: %q", got)
+	}
+	if len(got) > interactiveSummaryMaxBytes {
+		t.Fatalf("len %d exceeds budget %d", len(got), interactiveSummaryMaxBytes)
+	}
+
+	shallow := nestCarouselSummary("Shoes", 1)
+	got = FormatInteractiveMessageSummary(shallow)
+	if got != "Card 1: Shoes" {
+		t.Fatalf("shallow carousel = %q", got)
+	}
+
+	huge := strings.Repeat("B", interactiveSummaryMaxBytes*3)
+	got = FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String(huge)},
+	})
+	if len(got) > interactiveSummaryMaxBytes {
+		t.Fatalf("output %d exceeds %d", len(got), interactiveSummaryMaxBytes)
+	}
+	if !strings.HasPrefix(got, "BBB") {
+		t.Fatalf("truncated summary lost the body: %q", got)
 	}
 }
