@@ -449,3 +449,31 @@ func TestBusinessMessageLinesFallsBackToButtonType(t *testing.T) {
 		t.Fatalf("unexpected lines %q", got)
 	}
 }
+
+// Cloud API reply buttons arrive as a top-level InteractiveMessage; the webhook
+// must carry them as buttons, not only as the text summary.
+func TestBuildButtonsPayloadTopLevelInteractive(t *testing.T) {
+	reply := &waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Confirma o horário?")},
+		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+			Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+				{Name: proto.String("quick_reply"), ButtonParamsJSON: proto.String(`{"display_text":"Sim","id":"sim"}`)},
+				{Name: proto.String("quick_reply"), ButtonParamsJSON: proto.String(`{"display_text":"Não","id":"nao"}`)},
+			},
+		}},
+	}}
+	buttons := BuildButtonsPayload(reply)
+	if buttons == nil || buttons.Body != "Confirma o horário?" {
+		t.Fatalf("top-level interactive not exposed: %+v", buttons)
+	}
+	want := []BusinessButton{{Type: "quick_reply", Text: "Sim", ID: "sim"}, {Type: "quick_reply", Text: "Não", ID: "nao"}}
+	if !reflect.DeepEqual(buttons.Buttons, want) {
+		t.Fatalf("buttons = %+v, want %+v", buttons.Buttons, want)
+	}
+
+	if got := BuildButtonsPayload(&waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String("só texto")},
+	}}); got != nil {
+		t.Fatalf("interactive without buttons should not produce a payload: %+v", got)
+	}
+}

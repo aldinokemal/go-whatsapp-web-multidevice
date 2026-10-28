@@ -98,6 +98,9 @@ func restServer(_ *cobra.Command, _ []string) {
 		if config.AppBasePath != "" {
 			webhookPath = config.AppBasePath + webhookPath
 		}
+		// In front of both webhook routes: a Chatwoot-signed request is only
+		// remembered as delivered once it has been answered 2xx.
+		app.Use(webhookPath, rest.ChatwootWebhookReplayGuard())
 		app.Post(webhookPath, chatwootHandler.HandleWebhook)
 		// Per-device webhook: each device's Chatwoot inbox is configured to POST
 		// here so agent replies route deterministically to the right device.

@@ -1300,7 +1300,7 @@ Sent by WhatsApp Business / Cloud API senders (order confirmations, OTPs, bookin
 
 ### Buttons Message
 
-Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text):
+Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text). A top-level interactive message with native-flow buttons (Cloud API reply buttons, CTAs, single select) also fills `buttons`, next to its `interactive` text — so a client can tell it apart and answer it as a native-flow reply:
 
 ```json
 "buttons": {

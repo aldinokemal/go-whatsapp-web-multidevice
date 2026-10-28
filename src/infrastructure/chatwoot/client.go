@@ -35,7 +35,63 @@ type Client struct {
 	// endpoints (e.g. update_last_seen). It is immutable for a given inbox, so
 	// it is resolved once (at provisioning or on first use) and cached here to
 	// avoid a full inbox-list GET on every read receipt.
+	//
+	// It may be assigned directly only before the client is shared between
+	// goroutines. Read receipts are forwarded concurrently, so afterwards it
+	// is read and written through resolveInboxIdentifier and
+	// setInboxIdentifier, which serialise on inboxIdentifierLock.
 	InboxIdentifier string
+}
+
+// inboxIdentifierKey names one inbox of one Chatwoot installation.
+type inboxIdentifierKey struct {
+	BaseURL   string
+	AccountID int
+	InboxID   int
+}
+
+// inboxIdentifierLocks holds one mutex per inbox (inboxIdentifierKey ->
+// *sync.Mutex). The lock lives here rather than in Client so that Client
+// stays an ordinary copyable struct; it is bounded by the number of inboxes.
+var inboxIdentifierLocks sync.Map
+
+func (c *Client) inboxIdentifierLock() *sync.Mutex {
+	key := inboxIdentifierKey{BaseURL: c.BaseURL, AccountID: c.AccountID, InboxID: c.InboxID}
+	lock, _ := inboxIdentifierLocks.LoadOrStore(key, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+// setInboxIdentifier records an inbox identifier learned outside the lazy
+// lookup (inbox provisioning).
+func (c *Client) setInboxIdentifier(identifier string) {
+	lock := c.inboxIdentifierLock()
+	lock.Lock()
+	defer lock.Unlock()
+	c.InboxIdentifier = identifier
+}
+
+// resolveInboxIdentifier returns the inbox identifier, looking it up from the
+// inbox list the first time. The lock is held across the lookup so concurrent
+// first callers wait for one request instead of each sending their own; a
+// failed lookup is not remembered, so the next caller tries again.
+func (c *Client) resolveInboxIdentifier() (string, error) {
+	lock := c.inboxIdentifierLock()
+	lock.Lock()
+	defer lock.Unlock()
+	if c.InboxIdentifier != "" {
+		return c.InboxIdentifier, nil
+	}
+	inboxes, err := c.ListInboxes()
+	if err != nil {
+		return "", err
+	}
+	for _, inbox := range inboxes {
+		if inbox.ID == c.InboxID && inbox.InboxIdentifier != "" {
+			c.InboxIdentifier = inbox.InboxIdentifier
+			return c.InboxIdentifier, nil
+		}
+	}
+	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
 }
 
 // HTTPStatusError is returned by every Client method that hits Chatwoot's
@@ -578,11 +634,22 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 // land in. sourceID is the WhatsApp chat JID, forwarded to CreateConversation
 // when a fresh thread is opened. The contact's conversation list is fetched
 // once and scanned in-process for both the open-conversation and reopen cases.
+// A conversation is created only when that list was read; when it cannot be
+// read the error is returned and nothing is created.
 func (c *Client) FindOrCreateConversation(contactID int, sourceID string) (*Conversation, error) {
 	items, err := c.listContactConversations(contactID)
 	if err != nil {
-		// A list failure is logged and we fall through to creation rather than
-		// dropping the message.
+		var statusErr *HTTPStatusError
+		if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusNotFound {
+			// Not knowing the contact's conversations is not the same as the
+			// contact having none. Creating one now would open a second thread
+			// next to the customer's open conversation, and every later
+			// message would follow it there. The error is returned instead: a
+			// transient one (network, 429, 5xx) is retried by the caller.
+			return nil, fmt.Errorf("failed to list the conversations of contact %d: %w", contactID, err)
+		}
+		// 404: Chatwoot does not know the contact. Creating the conversation
+		// below fails the same way and reports it.
 		logrus.Errorf("Error finding conversation: %v", err)
 	}
 
@@ -777,22 +844,9 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	// inbox_identifier is immutable, so resolve it once and reuse the cached
 	// value — read sync fires this per receipt and a full inbox-list GET each
 	// time is pure overhead.
-	inboxIdentifier := c.InboxIdentifier
-	if inboxIdentifier == "" {
-		inboxes, err := c.ListInboxes()
-		if err != nil {
-			return err
-		}
-		for _, inbox := range inboxes {
-			if inbox.ID == c.InboxID {
-				inboxIdentifier = inbox.InboxIdentifier
-				break
-			}
-		}
-		if inboxIdentifier == "" {
-			return fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
-		}
-		c.InboxIdentifier = inboxIdentifier
+	inboxIdentifier, err := c.resolveInboxIdentifier()
+	if err != nil {
+		return err
 	}
 
 	endpoint := fmt.Sprintf(

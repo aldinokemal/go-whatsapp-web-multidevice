@@ -16,6 +16,8 @@ type IChatStorageRepository interface {
 	// CreateIncomingCallRecord persists an incoming call as a synthetic message (media_type "call") for chat history.
 	CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error
 	StoreChat(chat *Chat) error
+	// GetChat matches a JID on any device. Not for user-facing flows: use
+	// GetChatByDevice.
 	GetChat(jid string) (*Chat, error)
 	GetChatByDevice(deviceID, jid string) (*Chat, error)
 	GetChats(filter *ChatFilter) ([]*Chat, error)
@@ -26,7 +28,10 @@ type IChatStorageRepository interface {
 	StoreMessage(message *Message) error
 	StoreMessageEdit(edit *MessageEdit) error
 	StoreMessagesBatch(messages []*Message) error
-	GetMessageByID(id string) (*Message, error)                                 // New method for efficient ID-only search
+	// GetMessageByID matches an ID on any device and returns an arbitrary one of
+	// the rows. Each device stores its own copy (with its own "from me" flag and
+	// media keys), so user-facing flows must use the device-scoped lookups below.
+	GetMessageByID(id string) (*Message, error)
 	GetMessageByIDAndDevice(deviceID, id string) (*Message, error)              // Device-scoped ID lookup for device-isolated flows
 	GetMessageByIDChatAndDevice(deviceID, chatJID, id string) (*Message, error) // Full storage identity lookup for chat-scoped flows
 	GetMessageEdits(originalMessageID, deviceID string) ([]*MessageEdit, error)

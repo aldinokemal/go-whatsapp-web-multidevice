@@ -44,10 +44,12 @@ func NewChatwootHandler(
 }
 
 // composeOutgoingText prepares a Chatwoot agent reply for WhatsApp delivery:
-// it translates Chatwoot/GFM markdown (**bold**, *italic*, ~~strike~~) into
-// WhatsApp's syntax, and — when CHATWOOT_SIGN_MSG is enabled — prefixes the
-// agent's name (joined by CHATWOOT_SIGN_DELIMITER, with literal "\n" escapes
-// expanded). Returns "" when the reply has no text body.
+// it translates Chatwoot/GFM markdown (**bold**, *italic*, ~~strike~~, links,
+// backslash escapes) into what WhatsApp displays, and — when CHATWOOT_SIGN_MSG
+// is enabled — prefixes the agent's name (joined by CHATWOOT_SIGN_DELIMITER,
+// with literal "\n" escapes expanded). Returns "" when the reply has no text
+// body, which includes a message holding only Chatwoot's "--" signature
+// separator; callers must not send an empty text.
 func composeOutgoingText(payload chatwoot.WebhookPayload) string {
 	text := utils.ChatwootToWhatsAppMarkdown(payload.Content)
 	if config.ChatwootSignMsg && text != "" {
@@ -93,35 +95,6 @@ func chatwootSecretMatches(expected, candidate string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(candidate)) == 1
-}
-
-func chatwootWebhookAuthorized(c fiber.Ctx) bool {
-	secret := strings.TrimSpace(config.ChatwootWebhookSecret)
-	if secret == "" {
-		return true
-	}
-
-	for _, candidate := range []string{
-		c.Get("X-Chatwoot-Webhook-Secret"),
-		c.Get("X-Gowa-Chatwoot-Secret"),
-		c.Query("secret"),
-	} {
-		if chatwootSecretMatches(secret, candidate) {
-			return true
-		}
-	}
-
-	signature := strings.TrimSpace(c.Get("X-Hub-Signature-256"))
-	if signature == "" {
-		return false
-	}
-
-	digest, err := utils.GetMessageDigestOrSignature(c.Body(), []byte(secret))
-	if err != nil {
-		logrus.Errorf("Chatwoot Webhook: Failed to compute webhook signature: %v", err)
-		return false
-	}
-	return chatwootSecretMatches("sha256="+digest, signature)
 }
 
 func chatwootLinkChatJID(destination string) string {
@@ -335,18 +308,46 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 // device is resolved from the payload (conversation link, contact attrs, inbox
 // map, or env fallback).
 func (h *ChatwootHandler) HandleWebhook(c fiber.Ctx) error {
-	if !chatwootWebhookAuthorized(c) {
-		logrus.Warn("Chatwoot Webhook: Rejected request with invalid secret")
-		return c.SendStatus(fiber.StatusUnauthorized)
+	// The global secret is the default here, not the last word: a delivery is
+	// protected by the secret of the device it is routed to
+	// (chatwootWebhookRouteGate, applied once the route is known). A request
+	// the global secret does not cover is only let through when it resolves to
+	// a device and verifies against that device's secret.
+	globalOK, nativeErr := chatwootWebhookVerify(c, config.ChatwootWebhookSecret)
+
+	var payload chatwoot.WebhookPayload
+	bindErr := c.Bind().Body(&payload)
+
+	if !globalOK {
+		route, routed := h.chatwootSharedWebhookRoute(payload, bindErr)
+		if !routed {
+			logChatwootSignatureRejection(nativeErr)
+			logrus.Warn("Chatwoot Webhook: Rejected request with invalid secret")
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+		if status := h.chatwootWebhookRouteGate(c, route); status != 0 && status != fiber.StatusOK {
+			return c.SendStatus(status)
+		}
 	}
 
 	logrus.Debugf("Chatwoot Webhook raw body: %s", string(c.Body()))
 
-	var payload chatwoot.WebhookPayload
-	if err := c.Bind().Body(&payload); err != nil {
+	if bindErr != nil {
 		return utils.ResponseError(c, "Invalid payload")
 	}
 	return h.processChatwootWebhook(c, payload, nil)
+}
+
+// chatwootSharedWebhookRoute resolves the device a shared-endpoint payload is
+// for, so a request the global secret does not cover can be checked against
+// that device's secret. Only message events name an account and inbox to
+// resolve; everything else stays under the global secret.
+func (h *ChatwootHandler) chatwootSharedWebhookRoute(payload chatwoot.WebhookPayload, bindErr error) (chatwootWebhookRoute, bool) {
+	if bindErr != nil || (payload.Event != "message_created" && payload.Event != "message_updated") {
+		return chatwootWebhookRoute{}, false
+	}
+	route := h.resolveChatwootWebhookRoute(payload, nil)
+	return route, !route.Unroutable
 }
 
 // HandleDeviceWebhook is the per-device endpoint (/chatwoot/webhook/:device_id)
@@ -355,7 +356,14 @@ func (h *ChatwootHandler) HandleWebhook(c fiber.Ctx) error {
 // account and inbox match the device's configured account and inbox, so a
 // webhook for one device cannot be delivered through another device's path.
 func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
-	if !chatwootWebhookAuthorized(c) {
+	secret, err := h.deviceWebhookSecret(c)
+	if err != nil {
+		// Fail closed: without the device's config it is unknown whether the
+		// device has its own secret, and the global one may be empty.
+		logrus.Errorf("Chatwoot Webhook: cannot authenticate per-device request: %v", err)
+		return c.SendStatus(fiber.StatusServiceUnavailable)
+	}
+	if !chatwootWebhookAuthorizedWith(c, secret) {
 		logrus.Warn("Chatwoot Webhook: Rejected per-device request with invalid secret")
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
@@ -409,6 +417,28 @@ func (h *ChatwootHandler) HandleDeviceWebhook(c fiber.Ctx) error {
 	return h.processChatwootWebhook(c, payload, forced)
 }
 
+// deviceWebhookSecret returns the secret that authenticates the per-device
+// endpoint for the device named in the path: the device config's own
+// webhook_secret when it has one (each Chatwoot API channel has its own
+// secret), otherwise the global CHATWOOT_WEBHOOK_SECRET. An unknown device
+// uses the global secret, so it is authenticated exactly as before per-device
+// secrets existed. A storage error is returned so the caller can refuse the
+// request instead of guessing.
+func (h *ChatwootHandler) deviceWebhookSecret(c fiber.Ctx) (string, error) {
+	if h == nil || h.ChatStorageRepo == nil {
+		return config.ChatwootWebhookSecret, nil
+	}
+	deviceID := pathDeviceID(c)
+	if h.DeviceManager != nil {
+		resolved, ok := h.resolveConfigDeviceID(c)
+		if !ok {
+			return config.ChatwootWebhookSecret, nil
+		}
+		deviceID = resolved
+	}
+	return h.chatwootRouteWebhookSecret(chatwootWebhookRoute{DeviceID: deviceID})
+}
+
 // processChatwootWebhook performs the event gating shared by both webhook
 // endpoints, then delivers an agent reply using either the forced route (when
 // set by the per-device endpoint) or one resolved from the payload.
@@ -455,6 +485,11 @@ func (h *ChatwootHandler) processChatwootWebhook(c fiber.Ctx, payload chatwoot.W
 		route.AccountID = forced.AccountID
 		route.InboxID = forced.InboxID
 		route.Unroutable = false
+	}
+	// Nothing below may act on the request before this: the delivery is
+	// protected by the routed device's secret, whichever endpoint it came in on.
+	if status := h.chatwootWebhookRouteGate(c, route); status != 0 {
+		return c.SendStatus(status)
 	}
 	if route.Unroutable {
 		// Fail-fast for real: without this, the empty DeviceID would resolve to
@@ -579,6 +614,10 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 		// endpoint forces it so revokes route to the same device as sends.
 		route.DeviceID = forced.DeviceID
 		route.Unroutable = false
+	}
+	// A delete revokes a WhatsApp message: same gate as a send.
+	if status := h.chatwootWebhookRouteGate(c, route); status != 0 {
+		return c.SendStatus(status)
 	}
 	if route.Unroutable {
 		return c.SendStatus(fiber.StatusOK)

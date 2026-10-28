@@ -127,6 +127,7 @@ Download:
   - `--auto-mark-read=true`
 - Automatically download media from incoming messages:
   - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+  - See [Media storage and cleanup](./docs/media-storage.md) for storage locations and manual retention commands.
 - Ignore downloading status media:
   - `--ignore-status-media=true` disables downloading status media (default: `false`).
 - Automatically reject incoming calls:
@@ -222,6 +223,8 @@ Download:
 
 ## Configuration
 
+To store WhatsApp sessions and keys in managed PostgreSQL, follow the [Neon setup guide](./docs/neon.md).
+
 Configuration is loaded in this order of priority:
 
 1. Command-line flags (highest priority)
@@ -295,8 +298,9 @@ To use environment variables:
 | `CHATWOOT_IMPORT_MEDIA_WITH_REST`       | Upload direct-DB import media rows through Chatwoot REST       | `false`                                      | `CHATWOOT_IMPORT_MEDIA_WITH_REST=true`        |
 | `CHATWOOT_AUTO_CREATE`                  | Auto-create or reuse the Chatwoot API inbox at startup        | `false`                                      | `CHATWOOT_AUTO_CREATE=true`                   |
 | `CHATWOOT_INBOX_NAME`                   | Inbox name used when auto-create is enabled                   | `WhatsApp`                                   | `CHATWOOT_INBOX_NAME=WhatsApp Support`        |
-| `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook?secret=shared` |
-| `CHATWOOT_WEBHOOK_SECRET`               | Shared secret required for incoming Chatwoot webhooks          | -                                            | `CHATWOOT_WEBHOOK_SECRET=shared`              |
+| `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook` |
+| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature) | -                                     | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE`  | Maximum age of a signed Chatwoot webhook's timestamp           | `5m`                                         | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE=2m`     |
 | `CHATWOOT_REOPEN_CONVERSATION`          | Reopen resolved Chatwoot conversations for returning contacts  | `true`                                       | `CHATWOOT_REOPEN_CONVERSATION=false`          |
 | `CHATWOOT_CONVERSATION_PENDING`         | Create new Chatwoot conversations as pending                  | `false`                                      | `CHATWOOT_CONVERSATION_PENDING=true`          |
 | `CHATWOOT_IGNORE_JIDS`                  | JIDs or wildcards to exclude from Chatwoot forwarding          | -                                            | `CHATWOOT_IGNORE_JIDS=@g.us,628123@s.whatsapp.net` |
@@ -379,7 +383,8 @@ Docker avoids the need to install Go, FFmpeg, and libwebp directly on the host.
    - Windows: `.\whatsapp.exe rest`
 6. Open `http://localhost:3000` in a browser.
 
-Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags.
+Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags. Run `./whatsapp version` to
+print only the version number (for example, `9.6.0`).
 
 ### Cross-compile for Raspberry Pi (ARM)
 

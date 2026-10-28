@@ -147,6 +147,14 @@ func hydratedTemplateButton(button *waE2E.HydratedTemplateButton) (BusinessButto
 func BuildButtonsPayload(msg *waE2E.Message) *BusinessMessage {
 	bm := msg.GetButtonsMessage()
 	if bm == nil {
+		// Cloud API reply buttons, CTA and single-select arrive as a top-level
+		// InteractiveMessage. Without this branch they reached webhooks only as the
+		// text summary, and a client could not offer the buttons back.
+		if im := msg.GetInteractiveMessage(); im != nil {
+			if out := interactiveAsBusinessMessage(im); len(out.Buttons) > 0 || len(out.Cards) > 0 {
+				return out
+			}
+		}
 		return nil
 	}
 	out := &BusinessMessage{
@@ -178,8 +186,8 @@ func BuildButtonsPayload(msg *waE2E.Message) *BusinessMessage {
 	return out
 }
 
-// interactiveAsBusinessMessage maps an InteractiveMessage wrapped in a
-// template onto the same shape. Carousel cards are mapped recursively.
+// interactiveAsBusinessMessage maps an InteractiveMessage — top-level or wrapped
+// in a template — onto the same shape. Carousel cards are mapped recursively.
 func interactiveAsBusinessMessage(im *waE2E.InteractiveMessage) *BusinessMessage {
 	header := im.GetHeader()
 	out := &BusinessMessage{

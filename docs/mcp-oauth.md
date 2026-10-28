@@ -108,7 +108,7 @@ The implementation intentionally uses opaque tokens rather than JWTs:
 - PKCE with `S256` is mandatory;
 - redirect URIs must exactly match the URI registered by the client, except that native loopback-IP clients may change only the port used for their local callback;
 - redirect URIs must use HTTPS, except `native` clients, which may use `http` with a loopback IP literal such as `http://127.0.0.1:PORT/callback` or `http://[::1]:PORT/callback`. For Claude Code compatibility, the exact hostname `localhost` is also accepted only with an explicit port; unlike loopback IP literals, a registered `localhost` redirect receives no dynamic-port exception and must match exactly during authorization;
-- the OAuth `resource` value is bound to the canonical MCP resource and checked when access tokens are used;
+- the OAuth `resource` value is bound to the canonical MCP resource at authorization and checked when access tokens are used; token requests may omit `resource`, in which case the resource bound to the code or refresh-token family is used, while a supplied value must match;
 - successful authorization responses include RFC 9207 `iss` for authorization-server mix-up protection.
 
 Expired authorization codes and tokens are removed opportunistically during OAuth writes so their rows do not accumulate indefinitely. SQLite can reuse the freed pages; shrinking the file itself still requires normal SQLite maintenance such as `VACUUM` while GOWA is stopped.
