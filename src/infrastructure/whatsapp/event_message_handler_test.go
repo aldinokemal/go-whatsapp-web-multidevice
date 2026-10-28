@@ -330,8 +330,10 @@ func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
 	config.ChatwootEnabled = false
 
 	const forged = "INFO forged-entry"
-	pushName := "Alice\r\n" + forged + "\x1b[31m"
-	evt := textEventForTest("log-newline-1", types.NewJID("628123456789", types.DefaultUserServer))
+	pushName := "Alice\r\n" + forged + "\x1b[31m\u0085\u009b\u2028\u2029 …"
+	// A status broadcast chat returns from handleWebhookForward before it
+	// spawns the forwarding goroutine, which would race with t.Cleanup.
+	evt := textEventForTest("log-newline-1\nINFO forged-id", types.StatusBroadcastJID)
 	evt.Info.PushName = pushName
 	evt.Info.Sender = types.NewJID("62811\n999", types.DefaultUserServer)
 
@@ -358,11 +360,14 @@ func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
 	if len(writtenLines) != 1 {
 		t.Fatalf("sender name forged an extra log line: %#v", writtenLines)
 	}
-	if strings.ContainsAny(record, "\r\n") || strings.Contains(record, "\x1b") {
+	if strings.ContainsAny(record, "\r\n\u0085\u009b\u2028\u2029") || strings.Contains(record, "\x1b") {
 		t.Fatalf("log record still contains control characters: %q", record)
 	}
-	if !strings.Contains(record, "Alice") || !strings.Contains(record, forged) {
+	if !strings.Contains(record, "Alice") || !strings.Contains(record, forged) || !strings.Contains(record, `\x1b[31m\u0085\u009b\u2028\u2029 …`) {
 		t.Fatalf("sender name missing from the same log line: %q", record)
+	}
+	if !strings.Contains(record, `log-newline-1\nINFO forged-id`) {
+		t.Fatalf("message id was not escaped onto the same line: %q", record)
 	}
 	if !strings.Contains(record, `62811\n999`) {
 		t.Fatalf("sender jid was not escaped onto the same line: %q", record)

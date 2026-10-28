@@ -13,7 +13,8 @@ const redactedSecret = "***"
 // "webhook" is intentionally absent: destination URLs are useful at startup,
 // and only webhook signing secrets (keys that also match "secret" or "token")
 // are fully redacted. "proxy" is handled separately because a proxy without
-// userinfo is safe to print.
+// userinfo is safe to print. "basic_auth" stands in for a bare "auth", which
+// would also hide the non-secret mcp_oauth_* flags and URLs.
 var sensitiveKeySubstrings = []string{
 	"password",
 	"passwd",
@@ -22,19 +23,26 @@ var sensitiveKeySubstrings = []string{
 	"api_key",
 	"apikey",
 	"authorization",
-	"auth",
+	"basic_auth",
 	"credential",
 	"private",
 }
 
-// urlInText finds scheme URLs inside flat env values such as comma-separated
-// webhook lists. The match stops at commas and whitespace so each URL is
-// redacted on its own.
-var urlInText = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s,'"<>]+`)
+// urlUserinfo matches a scheme URL through the last '@' of its authority. The
+// authority ends at '/', '?', '#' or whitespace, so each URL in a
+// comma-separated webhook list is masked on its own, while commas and quotes
+// inside userinfo are still covered.
+var urlUserinfo = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/?#\s]*@`)
+
+// secretQueryParam matches a query parameter whose name looks secret. The
+// value runs to the next '&', '#' or whitespace because commas are legal in
+// it, so a later URL in the same comma-separated list is masked with it.
+var secretQueryParam = regexp.MustCompile(`(?i)([?&][^?&=#\s]*(?:secret|token|password|passwd|key|sig|auth|credential)[^?&=#\s]*=)[^&#\s]*`)
 
 // RedactSettings returns a deep copy of a Viper AllSettings map safe to print
 // at startup. Key names are preserved. Secret values become "***". Other
-// URL-like values keep their host and path, with userinfo replaced by "***".
+// URL-like values keep their host and path, with userinfo and secret query
+// values replaced by "***".
 func RedactSettings(settings map[string]any) map[string]any {
 	if settings == nil {
 		return nil
@@ -55,7 +63,8 @@ func redactMap(prefix string, settings map[string]any) map[string]any {
 }
 
 func redactSettingValue(key string, value any) any {
-	if isFullySensitiveKey(key) {
+	// An empty secret stays empty so a missing setting is still visible.
+	if value != "" && isFullySensitiveKey(key) {
 		return redactedSecret
 	}
 	switch typed := value.(type) {
@@ -84,7 +93,7 @@ func redactStringSetting(key, value string) string {
 	if isProxyKey(key) && proxyValueMayContainUserinfo(value) {
 		return redactedSecret
 	}
-	return redactUserinfoInText(value)
+	return redactURLSecretsInText(value)
 }
 
 func normalizeSettingKey(key string) string {
@@ -137,43 +146,20 @@ func proxyValueMayContainUserinfo(value string) bool {
 	if s == "" {
 		return false
 	}
-	if u, err := url.Parse(s); err == nil && u.Scheme != "" {
+	// Without a host the parse proves nothing: "user:pass@host:1080" reads as
+	// scheme "user" with the credentials left in Opaque.
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
 		return u.User != nil
 	}
 	return strings.Contains(s, "@")
 }
 
-func redactUserinfoInText(s string) string {
+func redactURLSecretsInText(s string) string {
 	if !strings.Contains(s, "://") {
 		return s
 	}
-	return urlInText.ReplaceAllStringFunc(s, redactURLUserinfo)
-}
-
-func redactURLUserinfo(raw string) string {
-	if u, err := url.Parse(raw); err == nil && u.Host != "" {
-		if u.User == nil {
-			return raw
-		}
-		u.User = nil
-		cleaned := u.String()
-		if i := strings.Index(cleaned, "://"); i >= 0 {
-			return cleaned[:i+3] + "***@" + cleaned[i+3:]
-		}
-	}
-	return maskRawURLUserinfo(raw)
-}
-
-func maskRawURLUserinfo(raw string) string {
-	scheme, rest, ok := strings.Cut(raw, "://")
-	if !ok {
-		return raw
-	}
-	at := strings.LastIndex(rest, "@")
-	if at < 0 {
-		return raw
-	}
-	return scheme + "://***@" + rest[at+1:]
+	s = urlUserinfo.ReplaceAllString(s, "${1}"+redactedSecret+"@")
+	return secretQueryParam.ReplaceAllString(s, "${1}"+redactedSecret)
 }
 
 // FormatProxyParseFailure describes a proxy URL for logs when url.Parse (or

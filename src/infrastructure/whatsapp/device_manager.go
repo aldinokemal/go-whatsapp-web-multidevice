@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -837,8 +838,12 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	client := whatsmeow.NewClient(storeDevice, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			// url.Parse errors include the raw URL. Log scheme and host only.
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY for device %s: %s", deviceID, utils.FormatProxyParseFailure(proxyURL))
+			// url.Parse errors include the raw URL, so log only its scheme and host.
+			reason := err.Error()
+			if errors.As(err, new(*url.Error)) {
+				reason = utils.FormatProxyParseFailure(proxyURL)
+			}
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY for device %s: %s", deviceID, reason)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY for device %s", deviceID)
 		}

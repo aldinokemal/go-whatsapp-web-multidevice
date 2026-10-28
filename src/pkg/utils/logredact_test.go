@@ -26,7 +26,7 @@ func TestRedactSettingsHidesSecretsAndKeepsPortHost(t *testing.T) {
 		"chatwoot_url":                         "https://app.chatwoot.com",
 		"chatwoot_api_token":                   "cw_token_value",
 		"chatwoot_import_db_uri":               "postgresql://cw:cwpass@pg.internal:5432/chatwoot",
-		"chatwoot_webhook_url":                 "https://public.example/chatwoot/webhook",
+		"chatwoot_webhook_url":                 "https://public.example/chatwoot/webhook?secret=cw-wh-secret",
 		"chatwoot_webhook_secret":              "cw-wh-secret",
 		"chatwoot_webhook_signature_tolerance": "5m",
 		"API_KEY":                              "plain-api-key",
@@ -68,8 +68,8 @@ func TestRedactSettingsHidesSecretsAndKeepsPortHost(t *testing.T) {
 	if got["chatwoot_url"] != "https://app.chatwoot.com" {
 		t.Fatalf("chatwoot URL should stay visible, got %#v", got["chatwoot_url"])
 	}
-	if got["chatwoot_webhook_url"] != "https://public.example/chatwoot/webhook" {
-		t.Fatalf("chatwoot webhook URL should stay visible, got %#v", got["chatwoot_webhook_url"])
+	if got["chatwoot_webhook_url"] != "https://public.example/chatwoot/webhook?secret=***" {
+		t.Fatalf("chatwoot webhook URL should stay visible with its secret masked, got %#v", got["chatwoot_webhook_url"])
 	}
 
 	for _, key := range []string{
@@ -133,6 +133,66 @@ func TestRedactSettingsUnparseableProxyWithUserinfo(t *testing.T) {
 	}
 	if strings.Contains(printed, "user:pass@") {
 		t.Fatalf("malformed proxy leaked credentials: %s", printed)
+	}
+}
+
+func TestRedactSettingsSchemelessProxyWithUserinfo(t *testing.T) {
+	// url.Parse reads "user" as the scheme and leaves the credentials in Opaque.
+	got := RedactSettings(map[string]any{"whatsapp_proxy": "user:pass@proxy.example:1080"})
+	if got["whatsapp_proxy"] != redactedSecret {
+		t.Fatalf("schemeless proxy = %#v, want %s", got["whatsapp_proxy"], redactedSecret)
+	}
+}
+
+func TestRedactSettingsUserinfoWithQuoteOrComma(t *testing.T) {
+	got := RedactSettings(map[string]any{
+		"whatsapp_webhook": "https://user:p'ss@hooks.example/b",
+		"chatwoot_url":     "https://agent:pa,ss@chat.example",
+		"cache_url":        "redis://:p@ss,w0rd@cache:6379",
+	})
+	for key, want := range map[string]string{
+		"whatsapp_webhook": "https://***@hooks.example/b",
+		"chatwoot_url":     "https://***@chat.example",
+		"cache_url":        "redis://***@cache:6379",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %#v, want %q", key, got[key], want)
+		}
+	}
+}
+
+func TestRedactSettingsMasksSecretQueryValues(t *testing.T) {
+	got := RedactSettings(map[string]any{
+		"whatsapp_webhook": "https://hooks.example/in?source=gowa&token=wh,tok#frag",
+		"chatwoot_url":     "https://chat.example/?api_key=k1",
+	})
+	if want := "https://hooks.example/in?source=gowa&token=***#frag"; got["whatsapp_webhook"] != want {
+		t.Fatalf("whatsapp_webhook = %#v, want %q", got["whatsapp_webhook"], want)
+	}
+	if want := "https://chat.example/?api_key=***"; got["chatwoot_url"] != want {
+		t.Fatalf("chatwoot_url = %#v, want %q", got["chatwoot_url"], want)
+	}
+}
+
+func TestRedactSettingsKeepsOAuthSettingsAndEmptySecrets(t *testing.T) {
+	got := RedactSettings(map[string]any{
+		"mcp_oauth_enabled":      true,
+		"mcp_oauth_issuer_url":   "https://gowa.example",
+		"mcp_oauth_resource_url": "https://gowa.example/mcp",
+		"mcp_oauth_db_uri":       "postgres://oauth:oauthpass@db.internal:5432/oauth",
+		"chatwoot_api_token":     "",
+	})
+	if got["mcp_oauth_enabled"] != true {
+		t.Fatalf("mcp_oauth_enabled = %#v, want true", got["mcp_oauth_enabled"])
+	}
+	if got["mcp_oauth_issuer_url"] != "https://gowa.example" || got["mcp_oauth_resource_url"] != "https://gowa.example/mcp" {
+		t.Fatalf("OAuth URLs were hidden: issuer=%#v resource=%#v", got["mcp_oauth_issuer_url"], got["mcp_oauth_resource_url"])
+	}
+	if got["mcp_oauth_db_uri"] != redactedSecret {
+		t.Fatalf("mcp_oauth_db_uri = %#v, want %s", got["mcp_oauth_db_uri"], redactedSecret)
+	}
+	if got["chatwoot_api_token"] != "" {
+		t.Fatalf("empty secret = %#v, want empty", got["chatwoot_api_token"])
 	}
 }
 

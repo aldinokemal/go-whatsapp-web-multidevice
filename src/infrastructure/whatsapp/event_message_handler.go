@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -17,11 +18,11 @@ import (
 )
 
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	// Log message metadata. Sender name and JID are escaped so a newline in
-	// notify metadata cannot forge a second log line.
+	// Log message metadata. Message ID, sender name and JID are escaped so a
+	// newline in sender-controlled stanza fields cannot forge a second log line.
 	metaParts := buildMessageMetaParts(evt)
 	log.Infof("Received message %s from %s (%s): %+v",
-		evt.Info.ID,
+		sanitizeLogText(evt.Info.ID),
 		sanitizeLogText(evt.Info.SourceString()),
 		sanitizeLogText(strings.Join(metaParts, ", ")),
 		evt.Message,
@@ -79,16 +80,16 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
-// sanitizeLogText escapes ASCII control characters so one log record stays one line.
+// sanitizeLogText escapes control characters (C0, DEL, C1) and the Unicode
+// line and paragraph separators so one log record stays one line.
 func sanitizeLogText(s string) string {
-	if s == "" || !hasASCIIControl(s) {
+	if !strings.ContainsFunc(s, isLogControl) {
 		return s
 	}
 	var b strings.Builder
 	b.Grow(len(s) + 8)
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
+	for _, r := range s {
+		switch r {
 		case '\n':
 			b.WriteString(`\n`)
 		case '\r':
@@ -96,24 +97,20 @@ func sanitizeLogText(s string) string {
 		case '\t':
 			b.WriteString(`\t`)
 		default:
-			if c < 0x20 || c == 0x7f {
-				fmt.Fprintf(&b, `\x%02x`, c)
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else if isLogControl(r) {
+				fmt.Fprintf(&b, `\u%04x`, r)
 			} else {
-				b.WriteByte(c)
+				b.WriteRune(r)
 			}
 		}
 	}
 	return b.String()
 }
 
-func hasASCIIControl(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < 0x20 || c == 0x7f {
-			return true
-		}
-	}
-	return false
+func isLogControl(r rune) bool {
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
 }
 
 func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
