@@ -205,7 +205,8 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 
 	_, err = utils.GetMetaDataFromURL(slowServer.URL)
 	assert.Error(suite.T(), err)
-	assert.Contains(suite.T(), err.Error(), "deadline exceeded")
+	errText := strings.ToLower(err.Error())
+	assert.True(suite.T(), strings.Contains(errText, "timeout") || strings.Contains(errText, "deadline exceeded"), err.Error())
 
 	// Test too many redirects
 	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

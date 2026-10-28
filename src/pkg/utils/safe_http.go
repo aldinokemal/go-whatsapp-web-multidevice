@@ -75,7 +75,6 @@ func newUntrustedHTTPClient(timeout time.Duration) *http.Client {
 		Proxy:                 nil,
 		DialContext:           dialUntrusted,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: timeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableCompression:    false,
 	}
