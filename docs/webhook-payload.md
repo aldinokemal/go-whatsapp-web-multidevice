@@ -203,7 +203,7 @@ Fields commonly found inside the `payload` object:
 | `id`        | string   | Message ID                                                                    |
 | `chat_id`   | string   | Chat JID (e.g., `628987654321@s.whatsapp.net` or `120363...@g.us` for groups) |
 | `from`      | string   | Full JID of the sender (e.g., `628123456789@s.whatsapp.net`)                  |
-| `from_lid`  | string   | LID (Linked ID) of the sender if available                                    |
+| `from_lid`  | string   | LID of the sender, supplied by WhatsApp or resolved from this device's known phone-to-LID mapping |
 | `sender_display_name` | string | Dynamic human-readable sender label. Present only when `from` is a non-empty string; see [Sender Display Name Resolution](#sender-display-name-resolution). |
 | `from_name` | string   | Legacy message-event push name of the sender. It remains available for compatibility and is not replaced by `sender_display_name`. |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |

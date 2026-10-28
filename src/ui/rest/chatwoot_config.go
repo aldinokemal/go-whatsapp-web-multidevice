@@ -74,6 +74,9 @@ func normalizeChatwootIgnoreJids(jids []string) ([]string, error) {
 		if at < 0 || at == len(jid)-1 || strings.Count(jid, "@") != 1 || strings.ContainsAny(jid, " \t\r\n,") {
 			return nil, fmt.Errorf("invalid ignore_jids entry %q: expected a JID such as 628123456789@s.whatsapp.net or 120363000000000000@g.us, or a wildcard such as @g.us", jid)
 		}
+		if at == 0 && jid != "@g.us" && jid != "@s.whatsapp.net" && jid != "@lid" {
+			return nil, fmt.Errorf("invalid ignore_jids wildcard %q: expected @g.us, @s.whatsapp.net or @lid", jid)
+		}
 		if _, dup := seen[jid]; dup {
 			continue
 		}

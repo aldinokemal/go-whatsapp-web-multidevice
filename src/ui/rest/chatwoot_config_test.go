@@ -354,7 +354,7 @@ func TestChatwootConfigRejectsInvalidIgnoreJids(t *testing.T) {
 	app := newConfigTestApp(t, store)
 	const base = `"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"t"`
 
-	for _, entry := range []string{"628123456789", "628123456789@", "a@b@c", "628 123@s.whatsapp.net", "@g.us,@lid"} {
+	for _, entry := range []string{"628123456789", "628123456789@", "a@b@c", "628 123@s.whatsapp.net", "@g.us,@lid", "@example", "@g.u", "@newsletter"} {
 		resp, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{`+base+`,"ignore_jids":["`+entry+`"]}`)
 		if resp.StatusCode != fiber.StatusBadRequest || !strings.Contains(body, "INVALID_REQUEST") {
 			t.Errorf("ignore_jids entry %q: status = %d body=%s, want 400 INVALID_REQUEST", entry, resp.StatusCode, body)
@@ -501,4 +501,16 @@ func TestChatwootConfigMultiDeviceNoDeviceMiddlewareLeak(t *testing.T) {
 			t.Fatalf("expected leaked middleware to reject with DEVICE_ID_REQUIRED, got status=%d body=%s", resp.StatusCode, body)
 		}
 	})
+}
+
+func TestChatwootConfigAcceptsSupportedIgnoreWildcards(t *testing.T) {
+	store := newFakeConfigStore()
+	app := newConfigTestApp(t, store)
+	response, body := doJSON(t, app, http.MethodPut, "/devices/dev/chatwoot/config", `{"chatwoot_url":"https://203.0.113.10","account_id":1,"inbox_id":5,"api_token":"t","ignore_jids":["@g.us","@s.whatsapp.net","@lid"]}`)
+	if response.StatusCode != fiber.StatusOK {
+		t.Fatalf("supported wildcards rejected: %d %s", response.StatusCode, body)
+	}
+	if len(store.configs["dev"].IgnoreJids) != 3 {
+		t.Fatal(store.configs["dev"].IgnoreJids)
+	}
 }
