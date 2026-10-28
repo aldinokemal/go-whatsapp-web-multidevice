@@ -53,4 +53,15 @@ func TestInjectBetaCallConsole(t *testing.T) {
 		require.Contains(t, injected, "gowa-beta-call-banner")
 		require.Contains(t, injected, `base + '/ws'`)
 	})
+
+	t.Run("defers the fallback auto-refresh while a call is active", func(t *testing.T) {
+		fallback := []byte(`<!doctype html><html><head><meta http-equiv="refresh" content="30"></head><body></body></html>`)
+		injected := string(InjectBetaCallConsole(fallback, ""))
+
+		require.Contains(t, injected, `meta[http-equiv="refresh"]`)
+		require.Contains(t, injected, `refreshSuppressed = meta.getAttribute('content') || '30'`)
+		require.Contains(t, injected, "restored.content = refreshSuppressed")
+		require.Contains(t, injected, "setCallActive(true)")
+		require.Contains(t, injected, "setCallActive(false)")
+	})
 }

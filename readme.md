@@ -776,7 +776,18 @@ When enabled:
 - `POST /call/start` places a call. Body: `{"target": "+628123456789"}`; add an
   optional `"audio_file_path"` (`.mp3` or `.wav`) to stream that file to the peer
   once the call is answered, and an optional `"record_path"` (`.wav`) to save the
-  peer's audio. Returns `{"call_id": "...", "target": "..."}`.
+  peer's audio. The response nests the call details under `results`:
+
+  ```json
+  {
+    "code": "SUCCESS",
+    "message": "Call started successfully",
+    "results": {
+      "call_id": "...",
+      "target": "..."
+    }
+  }
+  ```
 - Media paths resolve relative to the server's `storages` directory. Absolute
   paths and `..` escapes are rejected; the API returns a generic path error
   without exposing the host filesystem.
@@ -800,6 +811,32 @@ When enabled:
   parallel for external integrations.
 - `WHATSAPP_AUTO_REJECT_CALL` is ignored while the beta stack is enabled; decide
   per call through `/call/answer` or `/call/reject` instead.
+
+Set `APP_DEBUG=true` (or `WHATSAPP_LOG_LEVEL=DEBUG`) to surface meowcaller's relay
+election and media diagnostics. Without them a one-way call cannot be told apart
+from a local microphone problem.
+
+**Known issue: one-way audio and ringing calls.** The pinned commit answers the
+caller's `<relaylatency>` probes with the caller's own numbers instead of steering
+the election, so a peer far from the server can win with a relay that never
+bridges its media: the peer hears you, you hear nothing. The deferred `<accept>`
+also waits for the caller's first `<mute_v2>`, which usually arrives within a
+second, so answering from the dashboard a few seconds later leaves the caller
+ringing. Both are fixed in
+[purpshell/meowcaller#49](https://github.com/purpshell/meowcaller/pull/49), which
+is unmerged and built on the `hypermeow` fork. Until a whatsmeow-compatible
+release carries it, backport the two commits and point `replace` at your fork:
+
+```sh
+git clone https://github.com/purpshell/meowcaller
+cd meowcaller
+git checkout -b whatsmeow-compat 6d9b7b2c1807
+git fetch origin pull/49/head:pr49
+git cherry-pick 27401dd f1388db   # applies clean on 6d9b7b2c1807
+# push the branch to your fork, then here:
+go mod edit -replace github.com/purpshell/meowcaller=github.com/<you>/meowcaller@whatsmeow-compat
+go mod tidy
+```
 
 Limitations: audio-only (no video), 1:1 only (no group calls). Without a live
 audio connection or an `audio_file_path` the server sends silence, and without a

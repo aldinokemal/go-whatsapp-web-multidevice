@@ -43,6 +43,23 @@ var restCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(restCmd)
 }
+
+// incomingCallBroadcastTimeout bounds the dashboard websocket handoff so a stuck
+// hub cannot delay webhook delivery or call teardown.
+const incomingCallBroadcastTimeout = 250 * time.Millisecond
+
+// broadcastIncomingCallUI hands a dashboard notification to the websocket hub
+// without blocking the call path when the hub is stuck. Drops on timeout.
+func broadcastIncomingCallUI(message websocket.BroadcastMessage, timeout time.Duration) bool {
+	select {
+	case websocket.Broadcast <- message:
+		return true
+	case <-time.After(timeout):
+		logrus.Warnf("[CALL] websocket hub busy; dropped %s notification", message.Code)
+		return false
+	}
+}
+
 func restServer(_ *cobra.Command, _ []string) {
 	// registerMcpOAuth depends on these values being loaded after flag parsing.
 	loadMcpOAuthEnvConfig()
@@ -211,11 +228,11 @@ func restServer(_ *cobra.Command, _ []string) {
 		if notification.Event == whatsapp.IncomingCallEventEnded {
 			code = "CALL_ENDED"
 		}
-		websocket.Broadcast <- websocket.BroadcastMessage{
+		broadcastIncomingCallUI(websocket.BroadcastMessage{
 			Code:    code,
 			Message: "Incoming call",
 			Result:  notification,
-		}
+		}, incomingCallBroadcastTimeout)
 	})
 
 	// Set auto reconnect to whatsapp server after booting

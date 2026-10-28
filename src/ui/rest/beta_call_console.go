@@ -104,6 +104,7 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
   var live = null;
   var incomingWS = null;
   var incomingRetry = null;
+  var refreshSuppressed = null;
 
   // AudioWorklet conversions between the browser's float samples and the
   // s16le 16 kHz mono frames the call bridge speaks. Kept inline so the panel
@@ -154,6 +155,25 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
     "registerProcessor('gowa-mic', GowaMic);",
     "registerProcessor('gowa-speaker', GowaSpeaker);"
   ].join('\n');
+
+  // The fallback page reloads every 30s. Pull its <meta> while a call is live so
+  // a refresh cannot tear down the mic stream or the controls, then restore it.
+  // The downloaded dashboard has no refresh tag, so this is a no-op there.
+  function setCallActive(active) {
+    var meta = document.querySelector('meta[http-equiv="refresh"]');
+    if (active) {
+      if (refreshSuppressed || !meta) return;
+      refreshSuppressed = meta.getAttribute('content') || '30';
+      meta.remove();
+      return;
+    }
+    if (!refreshSuppressed) return;
+    var restored = document.createElement('meta');
+    restored.httpEquiv = 'refresh';
+    restored.content = refreshSuppressed;
+    document.head.appendChild(restored);
+    refreshSuppressed = null;
+  }
 
   function selectedDevice() {
     try {
@@ -294,12 +314,14 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
       if (incoming.call_id && incoming.call_id === callID.value.trim()) {
         banner.hidden = true;
         log('incoming call ended');
+        setCallActive(false);
       }
       return;
     }
     if (message.code !== 'CALL_INCOMING') return;
 
     panel.hidden = false;
+    setCallActive(true);
     banner.hidden = false;
     banner.textContent = 'Incoming call from ' + (incoming.from || 'unknown') + ' - click Answer';
     callID.value = incoming.call_id || '';
@@ -333,7 +355,10 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
     try {
       var result = await post('start', body);
       var started = result && result.results && result.results.call_id;
-      if (started) callID.value = started;
+      if (started) {
+        callID.value = started;
+        setCallActive(true);
+      }
     } catch (err) {
       log('error: ' + err.message);
     }
@@ -345,6 +370,7 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
     try {
       await post('answer', body);
       banner.hidden = true;
+      setCallActive(true);
     } catch (err) {
       log('error: ' + err.message);
     }
@@ -355,6 +381,7 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
       await post('hangup', {call_id: callID.value.trim()});
       stopLive();
       banner.hidden = true;
+      setCallActive(false);
     } catch (err) {
       log('error: ' + err.message);
     }
