@@ -82,33 +82,24 @@ func AllowUntrustedLoopbackForTest() (restore func()) {
 }
 
 // untrustedTransport is shared so keep-alive connections are pooled and expire.
-// It keeps the default proxy, HTTP/2, and idle-connection settings and only
-// replaces dialing.
+// It keeps the default HTTP/2 and idle-connection settings, replaces dialing,
+// and connects directly: a proxy would resolve the destination again after it
+// was checked, so HTTP(S)_PROXY is not used for these fetches.
 var untrustedTransport = func() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
 	transport.DialContext = dialUntrusted
 	return transport
 }()
 
-// untrustedProxyAddrs holds the host:port of the HTTP_PROXY and HTTPS_PROXY
-// servers. Those are operator configuration and are dialed without the address
-// check; the destination behind them is still checked by validateUntrustedURL
-// before the request and on every redirect.
-var untrustedProxyAddrs = sync.OnceValue(func() map[string]bool {
-	addrs := map[string]bool{}
-	for _, scheme := range []string{"http", "https"} {
-		proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: scheme, Host: "gowa.invalid"}})
-		if err != nil || proxyURL == nil {
-			continue
-		}
-		port := proxyURL.Port()
-		if port == "" {
-			port = map[string]string{"http": "80", "https": "443", "socks5": "1080", "socks5h": "1080"}[proxyURL.Scheme]
-		}
-		addrs[net.JoinHostPort(proxyURL.Hostname(), port)] = true
-	}
-	return addrs
-})
+type chatwootAttachmentFetchKey struct{}
+
+// WithChatwootAttachmentFetch marks ctx as fetching a Chatwoot attachment. Only
+// such fetches may reach the operator-configured Chatwoot hosts, which can be
+// private; every other caller-selected URL keeps the public-address check.
+func WithChatwootAttachmentFetch(ctx context.Context) context.Context {
+	return context.WithValue(ctx, chatwootAttachmentFetchKey{}, true)
+}
 
 func newUntrustedHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
@@ -119,7 +110,7 @@ func newUntrustedHTTPClient(timeout time.Duration) *http.Client {
 }
 
 func doUntrusted(client *http.Client, req *http.Request) (*http.Response, error) {
-	if err := validateUntrustedURL(req.URL.String()); err != nil {
+	if err := validateUntrustedURL(req.Context(), req.URL.String()); err != nil {
 		// gowa's own file URLs (from /message/:id/download or webhook media
 		// paths) point at a loopback or private address in default deployments.
 		// Serve those from disk; /statics is already public, so nothing new is
@@ -135,14 +126,19 @@ func doUntrusted(client *http.Client, req *http.Request) (*http.Response, error)
 }
 
 // localStaticResponse answers a GET for a gowa /statics URL from the stored
-// file. The rooted clean keeps the path inside the statics directory.
+// file. os.Root keeps the lookup inside the statics directory, whatever
+// separators or symlinks the path holds.
 func localStaticResponse(req *http.Request) (*http.Response, bool) {
 	rel, ok := strings.CutPrefix(req.URL.Path, config.AppBasePath+"/statics/")
 	if !ok || req.Method != http.MethodGet {
 		return nil, false
 	}
-	full := filepath.Join("statics", filepath.FromSlash(path.Clean("/"+rel)))
-	file, err := os.Open(full)
+	root, err := os.OpenRoot("statics")
+	if err != nil {
+		return nil, false
+	}
+	defer root.Close()
+	file, err := root.Open(filepath.FromSlash(path.Clean(rel)))
 	if err != nil {
 		return nil, false
 	}
@@ -152,7 +148,7 @@ func localStaticResponse(req *http.Request) (*http.Response, bool) {
 		return nil, false
 	}
 	header := http.Header{}
-	if contentType := mime.TypeByExtension(filepath.Ext(full)); contentType != "" {
+	if contentType := mime.TypeByExtension(filepath.Ext(rel)); contentType != "" {
 		header.Set("Content-Type", contentType)
 	}
 	return &http.Response{
@@ -172,10 +168,10 @@ func untrustedCheckRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxUntrustedRedirects {
 		return fmt.Errorf("too many redirects")
 	}
-	return validateUntrustedURL(req.URL.String())
+	return validateUntrustedURL(req.Context(), req.URL.String())
 }
 
-func validateUntrustedURL(raw string) error {
+func validateUntrustedURL(ctx context.Context, raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -195,10 +191,10 @@ func validateUntrustedURL(raw string) error {
 		}
 	}
 	hooks := snapshotUntrustedFetchHooks()
-	if hooks.skip || operatorTrustedHost(host, urlPort(parsed)) {
+	if hooks.skip || operatorTrustedHost(ctx, host, urlPort(parsed)) {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	ips, err := resolveUntrustedHost(ctx, host, hooks)
 	if err != nil {
@@ -207,13 +203,16 @@ func validateUntrustedURL(raw string) error {
 	return rejectBlockedIPs(host, ips)
 }
 
-// operatorTrustedHost reports whether host:port is the CHATWOOT_URL host and
-// port, or host is listed in CHATWOOT_ALLOWED_HOSTS, matched case-insensitively
-// as the chatwoot package does. Chatwoot attachments are served from these
-// operator-configured hosts, which may be private, so they skip the
-// public-address check. The CHATWOOT_URL port is part of the match so a
-// Chatwoot on localhost does not open every other local port.
-func operatorTrustedHost(host, port string) bool {
+// operatorTrustedHost reports whether a Chatwoot attachment fetch (see
+// WithChatwootAttachmentFetch) targets the CHATWOOT_URL host and port, or a
+// host listed in CHATWOOT_ALLOWED_HOSTS, matched case-insensitively as the
+// chatwoot package does. Chatwoot serves attachments from these
+// operator-configured hosts, which may be private, so those fetches skip the
+// public-address check.
+func operatorTrustedHost(ctx context.Context, host, port string) bool {
+	if ctx.Value(chatwootAttachmentFetchKey{}) == nil {
+		return false
+	}
 	if base, err := url.Parse(strings.TrimSpace(config.ChatwootURL)); err == nil && strings.EqualFold(base.Hostname(), host) && urlPort(base) == port {
 		return true
 	}
@@ -352,8 +351,8 @@ func IsBlockedFetchIP(ip net.IP) bool {
 
 // dialUntrusted resolves the dial address, refuses non-public results, and
 // connects to the checked IP. Re-checking here covers DNS rebinding between
-// the request check and the connection. The configured proxy and
-// operator-trusted hosts are dialed as given.
+// the request check and the connection. Operator-trusted hosts are dialed as
+// given.
 func dialUntrusted(ctx context.Context, network, address string) (net.Conn, error) {
 	hooks := snapshotUntrustedFetchHooks()
 	host, port, err := net.SplitHostPort(address)
@@ -361,7 +360,7 @@ func dialUntrusted(ctx context.Context, network, address string) (net.Conn, erro
 		return nil, err
 	}
 	host = normalizeFetchHost(host)
-	if hooks.skip || untrustedProxyAddrs()[address] || operatorTrustedHost(host, port) {
+	if hooks.skip || operatorTrustedHost(ctx, host, port) {
 		if hooks.dial != nil {
 			return hooks.dial(ctx, network, address)
 		}

@@ -432,7 +432,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	if request.ImageURL != nil && *request.ImageURL != "" {
 		// Download image from URL
-		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
+		imageData, fileName, err := utils.DownloadImageFromURL(ctx, *request.ImageURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
 		}
@@ -614,7 +614,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	)
 
 	if request.FileURL != nil && *request.FileURL != "" {
-		fileBytes, fileName, err = utils.DownloadFileFromURL(*request.FileURL)
+		fileBytes, fileName, err = utils.DownloadFileFromURL(ctx, *request.FileURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download file from URL: %v", err))
 		}
@@ -1021,7 +1021,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	// Determine source of video (URL or uploaded file)
 	if request.VideoURL != nil && *request.VideoURL != "" {
 		// Download video bytes
-		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(*request.VideoURL)
+		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(ctx, *request.VideoURL)
 		if errDownload != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
 		}
@@ -1415,7 +1415,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
-		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(*request.AudioURL)
+		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(ctx, *request.AudioURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
 		}
@@ -1820,7 +1820,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Handle sticker from URL or file
 	if request.StickerURL != nil && *request.StickerURL != "" {
 		// Download sticker from URL
-		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
+		imageData, _, err := utils.DownloadImageFromURL(ctx, *request.StickerURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
 		}

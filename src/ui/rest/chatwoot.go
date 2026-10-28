@@ -766,6 +766,8 @@ func (h *ChatwootHandler) notifySendFailure(payload chatwoot.WebhookPayload, rou
 }
 
 func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, att chatwoot.Attachment, caption string) (domainSend.GenericResponse, error) {
+	// Chatwoot serves attachments from its own, possibly private, host.
+	ctx = utils.WithChatwootAttachmentFetch(ctx)
 	switch att.FileType {
 	case "image":
 		req := domainSend.ImageRequest{

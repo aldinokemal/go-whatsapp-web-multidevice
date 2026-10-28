@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -342,9 +343,9 @@ func ContainsMention(message string) []string {
 	return phoneNumbers
 }
 
-func DownloadImageFromURL(url string) ([]byte, string, error) {
+func DownloadImageFromURL(ctx context.Context, url string) ([]byte, string, error) {
 	client := newUntrustedHTTPClient(30 * time.Second)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -394,9 +395,9 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 // It validates that the content-type returned by the server starts with "audio/" and that the size is below
 // WhatsappSettingMaxDownloadSize limit to avoid memory exhaustion. Only the MIME types defined in audio validation
 // are allowed to ensure WhatsApp compatibility.
-func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
+func DownloadAudioFromURL(ctx context.Context, audioURL string) ([]byte, string, error) {
 	client := newUntrustedHTTPClient(30 * time.Second)
-	req, err := http.NewRequest(http.MethodGet, audioURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -480,9 +481,9 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 // DownloadVideoFromURL downloads a video file from the provided URL and returns the bytes and sanitized filename.
 // It validates that the content-type returned by the server is one of the supported WhatsApp video formats and
 // that the size does not exceed WhatsappSettingMaxDownloadSize to avoid memory exhaustion.
-func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
+func DownloadVideoFromURL(ctx context.Context, videoURL string) ([]byte, string, error) {
 	client := newUntrustedHTTPClient(30 * time.Second)
-	req, err := http.NewRequest(http.MethodGet, videoURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -591,9 +592,9 @@ func UniqueStrings(input []string) []string {
 
 // DownloadFileFromURL downloads a file from the provided URL and returns the bytes and sanitized filename.
 // It enforces max file size limit.
-func DownloadFileFromURL(fileURL string) ([]byte, string, error) {
+func DownloadFileFromURL(ctx context.Context, fileURL string) ([]byte, string, error) {
 	client := newUntrustedHTTPClient(30 * time.Second)
-	req, err := http.NewRequest(http.MethodGet, fileURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
