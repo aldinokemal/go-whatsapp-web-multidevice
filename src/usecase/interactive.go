@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/disintegration/imaging"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"strconv"
 	"time"
@@ -117,16 +119,16 @@ func populateInteractiveCardImage(ctx context.Context, header *waE2E.Interactive
 	if decodeBase64Err != nil {
 		return pkgError.ValidationError("invalid base64 card image")
 	}
-	src, _, decodeErr := image.Decode(bytes.NewReader(data))
+	src, decodeErr := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if decodeErr != nil {
 		return pkgError.ValidationError("invalid card image")
 	}
 	var full, thumb bytes.Buffer
 	resized := imaging.Fit(src, 1280, 1280, imaging.Lanczos)
-	if err := jpeg.Encode(&full, resized, &jpeg.Options{Quality: 85}); err != nil {
+	if err := jpeg.Encode(&full, opaqueInteractiveImage(resized), &jpeg.Options{Quality: 85}); err != nil {
 		return err
 	}
-	if err := jpeg.Encode(&thumb, imaging.Thumbnail(src, 160, 160, imaging.Lanczos), nil); err != nil {
+	if err := jpeg.Encode(&thumb, opaqueInteractiveImage(imaging.Thumbnail(src, 160, 160, imaging.Lanczos)), nil); err != nil {
 		return err
 	}
 	upload, uploadErr := uploadImage(ctx, full.Bytes())
@@ -137,4 +139,12 @@ func populateInteractiveCardImage(ctx context.Context, header *waE2E.Interactive
 	header.HasMediaAttachment = proto.Bool(true)
 	header.Media = &waE2E.InteractiveMessage_Header_ImageMessage{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: upload.MediaKey, FileEncSHA256: upload.FileEncSHA256, FileSHA256: upload.FileSHA256, FileLength: proto.Uint64(uint64(full.Len())), Mimetype: proto.String("image/jpeg"), JPEGThumbnail: thumb.Bytes(), Width: proto.Uint32(uint32(bounds.Dx())), Height: proto.Uint32(uint32(bounds.Dy()))}}
 	return nil
+}
+
+// opaqueInteractiveImage composites transparency onto white before lossy JPEG conversion.
+func opaqueInteractiveImage(src image.Image) image.Image {
+	dst := image.NewRGBA(src.Bounds())
+	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, src.Bounds().Min, draw.Over)
+	return dst
 }

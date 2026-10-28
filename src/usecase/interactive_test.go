@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"image"
+	"image/jpeg"
 	"image/png"
 	"testing"
 
@@ -16,6 +17,51 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
+
+// TestInteractiveImageOrientationAndTransparency protects image presentation after JPEG conversion.
+func TestInteractiveImageOrientationAndTransparency(t *testing.T) {
+	var jpegData bytes.Buffer
+	require.NoError(t, jpeg.Encode(&jpegData, image.NewRGBA(image.Rect(0, 0, 80, 40)), nil))
+	// EXIF APP1 segment: little-endian TIFF with Orientation=6 (rotate 90 degrees clockwise).
+	exif := []byte{'E', 'x', 'i', 'f', 0, 0, 'I', 'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0}
+	segment := append([]byte{0xff, 0xe1, 0, byte(len(exif) + 2)}, exif...)
+	oriented := append([]byte{}, jpegData.Bytes()[:2]...)
+	oriented = append(oriented, segment...)
+	oriented = append(oriented, jpegData.Bytes()[2:]...)
+	var pngData bytes.Buffer
+	require.NoError(t, png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 40, 20))))
+	for _, tc := range []struct {
+		name          string
+		data          []byte
+		width, height int
+		white         bool
+	}{
+		{"EXIF rotation", oriented, 40, 80, false},
+		{"transparent PNG", pngData.Bytes(), 40, 20, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			header := &waE2E.InteractiveMessage_Header{}
+			var full []byte
+			err := populateInteractiveCardImage(context.Background(), header, base64.StdEncoding.EncodeToString(tc.data), func(_ context.Context, data []byte) (whatsmeow.UploadResponse, error) {
+				full = append([]byte{}, data...)
+				return whatsmeow.UploadResponse{}, nil
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, tc.width, header.GetImageMessage().GetWidth())
+			require.EqualValues(t, tc.height, header.GetImageMessage().GetHeight())
+			for _, data := range [][]byte{full, header.GetImageMessage().JPEGThumbnail} {
+				decoded, _, err := image.Decode(bytes.NewReader(data))
+				require.NoError(t, err)
+				if tc.white {
+					r, g, b, _ := decoded.At(0, 0).RGBA()
+					require.Greater(t, r, uint32(64000))
+					require.Greater(t, g, uint32(64000))
+					require.Greater(t, b, uint32(64000))
+				}
+			}
+		})
+	}
+}
 
 // TestBuildInteractiveLocation protects the client-confirmed unwrapped location payload.
 func TestBuildInteractiveLocation(t *testing.T) {
