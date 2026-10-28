@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,12 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetMetaDataFromURLRejectsDecompressedHTMLOverCap(t *testing.T) {
+func TestGetMetaDataFromURLParsesCappedPrefixOfDecompressedHTML(t *testing.T) {
 	t.Cleanup(utils.AllowUntrustedLoopbackForTest())
-	payload := bytes.Repeat([]byte("<p>"), (utils.MaxPreviewHTMLBytes/3)+8)
+	payload := []byte(`<html><head><title>Long page</title></head><body><!--` +
+		strings.Repeat("x", 32*utils.MaxPreviewHTMLBytes) +
+		`--><meta name="description" content="past the cap"></body></html>`)
 	var compressed bytes.Buffer
-	zw := gzip.NewWriter(&compressed)
-	_, err := zw.Write(payload)
+	zw, err := gzip.NewWriterLevel(&compressed, gzip.BestSpeed)
+	require.NoError(t, err)
+	_, err = zw.Write(payload)
 	require.NoError(t, err)
 	require.NoError(t, zw.Close())
 	require.Less(t, compressed.Len(), utils.MaxPreviewHTMLBytes, "fixture must be small on the wire")
@@ -32,9 +36,14 @@ func TestGetMetaDataFromURLRejectsDecompressedHTMLOverCap(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err = utils.GetMetaDataFromURL(server.URL)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "decoded size")
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	meta, err := utils.GetMetaDataFromURL(server.URL)
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	require.Equal(t, "Long page", meta.Title)
+	require.Empty(t, meta.Description, "bytes past the cap must not be parsed")
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(payload)/2), "the decoded body must not be buffered")
 }
 
 func TestGetMetaDataFromURLAcceptsHTMLUnderCap(t *testing.T) {

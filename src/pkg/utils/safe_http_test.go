@@ -7,9 +7,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +42,15 @@ func TestUntrustedFetchBlocksPrivateAndNonHTTPDestinations(t *testing.T) {
 		"http://192.0.0.1/",
 		"http://240.0.0.1/",
 		"http://0.0.0.1/",
+		"http://[64:ff9b::a00:1]/",
+		"http://[64:ff9b::a9fe:a9fe]/latest/meta-data",
+		"http://[64:ff9b:1::808:808]/",
+		"http://[::a9fe:a9fe]/",
+		"http://[::7f00:1]/",
+		"http://[::ffff:0:a9fe:a9fe]/",
+		"http://[2002:a9fe:a9fe::1]/",
+		"http://[2001:0:808:808::1]/",
+		"http://[fec0::1]/",
 		"ftp://example.com/file",
 		"file:///etc/passwd",
 		"gopher://example.com/",
@@ -56,6 +68,12 @@ func TestUntrustedFetchBlocksPrivateAndNonHTTPDestinations(t *testing.T) {
 			require.Error(t, fileErr)
 			_, metaErr := utils.GetMetaDataFromURL(raw)
 			require.Error(t, metaErr)
+			_, _, imageErr := utils.DownloadImageFromURL(raw)
+			require.Error(t, imageErr)
+			_, _, audioErr := utils.DownloadAudioFromURL(raw)
+			require.Error(t, audioErr)
+			_, _, videoErr := utils.DownloadVideoFromURL(raw)
+			require.Error(t, videoErr)
 			require.False(t, dialed)
 		})
 	}
@@ -66,6 +84,8 @@ func TestUntrustedFetchAllowsOrdinaryPublicLiteral(t *testing.T) {
 		"http://1.1.1.1/status",
 		"http://8.8.8.8/status",
 		"http://[::ffff:8.8.8.8]/status",
+		"http://[64:ff9b::808:808]/status",
+		"http://[2002:808:808::1]/status",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			dialed := false
@@ -186,6 +206,9 @@ func TestUntrustedFetchBlocksRedirectToPrivateAddress(t *testing.T) {
 	_, _, fileErr := utils.DownloadFileFromURL("http://public.example/doc")
 	require.Error(t, fileErr)
 	require.Contains(t, fileErr.Error(), "169.254.169.254")
+	_, _, audioErr := utils.DownloadAudioFromURL("http://public.example/a.mp3")
+	require.Error(t, audioErr)
+	require.Contains(t, audioErr.Error(), "169.254.169.254")
 	for _, address := range dialed {
 		require.NotContains(t, address, "169.254")
 		require.NotContains(t, address, "127.")
@@ -235,6 +258,88 @@ func TestPreviewImageRedirectCannotTargetPrivateAddress(t *testing.T) {
 	}
 }
 
+func TestUntrustedFetchAllowsOperatorChatwootHosts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		fmt.Fprint(w, "attachment")
+	}))
+	t.Cleanup(server.Close)
+
+	prevURL, prevHosts := config.ChatwootURL, config.ChatwootAllowedHosts
+	config.ChatwootURL = "http://chatwoot.internal:3000"
+	config.ChatwootAllowedHosts = []string{"Storage.Internal"}
+	t.Cleanup(func() { config.ChatwootURL, config.ChatwootAllowedHosts = prevURL, prevHosts })
+
+	var dialed []string
+	t.Cleanup(utils.SetUntrustedFetchTestHooks(
+		func(context.Context, string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("192.168.1.20")}, nil
+		},
+		func(ctx context.Context, network, address string) (net.Conn, error) {
+			dialed = append(dialed, address)
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, network, server.Listener.Addr().String())
+		},
+		false,
+	))
+
+	_, _, err := utils.DownloadFileFromURL("http://chatwoot.internal:3000/rails/active_storage/blobs/report.pdf")
+	require.NoError(t, err)
+	_, _, err = utils.DownloadImageFromURL("http://storage.internal/bucket/photo.png")
+	require.NoError(t, err)
+	require.Equal(t, []string{"chatwoot.internal:3000", "storage.internal:80"}, dialed)
+
+	_, _, err = utils.DownloadFileFromURL("http://other.internal/report.pdf")
+	require.ErrorContains(t, err, "192.168.1.20")
+	_, _, err = utils.DownloadFileFromURL("http://chatwoot.internal:6379/")
+	require.ErrorContains(t, err, "192.168.1.20")
+}
+
+func TestUntrustedFetchChecksPunycodeFormOfIDNHost(t *testing.T) {
+	var looked []string
+	var dialed string
+	t.Cleanup(utils.SetUntrustedFetchTestHooks(
+		func(_ context.Context, host string) ([]net.IP, error) {
+			looked = append(looked, host)
+			if host == "xn--bcher-kva.de" {
+				return []net.IP{net.ParseIP("1.1.1.1")}, nil
+			}
+			return nil, fmt.Errorf("unexpected host %s", host)
+		},
+		func(_ context.Context, _, address string) (net.Conn, error) {
+			dialed = address
+			return nil, errors.New("stopped after allow")
+		},
+		false,
+	))
+
+	_, _, err := utils.DownloadFileFromURL("http://bücher.de/doc.pdf")
+	require.ErrorContains(t, err, "stopped after allow")
+	require.Equal(t, []string{"xn--bcher-kva.de", "xn--bcher-kva.de"}, looked)
+	require.Equal(t, "1.1.1.1:80", dialed)
+}
+
+func TestUntrustedFetchReusesPooledConnections(t *testing.T) {
+	t.Cleanup(utils.AllowUntrustedLoopbackForTest())
+	var conns atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "file")
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+
+	for range 5 {
+		_, _, err := utils.DownloadFileFromURL(server.URL + "/doc.pdf")
+		require.NoError(t, err)
+	}
+	require.EqualValues(t, 1, conns.Load(), "each fetch must not open its own transport")
+}
+
 func stubPublicDialer(t *testing.T, server *httptest.Server, dialed *[]string) func() {
 	t.Helper()
 	return utils.SetUntrustedFetchTestHooks(
@@ -254,4 +359,39 @@ func stubPublicDialer(t *testing.T, server *httptest.Server, dialed *[]string) f
 		},
 		false,
 	)
+}
+
+func TestUntrustedFetchServesOwnStaticsFromDisk(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll("statics/media", 0o755))
+	require.NoError(t, os.WriteFile("statics/media/a b.pdf", []byte("%PDF-1.4"), 0o644))
+	require.NoError(t, os.MkdirAll("storages", 0o755))
+	require.NoError(t, os.WriteFile("storages/whatsapp.db", []byte("secret"), 0o644))
+
+	var dialed atomic.Int32
+	t.Cleanup(utils.SetUntrustedFetchTestHooks(
+		func(context.Context, string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("172.18.0.5")}, nil
+		},
+		func(context.Context, string, string) (net.Conn, error) {
+			dialed.Add(1)
+			return nil, errors.New("unexpected dial")
+		},
+		false,
+	))
+
+	data, name, err := utils.DownloadFileFromURL("http://gowa:3000/statics/media/a%20b.pdf")
+	require.NoError(t, err)
+	require.Equal(t, "%PDF-1.4", string(data))
+	require.Equal(t, "a%20b.pdf", name)
+
+	for _, target := range []string{
+		"http://gowa:3000/statics/../storages/whatsapp.db",
+		"http://gowa:3000/statics/media/missing.pdf",
+		"http://gowa:3000/app/devices",
+	} {
+		_, _, err = utils.DownloadFileFromURL(target)
+		require.ErrorContains(t, err, "non-public address", target)
+	}
+	require.Zero(t, dialed.Load())
 }

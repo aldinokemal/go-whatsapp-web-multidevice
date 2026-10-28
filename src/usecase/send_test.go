@@ -124,14 +124,21 @@ func TestPrepareImageForSendCompressCapsNarrowSource(t *testing.T) {
 	got, processed := prepareImageForSend(narrow, true, false)
 	require.True(t, processed)
 	require.LessOrEqual(t, got.Bounds().Dx(), compressedImageMaxEdge)
-	require.LessOrEqual(t, got.Bounds().Dy(), compressedImageMaxEdge)
-	require.LessOrEqual(t, got.Bounds().Dx()*got.Bounds().Dy(), compressedImageMaxEdge*compressedImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dy(), hdImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dx()*got.Bounds().Dy(), compressedImageMaxEdge*hdImageMaxEdge)
 
 	photo := image.NewRGBA(image.Rect(0, 0, 3000, 1500))
 	got, processed = prepareImageForSend(photo, true, false)
 	require.True(t, processed)
 	assert.Equal(t, 600, got.Bounds().Dx())
 	assert.Equal(t, 300, got.Bounds().Dy())
+
+	// A portrait screenshot keeps the 600 px width, as the fixed-width resize did.
+	portrait := image.NewRGBA(image.Rect(0, 0, 1080, 2340))
+	got, processed = prepareImageForSend(portrait, true, false)
+	require.True(t, processed)
+	assert.Equal(t, 600, got.Bounds().Dx())
+	assert.Equal(t, 1300, got.Bounds().Dy())
 }
 
 func TestVideoThumbnailFFmpegArgsFitInsideBox(t *testing.T) {

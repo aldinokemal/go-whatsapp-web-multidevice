@@ -91,9 +91,9 @@ const (
 	linkPreviewMaxJPEGDimension  = 400
 	linkPreviewImageQuality      = 85
 	linkPreviewJPEGQuality       = 80
-	// MaxPreviewHTMLBytes caps the decompressed preview document before it is
-	// parsed. Go's HTTP client gunzips before Body is read, so this limit
-	// applies to the decoded stream.
+	// MaxPreviewHTMLBytes caps the decompressed preview document; only that
+	// prefix is parsed. Go's HTTP client gunzips before Body is read, so this
+	// limit applies to the decoded stream.
 	MaxPreviewHTMLBytes = 2 * 1024 * 1024
 )
 
@@ -141,26 +141,6 @@ func buildLinkPreviewThumbnails(src image.Image) (imageThumb []byte, jpegThumb [
 	}
 
 	return imageThumb, jpegThumb, width, height, nil
-}
-
-// readWithByteCap reads at most max bytes. A longer stream is rejected instead
-// of being truncated and parsed.
-func readWithByteCap(r io.Reader, max int64) ([]byte, error) {
-	if max < 0 {
-		return nil, fmt.Errorf("invalid size cap")
-	}
-	limit := max
-	if limit < math.MaxInt64 {
-		limit++
-	}
-	data, err := io.ReadAll(io.LimitReader(r, limit))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("preview HTML exceeds decoded size limit of %d bytes", max)
-	}
-	return data, nil
 }
 
 // newBrowserRequest creates an HTTP request with browser-like headers
@@ -232,13 +212,10 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 		return meta, fmt.Errorf("HTTP request failed with status: %s", response.Status)
 	}
 
-	// Cap the decompressed body. The HTTP transport gunzips before this read,
-	// so a small gzip payload cannot expand into an unbounded token.
-	body, err := readWithByteCap(response.Body, MaxPreviewHTMLBytes)
-	if err != nil {
-		return meta, err
-	}
-	document, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	// Parse only a prefix of the decompressed body. The HTTP transport gunzips
+	// before this read, so a small gzip payload cannot expand into an unbounded
+	// token, and the og: and title tags in <head> still yield a preview.
+	document, err := goquery.NewDocumentFromReader(io.LimitReader(response.Body, MaxPreviewHTMLBytes))
 	if err != nil {
 		return meta, err
 	}
@@ -366,16 +343,12 @@ func ContainsMention(message string) []string {
 }
 
 func DownloadImageFromURL(url string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
 	}
-	response, err := client.Get(url)
+	response, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -422,17 +395,12 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 // WhatsappSettingMaxDownloadSize limit to avoid memory exhaustion. Only the MIME types defined in audio validation
 // are allowed to ensure WhatsApp compatibility.
 func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, audioURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(audioURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -513,17 +481,12 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 // It validates that the content-type returned by the server is one of the supported WhatsApp video formats and
 // that the size does not exceed WhatsappSettingMaxDownloadSize to avoid memory exhaustion.
 func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, videoURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(videoURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}

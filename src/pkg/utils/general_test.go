@@ -284,6 +284,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLNormalizesLinkPreviewThumbnai
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURL() {
+	suite.allowLoopbackFetch()
 	// Use httptest.NewServer to mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/image.jpg" {
@@ -422,6 +423,7 @@ func (suite *UtilsTestSuite) TestStrToFloat64EdgeCases() {
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
+	suite.allowLoopbackFetch()
 	// Test non-image content type
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -493,6 +495,7 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 }
 
 func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
+	suite.allowLoopbackFetch()
 	// Mock original config values
 	origMaxSize := config.WhatsappSettingMaxDownloadSize
 	config.WhatsappSettingMaxDownloadSize = 1024 * 1024 // 1MB for testing
@@ -597,6 +600,7 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 }
 
 func (suite *UtilsTestSuite) TestDownloadVideoFromURL() {
+	suite.allowLoopbackFetch()
 	// Mock original config values
 	origMaxSize := config.WhatsappSettingMaxDownloadSize
 	config.WhatsappSettingMaxDownloadSize = 1024 * 1024 // 1MB for testing

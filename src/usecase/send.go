@@ -43,9 +43,9 @@ var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
 
 const hdImageMaxEdge = 2560
 
-// compressedImageMaxEdge is the long edge for the legacy compress=true send.
-// Both axes are capped so a narrow source cannot grow a fixed width into a
-// multi-megapixel height.
+// compressedImageMaxEdge is the width of the legacy compress=true send. The
+// derived height is capped at hdImageMaxEdge so a narrow source cannot grow a
+// fixed width into a multi-megapixel height.
 const compressedImageMaxEdge = 600
 
 // stickerMaxEdge is the longest side of a static sticker before WebP conversion.
@@ -66,7 +66,7 @@ func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool)
 		return resizeImageForHD(src), true
 	}
 	if compress {
-		return utils.FitBox(src, compressedImageMaxEdge, compressedImageMaxEdge), true
+		return utils.FitBox(src, compressedImageMaxEdge, hdImageMaxEdge), true
 	}
 	return src, false
 }
@@ -427,7 +427,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 
 	// Prefix every temp file with a UUID, as the video path already does.
 	// Without it two concurrent sends of the same filename share one path on
-	// disk and the async cleanup below deletes the other request's files.
+	// disk and the deferred cleanup below deletes the other request's files.
 	generateUUID := fiberUtils.UUIDv4()
 
 	if request.ImageURL != nil && *request.ImageURL != "" {
@@ -478,21 +478,32 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 	}
 	deletedItems = append(deletedItems, oriImagePath)
+	// Remove the temp files on every return, including the early errors below.
+	defer func() {
+		errDelete := utils.RemoveFile(0, deletedItems...)
+		if errDelete != nil {
+			fmt.Println("error when deleting picture: ", errDelete)
+		}
+	}()
 
 	/* Generate thumbnail with smalled image size */
 	srcImage, err := openImageForSend(oriImagePath, request.HD)
-	if err != nil {
+	switch {
+	case err == nil:
+		// Resize thumbnail within a fixed box. A fixed width with a derived height
+		// would upscale a very narrow image into a tall raster.
+		resizedImage := utils.FitThumbnail(srcImage)
+		imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
+		if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
+		}
+		deletedItems = append(deletedItems, imageThumbnail)
+	case !request.Compress && !request.HD && errors.Is(err, utils.ErrImageTooLarge):
+		// Original mode uploads the file unchanged and decodes it only for the
+		// thumbnail, so an image past the decode budget is sent without one.
+	default:
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
-
-	// Resize thumbnail within a fixed box. A fixed width with a derived height
-	// would upscale a very narrow image into a tall raster.
-	resizedImage := utils.FitThumbnail(srcImage)
-	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
-	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
-	}
-	deletedItems = append(deletedItems, imageThumbnail)
 
 	preparedImage, processed := prepareImageForSend(srcImage, request.Compress, request.HD)
 	if processed {
@@ -521,9 +532,12 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		fmt.Printf("failed to upload file: %v", err)
 		return response, err
 	}
-	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+	var dataWaThumbnail []byte
+	if imageThumbnail != "" {
+		dataWaThumbnail, err = os.ReadFile(imageThumbnail)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+		}
 	}
 
 	msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
@@ -569,12 +583,6 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
-	go func() {
-		errDelete := utils.RemoveFile(0, deletedItems...)
-		if errDelete != nil {
-			fmt.Println("error when deleting picture: ", errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
@@ -876,17 +884,17 @@ func getAudioDuration(audioPath string) uint32 {
 
 // generateWaveform generates a waveform visualization for voice notes using ffmpeg.
 // Returns a []byte with 64 amplitude samples (0-100) for WhatsApp UI visualization.
-func generateWaveform(audioPath string) []byte {
-	// Extract a bounded prefix of signed 8-bit PCM. -t stops ffmpeg after
-	// waveformMaxSeconds, and the reader refuses anything past that many bytes
-	// so a highly compressed recording cannot expand into an unbounded buffer.
+func generateWaveform(audioPath string, durationSeconds uint32) []byte {
+	// Extract signed 8-bit PCM sized to span the whole note. The reader keeps
+	// at most waveformMaxPCMBytes so a highly compressed recording cannot
+	// expand into an unbounded buffer.
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		logrus.Warnf("Failed to generate waveform: %v", err)
 		return generateDefaultWaveform()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", waveformFFmpegArgs(audioPath)...)
+	cmd := exec.CommandContext(ctx, "ffmpeg", waveformFFmpegArgs(audioPath, durationSeconds)...)
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1445,7 +1453,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	// Generate waveform for PTT voice notes
 	var waveformData []byte
 	if request.PTT && tempAudioPath != "" {
-		waveformData = generateWaveform(tempAudioPath)
+		waveformData = generateWaveform(tempAudioPath, audioDuration)
 	}
 
 	// If PTT is requested, convert audio to OGG Opus format for WhatsApp voice note compatibility

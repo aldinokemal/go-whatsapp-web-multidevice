@@ -505,10 +505,13 @@ func appendBoundedSummary(b *strings.Builder, text string) {
 	}
 	remain := interactiveSummaryMaxBytes - b.Len()
 	if len(text) > remain {
-		text = text[:remain]
-		for len(text) > 0 && !utf8.ValidString(text) {
-			text = text[:len(text)-1]
+		// Back the cut up to a rune start so a multi-byte rune is not split.
+		// An invalid byte earlier in text does not move the cut.
+		cut := remain
+		for i := 0; i < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(text[cut]); i++ {
+			cut--
 		}
+		text = text[:cut]
 	}
 	b.WriteString(text)
 }

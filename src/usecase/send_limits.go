@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -19,7 +18,8 @@ const (
 
 	// waveformSampleRate is the PCM rate used to build a 64-point voice waveform.
 	waveformSampleRate = 8000
-	// waveformMaxSeconds bounds how much audio ffmpeg may decode for that waveform.
+	// waveformMaxSeconds is the longest note decoded at waveformSampleRate.
+	// Longer notes are decoded at a lower rate within waveformMaxPCMBytes.
 	waveformMaxSeconds = 120
 	// waveformMaxPCMBytes is the decoded s8 mono prefix kept in memory.
 	waveformMaxPCMBytes = waveformSampleRate * waveformMaxSeconds
@@ -36,8 +36,6 @@ var runExternalOutput = func(ctx context.Context, name string, args ...string) (
 }
 
 var pdfInfoPageSizePattern = regexp.MustCompile(`Page(?:\s+\d+)?\s+size:\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s+x\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s+pts`)
-
-var pdfMediaBoxPattern = regexp.MustCompile(`/MediaBox\s*\[\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s+([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*\]`)
 
 // pdfRasterWithinBudget reports whether a page of the given size in points
 // stays inside the shared image budget when rasterized at pdfThumbnailDPI.
@@ -73,18 +71,10 @@ func ceilPDFPixels(pts float64) int {
 }
 
 // pdfApprovedRasterPixels returns the pixel size pdfinfo measured for page 1
-// when that size fits the shared image budget. A plaintext MediaBox is never
-// enough on its own: if pdfinfo is missing, errors, or does not report an
-// in-budget size, ok is false and the caller must not rasterize.
+// when that size fits the shared image budget. If pdfinfo is missing, errors,
+// or does not report an in-budget size, ok is false and the caller must not
+// rasterize.
 func pdfApprovedRasterPixels(path string) (width, height int, ok bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, 0, false
-	}
-	foundBox, boxOK := mediaBoxesWithinBudget(data)
-	if foundBox && !boxOK {
-		return 0, 0, false
-	}
 	infoW, infoH, infoOK := pdfInfoPagePoints(path)
 	if !infoOK {
 		return 0, 0, false
@@ -93,7 +83,9 @@ func pdfApprovedRasterPixels(path string) (width, height int, ok bool) {
 }
 
 // pdfPopplerArgs renders a page to an exact pixel size already accepted by
-// pdfApprovedRasterPixels. It does not use an uncapped DPI flag.
+// pdfApprovedRasterPixels. It does not use an uncapped DPI flag. -cropbox
+// renders the CropBox that pdfinfo measured, so the pinned size keeps the
+// page's aspect ratio.
 func pdfPopplerArgs(pdfPath, outPrefix string, pxW, pxH int) []string {
 	if pxW < 1 {
 		pxW = 1
@@ -105,6 +97,7 @@ func pdfPopplerArgs(pdfPath, outPrefix string, pxW, pxH int) []string {
 		"-png",
 		"-f", "1",
 		"-l", "1",
+		"-cropbox",
 		"-scale-to-x", strconv.Itoa(pxW),
 		"-scale-to-y", strconv.Itoa(pxH),
 		"-singlefile",
@@ -118,36 +111,6 @@ func pdfRasterPixels(widthPts, heightPts float64) (int, int, bool) {
 		return 0, 0, false
 	}
 	return ceilPDFPixels(widthPts), ceilPDFPixels(heightPts), true
-}
-
-func mediaBoxesWithinBudget(data []byte) (found bool, ok bool) {
-	matches := pdfMediaBoxPattern.FindAllSubmatch(data, -1)
-	if len(matches) == 0 {
-		return false, false
-	}
-	for _, match := range matches {
-		width, height, parsed := mediaBoxPoints(match)
-		if !parsed || !pdfRasterWithinBudget(width, height) {
-			return true, false
-		}
-	}
-	return true, true
-}
-
-func mediaBoxPoints(match [][]byte) (float64, float64, bool) {
-	if len(match) < 5 {
-		return 0, 0, false
-	}
-	llx, err1 := strconv.ParseFloat(string(match[1]), 64)
-	lly, err2 := strconv.ParseFloat(string(match[2]), 64)
-	urx, err3 := strconv.ParseFloat(string(match[3]), 64)
-	ury, err4 := strconv.ParseFloat(string(match[4]), 64)
-	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-		return 0, 0, false
-	}
-	width := math.Abs(urx - llx)
-	height := math.Abs(ury - lly)
-	return width, height, true
 }
 
 func pdfInfoPagePoints(path string) (float64, float64, bool) {
@@ -173,18 +136,18 @@ func parsePDFInfoPageSize(output []byte) (float64, float64, bool) {
 	return width, height, true
 }
 
-func waveformFFmpegArgs(audioPath string) []string {
-	return []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-i", audioPath,
-		"-ac", "1",
-		"-ar", strconv.Itoa(waveformSampleRate),
-		"-t", strconv.Itoa(waveformMaxSeconds),
-		"-f", "s8",
-		"-acodec", "pcm_s8",
-		"pipe:1",
+// waveformFFmpegArgs decodes mono s8 PCM for the waveform. A note longer than
+// waveformMaxSeconds is decoded whole at a rate that fits waveformMaxPCMBytes,
+// so the bars span the full note; a shorter or unknown duration keeps the
+// waveformSampleRate prefix.
+func waveformFFmpegArgs(audioPath string, durationSeconds uint32) []string {
+	args := []string{"-hide_banner", "-loglevel", "error", "-i", audioPath, "-ac", "1"}
+	if durationSeconds > waveformMaxSeconds {
+		args = append(args, "-ar", strconv.Itoa(max(64, waveformMaxPCMBytes/int(durationSeconds))))
+	} else {
+		args = append(args, "-ar", strconv.Itoa(waveformSampleRate), "-t", strconv.Itoa(waveformMaxSeconds))
 	}
+	return append(args, "-f", "s8", "-acodec", "pcm_s8", "pipe:1")
 }
 
 // readWaveformPCM keeps at most max decoded PCM bytes. A longer stream is

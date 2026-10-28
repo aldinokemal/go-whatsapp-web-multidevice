@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
@@ -14,8 +16,9 @@ import (
 
 const (
 	// MaxImageEdge is the longest side accepted before a full raster decode.
-	// Typical phone photos sit well under this; 8192 still admits a long edge
-	// from a high-resolution camera without allowing multi-gigapixel headers.
+	// 8192 refuses multi-gigapixel headers. 48 MP and larger phone photos
+	// exceed MaxImagePixels and long screenshots exceed this edge; original
+	// mode SendImage still sends those, without a thumbnail.
 	MaxImageEdge = 8192
 	// MaxImagePixels is the decoded pixel budget, about 40 megapixels.
 	// Width and height are also rejected when their product would overflow.
@@ -25,6 +28,10 @@ const (
 	// ThumbnailMaxHeight stops a very narrow source from being stretched into
 	// a tall thumbnail when the width is fixed and the height is derived.
 	ThumbnailMaxHeight = 512
+	// maxJPEGDecodeBytes bounds what image/jpeg allocates for one decode. The
+	// pixel budget alone admits a 40 MP progressive CMYK JPEG that needs about
+	// 900 MiB; this admits a 40 MP progressive 4:2:0 photo.
+	maxJPEGDecodeBytes = 320 << 20
 )
 
 // ErrImageTooLarge is returned when width, height, or pixel count is outside
@@ -124,6 +131,8 @@ func FitThumbnail(src image.Image) image.Image {
 
 // DecodeImageWithinBudget reads image dimensions before allocating the raster.
 // Formats that cannot report a header are rejected instead of fully decoded.
+// A JPEG is also rejected when its estimated decoder memory exceeds
+// maxJPEGDecodeBytes.
 func DecodeImageWithinBudget(r io.Reader, opts ...imaging.DecodeOption) (image.Image, string, error) {
 	seeker, err := imageReaderAtStart(r)
 	if err != nil {
@@ -135,6 +144,18 @@ func DecodeImageWithinBudget(r io.Reader, opts ...imaging.DecodeOption) (image.I
 	}
 	if err := ValidateImageDimensions(cfg.Width, cfg.Height); err != nil {
 		return nil, format, err
+	}
+	if format == "jpeg" {
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			return nil, format, err
+		}
+		need, err := jpegDecodeBytes(seeker)
+		if err != nil {
+			return nil, format, err
+		}
+		if need > maxJPEGDecodeBytes {
+			return nil, format, fmt.Errorf("%w: JPEG decode needs about %d bytes, budget %d", ErrImageTooLarge, need, maxJPEGDecodeBytes)
+		}
 	}
 	if _, err := seeker.Seek(0, io.SeekStart); err != nil {
 		return nil, format, err
@@ -160,6 +181,78 @@ func DecodeImageFileWithinBudget(path string, opts ...imaging.DecodeOption) (ima
 	defer file.Close()
 	img, _, err := DecodeImageWithinBudget(file, opts...)
 	return img, err
+}
+
+// jpegDecodeBytes estimates what image/jpeg allocates from the first SOF
+// segment: one byte per component sample for the output planes, four more per
+// sample for progressive coefficient buffers, and four bytes per pixel to
+// convert a 4-component image to CMYK.
+func jpegDecodeBytes(r io.Reader) (int64, error) {
+	br := bufio.NewReader(r)
+	if _, err := br.Discard(2); err != nil { // SOI
+		return 0, err
+	}
+	for {
+		// A marker is 0xff plus optional 0xff fill bytes. Other bytes between
+		// segments are skipped, as image/jpeg does.
+		b, err := br.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		if b != 0xff {
+			continue
+		}
+		marker := b
+		for marker == 0xff && err == nil {
+			marker, err = br.ReadByte()
+		}
+		if err != nil {
+			return 0, err
+		}
+		if marker == 0x00 || (marker >= 0xd0 && marker <= 0xd7) {
+			continue // stuffed byte or RSTn, neither has a length
+		}
+		var size [2]byte
+		if _, err := io.ReadFull(br, size[:]); err != nil {
+			return 0, err
+		}
+		n := int(binary.BigEndian.Uint16(size[:])) - 2
+		if marker&0xf0 != 0xc0 || marker == 0xc4 || marker == 0xc8 || marker == 0xcc {
+			if _, err := br.Discard(n); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		// SOF: precision, height, width, component count, then id, HiVi, and
+		// Tq for each of at most 4 components.
+		var sof [6 + 3*4]byte
+		if n < 6+3 || n > len(sof) {
+			return 0, fmt.Errorf("unsupported JPEG SOF length %d", n)
+		}
+		if _, err := io.ReadFull(br, sof[:n]); err != nil {
+			return 0, err
+		}
+		height := int64(binary.BigEndian.Uint16(sof[1:3]))
+		width := int64(binary.BigEndian.Uint16(sof[3:5]))
+		comps := (n - 6) / 3
+		// Component i holds width*height*h_i*v_i/(hMax*vMax) samples.
+		var sumHV int64
+		hMax, vMax := int64(1), int64(1)
+		for i := 0; i < comps; i++ {
+			h, v := int64(sof[7+3*i]>>4), int64(sof[7+3*i]&0x0f)
+			sumHV += h * v
+			hMax, vMax = max(hMax, h), max(vMax, v)
+		}
+		samples := width * height * sumHV / (hMax * vMax)
+		need := samples
+		if marker&0x03 == 2 { // SOF2, SOF6, SOF10, and SOF14 are progressive
+			need += 4 * samples
+		}
+		if comps == 4 {
+			need += 4 * width * height
+		}
+		return need, nil
+	}
 }
 
 // imageReaderAtStart returns a seeker positioned for DecodeConfig.

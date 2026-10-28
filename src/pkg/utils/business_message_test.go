@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -524,5 +525,23 @@ func TestFormatInteractiveMessageSummaryBoundsNestedCarousel(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "BBB") {
 		t.Fatalf("truncated summary lost the body: %q", got)
+	}
+}
+
+func TestFormatInteractiveMessageSummaryCutsAtRuneBoundary(t *testing.T) {
+	summarize := func(body string) string {
+		return FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+			Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)},
+		})
+	}
+
+	got := summarize("\xff" + strings.Repeat("A", 20000))
+	if len(got) != interactiveSummaryMaxBytes || !strings.HasPrefix(got, "\xffAAA") {
+		t.Fatalf("an invalid byte before the cut dropped the text: len %d, prefix %q", len(got), got[:min(len(got), 8)])
+	}
+
+	got = summarize("A" + strings.Repeat("é", interactiveSummaryMaxBytes))
+	if !utf8.ValidString(got) || len(got) != interactiveSummaryMaxBytes-1 {
+		t.Fatalf("cut split a rune: len %d, valid %v", len(got), utf8.ValidString(got))
 	}
 }

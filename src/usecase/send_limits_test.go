@@ -167,9 +167,12 @@ func TestGeneratePDFThumbnailAttemptsRenderForLetterPage(t *testing.T) {
 		runExternalOutput = origOut
 	})
 
-	got := generatePDFThumbnail(pdfWithMediaBox(612, 792), "letter")
+	// Only page 1 is measured, so a later oversized page does not block it.
+	pdf := append(pdfWithMediaBox(612, 792), "4 0 obj<</Type/Page/MediaBox[0 0 14400 14400]>>endobj\n"...)
+	got := generatePDFThumbnail(pdf, "letter")
 	require.Nil(t, got)
 	require.Contains(t, rendered, "pdftoppm")
+	require.Contains(t, rendered, "-cropbox")
 	require.Contains(t, rendered, "-scale-to-x")
 	require.Contains(t, rendered, "-scale-to-y")
 	require.Contains(t, rendered, "1275")
@@ -240,9 +243,27 @@ func TestReadWaveformPCMCapsDecodedBytes(t *testing.T) {
 	}
 }
 
-func TestWaveformFFmpegArgsLimitDuration(t *testing.T) {
-	args := waveformFFmpegArgs("note.ogg")
-	require.Contains(t, args, "-t")
-	require.Contains(t, args, "120")
-	require.Contains(t, args, "pipe:1")
+func TestWaveformFFmpegArgsSpanWholeNote(t *testing.T) {
+	flagValue := func(args []string, flag string) string {
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == flag {
+				return args[i+1]
+			}
+		}
+		return ""
+	}
+
+	// Short or unknown durations keep the 8 kHz prefix capped by -t.
+	for _, seconds := range []uint32{0, 30, waveformMaxSeconds} {
+		args := waveformFFmpegArgs("note.ogg", seconds)
+		require.Equal(t, "8000", flagValue(args, "-ar"))
+		require.Equal(t, "120", flagValue(args, "-t"))
+		require.Equal(t, "pipe:1", args[len(args)-1])
+	}
+
+	// Longer notes are decoded whole at a rate that fits waveformMaxPCMBytes.
+	args := waveformFFmpegArgs("note.ogg", 300)
+	require.NotContains(t, args, "-t")
+	require.Equal(t, "3200", flagValue(args, "-ar"))
+	require.Equal(t, "64", flagValue(waveformFFmpegArgs("note.ogg", 100000), "-ar"))
 }

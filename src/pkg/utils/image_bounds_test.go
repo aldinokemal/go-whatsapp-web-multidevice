@@ -62,6 +62,35 @@ func TestDecodeImageWithinBudgetRejectsOversizedHeaderBeforeDecode(t *testing.T)
 	require.Zero(t, reader.seeks, "full decode seeks back to the start; rejection must happen first")
 }
 
+// jpegHeader is SOI, a JFIF APP0 (so DecodeConfig stops at SOF), and one SOF
+// segment with the given sampling factor byte per component. It carries no
+// scan data.
+func jpegHeader(sofMarker byte, width, height uint16, sampling ...byte) []byte {
+	out := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 1, 1, 0, 0, 1, 0, 1, 0, 0}
+	sof := []byte{8, byte(height >> 8), byte(height), byte(width >> 8), byte(width), byte(len(sampling))}
+	for i, hv := range sampling {
+		sof = append(sof, byte(i+1), hv, 0)
+	}
+	out = append(out, 0xff, sofMarker, 0, byte(len(sof)+2))
+	return append(out, sof...)
+}
+
+func TestDecodeImageWithinBudgetRejectsJPEGOverDecoderMemoryBudget(t *testing.T) {
+	// 6000x6600 is under the pixel budget, but a progressive CMYK decode
+	// allocates about 900 MiB.
+	cmyk := jpegHeader(0xc2, 6000, 6600, 0x11, 0x11, 0x11, 0x11)
+	img, _, err := utils.DecodeImageWithinBudget(bytes.NewReader(cmyk))
+	require.ErrorIs(t, err, utils.ErrImageTooLarge)
+	require.Nil(t, img)
+
+	// A 40 MP progressive 4:2:0 photo stays inside the budget; the header-only
+	// fixture then fails in the decoder for lack of scan data.
+	photo := jpegHeader(0xc2, 8000, 5000, 0x22, 0x11, 0x11)
+	_, _, err = utils.DecodeImageWithinBudget(bytes.NewReader(photo))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, utils.ErrImageTooLarge)
+}
+
 func TestDecodeImageWithinBudgetDecodesAcceptedImage(t *testing.T) {
 	var encoded bytes.Buffer
 	require.NoError(t, png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 3, 2))))
