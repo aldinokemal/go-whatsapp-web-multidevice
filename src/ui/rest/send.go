@@ -29,6 +29,7 @@ func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	return rest
 }
 
+// SendInteractive binds an immediate interactive request and returns the send result.
 func (controller *Send) SendInteractive(c fiber.Ctx) error {
 	var request domainSend.InteractiveRequest
 	utils.PanicIfNeeded(c.Bind().Body(&request))

@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// nativeFlow maps validated action parameters to WhatsApp native-flow buttons.
 func nativeFlow(body, footer string, buttons []domainSend.NativeFlowButton) *waE2E.InteractiveMessage {
 	flow := &waE2E.InteractiveMessage_NativeFlowMessage{MessageVersion: proto.Int32(3)}
 	for _, b := range buttons {
@@ -32,6 +33,7 @@ func nativeFlow(body, footer string, buttons []domainSend.NativeFlowButton) *waE
 	return &waE2E.InteractiveMessage{Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)}, Footer: &waE2E.InteractiveMessage_Footer{Text: proto.String(footer)}, InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: flow}}
 }
 
+// buildInteractive preserves the unwrapped location envelope and wraps other interactive messages.
 func buildInteractive(req domainSend.InteractiveRequest) *waE2E.Message {
 	interactive := nativeFlow(req.Body, req.Footer, req.Buttons)
 	if len(req.Buttons) == 1 && req.Buttons[0].Name == "send_location" {
@@ -55,6 +57,7 @@ func buildInteractive(req domainSend.InteractiveRequest) *waE2E.Message {
 	return &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{InteractiveMessage: interactive}}}
 }
 
+// interactiveNodes supplies the location-specific or mixed business envelope without an AI marker.
 func interactiveNodes(buttonNames ...string) []waBinary.Node {
 	nodes := []waBinary.Node{{Tag: "biz", Content: []waBinary.Node{{Tag: "interactive", Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"}, Content: []waBinary.Node{{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "9", "name": "mixed"}}}}}}}
 	if len(buttonNames) > 0 && buttonNames[0] == "send_location" {
@@ -64,6 +67,7 @@ func interactiveNodes(buttonNames ...string) []waBinary.Node {
 	return nodes
 }
 
+// SendInteractive validates, uploads carousel images, and sends an immediate experimental message.
 func (service serviceSend) SendInteractive(ctx context.Context, req domainSend.InteractiveRequest) (response domainSend.GenericResponse, err error) {
 	if err = validations.ValidateInteractive(ctx, req); err != nil {
 		return response, err
@@ -89,26 +93,13 @@ func (service serviceSend) SendInteractive(ctx context.Context, req domainSend.I
 		if card.ImageBase64 == "" {
 			continue
 		}
-		data, _ := base64.StdEncoding.DecodeString(card.ImageBase64)
-		src, _, decodeErr := image.Decode(bytes.NewReader(data))
-		if decodeErr != nil {
-			return response, pkgError.ValidationError("invalid card image")
-		}
-		var full, thumb bytes.Buffer
-		if err = jpeg.Encode(&full, imaging.Fit(src, 1280, 1280, imaging.Lanczos), &jpeg.Options{Quality: 85}); err != nil {
-			return response, err
-		}
-		if err = jpeg.Encode(&thumb, imaging.Thumbnail(src, 160, 160, imaging.Lanczos), nil); err != nil {
-			return response, err
-		}
-		upload, uploadErr := service.uploadMedia(ctx, client, whatsmeow.MediaImage, full.Bytes(), to)
-		if uploadErr != nil {
-			return response, uploadErr
-		}
-		cfg, _, _ := image.DecodeConfig(bytes.NewReader(full.Bytes()))
 		header := msg.GetViewOnceMessage().GetMessage().GetInteractiveMessage().GetCarouselMessage().Cards[index].Header
-		header.HasMediaAttachment = proto.Bool(true)
-		header.Media = &waE2E.InteractiveMessage_Header_ImageMessage{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: upload.MediaKey, FileEncSHA256: upload.FileEncSHA256, FileSHA256: upload.FileSHA256, FileLength: proto.Uint64(uint64(full.Len())), Mimetype: proto.String("image/jpeg"), JPEGThumbnail: thumb.Bytes(), Width: proto.Uint32(uint32(cfg.Width)), Height: proto.Uint32(uint32(cfg.Height))}}
+		err = populateInteractiveCardImage(ctx, header, card.ImageBase64, func(ctx context.Context, data []byte) (whatsmeow.UploadResponse, error) {
+			return service.uploadMedia(ctx, client, whatsmeow.MediaImage, data, to)
+		})
+		if err != nil {
+			return response, err
+		}
 	}
 	ts, err := service.wrapSendMessage(ctx, client, to, msg, req.Body, whatsmeow.SendRequestExtra{AdditionalNodes: &nodes})
 	if err != nil {
@@ -117,4 +108,33 @@ func (service serviceSend) SendInteractive(ctx context.Context, req domainSend.I
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Experimental interactive message accepted for %s at %s; recipient rendering is unverified", req.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+// populateInteractiveCardImage converts an image to JPEG and maps uploaded media into the card header.
+// The upload callback keeps media preparation testable without a live WhatsApp connection.
+func populateInteractiveCardImage(ctx context.Context, header *waE2E.InteractiveMessage_Header, encoded string, uploadImage func(context.Context, []byte) (whatsmeow.UploadResponse, error)) error {
+	data, decodeBase64Err := base64.StdEncoding.DecodeString(encoded)
+	if decodeBase64Err != nil {
+		return pkgError.ValidationError("invalid base64 card image")
+	}
+	src, _, decodeErr := image.Decode(bytes.NewReader(data))
+	if decodeErr != nil {
+		return pkgError.ValidationError("invalid card image")
+	}
+	var full, thumb bytes.Buffer
+	resized := imaging.Fit(src, 1280, 1280, imaging.Lanczos)
+	if err := jpeg.Encode(&full, resized, &jpeg.Options{Quality: 85}); err != nil {
+		return err
+	}
+	if err := jpeg.Encode(&thumb, imaging.Thumbnail(src, 160, 160, imaging.Lanczos), nil); err != nil {
+		return err
+	}
+	upload, uploadErr := uploadImage(ctx, full.Bytes())
+	if uploadErr != nil {
+		return uploadErr
+	}
+	bounds := resized.Bounds()
+	header.HasMediaAttachment = proto.Bool(true)
+	header.Media = &waE2E.InteractiveMessage_Header_ImageMessage{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: upload.MediaKey, FileEncSHA256: upload.FileEncSHA256, FileSHA256: upload.FileSHA256, FileLength: proto.Uint64(uint64(full.Len())), Mimetype: proto.String("image/jpeg"), JPEGThumbnail: thumb.Bytes(), Width: proto.Uint32(uint32(bounds.Dx())), Height: proto.Uint32(uint32(bounds.Dy()))}}
+	return nil
 }

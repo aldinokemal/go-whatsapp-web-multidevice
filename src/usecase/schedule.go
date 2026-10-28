@@ -747,6 +747,7 @@ type scheduledSendService struct {
 	scheduler *ScheduleService
 }
 
+// SendInteractive bypasses scheduling because interactive requests are immediate-only.
 func (s *scheduledSendService) SendInteractive(ctx context.Context, req domainSend.InteractiveRequest) (domainSend.GenericResponse, error) {
 	return s.base.SendInteractive(ctx, req)
 }
