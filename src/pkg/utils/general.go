@@ -91,6 +91,10 @@ const (
 	linkPreviewMaxJPEGDimension  = 400
 	linkPreviewImageQuality      = 85
 	linkPreviewJPEGQuality       = 80
+	// MaxPreviewHTMLBytes caps the decompressed preview document before it is
+	// parsed. Go's HTTP client gunzips before Body is read, so this limit
+	// applies to the decoded stream.
+	MaxPreviewHTMLBytes = 2 * 1024 * 1024
 )
 
 func resizeWithinBounds(src image.Image, maxDimension int) image.Image {
@@ -137,6 +141,26 @@ func buildLinkPreviewThumbnails(src image.Image) (imageThumb []byte, jpegThumb [
 	}
 
 	return imageThumb, jpegThumb, width, height, nil
+}
+
+// readWithByteCap reads at most max bytes. A longer stream is rejected instead
+// of being truncated and parsed.
+func readWithByteCap(r io.Reader, max int64) ([]byte, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("invalid size cap")
+	}
+	limit := max
+	if limit < math.MaxInt64 {
+		limit++
+	}
+	data, err := io.ReadAll(io.LimitReader(r, limit))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("preview HTML exceeds decoded size limit of %d bytes", max)
+	}
+	return data, nil
 }
 
 // newBrowserRequest creates an HTTP request with browser-like headers
@@ -215,8 +239,13 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 		return meta, fmt.Errorf("HTTP request failed with status: %s", response.Status)
 	}
 
-	// Parse the HTML document
-	document, err := goquery.NewDocumentFromReader(response.Body)
+	// Cap the decompressed body. The HTTP transport gunzips before this read,
+	// so a small gzip payload cannot expand into an unbounded token.
+	body, err := readWithByteCap(response.Body, MaxPreviewHTMLBytes)
+	if err != nil {
+		return meta, err
+	}
+	document, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return meta, err
 	}
@@ -300,9 +329,8 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 						} else if int64(len(imageData)) > maxImageSize {
 							logrus.Warnf("Downloaded image exceeds max size: %d > %d", len(imageData), maxImageSize)
 						} else {
-							// Validate image by decoding it
-							imageReader := bytes.NewReader(imageData)
-							img, _, err := image.Decode(imageReader)
+							// Header dimensions are checked before the raster is allocated.
+							img, _, err := DecodeImageWithinBudget(bytes.NewReader(imageData))
 							if err != nil {
 								logrus.Warnf("Failed to decode image: %v", err)
 							} else {

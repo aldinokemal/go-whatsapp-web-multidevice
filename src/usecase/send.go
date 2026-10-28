@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"math"
 	"mime"
 	"net/http"
@@ -63,7 +64,7 @@ func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool)
 }
 
 func openImageForSend(imagePath string, hd bool) (image.Image, error) {
-	return imaging.Open(imagePath, imaging.AutoOrientation(hd))
+	return utils.DecodeImageFileWithinBudget(imagePath, imaging.AutoOrientation(hd))
 }
 
 func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
@@ -403,7 +404,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		mimeType := http.DetectContentType(imageData)
 		if mimeType == "image/webp" {
 			// Convert WebP to PNG
-			webpImage, err := imaging.Decode(bytes.NewReader(imageData))
+			webpImage, _, err := utils.DecodeImageWithinBudget(bytes.NewReader(imageData))
 			if err != nil {
 				return response, pkgError.InternalServerError(fmt.Sprintf("failed to decode WebP image %v", err))
 			}
@@ -447,8 +448,9 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
 
-	// Resize Thumbnail
-	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	// Resize thumbnail within a fixed box. A fixed width with a derived height
+	// would upscale a very narrow image into a tall raster.
+	resizedImage := utils.FitThumbnail(srcImage)
 	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
 	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
@@ -675,13 +677,18 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		return nil
 	}
 
-	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
+	if !pdfFileWithinRenderBudget(tempPDF) {
+		logrus.Warnf("skipping PDF thumbnail: page exceeds render budget or size is unknown")
+		return nil
+	}
+
+	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed.
+	// The page size was accepted above, so 150 DPI stays inside the pixel budget.
 	pngGenerated := false
 	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
 	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
-	if err := cmd.Run(); err == nil {
+	if err := runExternal(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut); err == nil {
 		// pdftoppm with -singlefile outputs to {prefix}.png
 		actualOut := pdftoppmOut + ".png"
 		if _, statErr := os.Stat(actualOut); statErr == nil {
@@ -690,20 +697,21 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		}
 	}
 
-	// Fallback to ImageMagick convert
+	// Fallback to ImageMagick convert. Density and a shrink-only geometry keep
+	// the fallback from expanding a narrow page into a tall raster.
 	if !pngGenerated {
-		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
-		if err := cmd.Run(); err != nil {
+		if err := runExternal(cmdCtx, "convert", "-density", "72", "-limit", "width", "8192", "-limit", "height", "8192", tempPDF+"[0]", "-resize", "100x512>", "-quality", "85", tempPNG); err != nil {
 			return nil
 		}
 	}
 
-	// Resize to thumbnail
-	srcImage, err := imaging.Open(tempPNG)
+	// Resize to thumbnail. Reject a render that exceeds the shared pixel budget
+	// instead of allocating it.
+	srcImage, err := utils.DecodeImageFileWithinBudget(tempPNG)
 	if err != nil {
 		return nil
 	}
-	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	resized := utils.FitThumbnail(srcImage)
 	if err = imaging.Save(resized, thumbPath); err != nil {
 		return nil
 	}
@@ -729,12 +737,12 @@ func generateImageDocThumbnail(imageBytes []byte, fileName string, uuid string) 
 		return nil
 	}
 
-	srcImage, err := imaging.Open(tempPath)
+	srcImage, err := utils.DecodeImageFileWithinBudget(tempPath)
 	if err != nil {
 		return nil
 	}
 
-	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	resized := utils.FitThumbnail(srcImage)
 	if err = imaging.Save(resized, thumbPath); err != nil {
 		return nil
 	}
@@ -831,22 +839,38 @@ func getAudioDuration(audioPath string) uint32 {
 // generateWaveform generates a waveform visualization for voice notes using ffmpeg.
 // Returns a []byte with 64 amplitude samples (0-100) for WhatsApp UI visualization.
 func generateWaveform(audioPath string) []byte {
-	// Extract audio samples as signed 8-bit PCM
-	// -ac 1: mono, -ar 8000: 8kHz sample rate, -f s8: signed 8-bit output
-	output, err := runFFMpeg(
-		"-i", audioPath,
-		"-ac", "1",
-		"-ar", "8000",
-		"-f", "s8",
-		"-acodec", "pcm_s8",
-		"pipe:1",
-	)
+	// Extract a bounded prefix of signed 8-bit PCM. -t stops ffmpeg after
+	// waveformMaxSeconds, and the reader refuses anything past that many bytes
+	// so a highly compressed recording cannot expand into an unbounded buffer.
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", waveformFFmpegArgs(audioPath)...)
+	cmd.Stderr = io.Discard
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logrus.Warnf("Failed to generate waveform: %v", err)
 		return generateDefaultWaveform()
 	}
+	if err := cmd.Start(); err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+	samples, readErr := readWaveformPCM(stdout, waveformMaxPCMBytes)
+	_ = stdout.Close()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if len(samples) == 0 {
+		logrus.Warnf("Failed to generate waveform: read=%v wait=%v", readErr, waitErr)
+		return generateDefaultWaveform()
+	}
 
-	return downsampleToWaveform(output, 64)
+	return downsampleToWaveform(samples, 64)
 }
 
 // downsampleToWaveform converts raw PCM samples to a fixed number of amplitude peaks.
