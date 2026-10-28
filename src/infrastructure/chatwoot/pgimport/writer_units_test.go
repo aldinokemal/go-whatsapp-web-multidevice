@@ -63,8 +63,10 @@ const insertConversationSQL = `
 	`
 
 const idempotencyProbeSQL = `
-		SELECT id, conversation_id FROM messages
-		WHERE inbox_id = $1 AND source_id = $2
+		SELECT m.id, m.conversation_id FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.inbox_id = $1 AND m.source_id = $2
+			AND c.account_id = $3 AND c.inbox_id = $1 AND c.contact_id = $4
 		LIMIT 1
 	`
 
@@ -170,17 +172,11 @@ func TestInsertMessage_IdempotencyHitReturnsFalseNoInsert(t *testing.T) {
 	defer cleanup()
 
 	mock.ExpectBegin()
+	// Conversation 300 is not the caller's conversation (10). The probe only
+	// returns rows of this chat's contact (20), so it is a resolve/reopen.
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-dup").
+		WithArgs(imp.inboxID, "WAID:wa-dup", imp.accountID, 20).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
-	// Conversation 300 is not the caller's conversation (10). It is still this
-	// chat when it belongs to the same contact (a resolve/reopen).
-	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT contact_id FROM conversations
-		WHERE id = $1 AND account_id = $2 AND inbox_id = $3
-	`)).
-		WithArgs(300, imp.accountID, imp.inboxID).
-		WillReturnRows(sqlmock.NewRows([]string{"contact_id"}).AddRow(20))
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -214,15 +210,11 @@ func TestInsertMessage_ForeignConversationIsNotLinked(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
+	// The source_id exists only in another contact's conversation, which the
+	// contact filter in the probe leaves out.
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-foreign").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(9, 300))
-	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT contact_id FROM conversations
-		WHERE id = $1 AND account_id = $2 AND inbox_id = $3
-	`)).
-		WithArgs(300, imp.accountID, imp.inboxID).
-		WillReturnRows(sqlmock.NewRows([]string{"contact_id"}).AddRow(99))
+		WithArgs(imp.inboxID, "WAID:wa-foreign", imp.accountID, 20).
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WithArgs(
 			"this chat",
@@ -273,7 +265,7 @@ func TestInsertMessage_EmptyContentSkipsAfterProbeMiss(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-empty").
+		WithArgs(imp.inboxID, "WAID:wa-empty", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
@@ -304,7 +296,7 @@ func TestInsertMessage_ProbeQueryErrorPropagates(t *testing.T) {
 	probeErr := errors.New("probe boom")
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-err").
+		WithArgs(imp.inboxID, "WAID:wa-err", imp.accountID, 20).
 		WillReturnError(probeErr)
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
@@ -340,7 +332,7 @@ func TestInsertMessage_ReturnsChatwootLinkForInsertedMessage(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-linked").
+		WithArgs(imp.inboxID, "WAID:wa-linked", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WithArgs(
@@ -400,7 +392,7 @@ func TestInsertMessage_GroupIncomingContentGetsSenderPrefix(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-grp").
+		WithArgs(imp.inboxID, "WAID:wa-grp", imp.accountID, 77).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WithArgs(
@@ -453,7 +445,7 @@ func TestInsertMessageSavepoint_Success(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-ok").
+		WithArgs(imp.inboxID, "WAID:sp-ok", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -491,7 +483,7 @@ func TestInsertMessageSavepoint_InsertErrorRollsBackToSavepoint(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-fail").
+		WithArgs(imp.inboxID, "WAID:sp-fail", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnError(insertErr)
@@ -569,7 +561,7 @@ func TestInsertMessageSavepoint_ReleaseErrorIsFatal(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-rel").
+		WithArgs(imp.inboxID, "WAID:sp-rel", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -612,7 +604,7 @@ func TestInsertMessageSavepoint_RollbackErrorBecomesFatal(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-rb").
+		WithArgs(imp.inboxID, "WAID:sp-rb", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnError(insertErr)

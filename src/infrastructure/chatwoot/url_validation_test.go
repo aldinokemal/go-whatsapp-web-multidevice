@@ -1,7 +1,12 @@
 package chatwoot
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -203,9 +208,120 @@ func TestChatwootAllowlistPermitsPrivateHostAndRejectsRedirect(t *testing.T) {
 	}))
 	defer redirectSrv.Close()
 
+	// CheckRedirect's own error: the transport would refuse the host too, but
+	// with another message, so this fails if CheckRedirect is not wired.
 	redirected := NewClientFromConfig(redirectSrv.URL, "t", 1, 1)
-	if _, err := redirected.HTTPClient.Get(redirectSrv.URL + "/v1"); err == nil || !strings.Contains(err.Error(), "evil.example") {
+	if _, err := redirected.HTTPClient.Get(redirectSrv.URL + "/v1"); err == nil || !strings.Contains(err.Error(), `redirect host "evil.example" is not in the allowed hosts list`) {
 		t.Fatalf("redirect off the allowlist: err=%v", err)
+	}
+}
+
+// TestChatwootRedirectToAnotherHostDropsToken: the API token is for the
+// configured Chatwoot host only. A redirect to another host must not carry
+// it, with or without an allowlist.
+func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get("api_access_token")
+	}))
+	defer target.Close()
+	// The same listener under another host name.
+	targetURL := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, targetURL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	for _, tt := range []struct {
+		name    string
+		allowed []string
+		client  func() *http.Client
+	}{
+		// The guarded transport refuses loopback without an allowlist, so this
+		// case runs the redirect policy on a plain transport.
+		{"empty allowlist", nil, func() *http.Client { return &http.Client{CheckRedirect: chatwootCheckRedirect} }},
+		{"both hosts allowlisted", []string{"127.0.0.1", "localhost"}, func() *http.Client { return NewClientFromConfig(origin.URL, "t", 1, 1).HTTPClient }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config.ChatwootAllowedHosts = tt.allowed
+			req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("api_access_token", "secret-token")
+			resp, err := tt.client().Do(req)
+			if err != nil {
+				t.Fatalf("redirect: %v", err)
+			}
+			resp.Body.Close()
+			if got := <-tokens; got != "" {
+				t.Fatalf("redirect target received api_access_token %q", got)
+			}
+		})
+	}
+}
+
+// TestChatwootAllowlistChecksRequestHostNotDialedAddress: behind
+// HTTP(S)_PROXY the dialed address is the proxy, which is not on the
+// allowlist. The allowlist applies to the request's destination host.
+func TestChatwootAllowlistChecksRequestHostNotDialedAddress(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"chatwoot.example"}
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer proxy.Close()
+
+	tr := ssrfGuardedTransport()
+	conn, err := tr.DialContext(context.Background(), "tcp", proxy.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dialing a proxy that is not on the allowlist: %v", err)
+	}
+	conn.Close()
+
+	for host, wantErr := range map[string]bool{"chatwoot.example": false, "evil.example": true} {
+		req, err := http.NewRequest(http.MethodGet, "http://"+host+"/api/v1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.Proxy(req); (err != nil) != wantErr {
+			t.Errorf("Proxy(%s) err = %v, want error=%v", host, err, wantErr)
+		}
+	}
+}
+
+// TestPerDeviceClientCapsDecompressedBody: a small gzip body from a
+// per-device URL must not expand past maxChatwootResponseBody when read.
+func TestPerDeviceClientCapsDecompressedBody(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"127.0.0.1"}
+
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := zw.Write(make([]byte, maxChatwootResponseBody+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(compressed.Bytes())
+	}))
+	defer srv.Close()
+
+	resp, err := NewClientFromConfig(srv.URL, "t", 1, 1).HTTPClient.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	var tooLarge *http.MaxBytesError
+	if _, err := io.Copy(io.Discard, resp.Body); !errors.As(err, &tooLarge) {
+		t.Fatalf("read err = %v, want the %d-byte response cap", err, maxChatwootResponseBody)
 	}
 }
 

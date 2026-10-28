@@ -2261,7 +2261,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	sender := normalizedSender.ToNonAD().String()
 
 	if revokedMessageID := extractRevokedMessageID(evt.Message); revokedMessageID != "" {
-		return r.revokeMessageByAuthor(deviceID, chatJID, sender, evt, revokedMessageID)
+		return r.revokeMessageByAuthor(ctx, deviceID, chatJID, sender, evt, revokedMessageID)
 	}
 
 	// PushName belongs to the sender. For messages sent from this account, using
@@ -2372,10 +2372,11 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 }
 
 // revokeMessageByAuthor deletes a stored message only when the revoke event
-// was sent by its author. A peer who names another message id must not remove
-// that row. The decision is recorded for Chatwoot forwarding, which runs after
-// the row is gone and would otherwise be unable to tell the two apart.
-func (r *SQLiteRepository) revokeMessageByAuthor(deviceID, chatJID, sender string, evt *events.Message, revokedMessageID string) error {
+// was sent by its author, by a group admin, or by this account. A peer who
+// names another message id must not remove that row. The decision is recorded
+// for Chatwoot forwarding, which runs after the row is gone and would otherwise
+// be unable to tell the two apart.
+func (r *SQLiteRepository) revokeMessageByAuthor(ctx context.Context, deviceID, chatJID, sender string, evt *events.Message, revokedMessageID string) error {
 	existing, err := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, revokedMessageID)
 	if err != nil {
 		return fmt.Errorf("failed to load message %s for revoke: %w", revokedMessageID, err)
@@ -2388,14 +2389,21 @@ func (r *SQLiteRepository) revokeMessageByAuthor(deviceID, chatJID, sender strin
 		rawSender = evt.Info.Sender.ToNonAD().String()
 		fromMe = evt.Info.IsFromMe
 	}
-	if existing == nil {
+	// This account may revoke anything it sends, including a message it never
+	// stored (a poll) or an admin delete made from the phone. A peer needs the
+	// stored row to establish authorship or the admin delete of that author.
+	authorized := fromMe
+	if !authorized && existing != nil {
+		authorized = whatsapp.MessageAuthorMatches(existing.Sender, existing.IsFromMe, sender, rawSender, fromMe) ||
+			groupAdminRevoke(ctx, evt, existing.Sender)
+	}
+	if existing == nil && !authorized {
 		// The row may already have been deleted by an authorized revoke whose
 		// Chatwoot forward has not run. Do not replace that decision with false.
 		whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, false)
 		whatsapp.NoteMessageEventAuthorization(deviceID, eventID, false)
 		return nil
 	}
-	authorized := whatsapp.MessageAuthorMatches(existing.Sender, existing.IsFromMe, sender, rawSender, fromMe)
 	whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, authorized)
 	whatsapp.NoteMessageEventAuthorization(deviceID, eventID, authorized)
 	if !authorized {
@@ -2403,6 +2411,27 @@ func (r *SQLiteRepository) revokeMessageByAuthor(deviceID, chatJID, sender strin
 		return nil
 	}
 	return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+}
+
+// isGroupAdmin asks WhatsApp whether a user currently administers a group.
+// Tests replace it to answer without a connection.
+var isGroupAdmin = whatsapp.IsGroupAdmin
+
+// groupAdminRevoke reports a group admin deleting another member's message.
+// WhatsApp marks it edit="8" and names the author as the key participant. The
+// sender sets both, so the revoker's admin role is checked with WhatsApp.
+func groupAdminRevoke(ctx context.Context, evt *events.Message, storedSender string) bool {
+	if evt == nil || evt.Info.Chat.Server != types.GroupServer || evt.Info.Edit != types.EditAttributeAdminRevoke {
+		return false
+	}
+	author, err := types.ParseJID(utils.UnwrapMessage(evt.Message).GetProtocolMessage().GetKey().GetParticipant())
+	if err != nil {
+		return false
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	normalizedAuthor := whatsapp.NormalizeJIDFromLID(ctx, author, client).ToNonAD().String()
+	return whatsapp.MessageAuthorMatches(storedSender, false, normalizedAuthor, author.ToNonAD().String(), false) &&
+		isGroupAdmin(ctx, client, evt.Info.Chat, evt.Info.Sender, evt.Info.SenderAlt)
 }
 
 func extractRevokedMessageID(msg *waE2E.Message) string {
@@ -2420,7 +2449,7 @@ func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
 	if msg == nil {
 		return nil
 	}
-	protocolMessage := msg.GetProtocolMessage()
+	protocolMessage := utils.UnwrapMessage(msg).GetProtocolMessage()
 	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_MESSAGE_EDIT {
 		return nil
 	}
@@ -2432,7 +2461,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		return nil
 	}
 
-	protocolMessage := evt.Message.GetProtocolMessage()
+	protocolMessage := utils.UnwrapMessage(evt.Message).GetProtocolMessage()
 	if protocolMessage == nil {
 		return nil
 	}
@@ -2451,6 +2480,13 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 	}
 
 	messageExists := existingMessage != nil
+	if !messageExists && !evt.Info.IsFromMe {
+		// Without the original row a peer's authorship cannot be checked, and a
+		// stub naming the editor as sender would authorize the editor's revoke.
+		logrus.Warnf("Ignoring edit of message %s by %s: original message is not stored", originalMessageID, sender)
+		whatsapp.NoteMessageEventAuthorization(deviceID, evt.Info.ID, false)
+		return nil
+	}
 	currentMessage := existingMessage
 	previousContent := ""
 

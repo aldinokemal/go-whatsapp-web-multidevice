@@ -229,6 +229,21 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 			logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s", chat.JID)
 			continue
 		}
+		// The stored JID is phone-normalized, but an ignore entry may name the
+		// chat's LID (or the reverse), so the chat's other address counts too,
+		// matched against exact entries as on the live path.
+		if jid, err := types.ParseJID(chat.JID); err == nil && len(config.ChatwootIgnoreJids) > 0 {
+			var other types.JID
+			if jid.Server == types.HiddenUserServer {
+				other = utils.ResolveLIDToPhone(ctx, jid, waClient)
+			} else {
+				other = utils.ResolvePhoneToLID(ctx, jid, waClient)
+			}
+			if utils.MatchesIgnoredAliasJID(other.String(), config.ChatwootIgnoreJids) {
+				logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s (%s)", chat.JID, other)
+				continue
+			}
+		}
 
 		progress.UpdateChat(chat.JID)
 

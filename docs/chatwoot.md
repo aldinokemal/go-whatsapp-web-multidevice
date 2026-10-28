@@ -623,6 +623,8 @@ Inbound replies and reactions are threaded onto the message they reference (agai
 CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
 
+An exact entry matches a chat under either of its addresses, so `111222333@lid` still excludes that contact after its LID resolves to a phone number, for live forwarding and history import alike. Wildcards apply only to the address the chat is delivered under: `@lid` excludes chats whose LID has not resolved to a phone number.
+
 ## Supported Features
 
 ### Incoming Messages (WhatsApp → Chatwoot)

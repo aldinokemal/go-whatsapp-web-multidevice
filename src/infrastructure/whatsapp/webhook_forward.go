@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -421,7 +423,7 @@ func shouldIgnoreWebhookJID(payload map[string]any) bool {
 	if !ok {
 		return false
 	}
-	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
+	for _, key := range payloadIdentityKeys {
 		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, ignore) {
 			return true
 		}
@@ -1086,10 +1088,11 @@ func deleteTargetMessageID(eventName string, data map[string]any) string {
 	return ""
 }
 
-// chatwootPayloadIdentityKeys are the original and normalized JIDs a Chatwoot
-// event can carry. An exclusion configured against a LID must still match after
-// that LID is resolved to a phone JID and stored beside it.
-var chatwootPayloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid", "sender_alt", "recipient_alt"}
+// payloadIdentityKeys are the original and normalized JIDs a webhook event can
+// carry. An exclusion configured against a LID must still match after that LID
+// is resolved to a phone JID and stored beside it. The first two are the
+// addresses the event is delivered under; the rest are aliases.
+var payloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid", "sender_alt", "recipient_alt"}
 
 // addChatwootIdentityAliases copies original LID chats and alt JIDs onto a
 // webhook payload. chat_id/from may already be the phone; exclusion still has
@@ -1124,8 +1127,12 @@ func chatwootPayloadExcluded(data map[string]any) bool {
 	if len(config.ChatwootIgnoreJids) == 0 || data == nil {
 		return false
 	}
-	for _, key := range chatwootPayloadIdentityKeys {
-		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) {
+	for i, key := range payloadIdentityKeys {
+		jid, _ := data[key].(string)
+		// Wildcards such as "@lid" apply to chat_id and from, as before the
+		// aliases were added; an alias matches exact entries only.
+		if i < 2 && utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) ||
+			i >= 2 && utils.MatchesIgnoredAliasJID(jid, config.ChatwootIgnoreJids) {
 			return true
 		}
 	}
@@ -1157,9 +1164,69 @@ func MessageAuthorMatches(storedSender string, storedFromMe bool, eventSender, e
 	return false
 }
 
+// IsGroupAdmin reports whether any of one user's addresses (LID or phone) is
+// currently an admin of group, asking WhatsApp as client. A failed lookup is
+// not an admin.
+func IsGroupAdmin(ctx context.Context, client *whatsmeow.Client, group types.JID, user ...types.JID) bool {
+	if client == nil {
+		return false
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	info, err := fetchGroupInfoFn(lookupCtx, client, group)
+	if err != nil || info == nil {
+		logrus.Warnf("Could not load admins of group %s: %v", group, err)
+		return false
+	}
+	for _, p := range info.Participants {
+		if !p.IsAdmin && !p.IsSuperAdmin {
+			continue
+		}
+		for _, u := range user {
+			u = u.ToNonAD()
+			if !u.IsEmpty() && (u == p.JID.ToNonAD() || u == p.LID.ToNonAD() || u == p.PhoneNumber.ToNonAD()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type revokeAuthRecord struct {
 	authorized bool
 	expires    time.Time
+}
+
+// authNotesSweptAt is when expired decisions were last swept, in Unix nanoseconds.
+var authNotesSweptAt atomic.Int64
+
+// sweepAuthNotes drops expired decisions at most every five minutes. A read
+// removes only the expired entry it looks up.
+func sweepAuthNotes() {
+	now := time.Now()
+	last := authNotesSweptAt.Load()
+	if now.UnixNano()-last < int64(5*time.Minute) || !authNotesSweptAt.CompareAndSwap(last, now.UnixNano()) {
+		return
+	}
+	dropAuthNotes(func(_ string, rec revokeAuthRecord) bool { return now.After(rec.expires) })
+}
+
+// ForgetMessageAuthorizationsForTest drops every decision noted for deviceID,
+// so tests in other packages can clean up the decisions CreateMessage records.
+func ForgetMessageAuthorizationsForTest(deviceID string) {
+	dropAuthNotes(func(key string, _ revokeAuthRecord) bool { return strings.HasPrefix(key, deviceID+"\n") })
+}
+
+func dropAuthNotes(drop func(key string, rec revokeAuthRecord) bool) {
+	for _, notes := range []*sync.Map{&revokeAuthNotes, &messageEventAuthNotes} {
+		notes.Range(func(key, value any) bool {
+			k, _ := key.(string)
+			if rec, _ := value.(revokeAuthRecord); drop(k, rec) {
+				notes.CompareAndDelete(key, value)
+			}
+			return true
+		})
+	}
 }
 
 var revokeAuthNotes sync.Map
@@ -1173,10 +1240,11 @@ func revokeAuthKey(deviceID, chatJID, messageID string) string {
 // deleted and would otherwise be unable to tell a real revoke from a forged one.
 // A later missing-row or unauthorized attempt must not clear an authorization
 // already recorded for this message: the forwarder may not have read it yet.
+// Only Chatwoot forwarding reads it, so nothing is kept while Chatwoot is off.
 func NoteMessageRevokeAuthorization(deviceID, chatJID, messageID string, authorized bool) {
 	deviceID = strings.TrimSpace(deviceID)
 	messageID = strings.TrimSpace(messageID)
-	if deviceID == "" || messageID == "" {
+	if !config.ChatwootEnabled || deviceID == "" || messageID == "" {
 		return
 	}
 	if !authorized {
@@ -1184,6 +1252,7 @@ func NoteMessageRevokeAuthorization(deviceID, chatJID, messageID string, authori
 			return
 		}
 	}
+	sweepAuthNotes()
 	revokeAuthNotes.Store(revokeAuthKey(deviceID, chatJID, messageID), revokeAuthRecord{
 		authorized: authorized,
 		expires:    time.Now().Add(24 * time.Hour),
@@ -1203,9 +1272,10 @@ func messageEventAuthKey(deviceID, eventID string) string {
 func NoteMessageEventAuthorization(deviceID, eventID string, authorized bool) {
 	deviceID = strings.TrimSpace(deviceID)
 	eventID = strings.TrimSpace(eventID)
-	if deviceID == "" || eventID == "" {
+	if !config.ChatwootEnabled || deviceID == "" || eventID == "" {
 		return
 	}
+	sweepAuthNotes()
 	messageEventAuthNotes.Store(messageEventAuthKey(deviceID, eventID), revokeAuthRecord{
 		authorized: authorized,
 		expires:    time.Now().Add(24 * time.Hour),
@@ -1447,6 +1517,9 @@ func isRetryableChatwootForwardEvent(eventName string) bool {
 	}
 }
 
+// queuedAuthorizationKey carries an edit or revoke decision in a queued payload.
+const queuedAuthorizationKey = "chatwoot_authorized"
+
 func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageRepository, deviceID, eventName string, payload map[string]any, syncErr error) bool {
 	if !isRetryableChatwootForwardEvent(eventName) || linkRepo == nil || strings.TrimSpace(deviceID) == "" || !chatwoot.Retryable(syncErr) {
 		return false
@@ -1455,6 +1528,14 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 	messageID := chatwootForwardMessageID(payload)
 	if messageID == "" {
 		return false
+	}
+
+	// Edit and revoke decisions live in memory. Queue this one with the event,
+	// on a copy so the live map is not changed.
+	if eventName == "message.edited" || eventName == "message.revoked" {
+		authorized, _ := MessageEventAuthorized(deviceID, messageID)
+		payload = maps.Clone(payload)
+		payload[queuedAuthorizationKey] = authorized
 	}
 
 	payloadJSON, err := json.Marshal(payload)
@@ -1523,6 +1604,14 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, resolved.ConfigID, data)
 		return nil
 	case "message.revoked", "message.deleted":
+		// The stored chat may be excluded under an address this payload does not
+		// carry (LID vs phone). Then skip both the hard delete and the tombstone.
+		if targetID := deleteTargetMessageID(eventName, data); targetID != "" && linkRepo != nil {
+			if link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, targetID); err == nil && link != nil && chatwootJIDExcluded(link.WhatsAppChatJID) {
+				logrus.Debugf("Chatwoot: skipping %s for excluded chat %s", eventName, link.WhatsAppChatJID)
+				return nil
+			}
+		}
 		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, resolved.ConfigID, eventName, data) {
 			return nil
 		}
@@ -1641,6 +1730,18 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 		return fmt.Errorf("chatwoot retry: device %s is not available: %w", event.DeviceID, err)
 	}
 	ctx = ContextWithDevice(ctx, instance)
+	if event.EventName == "message.edited" || event.EventName == "message.revoked" {
+		// The in-memory decision may be gone after a restart or its TTL. Restore
+		// the one queued with the event; a queued edit or revoke without one is denied.
+		authorized, _ := payload[queuedAuthorizationKey].(bool)
+		data, _ := payload["payload"].(map[string]any)
+		eventID, _ := data["id"].(string)
+		NoteMessageEventAuthorization(event.DeviceID, eventID, authorized)
+		if event.EventName == "message.revoked" {
+			chatJID, _ := data["chat_id"].(string)
+			NoteMessageRevokeAuthorization(event.DeviceID, chatJID, deleteTargetMessageID(event.EventName, data), authorized)
+		}
+	}
 	return syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
 }
 

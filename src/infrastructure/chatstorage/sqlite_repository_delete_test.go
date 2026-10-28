@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -176,7 +178,7 @@ func TestDeleteMessageRollsBackDependentDeletesWhenMessageDeleteFails(t *testing
 
 func TestCreateMessageRevokeIgnoresNonAuthor(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
-	deviceID := "device-a@s.whatsapp.net"
+	deviceID := authzDevice(t)
 	chatJID := "628123456789@s.whatsapp.net"
 	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
 	seedChatMessage(t, repo, deviceID, chatJID, "message-foreign", "keep me", timestamp)
@@ -213,7 +215,7 @@ func TestCreateMessageRevokeIgnoresNonAuthor(t *testing.T) {
 
 func TestRevokeAuthorizationSurvivesLaterMissingRow(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
-	deviceID := "device-a@s.whatsapp.net"
+	deviceID := authzDevice(t)
 	chatJID := "628123456789@s.whatsapp.net"
 	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
 	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
@@ -244,7 +246,7 @@ func TestRevokeAuthorizationSurvivesLaterMissingRow(t *testing.T) {
 
 func TestUnauthorizedRevokeDoesNotClearAuthorization(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
-	deviceID := "device-a@s.whatsapp.net"
+	deviceID := authzDevice(t)
 	chatJID := "628123456789@s.whatsapp.net"
 	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
 	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
@@ -286,4 +288,147 @@ func revokeEvent(chatJID, eventID, senderUser string, at time.Time) *events.Mess
 			},
 		}},
 	}
+}
+
+// authzDevice returns a device id unique to the running test, with Chatwoot
+// enabled so CreateMessage records edit/revoke decisions. Both are undone at
+// cleanup, so a -count or -shuffle run never reads another test's decision.
+func authzDevice(t *testing.T) string {
+	t.Helper()
+	enabled := config.ChatwootEnabled
+	config.ChatwootEnabled = true
+	deviceID := t.Name()
+	t.Cleanup(func() {
+		config.ChatwootEnabled = enabled
+		whatsapp.ForgetMessageAuthorizationsForTest(deviceID)
+	})
+	return deviceID
+}
+
+func TestCreateMessageGroupAdminRevoke(t *testing.T) {
+	const (
+		groupJID = "120363000000000001@g.us"
+		author   = "628111111111@s.whatsapp.net"
+		revoker  = "628222222222@s.whatsapp.net"
+	)
+	for _, tc := range []struct {
+		name        string
+		admin       bool
+		participant string
+		authorized  bool
+	}{
+		{"admin deletes the author message", true, author, true},
+		{"non-admin peer is denied", false, author, false},
+		{"admin naming another author is denied", true, revoker, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			deviceID := authzDevice(t)
+			var asked []string
+			orig := isGroupAdmin
+			isGroupAdmin = func(_ context.Context, _ *whatsmeow.Client, group types.JID, user ...types.JID) bool {
+				asked = append(asked, group.String(), user[0].String())
+				return tc.admin
+			}
+			t.Cleanup(func() { isGroupAdmin = orig })
+			require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+				ID: "SPAM", ChatJID: groupJID, DeviceID: deviceID, Sender: author, Content: "spam", Timestamp: time.Now(),
+			}))
+
+			group, _ := types.ParseJID(groupJID)
+			sender, _ := types.ParseJID(revoker)
+			ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+			require.NoError(t, repo.CreateMessage(ctx, &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{Chat: group, Sender: sender, IsGroup: true},
+					ID:            "REV-ADMIN",
+					Edit:          types.EditAttributeAdminRevoke,
+					Timestamp:     time.Now(),
+				},
+				Message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+					Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+					Key: &waCommon.MessageKey{
+						RemoteJID:   proto.String(groupJID),
+						ID:          proto.String("SPAM"),
+						FromMe:      proto.Bool(false),
+						Participant: proto.String(tc.participant),
+					},
+				}},
+			}))
+
+			kept, err := repo.GetMessageByIDAndDevice(deviceID, "SPAM")
+			require.NoError(t, err)
+			require.Equal(t, !tc.authorized, kept != nil)
+			eventOK, ok := whatsapp.MessageEventAuthorized(deviceID, "REV-ADMIN")
+			require.True(t, ok)
+			require.Equal(t, tc.authorized, eventOK)
+			if tc.authorized {
+				require.Equal(t, []string{groupJID, revoker}, asked)
+			}
+		})
+	}
+}
+
+func TestCreateMessageOwnRevokePurgesUnstoredPoll(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := authzDevice(t)
+	chatJID := "628123456789@s.whatsapp.net"
+	require.NoError(t, repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: deviceID, ChatJID: chatJID, PollMessageID: "POLL-OWN", Question: "lunch?",
+		Options: []domainChatStorage.PollOption{{Name: "yes"}}, Version: "v3",
+	}))
+	seedReaction(t, repo, deviceID, chatJID, "POLL-OWN", "628111111111@s.whatsapp.net")
+
+	// Polls never get a messages row. The account's own revoke still counts.
+	revoke := revokeEvent(chatJID, "REV-OWN-POLL", "628000000000", time.Now())
+	revoke.Info.IsFromMe = true
+	revoke.Message.ProtocolMessage.Key.ID = proto.String("POLL-OWN")
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+	require.NoError(t, repo.CreateMessage(ctx, revoke))
+
+	poll, err := repo.GetPollDefinition(deviceID, chatJID, "POLL-OWN")
+	require.NoError(t, err)
+	require.Nil(t, poll)
+	require.Zero(t, countMessageReactions(t, repo))
+	eventOK, ok := whatsapp.MessageEventAuthorized(deviceID, "REV-OWN-POLL")
+	require.True(t, ok)
+	require.True(t, eventOK)
+	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "POLL-OWN")
+	require.True(t, ok)
+	require.True(t, authorized)
+}
+
+func TestCreateMessagePeerEditOfUnstoredMessageGrantsNoRevoke(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := authzDevice(t)
+	chatJID := "628123456789@s.whatsapp.net"
+	require.NoError(t, repo.UpsertPollDefinition(&domainChatStorage.PollDefinition{
+		DeviceID: deviceID, ChatJID: chatJID, PollMessageID: "POLL-A", Question: "lunch?",
+		Options: []domainChatStorage.PollOption{{Name: "yes"}}, Version: "v3",
+	}))
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+
+	edit := revokeEvent(chatJID, "EDIT-STUB", "628123456789", time.Now())
+	edit.Message.ProtocolMessage = &waE2E.ProtocolMessage{
+		Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		Key:           &waCommon.MessageKey{RemoteJID: proto.String(chatJID), ID: proto.String("POLL-A")},
+		EditedMessage: &waE2E.Message{Conversation: proto.String("stub")},
+	}
+	require.NoError(t, repo.CreateMessage(ctx, edit))
+	stub, err := repo.GetMessageByIDAndDevice(deviceID, "POLL-A")
+	require.NoError(t, err)
+	require.Nil(t, stub, "a peer edit of an unstored message created a row")
+	editOK, ok := whatsapp.MessageEventAuthorized(deviceID, "EDIT-STUB")
+	require.True(t, ok)
+	require.False(t, editOK)
+
+	revoke := revokeEvent(chatJID, "REV-STUB", "628123456789", time.Now())
+	revoke.Message.ProtocolMessage.Key.ID = proto.String("POLL-A")
+	require.NoError(t, repo.CreateMessage(ctx, revoke))
+	poll, err := repo.GetPollDefinition(deviceID, chatJID, "POLL-A")
+	require.NoError(t, err)
+	require.NotNil(t, poll)
+	revokeOK, ok := whatsapp.MessageEventAuthorized(deviceID, "REV-STUB")
+	require.True(t, ok)
+	require.False(t, revokeOK)
 }

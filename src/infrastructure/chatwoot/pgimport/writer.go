@@ -450,7 +450,7 @@ func (i *Importer) insertMessage(
 	// cycle keeps the contact and changes the conversation id. An inbox-wide
 	// source_id collision in some other contact's conversation must not become
 	// a routing link for this chat.
-	existingID, existingConvID, reuse, err := i.existingMessageForChat(ctx, tx, convID, contactID, sourceID)
+	existingID, existingConvID, reuse, err := i.existingMessageForChat(ctx, tx, contactID, sourceID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -532,38 +532,24 @@ func (i *Importer) insertMessage(
 	return i.buildMessageLink(msg, convID, chatwootMessageID, sourceID, mType), true, nil
 }
 
-// existingMessageForChat reports an inbox source_id hit that belongs to this
-// WhatsApp chat. reuse is false when nothing matches or the hit sits on a
-// different contact's conversation; the caller then inserts into convID
-// instead of linking the foreign conversation.
-func (i *Importer) existingMessageForChat(ctx context.Context, tx *sql.Tx, convID, contactID int, sourceID string) (existingID, existingConvID int, reuse bool, err error) {
+// existingMessageForChat reports an inbox source_id hit in one of this chat
+// contact's conversations. reuse is false when nothing matches or the only
+// hits sit on other contacts' conversations; the caller then inserts instead
+// of linking a foreign conversation. The contact filter runs before LIMIT 1,
+// so another contact's copy of the source_id cannot hide this contact's row.
+func (i *Importer) existingMessageForChat(ctx context.Context, tx *sql.Tx, contactID int, sourceID string) (existingID, existingConvID int, reuse bool, err error) {
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, conversation_id FROM messages
-		WHERE inbox_id = $1 AND source_id = $2
+		SELECT m.id, m.conversation_id FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.inbox_id = $1 AND m.source_id = $2
+			AND c.account_id = $3 AND c.inbox_id = $1 AND c.contact_id = $4
 		LIMIT 1
-	`, i.inboxID, sourceID).Scan(&existingID, &existingConvID)
+	`, i.inboxID, sourceID, i.accountID, contactID).Scan(&existingID, &existingConvID)
 	if err == sql.ErrNoRows {
 		return 0, 0, false, nil
 	}
 	if err != nil {
 		return 0, 0, false, err
-	}
-	if existingConvID == convID {
-		return existingID, existingConvID, true, nil
-	}
-	var owner int
-	err = tx.QueryRowContext(ctx, `
-		SELECT contact_id FROM conversations
-		WHERE id = $1 AND account_id = $2 AND inbox_id = $3
-	`, existingConvID, i.accountID, i.inboxID).Scan(&owner)
-	if err == sql.ErrNoRows {
-		return 0, 0, false, nil
-	}
-	if err != nil {
-		return 0, 0, false, err
-	}
-	if owner != contactID {
-		return 0, 0, false, nil
 	}
 	return existingID, existingConvID, true, nil
 }

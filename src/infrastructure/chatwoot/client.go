@@ -251,7 +251,7 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if ssrfGuard {
-		httpClient.Transport = ssrfGuardedTransport()
+		httpClient.Transport = cappedBodyTransport{ssrfGuardedTransport()}
 		httpClient.CheckRedirect = chatwootCheckRedirect
 	}
 	return &Client{
@@ -268,6 +268,23 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 // instead of being copied into the error string.
 const maxChatwootErrorBody = 64 << 10
 
+// maxChatwootResponseBody bounds every per-device response body after
+// automatic decompression; a read past it fails with *http.MaxBytesError. It
+// is generous for any Chatwoot API reply and keeps a small compressed body
+// from an operator-supplied URL from expanding without limit in memory.
+const maxChatwootResponseBody = 16 << 20
+
+// cappedBodyTransport applies maxChatwootResponseBody to every response.
+type cappedBodyTransport struct{ http.RoundTripper }
+
+func (t cappedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.RoundTripper.RoundTrip(req)
+	if err == nil {
+		resp.Body = http.MaxBytesReader(nil, resp.Body, maxChatwootResponseBody)
+	}
+	return resp, err
+}
+
 // ssrfGuardedTransport returns an HTTP transport that refuses connections the
 // operator has not approved.
 //
@@ -276,25 +293,25 @@ const maxChatwootErrorBody = 64 << 10
 // closes the DNS rebinding window left open by validating the URL's host once
 // up front.
 //
-// With a non-empty allowlist the dialed hostname must be on that list. An
-// allowlisted host is dialed even when it is private — that host is the
-// operator's explicit self-host exception. Every other host is refused before
-// a connection is opened, including redirect targets.
+// With a non-empty allowlist the request's host must be on that list. Proxy
+// checks it for every request, redirects included, before a connection is
+// chosen; the dialed address is not checked because behind HTTP(S)_PROXY it
+// is the proxy. An allowlisted host is dialed even when it is private — that
+// host is the operator's explicit self-host exception.
 func ssrfGuardedTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		if len(config.ChatwootAllowedHosts) > 0 && !chatwootHostAllowlisted(req.URL.Hostname()) {
+			return nil, fmt.Errorf("chatwoot: host %q is not in the allowed hosts list", req.URL.Hostname())
+		}
+		return http.ProxyFromEnvironment(req)
+	}
 	baseDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	t.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			host = address
-		}
 		if len(config.ChatwootAllowedHosts) > 0 {
-			if !chatwootHostAllowlisted(host) {
-				return nil, fmt.Errorf("chatwoot: host %q is not in the allowed hosts list", host)
-			}
 			return baseDialer.DialContext(ctx, network, address)
 		}
 		guarded := *baseDialer
@@ -315,20 +332,21 @@ func ssrfGuardedTransport() *http.Transport {
 
 // chatwootCheckRedirect applies the host allowlist to every redirect. An empty
 // allowlist keeps the default follow-redirects behavior (the connect-time
-// guard still blocks private addresses). A redirect to a different host drops
-// the Chatwoot API token so credentials are not sent across origins.
+// guard still blocks private addresses). A redirect to a different host or
+// scheme drops the Chatwoot API token, with or without an allowlist, so
+// credentials are not sent across origins.
 func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("chatwoot: stopped after 10 redirects")
+	}
+	if len(via) > 0 && (!strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname()) || via[0].URL.Scheme != req.URL.Scheme) {
+		req.Header.Del("api_access_token")
 	}
 	if len(config.ChatwootAllowedHosts) == 0 {
 		return nil
 	}
 	if !chatwootHostAllowlisted(req.URL.Hostname()) {
 		return fmt.Errorf("chatwoot: redirect host %q is not in the allowed hosts list", req.URL.Hostname())
-	}
-	if len(via) > 0 && !strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname()) {
-		req.Header.Del("api_access_token")
 	}
 	return nil
 }

@@ -145,7 +145,8 @@ func TestCreateMessageEditRejectsOtherAuthor(t *testing.T) {
 	db := openTestDB(t)
 	repo := NewStorageRepository(db).(*SQLiteRepository)
 	require.NoError(t, repo.InitializeSchema())
-	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("device-1", nil, nil))
+	deviceID := authzDevice(t)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
 
 	original := &events.Message{
 		Info: types.MessageInfo{
@@ -184,7 +185,21 @@ func TestCreateMessageEditRejectsOtherAuthor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "hello", got.Content)
-	authorized, ok := whatsapp.MessageEventAuthorized("device-1", "EDIT-FOREIGN")
+	authorized, ok := whatsapp.MessageEventAuthorized(deviceID, "EDIT-FOREIGN")
+	require.True(t, ok)
+	require.False(t, authorized)
+
+	// whatsmeow strips each wrapper once, so a doubly wrapped edit still
+	// arrives wrapped. It is the same edit and needs the same author check.
+	wrapped := &events.Message{Info: edited.Info, Message: &waE2E.Message{
+		EphemeralMessage: &waE2E.FutureProofMessage{Message: edited.Message},
+	}}
+	wrapped.Info.ID = "EDIT-FOREIGN-WRAPPED"
+	require.NoError(t, repo.CreateMessage(ctx, wrapped))
+	got, err = repo.GetMessageByID("MSG-1")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", got.Content)
+	authorized, ok = whatsapp.MessageEventAuthorized(deviceID, "EDIT-FOREIGN-WRAPPED")
 	require.True(t, ok)
 	require.False(t, authorized)
 
@@ -197,12 +212,13 @@ func TestCreateMessageEditAllowsOwnAccountAcrossSenderStrings(t *testing.T) {
 	db := openTestDB(t)
 	repo := NewStorageRepository(db).(*SQLiteRepository)
 	require.NoError(t, repo.InitializeSchema())
-	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("device-1", nil, nil))
+	deviceID := authzDevice(t)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
 
 	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
 		ID:        "MSG-OWN",
 		ChatJID:   "628123456789@s.whatsapp.net",
-		DeviceID:  "device-1",
+		DeviceID:  deviceID,
 		Sender:    "628000000000@s.whatsapp.net",
 		Content:   "original",
 		Timestamp: time.Date(2026, time.May, 16, 10, 0, 0, 0, time.UTC),
@@ -231,11 +247,11 @@ func TestCreateMessageEditAllowsOwnAccountAcrossSenderStrings(t *testing.T) {
 	}
 	require.NoError(t, repo.CreateMessage(ctx, edited))
 
-	got, err := repo.GetMessageByIDAndDevice("device-1", "MSG-OWN")
+	got, err := repo.GetMessageByIDAndDevice(deviceID, "MSG-OWN")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "edited by us", got.Content)
-	authorized, ok := whatsapp.MessageEventAuthorized("device-1", "EDIT-OWN")
+	authorized, ok := whatsapp.MessageEventAuthorized(deviceID, "EDIT-OWN")
 	require.True(t, ok)
 	require.True(t, authorized)
 }

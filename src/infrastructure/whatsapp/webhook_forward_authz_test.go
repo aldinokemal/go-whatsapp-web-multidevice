@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -256,12 +257,15 @@ func TestChatwootExclusionRunsBeforeReceiptAndDelete(t *testing.T) {
 }
 
 func TestChatwootRevokeRequiresAuthor(t *testing.T) {
+	origEnabled := config.ChatwootEnabled
 	origDelete := config.ChatwootMessageDelete
 	origIgnore := config.ChatwootIgnoreJids
 	t.Cleanup(func() {
+		config.ChatwootEnabled = origEnabled
 		config.ChatwootMessageDelete = origDelete
 		config.ChatwootIgnoreJids = origIgnore
 	})
+	config.ChatwootEnabled = true
 	config.ChatwootMessageDelete = true
 	config.ChatwootIgnoreJids = nil
 
@@ -321,11 +325,13 @@ func TestMessageAuthorMatchesRejectsEmptyStoredSender(t *testing.T) {
 }
 
 func TestSyncPayloadSkipsUnauthorizedEditAndRevoke(t *testing.T) {
+	origEnabled := config.ChatwootEnabled
 	origEdit := config.ChatwootForwardEdits
 	origDelete := config.ChatwootForwardDeletes
 	origHard := config.ChatwootMessageDelete
 	origClient := getChatwootClientFn
 	t.Cleanup(func() {
+		config.ChatwootEnabled = origEnabled
 		config.ChatwootForwardEdits = origEdit
 		config.ChatwootForwardDeletes = origDelete
 		config.ChatwootMessageDelete = origHard
@@ -334,6 +340,7 @@ func TestSyncPayloadSkipsUnauthorizedEditAndRevoke(t *testing.T) {
 			messageEventAuthNotes.Delete(messageEventAuthKey("dev", id))
 		}
 	})
+	config.ChatwootEnabled = true
 	config.ChatwootForwardEdits = true
 	config.ChatwootForwardDeletes = true
 	config.ChatwootMessageDelete = true
@@ -467,5 +474,245 @@ func TestDeleteAndReceiptPayloadsCarryLIDForExclusion(t *testing.T) {
 	}
 	if hit {
 		t.Fatal("read receipt for an ignored LID updated last seen")
+	}
+}
+
+func TestIsGroupAdminMatchesLIDOrPhone(t *testing.T) {
+	orig := fetchGroupInfoFn
+	t.Cleanup(func() { fetchGroupInfoFn = orig })
+	group := types.NewJID("120363000000000001", types.GroupServer)
+	adminLID := types.NewJID("111", types.HiddenUserServer)
+	adminPN := types.NewJID("628111", types.DefaultUserServer)
+	memberLID := types.NewJID("222", types.HiddenUserServer)
+	var lookupErr error
+	fetchGroupInfoFn = func(_ context.Context, _ *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		if lookupErr != nil || jid != group {
+			return nil, lookupErr
+		}
+		return &types.GroupInfo{Participants: []types.GroupParticipant{
+			{JID: adminLID, PhoneNumber: adminPN, IsAdmin: true},
+			{JID: memberLID, PhoneNumber: types.NewJID("628222", types.DefaultUserServer)},
+		}}, nil
+	}
+	ctx := context.Background()
+	client := &whatsmeow.Client{}
+
+	companion := adminLID
+	companion.Device = 3
+	if !IsGroupAdmin(ctx, client, group, companion) {
+		t.Fatal("admin sending from a companion device was not recognized by LID")
+	}
+	if !IsGroupAdmin(ctx, client, group, adminPN, types.EmptyJID) {
+		t.Fatal("admin addressed by phone in a LID group was not recognized")
+	}
+	if IsGroupAdmin(ctx, client, group, memberLID, types.EmptyJID) {
+		t.Fatal("a member who is not an admin was treated as one")
+	}
+	if IsGroupAdmin(ctx, nil, group, adminLID) {
+		t.Fatal("a missing client answered as admin")
+	}
+	lookupErr = errors.New("timeout")
+	if IsGroupAdmin(ctx, client, group, adminLID) {
+		t.Fatal("a failed group lookup was treated as admin")
+	}
+}
+
+func TestAuthNotesNeedChatwootAndExpiredOnesAreSwept(t *testing.T) {
+	origEnabled := config.ChatwootEnabled
+	t.Cleanup(func() {
+		config.ChatwootEnabled = origEnabled
+		ForgetMessageAuthorizationsForTest("dev-sweep")
+	})
+	chatJID := "628123@s.whatsapp.net"
+
+	config.ChatwootEnabled = false
+	NoteMessageEventAuthorization("dev-sweep", "EVT-OFF", false)
+	NoteMessageRevokeAuthorization("dev-sweep", chatJID, "m-off", false)
+	if _, ok := MessageEventAuthorized("dev-sweep", "EVT-OFF"); ok {
+		t.Fatal("event decision kept while Chatwoot is disabled")
+	}
+	if _, ok := MessageRevokeAuthorized("dev-sweep", chatJID, "m-off"); ok {
+		t.Fatal("revoke decision kept while Chatwoot is disabled")
+	}
+
+	config.ChatwootEnabled = true
+	staleEvent := messageEventAuthKey("dev-sweep", "EVT-STALE")
+	staleRevoke := revokeAuthKey("dev-sweep", chatJID, "m-stale")
+	expired := revokeAuthRecord{expires: time.Now().Add(-time.Minute)}
+	messageEventAuthNotes.Store(staleEvent, expired)
+	revokeAuthNotes.Store(staleRevoke, expired)
+	authNotesSweptAt.Store(0)
+	NoteMessageEventAuthorization("dev-sweep", "EVT-NEW", true)
+	if _, found := messageEventAuthNotes.Load(staleEvent); found {
+		t.Fatal("expired event decision survived the sweep")
+	}
+	if _, found := revokeAuthNotes.Load(staleRevoke); found {
+		t.Fatal("expired revoke decision survived the sweep")
+	}
+	if authorized, ok := MessageEventAuthorized("dev-sweep", "EVT-NEW"); !ok || !authorized {
+		t.Fatal("the new decision was not kept")
+	}
+}
+
+func TestQueuedRevokeKeepsItsAuthorization(t *testing.T) {
+	origEnabled := config.ChatwootEnabled
+	origHard := config.ChatwootMessageDelete
+	origForward := config.ChatwootForwardDeletes
+	origIgnore := config.ChatwootIgnoreJids
+	origClient := getChatwootClientFn
+	origDM := deviceManager
+	t.Cleanup(func() {
+		config.ChatwootEnabled = origEnabled
+		config.ChatwootMessageDelete = origHard
+		config.ChatwootForwardDeletes = origForward
+		config.ChatwootIgnoreJids = origIgnore
+		getChatwootClientFn = origClient
+		deviceManager = origDM
+		ForgetMessageAuthorizationsForTest("dev-retry")
+	})
+	config.ChatwootEnabled = true
+	config.ChatwootMessageDelete = true
+	config.ChatwootForwardDeletes = true
+	config.ChatwootIgnoreJids = nil
+	deviceManager = NewDeviceManager(nil, nil, nil)
+	deviceManager.AddDevice(NewDeviceInstance("dev-retry", nil, nil))
+
+	var requests []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{
+			ConfigID: 3,
+			Client: &chatwoot.Client{
+				BaseURL: srv.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: srv.Client(),
+			},
+		}, nil
+	}
+	chatJID := "628123@s.whatsapp.net"
+	repo := &authzLinkRepo{link: &chatstorage.ChatwootMessageLink{
+		DeviceID: "dev-retry", WhatsAppMessageID: "m1", WhatsAppChatJID: chatJID,
+		ChatwootMessageID: 8, ChatwootConversationID: 9, ChatwootConfigID: 3, ChatwootAccountID: 1,
+	}}
+
+	// The author's revoke was authorized and its row deleted, then Chatwoot failed.
+	NoteMessageEventAuthorization("dev-retry", "REV-1", true)
+	NoteMessageRevokeAuthorization("dev-retry", chatJID, "m1", true)
+	payload := map[string]any{"event": "message.revoked", "payload": map[string]any{
+		"id": "REV-1", "revoked_message_id": "m1", "chat_id": chatJID, "from": chatJID, "is_from_me": false,
+	}}
+	queue := &chatwootForwardQueueTestRepo{}
+	if !enqueueChatwootForwardRetry(queue, "dev-retry", "message.revoked", payload, &chatwoot.HTTPStatusError{
+		StatusCode: http.StatusInternalServerError, Op: "delete message",
+	}) {
+		t.Fatal("transient failure was not queued")
+	}
+	if _, stamped := payload[queuedAuthorizationKey]; stamped {
+		t.Fatal("the decision was written into the live payload")
+	}
+
+	// A restart drops the in-memory decisions. The replay restores the queued one.
+	ForgetMessageAuthorizationsForTest("dev-retry")
+	if err := processChatwootForwardRetryEvent(repo, queue.events[0]); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if len(requests) != 1 || requests[0] != http.MethodDelete {
+		t.Fatalf("authorized queued revoke did not hard-delete: %v", requests)
+	}
+
+	// A queued revoke without a decision is denied: no delete and no tombstone.
+	requests = nil
+	ForgetMessageAuthorizationsForTest("dev-retry")
+	if err := processChatwootForwardRetryEvent(repo, &chatstorage.ChatwootForwardEvent{
+		DeviceID:    "dev-retry",
+		EventName:   "message.revoked",
+		PayloadJSON: `{"payload":{"id":"REV-2","revoked_message_id":"m1","chat_id":"628123@s.whatsapp.net","from":"628123@s.whatsapp.net"}}`,
+	}); err != nil {
+		t.Fatalf("replay without a decision: %v", err)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("queued revoke without a decision reached Chatwoot: %v", requests)
+	}
+}
+
+func TestChatwootSkipsChatExcludedOnlyByItsStoredLink(t *testing.T) {
+	origIgnore := config.ChatwootIgnoreJids
+	origDelete := config.ChatwootMessageDelete
+	origForward := config.ChatwootForwardDeletes
+	origClient := getChatwootClientFn
+	t.Cleanup(func() {
+		config.ChatwootIgnoreJids = origIgnore
+		config.ChatwootMessageDelete = origDelete
+		config.ChatwootForwardDeletes = origForward
+		getChatwootClientFn = origClient
+	})
+	config.ChatwootIgnoreJids = []string{"111@lid"}
+	config.ChatwootMessageDelete = true
+	config.ChatwootForwardDeletes = true
+
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{
+			ConfigID: 3,
+			Client: &chatwoot.Client{
+				BaseURL: srv.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: srv.Client(),
+			},
+		}, nil
+	}
+	// The link was stored under the excluded LID. The events name only the phone.
+	phone := "1555121200@s.whatsapp.net"
+	repo := &authzLinkRepo{link: &chatstorage.ChatwootMessageLink{
+		DeviceID: "dev", WhatsAppMessageID: "m1", WhatsAppChatJID: "111@lid",
+		ChatwootMessageID: 8, ChatwootConversationID: 9, ChatwootConfigID: 3, ChatwootAccountID: 1,
+		ChatwootContactInboxSourceID: "src",
+	}}
+
+	for _, tc := range []struct {
+		event string
+		data  map[string]any
+	}{
+		{"message.deleted", map[string]any{"deleted_message_id": "m1", "chat_id": phone, "from": phone}},
+		{"message.ack", map[string]any{"receipt_type": "read", "ids": []string{"m1"}, "chat_id": phone, "from": phone}},
+	} {
+		if chatwootPayloadExcluded(tc.data) {
+			t.Fatalf("%s payload must not be excluded by itself", tc.event)
+		}
+		if err := syncPayloadToChatwoot(context.Background(), map[string]any{"payload": tc.data}, tc.event, "dev", repo); err != nil {
+			t.Fatalf("%s: %v", tc.event, err)
+		}
+		if hit {
+			t.Fatalf("%s reached Chatwoot for a chat excluded by its stored link", tc.event)
+		}
+	}
+}
+
+func TestPayloadExclusionWildcardsApplyToDeliveredAddress(t *testing.T) {
+	origChatwoot, origWebhook := config.ChatwootIgnoreJids, config.WhatsappWebhookIgnoreJids
+	t.Cleanup(func() { config.ChatwootIgnoreJids, config.WhatsappWebhookIgnoreJids = origChatwoot, origWebhook })
+
+	resolved := map[string]any{"chat_id": "628123@s.whatsapp.net", "from": "628123@s.whatsapp.net", "chat_lid": "111@lid", "from_lid": "111@lid"}
+	config.ChatwootIgnoreJids = []string{"@lid"}
+	if chatwootPayloadExcluded(resolved) {
+		t.Error("@lid excluded a chat that resolved to a phone number")
+	}
+	if !chatwootPayloadExcluded(map[string]any{"chat_id": "111@lid", "from": "111@lid"}) {
+		t.Error("@lid did not exclude a chat still addressed by its LID")
+	}
+	config.ChatwootIgnoreJids = []string{"111@lid"}
+	if !chatwootPayloadExcluded(resolved) {
+		t.Error("an exact LID entry did not exclude the resolved chat")
+	}
+
+	config.WhatsappWebhookIgnoreJids = []string{"628555@s.whatsapp.net"}
+	receipt := map[string]any{"payload": map[string]any{"chat_id": "222@lid", "from": "222@lid", "sender_alt": "628555@s.whatsapp.net"}}
+	if !shouldIgnoreWebhookJID(receipt) {
+		t.Error("the webhook ignore list did not match sender_alt")
 	}
 }

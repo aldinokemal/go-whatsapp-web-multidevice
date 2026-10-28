@@ -190,6 +190,13 @@ func (r *linkRouteRepo) GetLatestChatwootMessageLinkByConversation(conversationI
 	return &cloned, nil
 }
 
+func (r *linkRouteRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.cfg != nil && r.cfg.AccountID == accountID && r.cfg.InboxID == inboxID {
+		return r.cfg, nil
+	}
+	return nil, nil
+}
+
 func TestContactDeviceOverridePreservesConfigID(t *testing.T) {
 	repo := &deviceWebhookTestRepo{
 		cfg: &domainChatStorage.ChatwootDeviceConfig{
@@ -234,10 +241,18 @@ func TestConversationLinkDisabledConfigDoesNotRoute(t *testing.T) {
 	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
 
 	handler := &ChatwootHandler{ChatStorageRepo: repo}
-	route := handler.resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+	payload := chatwoot.WebhookPayload{
 		Account:      chatwoot.Account{ID: 7},
 		Conversation: chatwoot.ConversationWebhook{ID: 4, InboxID: 3},
-	}, nil)
+	}
+	// The shared endpoint scopes the link to the config that owns the inbox,
+	// and a disabled config owns none.
+	if route := handler.resolveChatwootWebhookRoute(payload, nil); !route.Unroutable {
+		t.Fatalf("disabled configuration's link routed the shared endpoint: %+v", route)
+	}
+	// A route that still carries the config (disabled after the per-device
+	// endpoint resolved it) must not send either.
+	route := handler.resolveChatwootWebhookRoute(payload, &chatwootWebhookRoute{DeviceID: "sales", ConfigID: 42})
 	if route.DeviceID == "" || route.Destination == "" {
 		t.Fatalf("stored link should still identify the conversation: %+v", route)
 	}
