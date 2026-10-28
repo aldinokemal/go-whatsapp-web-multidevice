@@ -18,6 +18,9 @@ background retry loop. Each account needs an explicit device ID, expected displa
 name **and international phone number**, and an explicit phone/profile adapter.
 The generic ADB adapter requires an explicit serial and Android user, including
 user `0` for the main profile. Configuration, state and evidence are private.
+All controllers for the same phone must use the same lock-capable phone
+`state_dir`: its `<serial>.lock` reserves the entire session. Different evidence
+directories must never create independent reservations for the same phone.
 
 ```sh
 mkdir -m 700 /private/recovery-state
@@ -40,7 +43,6 @@ supports a single backend per account; see the identity limitation below.
     "id": "sales",
     "phone": "15551234567",
     "display_name": "Example Sales",
-    "not_before": "2099-01-01T12:00:00Z",
     "verify_seconds": 60,
     "backends": [{
       "id": "primary",
@@ -143,6 +145,12 @@ unknown reasons are discarded. Replies are bounded to 64 KiB and calls have a
 180-second deadline; finish has a separate 60-second cleanup deadline. EOF must
 release locks/reservations and restore the phone. Adapters must bound abandoned
 remote lock leases independently.
+Adapters run outside the controller's terminal process group. Cancellation leaves
+server adapters alive until phone cleanup finishes. An interrupted or malformed
+phone stream is closed with EOF rather than reused: cooperative adapters cancel
+the active operation and restore/release before exiting. Cleanup has a bounded
+grace period; an unresponsive adapter is then terminated and recovery stays
+blocked. External adapters must implement equivalent EOF cleanup behavior.
 
 Server operations (`device`, `phone` on every request):
 

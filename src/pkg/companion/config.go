@@ -3,8 +3,10 @@
 package companion
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"regexp"
 	"time"
@@ -86,8 +88,13 @@ func LoadConfig(path string) (Config, error) {
 	if e != nil {
 		return c, e
 	}
-	if e = json.Unmarshal(b, &c); e != nil {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if e = decoder.Decode(&c); e != nil {
 		return c, e
+	}
+	if e = decoder.Decode(new(any)); e != io.EOF {
+		return c, errors.New("trailing recovery configuration")
 	}
 	return c, c.Validate()
 }

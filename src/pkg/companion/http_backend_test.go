@@ -78,7 +78,7 @@ func TestHTTPRefusesRedirectAndWrongIdentity(t *testing.T) {
 			defer target.Close()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if redirect {
-					http.Redirect(w, r, target.URL, 302)
+					http.Redirect(w, r, target.URL, http.StatusFound)
 					return
 				}
 				json.NewEncoder(w).Encode(Object{"results": Object{"jid": "15559999999:1@s.whatsapp.net"}})

@@ -271,3 +271,30 @@ func TestUIPostLinkNamingIsNotReplayed(t *testing.T) {
 		t.Fatal(err, transport.actions)
 	}
 }
+
+func TestLoggedOutLoginFailureIsReturnedWithoutPanic(t *testing.T) {
+	entry := `<node package="com.whatsapp.w4b" clickable="true" enabled="true" bounds="[10,10][100,100]">` + node("Google Chrome (GOWA v1.0.0)", "") + node("Logged out", "") + `</node>`
+	for name, source := range map[string]string{"missing login": linkedScreen(), "restriction": screenXML(node("Your account is restricted right now 01:00:00", "")), "verification": screenXML(node("Enter your PIN", ""))} {
+		t.Run(name, func(t *testing.T) {
+			screens := []string{linkedScreen(entry), source}
+			// Restriction/verification appears after the recognized LOG IN button.
+			if name != "missing login" {
+				screens = []string{linkedScreen(entry), screenXML(node("LOG IN", actionable)), source}
+			}
+			transport := &uiTransport{screens: screens}
+			u := &PairingUI{Transport: transport, Package: testPackage, identityVerified: true}
+			_, err := u.Prepare(context.Background())
+			b, ok := err.(*Blocked)
+			if !ok {
+				t.Fatal(err)
+			}
+			expected := map[string]string{"missing login": "unknown_screen", "restriction": "restriction", "verification": "owner_verification"}[name]
+			if b.Reason != expected {
+				t.Fatal(b)
+			}
+			if name == "restriction" && b.RetryAfter != 3900 {
+				t.Fatal(b)
+			}
+		})
+	}
+}

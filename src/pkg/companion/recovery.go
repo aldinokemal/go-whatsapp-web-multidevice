@@ -204,7 +204,7 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 				}
 			}
 			if Healthy(s) {
-				if e = state.Put(a.ID, b.id, "healthy", "", 0); e != nil {
+				if e = verify([]Object{s}); e != nil {
 					return e
 				}
 				continue
@@ -273,7 +273,7 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 						return e
 					}
 					if Healthy(s) {
-						if e = state.Put(a.ID, config.ID, "healthy", "", 0); e != nil {
+						if e = verify([]Object{s}); e != nil {
 							return e
 						}
 						break
@@ -299,6 +299,12 @@ func (r Runner) Recover(ctx context.Context, a Account, state *State, apply bool
 		}
 		if e := verify(snapshots); e != nil {
 			return e
+		}
+		// Keep every pairing intent until all identities are known and independent.
+		for _, b := range backends {
+			if e := state.Put(a.ID, b.id, "healthy", "", 0); e != nil {
+				return e
+			}
 		}
 		return state.Put(a.ID, "phone", "healthy", "", 0)
 	}
