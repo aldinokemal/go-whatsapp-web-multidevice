@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -12,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 func companionInstance(slot, user string, device uint8) *DeviceInstance {
@@ -306,5 +308,164 @@ func TestChatwootRevokeRequiresAuthor(t *testing.T) {
 	}
 	if !hit {
 		t.Fatal("authorized revoke did not reach Chatwoot")
+	}
+}
+
+func TestMessageAuthorMatchesRejectsEmptyStoredSender(t *testing.T) {
+	if MessageAuthorMatches("", false, "6281@s.whatsapp.net", "6281@s.whatsapp.net", false) {
+		t.Fatal("empty stored sender matched a peer")
+	}
+	if !MessageAuthorMatches("628000@s.whatsapp.net", true, "628999@s.whatsapp.net", "", true) {
+		t.Fatal("same-account IsFromMe edit should match")
+	}
+}
+
+func TestSyncPayloadSkipsUnauthorizedEditAndRevoke(t *testing.T) {
+	origEdit := config.ChatwootForwardEdits
+	origDelete := config.ChatwootForwardDeletes
+	origHard := config.ChatwootMessageDelete
+	origClient := getChatwootClientFn
+	t.Cleanup(func() {
+		config.ChatwootForwardEdits = origEdit
+		config.ChatwootForwardDeletes = origDelete
+		config.ChatwootMessageDelete = origHard
+		getChatwootClientFn = origClient
+		for _, id := range []string{"EDIT-FOREIGN", "REV-FOREIGN", "EDIT-OWN"} {
+			messageEventAuthNotes.Delete(messageEventAuthKey("dev", id))
+		}
+	})
+	config.ChatwootForwardEdits = true
+	config.ChatwootForwardDeletes = true
+	config.ChatwootMessageDelete = true
+
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"payload":[]}`))
+	}))
+	defer srv.Close()
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{
+			ConfigID: 3,
+			Client: &chatwoot.Client{
+				BaseURL: srv.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: srv.Client(),
+			},
+		}, nil
+	}
+	repo := &authzLinkRepo{link: &chatstorage.ChatwootMessageLink{
+		DeviceID: "dev", WhatsAppMessageID: "m1", WhatsAppChatJID: "628123@s.whatsapp.net",
+		ChatwootMessageID: 8, ChatwootConversationID: 9, ChatwootConfigID: 3, ChatwootAccountID: 1,
+		ChatwootContactInboxSourceID: "src",
+	}}
+	chatID := "628123@s.whatsapp.net"
+
+	NoteMessageEventAuthorization("dev", "EDIT-FOREIGN", false)
+	err := syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
+		"id": "EDIT-FOREIGN", "original_message_id": "m1", "body": "pwned",
+		"from": "628000@s.whatsapp.net", "chat_id": chatID, "is_from_me": false,
+	}}, "message.edited", "dev", repo)
+	if err != nil {
+		t.Fatalf("unauthorized edit: %v", err)
+	}
+	if hit {
+		t.Fatal("unauthorized edit wrote to Chatwoot")
+	}
+
+	NoteMessageEventAuthorization("dev", "REV-FOREIGN", false)
+	err = syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
+		"id": "REV-FOREIGN", "revoked_message_id": "m1",
+		"from": "628000@s.whatsapp.net", "chat_id": chatID, "is_from_me": false,
+	}}, "message.revoked", "dev", repo)
+	if err != nil {
+		t.Fatalf("unauthorized revoke: %v", err)
+	}
+	if hit {
+		t.Fatal("unauthorized revoke wrote to Chatwoot")
+	}
+
+	NoteMessageEventAuthorization("dev", "EDIT-OWN", true)
+	err = syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
+		"id": "EDIT-OWN", "original_message_id": "m1", "body": "edited by us",
+		"from": "628123@s.whatsapp.net", "chat_id": chatID, "is_from_me": true,
+	}}, "message.edited", "dev", repo)
+	if !hit {
+		t.Fatalf("same-account edit was not forwarded (err=%v)", err)
+	}
+}
+
+func TestDeleteAndReceiptPayloadsCarryLIDForExclusion(t *testing.T) {
+	origIgnore := config.ChatwootIgnoreJids
+	origDelete := config.ChatwootMessageDelete
+	origForward := config.ChatwootForwardDeletes
+	origClient := getChatwootClientFn
+	t.Cleanup(func() {
+		config.ChatwootIgnoreJids = origIgnore
+		config.ChatwootMessageDelete = origDelete
+		config.ChatwootForwardDeletes = origForward
+		getChatwootClientFn = origClient
+	})
+	config.ChatwootIgnoreJids = []string{"111@lid"}
+	config.ChatwootMessageDelete = true
+	config.ChatwootForwardDeletes = true
+
+	phone := types.NewJID("1555121200", types.DefaultUserServer)
+	lid := types.NewJID("111", types.HiddenUserServer)
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{
+			ConfigID: 3,
+			Client: &chatwoot.Client{
+				BaseURL: srv.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: srv.Client(),
+			},
+		}, nil
+	}
+	repo := &authzLinkRepo{link: &chatstorage.ChatwootMessageLink{
+		DeviceID: "dev", WhatsAppMessageID: "m1", WhatsAppChatJID: phone.String(),
+		ChatwootMessageID: 8, ChatwootConversationID: 9, ChatwootConfigID: 3, ChatwootAccountID: 1,
+		ChatwootContactInboxSourceID: "src",
+	}}
+
+	deleteBody, err := createDeletePayload(context.Background(), &events.DeleteForMe{
+		ChatJID: lid, SenderJID: phone, MessageID: "m1", Timestamp: time.Now(),
+	}, &chatstorage.Message{
+		ChatJID: phone.String(), Sender: phone.String(), Content: "secret", Timestamp: time.Now(),
+	}, "dev", nil)
+	if err != nil {
+		t.Fatalf("createDeletePayload: %v", err)
+	}
+	inner, _ := deleteBody["payload"].(map[string]any)
+	if inner["chat_id"] != phone.String() || inner["chat_lid"] != "111@lid" {
+		t.Fatalf("delete payload lost the original LID: %#v", inner)
+	}
+	if err := syncPayloadToChatwoot(context.Background(), deleteBody, "message.deleted", "dev", repo); err != nil {
+		t.Fatalf("delete sync: %v", err)
+	}
+	if hit {
+		t.Fatal("delete-for-me of an ignored LID updated Chatwoot")
+	}
+
+	receipt := createReceiptPayload(context.Background(), &events.Receipt{
+		MessageSource: types.MessageSource{
+			Chat: phone, Sender: phone, RecipientAlt: lid,
+		},
+		MessageIDs: []types.MessageID{"m1"},
+		Type:       types.ReceiptTypeRead,
+		Timestamp:  time.Now(),
+	}, "dev", nil)
+	inner, _ = receipt["payload"].(map[string]any)
+	if inner["chat_id"] != phone.String() || inner["chat_lid"] != "111@lid" {
+		t.Fatalf("receipt payload lost the alt LID: %#v", inner)
+	}
+	if err := syncPayloadToChatwoot(context.Background(), receipt, "message.ack", "dev", repo); err != nil {
+		t.Fatalf("receipt sync: %v", err)
+	}
+	if hit {
+		t.Fatal("read receipt for an ignored LID updated last seen")
 	}
 }

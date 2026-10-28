@@ -1089,7 +1089,36 @@ func deleteTargetMessageID(eventName string, data map[string]any) string {
 // chatwootPayloadIdentityKeys are the original and normalized JIDs a Chatwoot
 // event can carry. An exclusion configured against a LID must still match after
 // that LID is resolved to a phone JID and stored beside it.
-var chatwootPayloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid"}
+var chatwootPayloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid", "sender_alt", "recipient_alt"}
+
+// addChatwootIdentityAliases copies original LID chats and alt JIDs onto a
+// webhook payload. chat_id/from may already be the phone; exclusion still has
+// to see 111@lid when that is only the original chat or an alt address.
+func addChatwootIdentityAliases(payload map[string]any, chat, sender, senderAlt, recipientAlt types.JID) {
+	if payload == nil {
+		return
+	}
+	setLID := func(key string, jid types.JID) {
+		if jid.IsEmpty() || jid.Server != types.HiddenUserServer {
+			return
+		}
+		if _, exists := payload[key]; exists {
+			return
+		}
+		payload[key] = jid.ToNonAD().String()
+	}
+	setLID("chat_lid", chat)
+	setLID("from_lid", sender)
+	if !senderAlt.IsEmpty() {
+		payload["sender_alt"] = senderAlt.ToNonAD().String()
+		setLID("from_lid", senderAlt)
+	}
+	if !recipientAlt.IsEmpty() {
+		payload["recipient_alt"] = recipientAlt.ToNonAD().String()
+		// In a 1:1 chat the recipient alt is the chat's other address.
+		setLID("chat_lid", recipientAlt)
+	}
+}
 
 func chatwootPayloadExcluded(data map[string]any) bool {
 	if len(config.ChatwootIgnoreJids) == 0 || data == nil {
@@ -1142,16 +1171,69 @@ func revokeAuthKey(deviceID, chatJID, messageID string) string {
 // NoteMessageRevokeAuthorization remembers whether a revoke was authorized
 // against the stored author. Chatwoot forwarding runs after that row is
 // deleted and would otherwise be unable to tell a real revoke from a forged one.
+// A later missing-row or unauthorized attempt must not clear an authorization
+// already recorded for this message: the forwarder may not have read it yet.
 func NoteMessageRevokeAuthorization(deviceID, chatJID, messageID string, authorized bool) {
 	deviceID = strings.TrimSpace(deviceID)
 	messageID = strings.TrimSpace(messageID)
 	if deviceID == "" || messageID == "" {
 		return
 	}
+	if !authorized {
+		if prev, ok := MessageRevokeAuthorized(deviceID, chatJID, messageID); ok && prev {
+			return
+		}
+	}
 	revokeAuthNotes.Store(revokeAuthKey(deviceID, chatJID, messageID), revokeAuthRecord{
 		authorized: authorized,
 		expires:    time.Now().Add(24 * time.Hour),
 	})
+}
+
+var messageEventAuthNotes sync.Map
+
+func messageEventAuthKey(deviceID, eventID string) string {
+	return deviceID + "\n" + eventID
+}
+
+// NoteMessageEventAuthorization records whether this protocol event was applied.
+// Chatwoot forwarding is asynchronous and keys off the event id in the payload,
+// so an unauthorized edit or revoke can be skipped without erasing an earlier
+// authorization of the same target message.
+func NoteMessageEventAuthorization(deviceID, eventID string, authorized bool) {
+	deviceID = strings.TrimSpace(deviceID)
+	eventID = strings.TrimSpace(eventID)
+	if deviceID == "" || eventID == "" {
+		return
+	}
+	messageEventAuthNotes.Store(messageEventAuthKey(deviceID, eventID), revokeAuthRecord{
+		authorized: authorized,
+		expires:    time.Now().Add(24 * time.Hour),
+	})
+}
+
+// MessageEventAuthorized reports the decision recorded for one protocol event.
+func MessageEventAuthorized(deviceID, eventID string) (authorized bool, ok bool) {
+	key := messageEventAuthKey(strings.TrimSpace(deviceID), strings.TrimSpace(eventID))
+	v, found := messageEventAuthNotes.Load(key)
+	if !found {
+		return false, false
+	}
+	rec, _ := v.(revokeAuthRecord)
+	if time.Now().After(rec.expires) {
+		messageEventAuthNotes.Delete(key)
+		return false, false
+	}
+	return rec.authorized, true
+}
+
+func chatwootEventDenied(deviceID string, data map[string]any) bool {
+	eventID, _ := data["id"].(string)
+	if strings.TrimSpace(deviceID) == "" || strings.TrimSpace(eventID) == "" {
+		return false
+	}
+	authorized, ok := MessageEventAuthorized(deviceID, eventID)
+	return ok && !authorized
 }
 
 // MessageRevokeAuthorized reports a previously recorded revoke decision.
@@ -1419,6 +1501,20 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		logrus.Error("Chatwoot: Invalid payload format (missing 'payload' object)")
+		return nil
+	}
+
+	// An unauthorized edit or revoke is a storage no-op. Do not post the
+	// "Edited" or "This message was deleted" note, and do not hard-delete.
+	if (eventName == "message.edited" || eventName == "message.revoked") && chatwootEventDenied(deviceID, data) {
+		logrus.Warnf("Chatwoot: skipping %s; sender is not the author", eventName)
+		return nil
+	}
+	// Exclusion covers the normalized phone and every original or alt LID
+	// carried on the payload. It runs before read receipts, hard deletes, and
+	// tombstone notes.
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping %s for excluded chat", eventName)
 		return nil
 	}
 

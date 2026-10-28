@@ -184,6 +184,9 @@ func TestCreateMessageEditRejectsOtherAuthor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "hello", got.Content)
+	authorized, ok := whatsapp.MessageEventAuthorized("device-1", "EDIT-FOREIGN")
+	require.True(t, ok)
+	require.False(t, authorized)
 
 	var edits int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM message_edits WHERE original_message_id = ?`, "MSG-1").Scan(&edits))
@@ -232,6 +235,9 @@ func TestCreateMessageEditAllowsOwnAccountAcrossSenderStrings(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "edited by us", got.Content)
+	authorized, ok := whatsapp.MessageEventAuthorized("device-1", "EDIT-OWN")
+	require.True(t, ok)
+	require.True(t, authorized)
 }
 
 func openTestDB(t *testing.T) *sql.DB {

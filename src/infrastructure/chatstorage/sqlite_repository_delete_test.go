@@ -179,7 +179,7 @@ func TestCreateMessageRevokeIgnoresNonAuthor(t *testing.T) {
 	deviceID := "device-a@s.whatsapp.net"
 	chatJID := "628123456789@s.whatsapp.net"
 	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
-	seedChatMessage(t, repo, deviceID, chatJID, "message-1", "keep me", timestamp)
+	seedChatMessage(t, repo, deviceID, chatJID, "message-foreign", "keep me", timestamp)
 
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
 	revoke := &events.Message{
@@ -195,18 +195,95 @@ func TestCreateMessageRevokeIgnoresNonAuthor(t *testing.T) {
 			Type: waE2E.ProtocolMessage_REVOKE.Enum(),
 			Key: &waCommon.MessageKey{
 				RemoteJID: proto.String(chatJID),
-				ID:        proto.String("message-1"),
+				ID:        proto.String("message-foreign"),
 			},
 		}},
 	}
 	require.NoError(t, repo.CreateMessage(ctx, revoke))
 
-	kept, err := repo.GetMessageByIDAndDevice(deviceID, "message-1")
+	kept, err := repo.GetMessageByIDAndDevice(deviceID, "message-foreign")
 	require.NoError(t, err)
 	require.NotNil(t, kept)
 	require.Equal(t, "keep me", kept.Content)
 
-	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-1")
+	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-foreign")
 	require.True(t, ok)
 	require.False(t, authorized)
+}
+
+func TestRevokeAuthorizationSurvivesLaterMissingRow(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+		ID: "message-1", ChatJID: chatJID, DeviceID: deviceID,
+		Sender: "628123456789@s.whatsapp.net", Content: "hello", Timestamp: timestamp,
+	}))
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+
+	author := revokeEvent(chatJID, "revoke-ok", "628123456789", timestamp.Add(time.Minute))
+	require.NoError(t, repo.CreateMessage(ctx, author))
+	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-1")
+	require.True(t, ok)
+	require.True(t, authorized)
+	eventOK, ok := whatsapp.MessageEventAuthorized(deviceID, "revoke-ok")
+	require.True(t, ok)
+	require.True(t, eventOK)
+
+	// The row is gone. A peer revoke of the same id must not flip the note.
+	peer := revokeEvent(chatJID, "revoke-peer", "628000000001", timestamp.Add(2*time.Minute))
+	require.NoError(t, repo.CreateMessage(ctx, peer))
+	authorized, ok = whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-1")
+	require.True(t, ok)
+	require.True(t, authorized, "missing-row revoke cleared an authorized decision")
+	peerOK, ok := whatsapp.MessageEventAuthorized(deviceID, "revoke-peer")
+	require.True(t, ok)
+	require.False(t, peerOK)
+}
+
+func TestUnauthorizedRevokeDoesNotClearAuthorization(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	timestamp := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+		ID: "message-1", ChatJID: chatJID, DeviceID: deviceID,
+		Sender: "628123456789@s.whatsapp.net", Content: "hello", Timestamp: timestamp,
+	}))
+	whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, "message-1", true)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, repo))
+
+	peer := revokeEvent(chatJID, "revoke-late", "628000000001", timestamp.Add(time.Minute))
+	require.NoError(t, repo.CreateMessage(ctx, peer))
+
+	kept, err := repo.GetMessageByIDAndDevice(deviceID, "message-1")
+	require.NoError(t, err)
+	require.NotNil(t, kept)
+	authorized, ok := whatsapp.MessageRevokeAuthorized(deviceID, chatJID, "message-1")
+	require.True(t, ok)
+	require.True(t, authorized)
+	eventOK, ok := whatsapp.MessageEventAuthorized(deviceID, "revoke-late")
+	require.True(t, ok)
+	require.False(t, eventOK)
+}
+
+func revokeEvent(chatJID, eventID, senderUser string, at time.Time) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   types.NewJID("628123456789", types.DefaultUserServer),
+				Sender: types.NewJID(senderUser, types.DefaultUserServer),
+			},
+			ID:        eventID,
+			Timestamp: at,
+		},
+		Message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+			Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+			Key: &waCommon.MessageKey{
+				RemoteJID: proto.String(chatJID),
+				ID:        proto.String("message-1"),
+			},
+		}},
+	}
 }
