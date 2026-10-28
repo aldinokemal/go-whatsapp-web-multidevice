@@ -95,7 +95,12 @@ func (suite *UtilsTestSuite) TestStrToFloat64() {
 	assert.Equal(suite.T(), 0.0, utils.StrToFloat64(""))
 }
 
+func (suite *UtilsTestSuite) allowLoopbackFetch() {
+	suite.T().Cleanup(utils.AllowUntrustedLoopbackForTest())
+}
+
 func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
+	suite.allowLoopbackFetch()
 	// Use httptest.NewServer to mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<!DOCTYPE html><html><head><title>Test Title</title><meta name='description' content='Test Description'><meta property='og:image' content='http://example.com/image.jpg'></head><body></body></html>`))
@@ -110,6 +115,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLSendsBrowserHeaders() {
+	suite.allowLoopbackFetch()
 	// assertBrowserHeaders verifies that a request carries the full set of browser-like headers.
 	assertBrowserHeaders := func(t *testing.T, r *http.Request, label string) {
 		assert.Contains(t, r.Header.Get("User-Agent"), "Mozilla", label+": User-Agent should look browser-like")
@@ -143,6 +149,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLSendsBrowserHeaders() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
+	suite.allowLoopbackFetch()
 	// Test with OG title and Twitter image
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<!DOCTYPE html><html><head><meta property='og:title' content='OG Title'><meta name='twitter:image' content='relative-image.jpg'></head><body></body></html>`))
@@ -232,6 +239,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLNormalizesLinkPreviewThumbnails() {
+	suite.allowLoopbackFetch()
 	source := image.NewRGBA(image.Rect(0, 0, 1200, 800))
 	for y := 0; y < source.Bounds().Dy(); y++ {
 		for x := 0; x < source.Bounds().Dx(); x++ {

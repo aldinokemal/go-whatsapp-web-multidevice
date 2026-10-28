@@ -13,6 +13,7 @@ import (
 )
 
 func TestGetMetaDataFromURLRejectsDecompressedHTMLOverCap(t *testing.T) {
+	t.Cleanup(utils.AllowUntrustedLoopbackForTest())
 	payload := bytes.Repeat([]byte("<p>"), (utils.MaxPreviewHTMLBytes/3)+8)
 	var compressed bytes.Buffer
 	zw := gzip.NewWriter(&compressed)
@@ -37,6 +38,7 @@ func TestGetMetaDataFromURLRejectsDecompressedHTMLOverCap(t *testing.T) {
 }
 
 func TestGetMetaDataFromURLAcceptsHTMLUnderCap(t *testing.T) {
+	t.Cleanup(utils.AllowUntrustedLoopbackForTest())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html><head><title>Short</title></head><body>ok</body></html>`))
 	}))

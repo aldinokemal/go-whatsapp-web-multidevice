@@ -194,16 +194,9 @@ func isRetryableStatus(statusCode int) bool {
 }
 
 func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	// Caller-selected preview URLs cannot target loopback, private, or
+	// link-local addresses. The same client is used for the metadata image.
+	client := newUntrustedHTTPClient(15 * time.Second)
 
 	// Parse the base URL for resolving relative URLs later
 	baseURL, err := url.Parse(urlStr)
@@ -219,7 +212,7 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 		if err != nil {
 			return meta, err
 		}
-		response, err = client.Do(req)
+		response, err = doUntrusted(client, req)
 		if err != nil {
 			return meta, err
 		}
@@ -301,7 +294,7 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 			logrus.Warnf("Failed to create image request: %v", err)
 		} else {
 			imgReq.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8")
-			imgResponse, err := client.Do(imgReq)
+			imgResponse, err := doUntrusted(client, imgReq)
 			if err != nil {
 				logrus.Warnf("Failed to download image: %v", err)
 			} else {
@@ -636,17 +629,12 @@ func UniqueStrings(input []string) []string {
 // DownloadFileFromURL downloads a file from the provided URL and returns the bytes and sanitized filename.
 // It enforces max file size limit.
 func DownloadFileFromURL(fileURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(fileURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
