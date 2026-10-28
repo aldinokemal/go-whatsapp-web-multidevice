@@ -314,6 +314,7 @@ To use environment variables:
 - For the comprehensive Chatwoot integration guide, see
   [Chatwoot Integration Documentation](./docs/chatwoot.md).
 - For OAuth deployment and security details, see [MCP OAuth](./docs/mcp-oauth.md).
+- [Optional Android companion recovery](./docs/companion-recovery.md) — Standalone, opt-in Go controller with private state and explicit phone/profile selection.
 
 Run `./whatsapp --help` to see all command-line flags.
 
