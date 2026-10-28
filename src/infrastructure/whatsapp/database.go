@@ -203,10 +203,14 @@ func chmodExistingFile(path string, mode os.FileMode) error {
 // applyPostgresTLSDefault sets a TLS mode when the DSN does not already
 // contain a non-empty sslmode query parameter.
 //
-// A non-empty sslmode is preserved, including disable, require, verify-ca,
-// and verify-full. A missing or blank sslmode (sslmode=) is not a choice:
-// lib/pq drops the blank value and would otherwise leave certificate checks
-// off. Override the defaults with a non-empty sslmode in DB_URI or DB_KEYS_URI.
+// lib/pq reads only the first sslmode value (url.Values.Get) and drops it
+// when that value is blank, which leaves SSLMode empty and skips certificate
+// checks. A non-empty first value is preserved, including disable, require,
+// verify-ca, and verify-full. A missing or blank first value is not a choice.
+// Later blank entries are dropped; if a later value is non-empty, that single
+// value is written so pq.NewConfig reports it. Otherwise the dial-target
+// default applies. Override the defaults with a non-empty first sslmode in
+// DB_URI or DB_KEYS_URI.
 //
 // The mode follows the address lib/pq will dial, from pq.NewConfig: URL
 // authority, query host and hostaddr, PGHOST, and PGHOSTADDR. If any dial
@@ -224,8 +228,11 @@ func applyPostgresTLSDefault(dsn string) (string, error) {
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return "", fmt.Errorf("unsupported postgres scheme %q", u.Scheme)
 	}
-	if explicit, ok := explicitPostgresSSLMode(u); ok && explicit != "" {
+	if _, ok := leadingPostgresSSLMode(u); ok {
 		return dsn, nil
+	}
+	if promoted := promotedPostgresSSLMode(u); promoted != "" {
+		return setPostgresSSLMode(u, promoted), nil
 	}
 
 	remote, err := postgresDialTargetIsRemote(dsn)
@@ -245,19 +252,29 @@ func applyPostgresTLSDefault(dsn string) (string, error) {
 	return setPostgresSSLMode(u, mode), nil
 }
 
-// explicitPostgresSSLMode reports a non-empty sslmode query value.
-// Blank values are ignored so sslmode= is treated as absent.
-func explicitPostgresSSLMode(u *url.URL) (string, bool) {
+// leadingPostgresSSLMode reports the first sslmode query value when it is
+// non-empty. That is the only value lib/pq will read.
+func leadingPostgresSSLMode(u *url.URL) (string, bool) {
 	values, ok := u.Query()["sslmode"]
-	if !ok {
+	if !ok || len(values) == 0 {
 		return "", false
 	}
-	for _, value := range values {
+	trimmed := strings.TrimSpace(values[0])
+	if trimmed == "" {
+		return "", false
+	}
+	return trimmed, true
+}
+
+// promotedPostgresSSLMode returns the first non-blank sslmode after a missing
+// or blank first entry. lib/pq never sees those later entries.
+func promotedPostgresSSLMode(u *url.URL) string {
+	for _, value := range u.Query()["sslmode"] {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed, true
+			return trimmed
 		}
 	}
-	return "", false
+	return ""
 }
 
 // postgresDialTargetIsRemote reports whether lib/pq will dial any TCP address

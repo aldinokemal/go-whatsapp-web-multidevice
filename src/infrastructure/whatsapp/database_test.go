@@ -200,6 +200,51 @@ func TestApplyPostgresTLSDefaultUsesDialTarget(t *testing.T) {
 		}
 	})
 
+	t.Run("blank first sslmode yields to a later verify-full", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode=&sslmode=verify-full"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.Host != "db.example.com" {
+			t.Fatalf("dial host = %q, want db.example.com", cfg.Host)
+		}
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("blank first sslmode yields to a later require", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode=&sslmode=require"
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "require")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.SSLMode != pq.SSLModeRequire {
+			t.Fatalf("SSLMode = %q, want require", cfg.SSLMode)
+		}
+	})
+
+	t.Run("non-empty first sslmode stays ahead of a blank repeat", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode=verify-full&sslmode="
+		got := mustApplyPostgresTLSDefault(t, in)
+		if got != in {
+			t.Fatalf("DSN with a non-empty first sslmode changed\n got %s\nwant %s", got, in)
+		}
+		cfg := mustPostgresConfig(t, got)
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
+	t.Run("repeated blank sslmode uses the remote default", func(t *testing.T) {
+		in := "postgres://user:secret@db.example.com/whatsapp?sslmode=&sslmode="
+		got := mustApplyPostgresTLSDefault(t, in)
+		assertPostgresSSLMode(t, got, "verify-full")
+		cfg := mustPostgresConfig(t, got)
+		if cfg.SSLMode != pq.SSLModeVerifyFull {
+			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		}
+	})
+
 	t.Run("blank sslmode is not explicit", func(t *testing.T) {
 		in := "postgres://user:secret@db.example.com/whatsapp?sslmode="
 		got := mustApplyPostgresTLSDefault(t, in)
