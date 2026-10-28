@@ -336,10 +336,11 @@ func (s *store) rotateRefreshToken(
 		return TokenPair{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
-		return TokenPair{}, err
-	}
 
+	// Load the presented refresh token before cleanupExpiredTx. Cleanup removes
+	// expired rows, and a consumed ancestor is the only record that ties a
+	// replay to its family. Deleting that row first turns the replay into a
+	// miss and leaves the replacement usable.
 	var (
 		familyID  string
 		clientID  string
@@ -367,11 +368,15 @@ WHERE token_hash = ? AND token_type = 'refresh'`, hashSecret(req.RefreshToken)).
 	if err != nil {
 		return TokenPair{}, err
 	}
+	// Reuse of a revoked or consumed token revokes the whole family, including
+	// when that ancestor is already past expires_at. An expired refresh token
+	// that was never consumed is not an ancestor and is rejected below without
+	// revoking any family.
 	if revokedAt.Valid {
-		if _, err := tx.ExecContext(ctx, `
-UPDATE oauth_tokens
-SET revoked_at = ?
-WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
+		if err := revokeRefreshFamilyTx(ctx, tx, familyID, now); err != nil {
+			return TokenPair{}, err
+		}
+		if err := cleanupExpiredTx(ctx, tx, now); err != nil {
 			return TokenPair{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -403,17 +408,51 @@ WHERE token_hash = ? AND token_type = 'refresh' AND revoked_at IS NULL`,
 	if err != nil {
 		return TokenPair{}, err
 	}
+	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
+		return TokenPair{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return TokenPair{}, err
 	}
 	return pair, nil
 }
 
+func revokeRefreshFamilyTx(ctx context.Context, tx *sql.Tx, familyID string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE oauth_tokens
+SET revoked_at = ?
+WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// cleanupExpiredTx drops expired authorization codes and tokens. A consumed
+// refresh-token hash is kept while the family still has a live descendant so a
+// later replay can revoke that family. Expired refresh tokens that were never
+// consumed are not ancestors and are deleted with the other expired rows.
 func cleanupExpiredTx(ctx context.Context, tx *sql.Tx, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE expires_at <= ?`, now.Unix()); err != nil {
 		return fmt.Errorf("delete expired authorization codes: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_tokens WHERE expires_at <= ?`, now.Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM oauth_tokens
+WHERE token_hash IN (
+    SELECT expired.token_hash
+    FROM oauth_tokens AS expired
+    WHERE expired.expires_at <= ?
+      AND NOT (
+          expired.token_type = 'refresh'
+          AND expired.revoked_at IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM oauth_tokens AS live
+              WHERE live.family_id = expired.family_id
+                AND live.revoked_at IS NULL
+                AND live.expires_at > ?
+          )
+      )
+)`, now.Unix(), now.Unix()); err != nil {
 		return fmt.Errorf("delete expired oauth tokens: %w", err)
 	}
 	return nil
