@@ -36,7 +36,9 @@ func stateChangingRequest(c fiber.Ctx) bool {
 	switch strings.ToUpper(c.Method()) {
 	case fiber.MethodPost, fiber.MethodPut, fiber.MethodPatch, fiber.MethodDelete:
 		return true
-	case fiber.MethodGet:
+	case fiber.MethodGet, fiber.MethodHead:
+		// Fiber copies GET handlers onto HEAD and matches paths
+		// case-insensitively with trailing slashes when strict routing is off.
 		return mutatingGET(c)
 	default:
 		return false
@@ -44,23 +46,33 @@ func stateChangingRequest(c fiber.Ctx) bool {
 }
 
 func mutatingGET(c fiber.Ctx) bool {
-	switch requestPath(c) {
+	switch canonicalRequestPath(c.Path(), config.AppBasePath) {
 	case "/app/logout", "/app/reconnect":
 		return true
 	case "/group/invite-link":
-		reset, err := strconv.ParseBool(strings.TrimSpace(c.Query("reset")))
-		return err == nil && reset
+		return inviteLinkReset(c)
 	default:
 		return false
 	}
 }
 
-func requestPath(c fiber.Ctx) string {
-	path := c.Path()
-	base := strings.TrimRight(strings.TrimSpace(config.AppBasePath), "/")
-	if base != "" && (path == base || strings.HasPrefix(path, base+"/")) {
-		path = strings.TrimPrefix(path, base)
+// canonicalRequestPath strips the configured base path, one trailing slash,
+// and letter case so the guard sees the same route Fiber will run.
+func canonicalRequestPath(path, base string) string {
+	if path == "" {
+		path = "/"
 	}
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base != "" && len(path) >= len(base) && strings.EqualFold(path[:len(base)], base) {
+		rest := path[len(base):]
+		if rest == "" || strings.HasPrefix(rest, "/") {
+			path = rest
+		}
+	}
+	if len(path) > 1 && strings.HasSuffix(path, "/") {
+		path = path[:len(path)-1]
+	}
+	path = strings.ToLower(path)
 	if path == "" {
 		return "/"
 	}
@@ -68,4 +80,32 @@ func requestPath(c fiber.Ctx) string {
 		path = "/" + path
 	}
 	return path
+}
+
+// inviteLinkReset reports whether any reset query value would make
+// GetGroupInviteLink regenerate the link. gofiber/schema convertBool treats
+// the exact string "on" and strconv.ParseBool truths as true, and matches the
+// key case-insensitively. Any truthy value fails closed, including when a
+// later value is false, so a repeated key cannot hide the reset.
+func inviteLinkReset(c fiber.Ctx) bool {
+	reset := false
+	c.RequestCtx().QueryArgs().VisitAll(func(key, value []byte) {
+		if !strings.EqualFold(string(key), "reset") {
+			return
+		}
+		if schemaBoolTrue(string(value)) {
+			reset = true
+		}
+	})
+	return reset
+}
+
+// schemaBoolTrue matches gofiber/schema convertBool's true results:
+// the exact string "on", plus 1, t, T, true, TRUE, and True.
+func schemaBoolTrue(value string) bool {
+	if value == "on" {
+		return true
+	}
+	parsed, err := strconv.ParseBool(value)
+	return err == nil && parsed
 }

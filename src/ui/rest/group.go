@@ -193,13 +193,16 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 }
 
 // spreadsheetSafeCell prefixes cells that spreadsheet applications would
-// treat as formulas. A leading apostrophe forces the value to be text.
+// treat as formulas. Leading ASCII space, tab, CR, and LF are skipped when
+// deciding, and the original cell is prefixed so the apostrophe is the first
+// character a spreadsheet sees.
 func spreadsheetSafeCell(value string) string {
-	if value == "" {
+	trimmed := strings.TrimLeft(value, " \t\r\n")
+	if trimmed == "" {
 		return value
 	}
-	switch value[0] {
-	case '=', '+', '-', '@', '\t', '\r':
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
 		return "'" + value
 	default:
 		return value
