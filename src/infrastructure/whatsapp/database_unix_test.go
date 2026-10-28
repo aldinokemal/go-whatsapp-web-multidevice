@@ -51,7 +51,10 @@ func TestSQLiteOpenCreatesOwnerOnlySessionFile(t *testing.T) {
 		openSQLiteSession(t, "file:"+dbPath)
 		assertSQLiteWrote(t, dbPath)
 		assertOwnerOnly(t, dbPath, 0600)
-		assertOwnerOnly(t, dir, 0700)
+		// An existing directory may be shared or owned by someone else.
+		if perm := filePerm(t, dir); perm != 0777 {
+			t.Fatalf("existing directory mode changed to %o, want 0777", perm)
+		}
 		assertSidecarsOwnerOnly(t, dbPath)
 	})
 }

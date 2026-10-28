@@ -29,6 +29,7 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	}
 
 	client := newWebhookHTTPClient(webhookConfig)
+	defer client.CloseIdleConnections()
 
 	postBody, err := json.Marshal(payload)
 	if err != nil {

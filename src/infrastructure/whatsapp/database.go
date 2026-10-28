@@ -2,18 +2,24 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/lib/pq"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -40,10 +46,10 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 	if strings.HasPrefix(DBURI, "file:") {
 		// Restrict the session file before the driver creates it. Both the CGO
 		// sqlite3 driver and modernc.org/sqlite (-tags purego) honor an
-		// existing file's mode, and a 0700 directory covers sidecars created
-		// during open. FormatChatStorageURI still applies WAL, the 30s busy
-		// timeout, and foreign keys.
-		if err := secureSQLiteSessionFile(DBURI); err != nil {
+		// existing file's mode and give sidecars created during open the
+		// database file's mode. FormatChatStorageURI still applies WAL, the 30s
+		// busy timeout, and foreign keys.
+		if err := SecureSQLiteFile(DBURI); err != nil {
 			return nil, fmt.Errorf("prepare sqlite session file: %w", err)
 		}
 		DBURI = sqlite.FormatChatStorageURI(DBURI, true, true)
@@ -51,7 +57,7 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 		if err != nil {
 			return nil, err
 		}
-		if err := secureSQLiteSessionFile(DBURI); err != nil {
+		if err := SecureSQLiteFile(DBURI); err != nil {
 			_ = container.Close()
 			return nil, fmt.Errorf("restrict sqlite session file: %w", err)
 		}
@@ -70,10 +76,11 @@ func initDatabase(ctx context.Context, dbLog waLog.Logger, DBURI string) (*sqlst
 	return nil, fmt.Errorf("unknown database type: %s. Currently only sqlite3(file:) and postgres are supported", DBURI)
 }
 
-// secureSQLiteSessionFile makes the session directory owner-only (0700) and the
-// database file owner-read/write (0600). Memory and other non-file URIs are
-// left untouched. Existing files are tightened in place; they are not truncated.
-func secureSQLiteSessionFile(uri string) error {
+// SecureSQLiteFile makes the database file of a SQLite file: URI owner-read/write
+// (0600) before it is opened. A directory it has to create is owner-only (0700);
+// an existing directory is left as is. Memory and other non-file URIs are left
+// untouched. Existing files are tightened in place; they are not truncated.
+func SecureSQLiteFile(uri string) error {
 	target, err := sqliteSessionTarget(uri)
 	if err != nil {
 		return err
@@ -83,8 +90,10 @@ func secureSQLiteSessionFile(uri string) error {
 	}
 
 	dir := filepath.Dir(target.path)
-	if err := secureSQLiteSessionDir(dir); err != nil {
-		return err
+	if target.create {
+		if err := secureSQLiteSessionDir(dir); err != nil {
+			return err
+		}
 	}
 	if err := secureSQLiteSessionDB(target.path, target.create); err != nil {
 		return err
@@ -104,7 +113,10 @@ type sqliteTarget struct {
 }
 
 func sqliteSessionTarget(uri string) (sqliteTarget, error) {
-	raw := strings.TrimPrefix(uri, "file:")
+	raw, ok := strings.CutPrefix(uri, "file:")
+	if !ok {
+		return sqliteTarget{skip: true}, nil
+	}
 	base, query, _ := strings.Cut(raw, "?")
 	create := true
 	if query != "" {
@@ -115,8 +127,11 @@ func sqliteSessionTarget(uri string) (sqliteTarget, error) {
 		if strings.EqualFold(q.Get("mode"), "memory") {
 			return sqliteTarget{skip: true}, nil
 		}
+		// SQLite creates a missing file only for mode=rwc, its default, and
+		// never for an immutable database.
 		mode := strings.ToLower(q.Get("mode"))
-		if mode == "ro" || q.Get("immutable") == "1" {
+		immutable := strings.ToLower(q.Get("immutable"))
+		if (mode != "" && mode != "rwc") || slices.Contains([]string{"1", "true", "yes", "on"}, immutable) {
 			create = false
 		}
 	}
@@ -152,12 +167,21 @@ func sqliteURIPath(base string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
+	// SQLite drops the slash before a Windows drive letter (file:///C:/x.db).
+	if runtime.GOOS == "windows" && len(path) >= 3 && (path[0] == '/' || path[0] == '\\') && path[2] == ':' {
+		path = path[1:]
+	}
 	return filepath.Clean(path), nil
 }
 
 func secureSQLiteSessionDir(dir string) error {
 	if dir == "" || dir == "." || filepath.Clean(dir) == string(filepath.Separator) {
 		return nil
+	}
+	// Only a directory created here is made owner-only. An existing one may be
+	// shared (/tmp) or owned by another user (NFS root_squash, volume mounts).
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		return err
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -183,7 +207,7 @@ func secureSQLiteSessionDB(path string, create bool) error {
 			return err
 		}
 	}
-	return os.Chmod(path, 0600)
+	return chmodExistingFile(path, 0600)
 }
 
 func chmodExistingFile(path string, mode os.FileMode) error {
@@ -197,7 +221,14 @@ func chmodExistingFile(path string, mode os.FileMode) error {
 	if info.IsDir() {
 		return fmt.Errorf("sqlite session path %s is a directory", path)
 	}
-	return os.Chmod(path, mode)
+	// A file owned by another user or on a read-only mount keeps its mode.
+	// SQLite can still open it, so warn instead of failing startup.
+	err = os.Chmod(path, mode)
+	if errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) {
+		logrus.Warnf("could not restrict SQLite file to owner-only access: %v", err)
+		return nil
+	}
+	return err
 }
 
 // applyPostgresTLSDefault sets a TLS mode when the DSN does not already
@@ -217,9 +248,12 @@ func chmodExistingFile(path string, mode os.FileMode) error {
 // target is not loopback (localhost, 127.0.0.1, ::1) and not a unix-socket
 // path, the default is sslmode=verify-full. Loopback and unix-socket targets
 // use sslmode=disable so a local Postgres without TLS still connects.
-// PGSSLMODE=verify-full is left in place when the DSN does not need a
-// replacement value. The query is written on the parsed URL so a fragment
-// stays a fragment.
+// A mode lib/pq already resolved (PGSSLMODE, a service file, or the
+// verify-full implied by sslrootcert=system) is left in place, and so is a
+// local DSN with sslnegotiation=direct, which lib/pq rejects with disable. A
+// remote hostaddr with a loopback or empty host is an error: verify-full
+// checks the certificate against host. The query is written on the parsed
+// URL so a fragment stays a fragment.
 func applyPostgresTLSDefault(dsn string) (string, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -235,14 +269,21 @@ func applyPostgresTLSDefault(dsn string) (string, error) {
 		return setPostgresSSLMode(u, promoted), nil
 	}
 
-	remote, err := postgresDialTargetIsRemote(dsn)
+	cfg, err := pq.NewConfig(dsn)
+	if err != nil {
+		return "", fmt.Errorf("parse postgres dial target: %w", err)
+	}
+	// Keep a mode lib/pq already took from PGSSLMODE, a service file, or
+	// sslrootcert=system (verify-full); a DSN sslmode would replace it.
+	if cfg.SSLMode != "" {
+		return dsn, nil
+	}
+	remote, err := postgresDialTargetIsRemote(cfg)
 	if err != nil {
 		return "", err
 	}
-	// PGSSLMODE=verify-full already verifies the server. lib/pq drops a blank
-	// sslmode, so that environment value still applies. Leave the DSN unchanged
-	// instead of writing sslmode=disable over it.
-	if strings.TrimSpace(os.Getenv("PGSSLMODE")) == "verify-full" {
+	// lib/pq rejects sslmode=disable together with sslnegotiation=direct.
+	if !remote && cfg.SSLNegotiation == pq.SSLNegotiationDirect {
 		return dsn, nil
 	}
 	mode := "disable"
@@ -279,20 +320,19 @@ func promotedPostgresSSLMode(u *url.URL) string {
 
 // postgresDialTargetIsRemote reports whether lib/pq will dial any TCP address
 // that is not the loopback names this package treats as local.
-func postgresDialTargetIsRemote(dsn string) (bool, error) {
-	cfg, err := pq.NewConfig(dsn)
-	if err != nil {
-		return false, fmt.Errorf("parse postgres dial target: %w", err)
-	}
-	if postgresTargetIsRemote(cfg.Host, cfg.Hostaddr) {
-		return true, nil
-	}
-	for _, extra := range cfg.Multi {
-		if postgresTargetIsRemote(extra.Host, extra.Hostaddr) {
-			return true, nil
+func postgresDialTargetIsRemote(cfg pq.Config) (bool, error) {
+	remote := false
+	for _, target := range append([]pq.ConfigMultihost{{Host: cfg.Host, Hostaddr: cfg.Hostaddr}}, cfg.Multi...) {
+		if !postgresTargetIsRemote(target.Host, target.Hostaddr) {
+			continue
 		}
+		// verify-full checks the server certificate against host, not hostaddr.
+		if target.Hostaddr.IsValid() && isLocalPostgresHost(target.Host) {
+			return false, fmt.Errorf("hostaddr %s is remote but host is %q; set host to the server certificate name or set sslmode explicitly", target.Hostaddr, target.Host)
+		}
+		remote = true
 	}
-	return false, nil
+	return remote, nil
 }
 
 func postgresTargetIsRemote(host string, addr netip.Addr) bool {

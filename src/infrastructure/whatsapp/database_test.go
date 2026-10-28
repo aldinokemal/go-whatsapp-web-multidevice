@@ -3,6 +3,8 @@ package whatsapp
 import (
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,10 +16,11 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 	isolatePostgresDialEnv(t)
 
 	tests := []struct {
-		name     string
-		dsn      string
-		wantMode string
-		same     bool
+		name      string
+		dsn       string
+		pgsslmode string
+		wantMode  string
+		same      bool
 	}{
 		{
 			name:     "public host gains verify-full",
@@ -84,10 +87,41 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 			dsn:      "postgres://localhost:secret@db.example.com/whatsapp",
 			wantMode: "verify-full",
 		},
+		{
+			name:      "PGSSLMODE=require on localhost is not replaced with disable",
+			dsn:       "postgres://user:secret@localhost/whatsapp",
+			pgsslmode: "require",
+			same:      true,
+		},
+		{
+			name:      "PGSSLMODE=disable on a public host is not replaced with verify-full",
+			dsn:       "postgres://user:secret@db.example.com/whatsapp",
+			pgsslmode: "disable",
+			same:      true,
+		},
+		{
+			name:      "PGSSLMODE=verify-full on localhost is not replaced with disable",
+			dsn:       "postgres://user:secret@localhost/whatsapp",
+			pgsslmode: "verify-full",
+			same:      true,
+		},
+		{
+			name: "sslrootcert=system on localhost keeps its implied verify-full",
+			dsn:  "postgres://user:secret@localhost/whatsapp?sslrootcert=system",
+			same: true,
+		},
+		{
+			name: "sslnegotiation=direct on localhost is not given disable",
+			dsn:  "postgres://user:secret@localhost/whatsapp?sslnegotiation=direct",
+			same: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.pgsslmode != "" {
+				t.Setenv("PGSSLMODE", tc.pgsslmode)
+			}
 			got, err := applyPostgresTLSDefault(tc.dsn)
 			if err != nil {
 				t.Fatalf("applyPostgresTLSDefault: %v", err)
@@ -96,6 +130,7 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 				if got != tc.dsn {
 					t.Fatalf("explicit sslmode changed\n got %s\nwant %s", got, tc.dsn)
 				}
+				mustPostgresConfig(t, got)
 				return
 			}
 			sep := "?"
@@ -123,16 +158,18 @@ func TestApplyPostgresTLSDefault(t *testing.T) {
 func TestApplyPostgresTLSDefaultUsesDialTarget(t *testing.T) {
 	isolatePostgresDialEnv(t)
 
-	t.Run("hostaddr overrides localhost", func(t *testing.T) {
-		in := "postgres://user:secret@localhost/whatsapp?hostaddr=203.0.113.10"
-		got := mustApplyPostgresTLSDefault(t, in)
-		assertPostgresSSLMode(t, got, "verify-full")
-		cfg := mustPostgresConfig(t, got)
-		if cfg.Hostaddr.String() != "203.0.113.10" {
-			t.Fatalf("dial hostaddr = %s, want 203.0.113.10", cfg.Hostaddr.String())
+	t.Run("remote hostaddr without a certificate host name is rejected", func(t *testing.T) {
+		// verify-full would check the certificate against localhost or "".
+		for _, in := range []string{
+			"postgres://user:secret@localhost/whatsapp?hostaddr=203.0.113.10",
+			"postgres://user:secret@/whatsapp?hostaddr=203.0.113.10",
+		} {
+			assertRemoteHostaddrRejected(t, in)
 		}
-		if cfg.SSLMode != pq.SSLModeVerifyFull {
-			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
+		// An explicit sslmode is the documented way out.
+		in := "postgres://user:secret@localhost/whatsapp?hostaddr=203.0.113.10&sslmode=require"
+		if got := mustApplyPostgresTLSDefault(t, in); got != in {
+			t.Fatalf("explicit sslmode changed\n got %s\nwant %s", got, in)
 		}
 	})
 
@@ -186,18 +223,9 @@ func TestApplyPostgresTLSDefaultUsesDialTarget(t *testing.T) {
 		}
 	})
 
-	t.Run("PGHOSTADDR overrides localhost", func(t *testing.T) {
+	t.Run("remote PGHOSTADDR with localhost host is rejected", func(t *testing.T) {
 		t.Setenv("PGHOSTADDR", "203.0.113.10")
-		in := "postgres://user:secret@localhost/whatsapp"
-		got := mustApplyPostgresTLSDefault(t, in)
-		assertPostgresSSLMode(t, got, "verify-full")
-		cfg := mustPostgresConfig(t, got)
-		if cfg.Hostaddr.String() != "203.0.113.10" {
-			t.Fatalf("dial hostaddr = %s, want 203.0.113.10", cfg.Hostaddr.String())
-		}
-		if cfg.SSLMode != pq.SSLModeVerifyFull {
-			t.Fatalf("SSLMode = %q, want verify-full", cfg.SSLMode)
-		}
+		assertRemoteHostaddrRejected(t, "postgres://user:secret@localhost/whatsapp")
 	})
 
 	t.Run("blank first sslmode yields to a later verify-full", func(t *testing.T) {
@@ -338,6 +366,14 @@ func mustApplyPostgresTLSDefault(t *testing.T, dsn string) string {
 	return got
 }
 
+func assertRemoteHostaddrRejected(t *testing.T, dsn string) {
+	t.Helper()
+	got, err := applyPostgresTLSDefault(dsn)
+	if err == nil || !strings.Contains(err.Error(), "hostaddr 203.0.113.10 is remote") {
+		t.Fatalf("applyPostgresTLSDefault(%q) = %q, %v; want remote hostaddr error", dsn, got, err)
+	}
+}
+
 func assertPostgresSSLMode(t *testing.T, dsn, want string) {
 	t.Helper()
 	u, err := url.Parse(dsn)
@@ -396,5 +432,40 @@ func TestSQLiteMemoryURIDoesNotCreateFile(t *testing.T) {
 	}
 	if !memory.skip {
 		t.Fatalf(":memory: uri was treated as a file path %q", memory.path)
+	}
+}
+
+func TestSQLiteNoCreateURIDoesNotCreateFileOrDirectory(t *testing.T) {
+	for _, query := range []string{"mode=rw", "mode=ro", "immutable=1", "immutable=true", "immutable=YES", "immutable=on"} {
+		dbPath := filepath.Join(t.TempDir(), "missing", "whatsapp.db")
+		if err := SecureSQLiteFile("file:" + filepath.ToSlash(dbPath) + "?" + query); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		if _, err := os.Stat(filepath.Dir(dbPath)); !os.IsNotExist(err) {
+			t.Fatalf("%s created %s (stat error %v); SQLite would not create it", query, filepath.Dir(dbPath), err)
+		}
+	}
+
+	target, err := sqliteSessionTarget("file:storages/whatsapp.db?mode=rwc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !target.create {
+		t.Fatal("mode=rwc session file should be created when missing")
+	}
+}
+
+func TestSQLiteWindowsDriveLetterURI(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("drive-letter URIs only apply on Windows")
+	}
+	for _, uri := range []string{"file:///C:/gowa/whatsapp.db", "file:/C:/gowa/whatsapp.db"} {
+		target, err := sqliteSessionTarget(uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.path != `C:\gowa\whatsapp.db` {
+			t.Fatalf("%s path = %q, want C:\\gowa\\whatsapp.db", uri, target.path)
+		}
 	}
 }
