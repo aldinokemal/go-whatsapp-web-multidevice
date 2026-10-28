@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const redactedSecret = "***"
@@ -28,11 +29,9 @@ var sensitiveKeySubstrings = []string{
 	"private",
 }
 
-// urlUserinfo matches a scheme URL through the last '@' of its authority. The
-// authority ends at '/', '?', '#' or whitespace, so each URL in a
-// comma-separated webhook list is masked on its own, while commas and quotes
-// inside userinfo are still covered.
-var urlUserinfo = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/?#\s]*@`)
+// urlScheme finds where each URL in a flat env value such as a comma-separated
+// webhook list starts.
+var urlScheme = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://`)
 
 // secretQueryParam matches a query parameter whose name looks secret. The
 // value runs to the next '&', '#' or whitespace because commas are legal in
@@ -158,8 +157,35 @@ func redactURLSecretsInText(s string) string {
 	if !strings.Contains(s, "://") {
 		return s
 	}
-	s = urlUserinfo.ReplaceAllString(s, "${1}"+redactedSecret+"@")
+	s = maskURLUserinfo(s)
 	return secretQueryParam.ReplaceAllString(s, "${1}"+redactedSecret)
+}
+
+// maskURLUserinfo masks everything between "://" and the last '@' before the
+// next URL or whitespace. Userinfo may hold '/', '?', '#', ',' or quotes, so
+// the authority is not parsed; an '@' later in the path is masked too, which
+// only hides more.
+func maskURLUserinfo(s string) string {
+	starts := urlScheme.FindAllStringIndex(s, -1)
+	var b strings.Builder
+	prev := 0
+	for i, loc := range starts {
+		end := len(s)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		segment := s[loc[1]:end]
+		if space := strings.IndexFunc(segment, unicode.IsSpace); space >= 0 {
+			segment = segment[:space]
+		}
+		if at := strings.LastIndexByte(segment, '@'); at >= 0 {
+			b.WriteString(s[prev:loc[1]])
+			b.WriteString(redactedSecret)
+			prev = loc[1] + at
+		}
+	}
+	b.WriteString(s[prev:])
+	return b.String()
 }
 
 // FormatProxyParseFailure describes a proxy URL for logs when url.Parse (or

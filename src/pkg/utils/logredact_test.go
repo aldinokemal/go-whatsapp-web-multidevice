@@ -149,11 +149,19 @@ func TestRedactSettingsUserinfoWithQuoteOrComma(t *testing.T) {
 		"whatsapp_webhook": "https://user:p'ss@hooks.example/b",
 		"chatwoot_url":     "https://agent:pa,ss@chat.example",
 		"cache_url":        "redis://:p@ss,w0rd@cache:6379",
+		"slash_url":        "https://user:pa/ss@hooks.example/b",
+		"query_url":        "https://user:pa?ss@hooks.example",
+		"fragment_url":     "https://user:pa#ss@hooks.example",
+		"list_url":         "https://hooks.example/a,https://u:p/w@hooks.example/b c",
 	})
 	for key, want := range map[string]string{
 		"whatsapp_webhook": "https://***@hooks.example/b",
 		"chatwoot_url":     "https://***@chat.example",
 		"cache_url":        "redis://***@cache:6379",
+		"slash_url":        "https://***@hooks.example/b",
+		"query_url":        "https://***@hooks.example",
+		"fragment_url":     "https://***@hooks.example",
+		"list_url":         "https://hooks.example/a,https://***@hooks.example/b c",
 	} {
 		if got[key] != want {
 			t.Fatalf("%s = %#v, want %q", key, got[key], want)
