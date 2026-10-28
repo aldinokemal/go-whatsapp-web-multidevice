@@ -3,6 +3,8 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -12,7 +14,90 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-type client struct{}
+// wsConn is the subset of a websocket connection the hub writes to. Tests
+// substitute a fake so a stalled client can be observed without a network.
+type wsConn interface {
+	WriteMessage(messageType int, data []byte) error
+	SetWriteDeadline(t time.Time) error
+	Close() error
+}
+
+type subscriber struct {
+	conn   wsConn
+	send   chan []byte
+	mu     sync.Mutex
+	closed bool
+	once   sync.Once
+}
+
+// clientQueueSize bounds how many messages may wait for one client. A full
+// queue disconnects that client instead of stalling the hub.
+var clientQueueSize = 16
+
+// writeTimeout is the deadline for a single client write. A client that
+// stops reading is disconnected when the deadline passes.
+var writeTimeout = 10 * time.Second
+
+func newSubscriber(conn wsConn) *subscriber {
+	size := clientQueueSize
+	if size < 1 {
+		size = 1
+	}
+	return &subscriber{conn: conn, send: make(chan []byte, size)}
+}
+
+// trySend enqueues payload without blocking. A full or closed queue reports
+// failure so the caller can drop the slow client.
+func (s *subscriber) trySend(payload []byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	select {
+	case s.send <- payload:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *subscriber) failSlow() {
+	s.mu.Lock()
+	if !s.closed {
+		s.closed = true
+		close(s.send)
+	}
+	s.mu.Unlock()
+	s.closeConn()
+}
+
+func (s *subscriber) closeConn() {
+	s.once.Do(func() {
+		_ = s.conn.Close()
+	})
+}
+
+func (s *subscriber) writeLoop() {
+	defer func() {
+		s.failSlow()
+		Unregister <- s
+	}()
+	for payload := range s.send {
+		timeout := writeTimeout
+		if timeout <= 0 {
+			timeout = 10 * time.Second
+		}
+		if err := s.conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			logrus.Println("write deadline error:", err)
+			return
+		}
+		if err := s.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			logrus.Println("write error:", err)
+			return
+		}
+	}
+}
 
 type BroadcastMessage struct {
 	Code    string `json:"code"`
@@ -21,19 +106,41 @@ type BroadcastMessage struct {
 }
 
 var (
-	Clients    = make(map[*websocket.Conn]client)
-	Register   = make(chan *websocket.Conn)
+	clients    = make(map[*subscriber]struct{})
+	clientsMu  sync.Mutex
+	Register   = make(chan *subscriber)
 	Broadcast  = make(chan BroadcastMessage)
-	Unregister = make(chan *websocket.Conn)
+	Unregister = make(chan *subscriber)
 )
 
-func handleRegister(conn *websocket.Conn) {
-	Clients[conn] = client{}
+// Publish delivers message to the hub or returns false when ctx ends first.
+// A full per-client queue cannot block this send: the hub drops that client
+// and keeps broadcasting to the others. Existing callers may also send on
+// Broadcast; the hub no longer writes sockets on its own goroutine.
+func Publish(ctx context.Context, message BroadcastMessage) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case Broadcast <- message:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func handleRegister(sub *subscriber) {
+	clientsMu.Lock()
+	clients[sub] = struct{}{}
+	clientsMu.Unlock()
+	go sub.writeLoop()
 	logrus.Println("connection registered")
 }
 
-func handleUnregister(conn *websocket.Conn) {
-	delete(Clients, conn)
+func handleUnregister(sub *subscriber) {
+	clientsMu.Lock()
+	delete(clients, sub)
+	clientsMu.Unlock()
 	logrus.Println("connection unregistered")
 }
 
@@ -44,22 +151,20 @@ func broadcastMessage(message BroadcastMessage) {
 		return
 	}
 
-	for conn := range Clients {
-		if err := conn.WriteMessage(websocket.TextMessage, marshalMessage); err != nil {
-			logrus.Println("write error:", err)
-			closeConnection(conn)
-		}
+	clientsMu.Lock()
+	subs := make([]*subscriber, 0, len(clients))
+	for sub := range clients {
+		subs = append(subs, sub)
 	}
-}
+	clientsMu.Unlock()
 
-func closeConnection(conn *websocket.Conn) {
-	if err := conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
-		logrus.Println("write close message error:", err)
+	for _, sub := range subs {
+		if sub.trySend(marshalMessage) {
+			continue
+		}
+		logrus.Println("disconnecting slow websocket client")
+		go sub.failSlow()
 	}
-	if err := conn.Close(); err != nil {
-		logrus.Println("close connection error:", err)
-	}
-	delete(Clients, conn)
 }
 
 func RunHub() {
@@ -102,12 +207,13 @@ func RegisterRoutes(app fiber.Router, service domainApp.IAppUsecase) {
 			origins = []string{"http://127.0.0.1"}
 		}
 		return websocket.New(func(conn *websocket.Conn) {
+			sub := newSubscriber(conn)
 			defer func() {
-				Unregister <- conn
-				_ = conn.Close()
+				sub.failSlow()
+				Unregister <- sub
 			}()
 
-			Register <- conn
+			Register <- sub
 
 			for {
 				messageType, message, err := conn.ReadMessage()

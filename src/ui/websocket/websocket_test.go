@@ -2,8 +2,10 @@ package websocket
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,128 @@ import (
 func TestMain(m *testing.M) {
 	go RunHub()
 	m.Run()
+}
+
+type recordingConn struct {
+	mu   sync.Mutex
+	msgs [][]byte
+}
+
+func (c *recordingConn) WriteMessage(_ int, data []byte) error {
+	c.mu.Lock()
+	c.msgs = append(c.msgs, append([]byte(nil), data...))
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *recordingConn) SetWriteDeadline(time.Time) error { return nil }
+
+func (c *recordingConn) Close() error { return nil }
+
+func (c *recordingConn) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.msgs)
+}
+
+type blockingConn struct {
+	mu       sync.Mutex
+	deadline time.Time
+	once     sync.Once
+	done     chan struct{}
+}
+
+func newBlockingConn() *blockingConn {
+	return &blockingConn{done: make(chan struct{})}
+}
+
+func (c *blockingConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *blockingConn) WriteMessage(int, []byte) error {
+	c.mu.Lock()
+	deadline := c.deadline
+	c.mu.Unlock()
+	var timer <-chan time.Time
+	if !deadline.IsZero() {
+		timer = time.After(time.Until(deadline))
+	}
+	select {
+	case <-timer:
+		return errors.New("write deadline exceeded")
+	case <-c.done:
+		return errors.New("stalled client disconnected")
+	}
+}
+
+func (c *blockingConn) Close() error {
+	c.once.Do(func() { close(c.done) })
+	return nil
+}
+
+func waitForClients(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		clientsMu.Lock()
+		got := len(clients)
+		clientsMu.Unlock()
+		if got >= n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d websocket clients", n)
+}
+
+func TestHubDoesNotBlockWhenClientStopsReading(t *testing.T) {
+	prevTimeout := writeTimeout
+	prevQueue := clientQueueSize
+	// Longer than the publish timeout so a hub that writes synchronously fails the test.
+	writeTimeout = 2 * time.Second
+	clientQueueSize = 1
+	t.Cleanup(func() {
+		writeTimeout = prevTimeout
+		clientQueueSize = prevQueue
+	})
+
+	stalled := newBlockingConn()
+	healthy := &recordingConn{}
+	t.Cleanup(func() { _ = stalled.Close() })
+
+	Register <- newSubscriber(stalled)
+	Register <- newSubscriber(healthy)
+	waitForClients(t, 2)
+
+	send := func() time.Duration {
+		t.Helper()
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		if !Publish(ctx, BroadcastMessage{Code: "PING", Message: "still going"}) {
+			t.Fatal("publish blocked or was cancelled while a client was stalled")
+		}
+		return time.Since(start)
+	}
+
+	if elapsed := send(); elapsed > 150*time.Millisecond {
+		t.Fatalf("first publish took %s; the hub waited on the stalled client", elapsed)
+	}
+	if elapsed := send(); elapsed > 150*time.Millisecond {
+		t.Fatalf("second publish took %s; a full or stalled client blocked the hub", elapsed)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for healthy.count() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if healthy.count() < 1 {
+		t.Fatal("healthy client received no broadcast while another client was stalled")
+	}
 }
 
 func TestWebsocketRejectsUntrustedOrigin(t *testing.T) {
