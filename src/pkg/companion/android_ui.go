@@ -374,7 +374,8 @@ func (u *PairingUI) Prepare(ctx context.Context) (Object, error) {
 		return nil, block("ambiguous_device")
 	}
 	if len(entries) == 1 {
-		x, y, e := s.Point(entries[0])
+		var x, y int
+		x, y, e = s.Point(entries[0])
 		if e != nil {
 			return nil, e
 		}

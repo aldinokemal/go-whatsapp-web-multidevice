@@ -1,8 +1,11 @@
 package companion
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +26,7 @@ func snapshot(connected bool, jid string) Object {
 type testWorld struct {
 	calls                           []string
 	snapshots                       map[string]Object
+	postPair                        map[string]Object
 	fail                            map[string]string
 	reconnect                       bool
 	last                            string
@@ -67,6 +71,9 @@ func (a *fakeAdapter) Call(_ context.Context, op string, r Object) (Object, erro
 				jid = testPhone + ":2@s.whatsapp.net"
 			}
 			w.snapshots[w.last] = snapshot(true, jid)
+			if override, ok := w.postPair[w.last]; ok {
+				w.snapshots[w.last] = override
+			}
 		}
 		return Object{}, nil
 	}
@@ -408,5 +415,118 @@ func TestSingleHostHTTPAccountIdentityRemainsSupported(t *testing.T) {
 	out := runRecovery(t, r, a, s, true)
 	if out["state"] != "healthy" || hasCall(w, ":begin") {
 		t.Fatal(out, w.calls)
+	}
+}
+
+func TestInvalidAuthenticatedIdentityKeepsIntentAcrossRestart(t *testing.T) {
+	for _, jid := range []string{"", testPhone + "@s.whatsapp.net"} {
+		t.Run(jid, func(t *testing.T) {
+			s, w, r := setupRecovery(t)
+			w.postPair = map[string]Object{"primary": snapshot(true, jid)}
+			out := runRecovery(t, r, testAccount(), s, true)
+			if out["state"] != "blocked" {
+				t.Fatal(out)
+			}
+			phase, err := s.Get("sales", "primary")
+			if err != nil || phase.Phase != "pairing_started" {
+				t.Fatal("unverified intent was cleared", phase, err)
+			}
+			w.snapshots["primary"] = snapshot(false, "")
+			w.calls = nil
+			out = runRecovery(t, r, testAccount(), s, true)
+			if out["reason"] != "attempt_needs_review" || hasCall(w, ":pair_code") {
+				t.Fatal(out, w.calls)
+			}
+		})
+	}
+}
+func TestDuplicateAuthenticatedIdentitiesKeepBothIntents(t *testing.T) {
+	s, w, r := setupRecovery(t)
+	w.duplicate = true
+	out := runRecovery(t, r, testAccount(), s, true)
+	if out["reason"] != "identity_mismatch" {
+		t.Fatal(out)
+	}
+	for _, backend := range []string{"primary", "backup"} {
+		phase, err := s.Get("sales", backend)
+		if err != nil || phase.Phase != "pairing_started" {
+			t.Fatal(backend, phase, err)
+		}
+		w.snapshots[backend] = snapshot(false, "")
+	}
+	w.calls = nil
+	out = runRecovery(t, r, testAccount(), s, true)
+	if out["reason"] != "attempt_needs_review" || hasCall(w, ":pair_code") {
+		t.Fatal(out, w.calls)
+	}
+}
+func TestVerifiedAuthenticatedIdentitiesResolveOldIntentsWithoutPairing(t *testing.T) {
+	s, w, r := setupRecovery(t)
+	for i, backend := range []string{"primary", "backup"} {
+		if err := s.Put("sales", backend, "pairing_started", "", 0); err != nil {
+			t.Fatal(err)
+		}
+		w.snapshots[backend] = snapshot(true, fmt.Sprintf("%s:%d@s.whatsapp.net", testPhone, i+1))
+	}
+	out := runRecovery(t, r, testAccount(), s, true)
+	if out["state"] != "healthy" || hasCall(w, ":pair_code") || hasCall(w, ":begin") {
+		t.Fatal(out, w.calls)
+	}
+	for _, backend := range []string{"primary", "backup", "phone"} {
+		p, err := s.Get("sales", backend)
+		if err != nil || p.Phase != "healthy" {
+			t.Fatal(p, err)
+		}
+	}
+}
+func TestRelativeStateDirectoryUsesSameDatabaseAndLock(t *testing.T) {
+	t.Chdir(t.TempDir())
+	s, err := OpenState("nested/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if !filepath.IsAbs(s.directory) {
+		t.Fatal(s.directory)
+	}
+	if err = s.Put("sales", "primary", "pairing_started", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	other, err := OpenState(s.directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	p, err := other.Get("sales", "primary")
+	if err != nil || p.Phase != "pairing_started" {
+		t.Fatal(p, err)
+	}
+	lock, err := acquireLock(filepath.Join(s.directory, "sales.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	_, err = (Runner{}).Recover(context.Background(), testAccount(), other, true)
+	b, ok := err.(*Blocked)
+	if !ok || b.Reason != "lock_busy" {
+		t.Fatal(err)
+	}
+}
+func TestConfigRejectsUnknownAndTrailingFields(t *testing.T) {
+	c := Config{SchemaVersion: 1, Accounts: []Account{testAccount()}}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"unknown": bytes.Replace(raw, []byte("\"verify_seconds\""), []byte("\"verify_second\""), 1), "trailing": append(append([]byte(nil), raw...), []byte(" {}")...)} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil {
+				t.Fatal("accepted invalid configuration")
+			}
+		})
 	}
 }

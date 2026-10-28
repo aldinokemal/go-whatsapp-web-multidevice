@@ -36,6 +36,11 @@ func privateDir(path string) error {
 	return nil
 }
 func OpenState(directory string) (*State, error) {
+	var err error
+	directory, err = filepath.Abs(directory)
+	if err != nil {
+		return nil, err
+	}
 	if e := privateDir(directory); e != nil {
 		return nil, e
 	}
