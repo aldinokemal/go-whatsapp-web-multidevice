@@ -1277,6 +1277,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /send/button-reply:
+    post:
+      operationId: sendButtonReply
+      tags:
+        - send
+      summary: Reply to a business button
+      description: >
+        Answers a buttons, template, list or native-flow (interactive) message
+        the way the phone does when one of its buttons is tapped, quoting the
+        original message and carrying the selected id, so bots that match on the
+        id recognise the choice. Use the kind reported by the webhook payload
+        (template / list / buttons; buttons together with interactive means a
+        native-flow message). Cannot be scheduled.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, reply_message_id, kind, selected_id]
+              properties:
+                phone:
+                  type: string
+                  example: '6289685028129@s.whatsapp.net'
+                reply_message_id:
+                  type: string
+                  description: Id of the message that carried the button.
+                  example: 3EB0B430B6F8F1D0E053AC120E0A9E5C
+                kind:
+                  type: string
+                  enum: [buttons, template, list, interactive]
+                selected_id:
+                  type: string
+                  description: Button id, or the row id of a list.
+                  example: opt-1
+                text:
+                  type: string
+                  description: Text shown in the chat (defaults to selected_id).
+                  example: Yes, please
+                description:
+                  type: string
+                  description: Row description (list only).
+                selected_index:
+                  type: integer
+                  description: Position of the button in the template (template only).
+                flow_name:
+                  type: string
+                  description: Native-flow button name (interactive only, default quick_reply).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /send/image:
     post:
       operationId: sendImage

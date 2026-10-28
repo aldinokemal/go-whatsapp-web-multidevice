@@ -814,6 +814,14 @@ func (s *scheduledSendService) SendPoll(ctx context.Context, req domainSend.Poll
 func (s *scheduledSendService) SendPresence(ctx context.Context, req domainSend.PresenceRequest) (domainSend.GenericResponse, error) {
 	return s.base.SendPresence(ctx, req)
 }
+// SendButtonReply answers a tapped button now; a reply to a button cannot wait.
+func (s *scheduledSendService) SendButtonReply(ctx context.Context, req domainSend.ButtonReplyRequest) (domainSend.GenericResponse, error) {
+	if req.IsScheduled() {
+		return domainSend.GenericResponse{}, pkgError.ValidationError("button replies cannot be scheduled")
+	}
+	return s.base.SendButtonReply(ctx, req)
+}
+
 func (s *scheduledSendService) SendChatPresence(ctx context.Context, req domainSend.ChatPresenceRequest) (domainSend.GenericResponse, error) {
 	if req.IsScheduled() {
 		return domainSend.GenericResponse{}, pkgError.ValidationError("chat presence cannot be scheduled")
