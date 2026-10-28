@@ -251,6 +251,7 @@ func (m *DeviceManager) RemoveDevice(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.devices, id)
+	newsletterLiveUpdates.stopDevice(id)
 
 	if m.storage != nil && strings.TrimSpace(id) != "" {
 		_ = m.storage.DeleteDeviceRecord(id)

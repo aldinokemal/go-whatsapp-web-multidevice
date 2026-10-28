@@ -46,7 +46,10 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handlePairPasskeyError(instance, evt)
 	case *events.LoggedOut:
 		handleLoggedOut(instance)
-	case *events.Connected, *events.PushNameSetting:
+	case *events.Connected:
+		handleConnectionEvents(ctx, client, instance)
+		newsletterLiveUpdates.renewDevice(instance.ID())
+	case *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
 		handleStreamReplaced(instance)

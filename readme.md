@@ -185,7 +185,7 @@ Download:
   | `label.association`  | Label applied to or removed from a chat       |
   | `newsletter.joined`  | You subscribed to a newsletter/channel        |
   | `newsletter.left`    | You unsubscribed from a newsletter            |
-  | `newsletter.message` | New message(s) posted in a newsletter         |
+  | `newsletter.message` | Live counter updates of a subscribed newsletter |
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
 
@@ -416,7 +416,7 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are six consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are seven consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
@@ -427,6 +427,7 @@ operation:
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
+| `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
 `occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
@@ -725,8 +726,15 @@ You may also fork or modify the source code.
 | ✅       | Set Group Announcement Mode            | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Get Group Invite Link                  | GET    | /group/invite-link                  |
+| ✅       | Follow Newsletter                      | POST   | /newsletter/follow                  |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
+| ✅       | Get Newsletter Info (JID or invite)    | GET    | /newsletter/info                    |
+| ✅       | Search Newsletter Directory            | GET    | /newsletter/directory               |
 | ✅       | Get Newsletter Messages                | GET    | /newsletter/messages                |
+| ✅       | Get Newsletter Message Updates         | GET    | /newsletter/message-updates         |
+| ✅       | List Newsletter Live Updates           | GET    | /newsletter/live-updates            |
+| ✅       | Subscribe Newsletter Live Updates      | POST   | /newsletter/live-updates            |
+| ✅       | Unsubscribe Newsletter Live Updates    | DELETE | /newsletter/live-updates            |
 | ✅       | Download Newsletter Message Media      | GET    | /newsletter/messages/{server_id}/download |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |

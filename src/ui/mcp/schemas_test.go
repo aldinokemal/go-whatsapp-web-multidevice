@@ -103,6 +103,18 @@ func TestSchemas(t *testing.T) {
 		{"chat list_chats negative offset", chatSchema, `{"action":"list_chats","offset":-1}`, true},
 		{"chat get_messages limit over max", chatSchema, `{"action":"get_messages","chat_jid":"628@s.whatsapp.net","limit":500}`, true},
 
+		// ---- whatsapp_newsletter ----
+		{"newsletter follow ok", newsletterSchema, `{"action":"follow","newsletter_id":"1@newsletter"}`, false},
+		{"newsletter follow missing id", newsletterSchema, `{"action":"follow"}`, true},
+		{"newsletter info by id", newsletterSchema, `{"action":"info","newsletter_id":"1@newsletter"}`, false},
+		{"newsletter info by invite", newsletterSchema, `{"action":"info","invite":"0029Va"}`, false},
+		{"newsletter info missing key", newsletterSchema, `{"action":"info"}`, true},
+		{"newsletter info both keys", newsletterSchema, `{"action":"info","newsletter_id":"1@newsletter","invite":"0029Va"}`, true},
+		{"newsletter directory ok", newsletterSchema, `{"action":"directory","view":"TRENDING","country_codes":["BR"]}`, false},
+		{"newsletter directory bad view", newsletterSchema, `{"action":"directory","view":"HOT"}`, true},
+		{"newsletter messages count too high", newsletterSchema, `{"action":"messages","newsletter_id":"1@newsletter","count":101}`, true},
+		{"newsletter live list ok", newsletterSchema, `{"action":"live_updates_list"}`, false},
+		{"newsletter live subscribe missing id", newsletterSchema, `{"action":"live_updates_subscribe"}`, true},
 		// ---- whatsapp_group ----
 		{"group create ok", groupSchema, `{"action":"create","title":"T","participants":["628"]}`, false},
 		{"group create missing title", groupSchema, `{"action":"create"}`, true},
@@ -142,7 +154,7 @@ func TestSchemas(t *testing.T) {
 
 	// compile each schema once
 	compiled := map[string]*jsonschema.Schema{}
-	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema} {
+	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema} {
 		compiled[raw] = compileSchema(t, raw)
 	}
 

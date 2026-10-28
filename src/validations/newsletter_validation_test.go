@@ -175,3 +175,100 @@ func TestValidateDownloadNewsletterMedia(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateFollowNewsletter(t *testing.T) {
+	assert.NoError(t, ValidateFollowNewsletter(context.Background(), domainNewsletter.FollowRequest{NewsletterID: "120363123456789@newsletter"}))
+	assert.Equal(t, pkgError.ValidationError("newsletter_id: cannot be blank."),
+		ValidateFollowNewsletter(context.Background(), domainNewsletter.FollowRequest{}))
+	assert.Equal(t, pkgError.ValidationError("newsletter_id: must end with @newsletter."),
+		ValidateFollowNewsletter(context.Background(), domainNewsletter.FollowRequest{NewsletterID: "120363123456789@g.us"}))
+}
+
+func TestValidateGetNewsletterInfo(t *testing.T) {
+	tests := []struct {
+		name    string
+		request domainNewsletter.GetInfoRequest
+		err     error
+	}{
+		{name: "by jid", request: domainNewsletter.GetInfoRequest{NewsletterID: "120363123456789@newsletter"}},
+		{name: "by invite link", request: domainNewsletter.GetInfoRequest{Invite: "https://whatsapp.com/channel/0029VaABCDEF"}},
+		{
+			name: "neither",
+			err:  pkgError.ValidationError("exactly one of newsletter_id or invite must be provided."),
+		},
+		{
+			name:    "both",
+			request: domainNewsletter.GetInfoRequest{NewsletterID: "120363123456789@newsletter", Invite: "0029VaABCDEF"},
+			err:     pkgError.ValidationError("exactly one of newsletter_id or invite must be provided."),
+		},
+		{
+			name:    "non-newsletter jid",
+			request: domainNewsletter.GetInfoRequest{NewsletterID: "6289685028129@s.whatsapp.net"},
+			err:     pkgError.ValidationError("newsletter_id: must end with @newsletter."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.err, ValidateGetNewsletterInfo(context.Background(), tt.request))
+		})
+	}
+}
+
+func TestValidateGetNewsletterMessageUpdates(t *testing.T) {
+	request := domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter", After: 100}
+	assert.NoError(t, ValidateGetNewsletterMessageUpdates(context.Background(), &request))
+	assert.Equal(t, 50, request.Count)
+
+	request = domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter"}
+	assert.Equal(t, pkgError.ValidationError("after: must be a message server ID; WhatsApp does not answer message_updates without it."),
+		ValidateGetNewsletterMessageUpdates(context.Background(), &request))
+
+	request = domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter", After: 100, Count: 101}
+	assert.Equal(t, pkgError.ValidationError("count: must be no greater than 100."),
+		ValidateGetNewsletterMessageUpdates(context.Background(), &request))
+
+	request = domainNewsletter.GetMessageUpdatesRequest{NewsletterID: "120363123456789@newsletter", After: 100, Since: -1}
+	assert.Equal(t, pkgError.ValidationError("since: must be no less than 0."),
+		ValidateGetNewsletterMessageUpdates(context.Background(), &request))
+}
+
+func TestValidateNewsletterLiveUpdates(t *testing.T) {
+	assert.NoError(t, ValidateNewsletterLiveUpdates(context.Background(), domainNewsletter.LiveUpdatesRequest{NewsletterID: "120363123456789@newsletter"}))
+	assert.Equal(t, pkgError.ValidationError("newsletter_id: cannot be blank."),
+		ValidateNewsletterLiveUpdates(context.Background(), domainNewsletter.LiveUpdatesRequest{}))
+}
+
+func TestValidateNewsletterDirectory(t *testing.T) {
+	request := domainNewsletter.DirectoryRequest{CountryCodes: []string{" br,id ", "us"}, Categories: []string{"news"}}
+	assert.NoError(t, ValidateNewsletterDirectory(context.Background(), &request))
+	assert.Equal(t, "RECOMMENDED", request.View)
+	assert.Equal(t, 20, request.Limit)
+	assert.Equal(t, []string{"BR", "ID", "US"}, request.CountryCodes)
+	assert.Equal(t, []string{"NEWS"}, request.Categories)
+
+	request = domainNewsletter.DirectoryRequest{View: "trending", CountryCodes: []string{"BR"}}
+	assert.NoError(t, ValidateNewsletterDirectory(context.Background(), &request))
+	assert.Equal(t, "TRENDING", request.View)
+
+	request = domainNewsletter.DirectoryRequest{View: "hot", CountryCodes: []string{"BR"}}
+	assert.Equal(t, pkgError.ValidationError("view: must be a valid value."),
+		ValidateNewsletterDirectory(context.Background(), &request))
+
+	request = domainNewsletter.DirectoryRequest{Limit: 51, CountryCodes: []string{"BR"}}
+	assert.Equal(t, pkgError.ValidationError("limit: must be no greater than 50."),
+		ValidateNewsletterDirectory(context.Background(), &request))
+
+	request = domainNewsletter.DirectoryRequest{CountryCodes: []string{"BRA"}}
+	assert.Error(t, ValidateNewsletterDirectory(context.Background(), &request))
+
+	request = domainNewsletter.DirectoryRequest{View: "POPULAR"}
+	assert.Equal(t, pkgError.ValidationError("country_codes: at least one country code is required to browse the directory."),
+		ValidateNewsletterDirectory(context.Background(), &request))
+
+	request = domainNewsletter.DirectoryRequest{SearchText: "news", Categories: []string{"news"}}
+	assert.NoError(t, ValidateNewsletterDirectory(context.Background(), &request))
+
+	request = domainNewsletter.DirectoryRequest{SearchText: "news", Categories: []string{"POLITICS"}}
+	assert.Error(t, ValidateNewsletterDirectory(context.Background(), &request))
+}

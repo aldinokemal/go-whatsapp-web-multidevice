@@ -165,13 +165,14 @@ func restServer(_ *cobra.Command, _ []string) {
 	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
 	if config.McpEnabled && !mcpOAuthRegistered {
 		uimcp.Register(apiGroup, dm, uimcp.Deps{
-			App:      appUsecase,
-			Send:     sendUsecase,
-			Schedule: scheduleUsecase,
-			Chat:     chatUsecase,
-			User:     userUsecase,
-			Message:  messageUsecase,
-			Group:    groupUsecase,
+			App:        appUsecase,
+			Send:       sendUsecase,
+			Schedule:   scheduleUsecase,
+			Chat:       chatUsecase,
+			User:       userUsecase,
+			Message:    messageUsecase,
+			Group:      groupUsecase,
+			Newsletter: newsletterUsecase,
 		})
 	}
 

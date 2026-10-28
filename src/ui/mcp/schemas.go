@@ -160,3 +160,28 @@ const appSchema = `{
     {"if": {"properties": {"action": {"const": "login_code"}}}, "then": {"required": ["phone"]}}
   ]
 }`
+
+const newsletterSchema = `{
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {"type": "string", "enum": ["follow","unfollow","info","directory","messages","message_updates","live_updates_subscribe","live_updates_unsubscribe","live_updates_list"], "description": "Channel operation"},
+    "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
+    "newsletter_id": {"type": "string", "description": "Channel JID ending with @newsletter"},
+    "invite": {"type": "string", "description": "info: channel invite link (https://whatsapp.com/channel/...) or code, instead of newsletter_id"},
+    "view": {"type": "string", "enum": ["RECOMMENDED","TRENDING","POPULAR","NEW"], "description": "directory: list to browse (default RECOMMENDED)"},
+    "search_text": {"type": "string", "description": "directory: search channels by name"},
+    "country_codes": {"type": "array", "items": {"type": "string"}, "description": "directory: ISO country codes, e.g. [\"BR\"]"},
+    "categories": {"type": "array", "items": {"type": "string"}, "description": "directory: category filter"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "directory: page size (default 20)"},
+    "cursor": {"type": "string", "description": "directory: next_cursor from the previous page"},
+    "count": {"type": "integer", "minimum": 1, "maximum": 100, "description": "messages/message_updates: how many (default 50)"},
+    "before": {"type": "integer", "minimum": 0, "description": "messages: return messages older than this server_id"},
+    "since": {"type": "integer", "minimum": 0, "description": "message_updates: Unix timestamp; only messages updated after it"},
+    "after": {"type": "integer", "minimum": 0, "description": "message_updates: only messages with server_id greater than this"}
+  },
+  "allOf": [
+    {"if": {"properties": {"action": {"enum": ["follow","unfollow","messages","message_updates","live_updates_subscribe","live_updates_unsubscribe"]}}}, "then": {"required": ["newsletter_id"]}},
+    {"if": {"properties": {"action": {"const": "info"}}}, "then": {"oneOf": [{"required": ["newsletter_id"]}, {"required": ["invite"]}]}}
+  ]
+}`
