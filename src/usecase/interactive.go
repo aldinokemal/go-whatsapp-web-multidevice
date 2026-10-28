@@ -1,0 +1,120 @@
+package usecase
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"github.com/disintegration/imaging"
+	"image"
+	"image/jpeg"
+	"strconv"
+	"time"
+
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"go.mau.fi/whatsmeow"
+	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
+)
+
+func nativeFlow(body, footer string, buttons []domainSend.NativeFlowButton) *waE2E.InteractiveMessage {
+	flow := &waE2E.InteractiveMessage_NativeFlowMessage{MessageVersion: proto.Int32(3)}
+	for _, b := range buttons {
+		flow.Buttons = append(flow.Buttons, &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{Name: proto.String(b.Name), ButtonParamsJSON: proto.String(string(b.Params))})
+	}
+	return &waE2E.InteractiveMessage{Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)}, Footer: &waE2E.InteractiveMessage_Footer{Text: proto.String(footer)}, InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: flow}}
+}
+
+func buildInteractive(req domainSend.InteractiveRequest) *waE2E.Message {
+	interactive := nativeFlow(req.Body, req.Footer, req.Buttons)
+	if len(req.Buttons) == 1 && req.Buttons[0].Name == "send_location" {
+		interactive.Header = &waE2E.InteractiveMessage_Header{Title: proto.String(""), Subtitle: proto.String(""), HasMediaAttachment: proto.Bool(false)}
+		interactive.GetNativeFlowMessage().MessageVersion = nil
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			panic(err)
+		}
+		return &waE2E.Message{InteractiveMessage: interactive, MessageContextInfo: &waE2E.MessageContextInfo{DeviceListMetadata: &waE2E.DeviceListMetadata{}, DeviceListMetadataVersion: proto.Int32(2), MessageSecret: secret}}
+	}
+	if len(req.Cards) > 0 {
+		carousel := &waE2E.InteractiveMessage_CarouselMessage{MessageVersion: proto.Int32(1)}
+		for _, c := range req.Cards {
+			card := nativeFlow(c.Body, c.Footer, c.Buttons)
+			card.Header = &waE2E.InteractiveMessage_Header{Title: proto.String(c.Title), HasMediaAttachment: proto.Bool(false)}
+			carousel.Cards = append(carousel.Cards, card)
+		}
+		interactive.InteractiveMessage = &waE2E.InteractiveMessage_CarouselMessage_{CarouselMessage: carousel}
+	}
+	return &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{InteractiveMessage: interactive}}}
+}
+
+func interactiveNodes(buttonNames ...string) []waBinary.Node {
+	nodes := []waBinary.Node{{Tag: "biz", Content: []waBinary.Node{{Tag: "interactive", Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"}, Content: []waBinary.Node{{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "9", "name": "mixed"}}}}}}}
+	if len(buttonNames) > 0 && buttonNames[0] == "send_location" {
+		nodes[0].Attrs = waBinary.Attrs{"actual_actors": "2", "host_storage": "2", "privacy_mode_ts": strconv.FormatInt(time.Now().Unix(), 10)}
+		nodes[0].Content = []waBinary.Node{{Tag: "interactive", Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"}, Content: []waBinary.Node{{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "2", "name": "send_location"}}}}, {Tag: "quality_control", Attrs: waBinary.Attrs{"source_type": "third_party"}}}
+	}
+	return nodes
+}
+
+func (service serviceSend) SendInteractive(ctx context.Context, req domainSend.InteractiveRequest) (response domainSend.GenericResponse, err error) {
+	if err = validations.ValidateInteractive(ctx, req); err != nil {
+		return response, err
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	to, err := utils.ValidateJidWithLogin(client, req.Phone)
+	if err != nil {
+		return response, err
+	}
+	if to.Server != types.DefaultUserServer && to.Server != types.HiddenUserServer && to.Server != types.GroupServer {
+		return response, pkgError.ValidationError("interactive messages require a user or group recipient")
+	}
+	name := ""
+	if len(req.Buttons) > 0 {
+		name = req.Buttons[0].Name
+	}
+	nodes := interactiveNodes(name)
+	msg := buildInteractive(req)
+	for index, card := range req.Cards {
+		if card.ImageBase64 == "" {
+			continue
+		}
+		data, _ := base64.StdEncoding.DecodeString(card.ImageBase64)
+		src, _, decodeErr := image.Decode(bytes.NewReader(data))
+		if decodeErr != nil {
+			return response, pkgError.ValidationError("invalid card image")
+		}
+		var full, thumb bytes.Buffer
+		if err = jpeg.Encode(&full, imaging.Fit(src, 1280, 1280, imaging.Lanczos), &jpeg.Options{Quality: 85}); err != nil {
+			return response, err
+		}
+		if err = jpeg.Encode(&thumb, imaging.Thumbnail(src, 160, 160, imaging.Lanczos), nil); err != nil {
+			return response, err
+		}
+		upload, uploadErr := service.uploadMedia(ctx, client, whatsmeow.MediaImage, full.Bytes(), to)
+		if uploadErr != nil {
+			return response, uploadErr
+		}
+		cfg, _, _ := image.DecodeConfig(bytes.NewReader(full.Bytes()))
+		header := msg.GetViewOnceMessage().GetMessage().GetInteractiveMessage().GetCarouselMessage().Cards[index].Header
+		header.HasMediaAttachment = proto.Bool(true)
+		header.Media = &waE2E.InteractiveMessage_Header_ImageMessage{ImageMessage: &waE2E.ImageMessage{URL: proto.String(upload.URL), DirectPath: proto.String(upload.DirectPath), MediaKey: upload.MediaKey, FileEncSHA256: upload.FileEncSHA256, FileSHA256: upload.FileSHA256, FileLength: proto.Uint64(uint64(full.Len())), Mimetype: proto.String("image/jpeg"), JPEGThumbnail: thumb.Bytes(), Width: proto.Uint32(uint32(cfg.Width)), Height: proto.Uint32(uint32(cfg.Height))}}
+	}
+	ts, err := service.wrapSendMessage(ctx, client, to, msg, req.Body, whatsmeow.SendRequestExtra{AdditionalNodes: &nodes})
+	if err != nil {
+		return response, err
+	}
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Experimental interactive message accepted for %s at %s; recipient rendering is unverified", req.Phone, ts.Timestamp.String())
+	return response, nil
+}

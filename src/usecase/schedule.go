@@ -747,6 +747,10 @@ type scheduledSendService struct {
 	scheduler *ScheduleService
 }
 
+func (s *scheduledSendService) SendInteractive(ctx context.Context, req domainSend.InteractiveRequest) (domainSend.GenericResponse, error) {
+	return s.base.SendInteractive(ctx, req)
+}
+
 func NewScheduledSendService(base domainSend.ISendUsecase, scheduler *ScheduleService) domainSend.ISendUsecase {
 	return &scheduledSendService{base: base, scheduler: scheduler}
 }
