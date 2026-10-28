@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family_live ON oauth_tokens(family_id, revoked_at, expires_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_expires_at ON oauth_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client_id ON oauth_tokens(client_id);
 `
@@ -376,9 +377,6 @@ WHERE token_hash = ? AND token_type = 'refresh'`, hashSecret(req.RefreshToken)).
 		if err := revokeRefreshFamilyTx(ctx, tx, familyID, now); err != nil {
 			return TokenPair{}, err
 		}
-		if err := cleanupExpiredTx(ctx, tx, now); err != nil {
-			return TokenPair{}, err
-		}
 		if err := tx.Commit(); err != nil {
 			return TokenPair{}, err
 		}
@@ -429,8 +427,9 @@ WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
 
 // cleanupExpiredTx drops expired authorization codes and tokens. A consumed
 // refresh-token hash is kept while the family still has a live descendant so a
-// later replay can revoke that family. Expired refresh tokens that were never
-// consumed are not ancestors and are deleted with the other expired rows.
+// later replay can revoke that family, but for no more than one refresh-token
+// lifetime after it expires. Expired refresh tokens that were never consumed
+// are not ancestors and are deleted with the other expired rows.
 func cleanupExpiredTx(ctx context.Context, tx *sql.Tx, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE expires_at <= ?`, now.Unix()); err != nil {
 		return fmt.Errorf("delete expired authorization codes: %w", err)
@@ -444,6 +443,7 @@ WHERE token_hash IN (
       AND NOT (
           expired.token_type = 'refresh'
           AND expired.revoked_at IS NOT NULL
+          AND expired.expires_at > ?
           AND EXISTS (
               SELECT 1
               FROM oauth_tokens AS live
@@ -452,7 +452,7 @@ WHERE token_hash IN (
                 AND live.expires_at > ?
           )
       )
-)`, now.Unix(), now.Unix()); err != nil {
+)`, now.Unix(), now.Add(-refreshTokenTTL).Unix(), now.Unix()); err != nil {
 		return fmt.Errorf("delete expired oauth tokens: %w", err)
 	}
 	return nil
