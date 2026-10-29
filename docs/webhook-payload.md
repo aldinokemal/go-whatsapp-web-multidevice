@@ -272,10 +272,41 @@ resolution order.
     "is_from_me": false,
     "body": "I'm doing great, thanks!",
     "replied_to_id": "3EB0C127D7BACC83D6A1",
-    "quoted_body": "Hello, how are you?"
+    "quoted_body": "Hello, how are you?",
+    "replied_to_sender": "628987654321@s.whatsapp.net"
   }
 }
 ```
+
+- `replied_to_sender` is the author of the quoted message, when WhatsApp sends it (`ContextInfo.participant`; in
+  groups it is always sent). A LID is resolved to the phone JID where the LID store knows it, and the LID is also given
+  as `replied_to_sender_lid` - the same convention as `from`/`from_lid`. Both are omitted when there is no author. The
+  stored message's `context_metadata` carries it too, as WhatsApp sent it.
+
+### Mentions
+
+```json
+{
+  "event": "message",
+  "device_id": "628987654321@s.whatsapp.net",
+  "payload": {
+    "id": "3EB0C127D7BACC83D6A3",
+    "chat_id": "120363012345678901@g.us",
+    "from": "628123456789@s.whatsapp.net",
+    "timestamp": "2023-10-15T10:36:00Z",
+    "is_from_me": false,
+    "body": "@628987654321 can you check this, @628111111111?",
+    "mentions": ["628987654321@s.whatsapp.net", "628111111111@s.whatsapp.net"],
+    "mentions_lid": ["251556368777322@lid"]
+  }
+}
+```
+
+- `mentions` lists everyone the message @mentions (`ContextInfo.mentionedJID`), in order, without duplicates. A LID is
+  resolved to the phone JID where the LID store knows it; one it cannot resolve stays a LID.
+- `mentions_lid` lists the mentions WhatsApp sent as LIDs, as sent. Omitted when there are none; `mentions` is omitted
+  when nothing is mentioned.
+- Mentions in a media caption are rewritten from `@<lid>` to `@<phone>` in `body`, as they already are in text.
 
 ### Reaction Message
 

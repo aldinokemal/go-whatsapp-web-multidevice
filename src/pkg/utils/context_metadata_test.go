@@ -62,3 +62,37 @@ func TestExtractContextMetadata(t *testing.T) {
 		require.Empty(t, ExtractContextMetadata(msg))
 	}
 }
+
+func TestExtractContextMetadataIncludesTheQuotedAuthor(t *testing.T) {
+	for _, participant := range []string{"628123456789@s.whatsapp.net", "123456789012345@lid"} {
+		t.Run(participant, func(t *testing.T) {
+			msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{
+				StanzaID: proto.String("QUOTED-1"), Participant: proto.String(participant),
+			}}}
+			var metadata map[string]string
+			require.NoError(t, json.Unmarshal([]byte(ExtractContextMetadata(msg)), &metadata))
+			require.Equal(t, map[string]string{"replied_to_id": "QUOTED-1", "replied_to_sender": participant}, metadata,
+				"the author is stored as WhatsApp sent it")
+		})
+	}
+}
+
+func TestExtractContextMetadataAuthorWithoutAReplyIsNotStored(t *testing.T) {
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: &waE2E.ContextInfo{
+		Participant: proto.String("628123456789@s.whatsapp.net"),
+	}}}
+	require.Equal(t, "", ExtractContextMetadata(msg), "metadata stays about replies only")
+}
+
+func TestExtractMentionedJIDs(t *testing.T) {
+	jids := []string{"628123456789@s.whatsapp.net", "", "123456789012345@lid"}
+	want := []string{"628123456789@s.whatsapp.net", "123456789012345@lid"}
+	text := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: &waE2E.ContextInfo{MentionedJID: jids}}}
+	caption := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{MentionedJID: jids}}}
+	require.Equal(t, want, ExtractMentionedJIDs(text))
+	require.Equal(t, want, ExtractMentionedJIDs(caption))
+	require.Equal(t, want, ExtractMentionedJIDs(&waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: caption}}))
+	for _, msg := range []*waE2E.Message{nil, {}, {Conversation: proto.String("plain")}} {
+		require.Nil(t, ExtractMentionedJIDs(msg))
+	}
+}
