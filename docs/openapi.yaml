@@ -344,7 +344,7 @@ paths:
         the standard /sys/fs/cgroup mount and are null when unavailable. Uptime
         includes process initialization.
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
