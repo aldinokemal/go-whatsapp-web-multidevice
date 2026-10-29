@@ -96,10 +96,21 @@ type IChatStorageRepository interface {
 	// ClaimNextScheduledSend atomically leases the earliest due active job, or
 	// returns nil when nothing is due.
 	ClaimNextScheduledSend(now, leaseUntil time.Time, leaseToken string) (*ScheduledSend, error)
-	// ListExpiredScheduledSends returns running jobs whose lease has lapsed.
-	ListExpiredScheduledSends(now time.Time) ([]*ScheduledSend, error)
+	// ClaimExpiredScheduledSend atomically takes over one expired lease and returns
+	// its current occurrence state, fencing writes from the previous worker.
+	ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*ScheduledSend, error)
 	// ListScheduledSendIDs returns every job that may still need its media.
 	ListScheduledSendIDs() ([]string, error)
+	// SetScheduledSendPendingAttempt atomically records the identity and poll
+	// secret before dispatch, or validates the existing pair. It reports false
+	// when the lease expired, ownership changed, or the pair differs.
+	SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error)
+	// ClearScheduledSendPendingMessageID forgets the message id of a paused
+	// job's occurrence and its poll secret when moving to another occurrence.
+	ClearScheduledSendPendingMessageID(deviceID, id string) error
+	// RetryScheduledSend returns a claimed job to the queue. attempts 0 means
+	// nothing of the occurrence that follows has been sent (a new occurrence,
+	// or one that never got to send): its pending message id is cleared.
 	RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error
 	CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error
 	FailScheduledSend(id, leaseToken, lastError string) error
