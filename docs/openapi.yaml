@@ -890,6 +890,70 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /user/presence/subscribe:
+    post:
+      operationId: userSubscribePresence
+      tags:
+        - user
+      summary: Subscribe to contact presence
+      description: |
+        Subscribe the selected logged-in device to an individual contact's online/offline updates.
+        Updates arrive through presence webhooks. For continuous tracking, set
+        WHATSAPP_PRESENCE_ON_CONNECT=available and WHATSAPP_PRESENCE_PULSE_ENABLED=false.
+        Keeping the device available suppresses phone push notifications.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+                  description: Individual contact phone number with country code
+                  example: '6289685028129'
+      responses:
+        '200':
+          description: Subscription accepted. This does not guarantee contact presence delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Success subscribe to user presence
+                  results:
+                    type: object
+                    properties:
+                      subscribed:
+                        type: boolean
+                        example: true
+                      jid:
+                        type: string
+                        example: '6289685028129@s.whatsapp.net'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/info:
     get:
       operationId: userInfo
@@ -962,6 +1026,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '403':
+          description: 'AVATAR_HIDDEN: the contact hides the picture from this account (says nothing about whether one exists)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorForbidden'
+              example:
+                code: AVATAR_HIDDEN
+                message: the user has hidden their profile picture from you
+        '404':
+          description: 'The contact has no profile picture (AVATAR_NOT_SET) or the device is unknown (DEVICE_NOT_FOUND). Check `code`, not only the status.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+              examples:
+                avatarNotSet:
+                  summary: The contact has no profile picture
+                  value:
+                    code: AVATAR_NOT_SET
+                    message: that user or group does not have a profile picture
+                deviceNotFound:
+                  summary: Unknown device
+                  value:
+                    code: DEVICE_NOT_FOUND
+                    message: device not found; create a device first from /api/devices or provide a valid X-Device-Id
+                    results:
+                      device_id: my-device
         '500':
           description: Internal Server Error
           content:
@@ -5768,6 +5860,20 @@ components:
         results:
           type: object
           example: null
+          description: 'additional data'
+    ErrorForbidden:
+      type: object
+      properties:
+        code:
+          type: string
+          example: AVATAR_HIDDEN
+          description: 'SYSTEM_CODE_ERROR'
+        message:
+          type: string
+          example: the user has hidden their profile picture from you
+          description: 'Detail error message'
+        results:
+          type: object
           description: 'additional data'
     ErrorNotFound:
       type: object
