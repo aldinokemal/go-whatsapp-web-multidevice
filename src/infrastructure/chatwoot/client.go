@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -210,12 +211,37 @@ func NewClient() *Client {
 
 // NewClientFromConfig builds a Chatwoot client for a specific (per-device)
 // destination from an operator-supplied config. The base URL is canonicalized
-// (a stored, already-validated URL falls back to a trimmed value on error). The
-// HTTP client is SSRF-guarded at connect time unless an explicit host allowlist
-// is configured (CHATWOOT_ALLOWED_HOSTS), which is the operator's opt-in to
-// trust specific hosts — including internal ones.
+// (a stored, already-validated URL falls back to a trimmed value on error).
+// The HTTP client is SSRF-guarded at connect time. When CHATWOOT_ALLOWED_HOSTS
+// is set, the stored host is checked against that list again here — an operator
+// can tighten the list after the row was saved — and every redirect is checked
+// the same way. An allowlisted host may be private; that is the operator's
+// explicit approval. An empty allowlist keeps the previous rule: public hosts
+// are allowed and private addresses are refused, so a self-hosted Chatwoot is
+// not suddenly blocked unless it was already blocked.
 func NewClientFromConfig(baseURL, apiToken string, accountID, inboxID int) *Client {
-	return newChatwootClient(baseURL, apiToken, accountID, inboxID, len(config.ChatwootAllowedHosts) == 0)
+	if !perDeviceChatwootURLAllowed(baseURL) {
+		return &Client{}
+	}
+	return newChatwootClient(baseURL, apiToken, accountID, inboxID, true)
+}
+
+// perDeviceChatwootURLAllowed reports whether baseURL may be used as a
+// per-device Chatwoot destination under the current allowlist. An empty
+// allowlist does not reject here; connect-time filtering still applies.
+func perDeviceChatwootURLAllowed(baseURL string) bool {
+	if len(config.ChatwootAllowedHosts) == 0 {
+		return true
+	}
+	canonical, err := CanonicalizeChatwootURL(baseURL)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(canonical)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	return chatwootHostAllowlisted(u.Hostname())
 }
 
 func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGuard bool) *Client {
@@ -225,7 +251,8 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if ssrfGuard {
-		httpClient.Transport = ssrfGuardedTransport()
+		httpClient.Transport = cappedBodyTransport{ssrfGuardedTransport()}
+		httpClient.CheckRedirect = chatwootCheckRedirect
 	}
 	return &Client{
 		BaseURL:    canonical,
@@ -236,28 +263,109 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 }
 
-// ssrfGuardedTransport returns an HTTP transport whose dialer rejects, at
-// connect time, any connection to a loopback/private/link-local/metadata
-// address. Checking post-resolution (via Dialer.Control) closes the DNS
-// rebinding window left open by validating the URL's host once up front.
+// maxChatwootErrorBody is the most of an auto-decompressed Chatwoot error
+// response that is kept. One extra byte is read so a larger body is rejected
+// instead of being copied into the error string.
+const maxChatwootErrorBody = 64 << 10
+
+// maxChatwootResponseBody bounds every per-device response body after
+// automatic decompression; a read past it fails with *http.MaxBytesError. It
+// is generous for any Chatwoot API reply and keeps a small compressed body
+// from an operator-supplied URL from expanding without limit in memory.
+const maxChatwootResponseBody = 16 << 20
+
+// cappedBodyTransport applies maxChatwootResponseBody to every response.
+type cappedBodyTransport struct{ http.RoundTripper }
+
+func (t cappedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.RoundTripper.RoundTrip(req)
+	if err == nil {
+		resp.Body = http.MaxBytesReader(nil, resp.Body, maxChatwootResponseBody)
+	}
+	return resp, err
+}
+
+// ssrfGuardedTransport returns an HTTP transport that refuses connections the
+// operator has not approved.
+//
+// With an empty allowlist it rejects, at connect time, any loopback / private /
+// link-local / metadata address. Checking post-resolution (via Dialer.Control)
+// closes the DNS rebinding window left open by validating the URL's host once
+// up front. Behind HTTP(S)_PROXY the dialed address is the proxy, so Proxy
+// also refuses a request, redirects included, whose host is such an address
+// written as a literal IP. A host name that resolves to one is not caught
+// there: the proxy resolves it.
+//
+// With a non-empty allowlist the request's host must be on that list. Proxy
+// checks it for every request, redirects included, before a connection is
+// chosen; the dialed address is not checked because behind HTTP(S)_PROXY it
+// is the proxy. An allowlisted host is dialed even when it is private — that
+// host is the operator's explicit self-host exception.
 func ssrfGuardedTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	dialer := &net.Dialer{
+	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		if len(config.ChatwootAllowedHosts) > 0 && !chatwootHostAllowlisted(req.URL.Hostname()) {
+			return nil, fmt.Errorf("chatwoot: host %q is not in the allowed hosts list", req.URL.Hostname())
+		}
+		if ip := net.ParseIP(req.URL.Hostname()); len(config.ChatwootAllowedHosts) == 0 && ip != nil && isDisallowedSSRFIP(ip) {
+			return nil, fmt.Errorf("chatwoot: blocked request to disallowed address %s", req.URL.Hostname())
+		}
+		return http.ProxyFromEnvironment(req)
+	}
+	baseDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				host = address
+	}
+	t.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if len(config.ChatwootAllowedHosts) > 0 {
+			return baseDialer.DialContext(ctx, network, address)
+		}
+		guarded := *baseDialer
+		guarded.Control = func(_, resolved string, _ syscall.RawConn) error {
+			ipHost, _, splitErr := net.SplitHostPort(resolved)
+			if splitErr != nil {
+				ipHost = resolved
 			}
-			if ip := net.ParseIP(host); ip != nil && isDisallowedSSRFIP(ip) {
-				return fmt.Errorf("chatwoot: blocked connection to disallowed address %s", address)
+			if ip := net.ParseIP(ipHost); ip != nil && isDisallowedSSRFIP(ip) {
+				return fmt.Errorf("chatwoot: blocked connection to disallowed address %s", resolved)
 			}
 			return nil
-		},
+		}
+		return guarded.DialContext(ctx, network, address)
 	}
-	t.DialContext = dialer.DialContext
 	return t
+}
+
+// chatwootCheckRedirect applies the host allowlist to every redirect. An empty
+// allowlist keeps the default follow-redirects behavior (the connect-time
+// guard still blocks private addresses). A redirect to a different host or
+// scheme drops the Chatwoot API token, with or without an allowlist, so
+// credentials are not sent across origins.
+func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("chatwoot: stopped after 10 redirects")
+	}
+	if len(via) > 0 && (!strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname()) || via[0].URL.Scheme != req.URL.Scheme) {
+		req.Header.Del("api_access_token")
+	}
+	if len(config.ChatwootAllowedHosts) == 0 {
+		return nil
+	}
+	if !chatwootHostAllowlisted(req.URL.Hostname()) {
+		return fmt.Errorf("chatwoot: redirect host %q is not in the allowed hosts list", req.URL.Hostname())
+	}
+	return nil
+}
+
+func readChatwootErrorBody(r io.Reader) string {
+	buf, err := io.ReadAll(io.LimitReader(r, maxChatwootErrorBody+1))
+	if err != nil || len(buf) == 0 {
+		return ""
+	}
+	if len(buf) > maxChatwootErrorBody {
+		return fmt.Sprintf("response body exceeds %d bytes", maxChatwootErrorBody)
+	}
+	return string(buf)
 }
 
 func (c *Client) IsConfigured() bool {
@@ -290,8 +398,7 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "search contact", Body: string(body)}
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "search contact", Body: readChatwootErrorBody(resp.Body)}
 	}
 
 	var result struct {

@@ -12,26 +12,26 @@ includes event data in JSON format and security headers for verification.
 
 The following events can be received via webhook:
 
-| Event                | Description                                             |
-|----------------------|---------------------------------------------------------|
-| `message`            | Text, media, contact, location, and other message types |
-| `message.reaction`   | Emoji reactions to messages                             |
-| `message.revoked`    | Deleted/revoked messages                                |
-| `message.edited`     | Edited messages                                         |
-| `message.ack`        | Delivery and read receipts                              |
-| `message.deleted`    | Messages deleted for the user                           |
-| `chat_presence`      | Typing and recording indicators from contacts           |
-| `group.participants` | Group member join/leave/promote/demote events           |
-| `group.joined`       | You were added to a group                               |
-| `label.edit`         | WhatsApp label metadata changed                         |
-| `label.association`  | Label applied to or removed from a chat                 |
-| `newsletter.joined`  | You subscribed to a newsletter/channel                  |
-| `newsletter.left`    | You unsubscribed from a newsletter                      |
-| `newsletter.message` | New message(s) posted in a newsletter                   |
-| `newsletter.mute`    | Newsletter mute setting changed                         |
-| `call.offer`         | Incoming call received                                  |
-| `device.logged_out`  | The device was logged out, with WhatsApp's reason       |
-| `device.temporary_ban` | WhatsApp temporarily banned the account               |
+| Event                      | Description                                             |
+|----------------------------|---------------------------------------------------------|
+| `message`                  | Text, media, contact, location, and other message types |
+| `message.reaction`         | Emoji reactions to messages                             |
+| `message.revoked`          | Deleted/revoked messages                                |
+| `message.edited`           | Edited messages                                         |
+| `message.ack`              | Delivery and read receipts                              |
+| `message.deleted`          | Messages deleted for the user                           |
+| `chat_presence`            | Typing and recording indicators from contacts           |
+| `group.participants`       | Group member join/leave/promote/demote events           |
+| `group.joined`             | You were added to a group                               |
+| `label.edit`               | WhatsApp label metadata changed                         |
+| `label.association`        | Label applied to or removed from a chat                 |
+| `newsletter.joined`        | You subscribed to a newsletter/channel                  |
+| `newsletter.left`          | You unsubscribed from a newsletter                      |
+| `newsletter.message`       | New message(s) posted in a newsletter                   |
+| `newsletter.mute`          | Newsletter mute setting changed                         |
+| `call.offer`               | Incoming call received                                  |
+| `device.logged_out`        | The device was logged out, with WhatsApp's reason       |
+| `device.temporary_ban`     | WhatsApp temporarily banned the account                 |
 | `device.reachout_timelock` | WhatsApp restricted the account from starting new chats |
 
 ## Event Filtering
@@ -138,7 +138,7 @@ All webhook requests include an HMAC SHA256 signature for security verification:
 - **Header**: `X-Hub-Signature-256`
 - **Format**: `sha256={signature}`
 - **Algorithm**: HMAC SHA256
-- **Default Secret**: `secret` (configurable via `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`)
+- **Secret**: set `WHATSAPP_WEBHOOK_SECRET` or `--webhook-secret` to a private value. The old published default `secret` is not a signing key. When the secret is unset, the process generates a random key that changes on restart and logs a warning.
 
 ### Verification Example (Node.js)
 
@@ -462,9 +462,12 @@ another linked device is reported just like opening it on the phone. For these, 
 | `device_id`                        | string   | JID of the device that received this event                |
 | `timestamp`                        | string   | RFC3339 formatted timestamp when the receipt was received |
 | `payload.ids`                      | array    | Array of message IDs that received the acknowledgment     |
-| `payload.chat_id`                  | string   | Chat identifier (group or individual chat)                |
+| `payload.chat_id`                  | string   | Chat identifier (group or individual chat). A LID chat whose phone number is known is reported as that phone JID, as on message events |
+| `payload.chat_lid`                 | string   | Original LID chat identifier when WhatsApp supplied a LID before normalization, or a 1:1 chat's LID taken from `recipient_alt` |
 | `payload.from`                     | string   | JID of the user who triggered the receipt                 |
 | `payload.from_lid`                 | string   | LID of the user (if available)                            |
+| `payload.sender_alt`               | string   | The user's other address (phone or LID), when WhatsApp supplied one |
+| `payload.recipient_alt`            | string   | The recipient's other address (phone or LID) in a 1:1 chat, when WhatsApp supplied one |
 | `payload.sender_display_name`      | string   | Dynamic sender label when `payload.from` is non-empty     |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
@@ -1517,8 +1520,10 @@ Triggered when a message is deleted for the current user (DeleteForMe event).
 | `payload.deleted_message_id`   | string   | ID of the deleted message                             |
 | `payload.timestamp`            | string   | RFC3339 timestamp when the delete event occurred      |
 | `payload.from`                 | string   | JID of the user who deleted the message               |
+| `payload.from_lid`             | string   | LID of the user who deleted the message, when the event named them by LID |
 | `payload.sender_display_name`  | string   | Dynamic sender label when `payload.from` is non-empty |
 | `payload.chat_id`              | string   | Chat identifier where the message was deleted         |
+| `payload.chat_lid`             | string   | Original LID chat identifier when the event named the chat by LID |
 | `payload.original_content`     | string   | Original message content (if available from storage)  |
 | `payload.original_sender`      | string   | Original sender of the deleted message                |
 | `payload.original_timestamp`   | string   | Original message timestamp                            |
