@@ -201,18 +201,26 @@ func DecodeImageFileWithinBudget(path string, opts ...imaging.DecodeOption) (ima
 // jpegDecodeBytes estimates what image/jpeg allocates from the first SOF
 // segment: one byte per component sample for the output planes, four more per
 // sample for progressive coefficient buffers, and four bytes per pixel to
-// convert a 4-component image to CMYK.
+// convert a 4-component image to CMYK or an RGB-tagged 3-component image to
+// RGBA. image/jpeg reads the RGB tag from APP0 and APP14 segments anywhere
+// before EOI, so the whole stream is scanned.
 func jpegDecodeBytes(r io.Reader) (int64, error) {
 	br := bufio.NewReader(r)
 	if _, err := br.Discard(2); err != nil { // SOI
 		return 0, err
 	}
+	need := int64(-1) // set by the first SOF
+	var pixels int64
+	var comps int
+	var rgbIDs, jfif, adobeRGB bool
+	var err error
+scan:
 	for {
 		// A marker is 0xff plus optional 0xff fill bytes. Other bytes between
-		// segments are skipped, as image/jpeg does.
-		b, err := br.ReadByte()
-		if err != nil {
-			return 0, err
+		// segments, entropy-coded data included, are skipped, as image/jpeg does.
+		var b byte
+		if b, err = br.ReadByte(); err != nil {
+			break
 		}
 		if b != 0xff {
 			continue
@@ -221,53 +229,81 @@ func jpegDecodeBytes(r io.Reader) (int64, error) {
 		for marker == 0xff && err == nil {
 			marker, err = br.ReadByte()
 		}
-		if err != nil {
-			return 0, err
-		}
-		if marker == 0x00 || (marker >= 0xd0 && marker <= 0xd7) {
+		switch {
+		case err != nil:
+			break scan
+		case marker == 0x00 || (marker >= 0xd0 && marker <= 0xd7):
 			continue // stuffed byte or RSTn, neither has a length
+		case marker == 0xd9: // EOI
+			break scan
 		}
 		var size [2]byte
-		if _, err := io.ReadFull(br, size[:]); err != nil {
-			return 0, err
+		if _, err = io.ReadFull(br, size[:]); err != nil {
+			break
 		}
 		n := int(binary.BigEndian.Uint16(size[:])) - 2
-		if marker&0xf0 != 0xc0 || marker == 0xc4 || marker == 0xc8 || marker == 0xcc {
-			if _, err := br.Discard(n); err != nil {
-				return 0, err
+		switch {
+		case marker == 0xe0 && n >= 5: // APP0; the last one decides JFIF
+			var id [5]byte
+			if _, err = io.ReadFull(br, id[:]); err != nil {
+				break scan
 			}
-			continue
+			n -= 5
+			jfif = string(id[:]) == "JFIF\x00"
+		case marker == 0xee && n >= 12: // APP14
+			var app [12]byte
+			if _, err = io.ReadFull(br, app[:]); err != nil {
+				break scan
+			}
+			n -= 12
+			if string(app[:5]) == "Adobe" {
+				adobeRGB = app[11] == 0 // transform 0 is RGB
+			}
+		case need < 0 && marker&0xf0 == 0xc0 && marker != 0xc4 && marker != 0xc8 && marker != 0xcc:
+			// SOF: precision, height, width, component count, then id, HiVi,
+			// and Tq for each of at most 4 components.
+			var sof [6 + 3*4]byte
+			if n < 6+3 || n > len(sof) {
+				return 0, fmt.Errorf("unsupported JPEG SOF length %d", n)
+			}
+			if _, err = io.ReadFull(br, sof[:n]); err != nil {
+				break scan
+			}
+			height := int64(binary.BigEndian.Uint16(sof[1:3]))
+			width := int64(binary.BigEndian.Uint16(sof[3:5]))
+			comps = (n - 6) / 3
+			// Component i holds width*height*h_i*v_i/(hMax*vMax) samples.
+			var sumHV int64
+			hMax, vMax := int64(1), int64(1)
+			for i := 0; i < comps; i++ {
+				h, v := int64(sof[7+3*i]>>4), int64(sof[7+3*i]&0x0f)
+				sumHV += h * v
+				hMax, vMax = max(hMax, h), max(vMax, v)
+			}
+			samples := width * height * sumHV / (hMax * vMax)
+			need = samples
+			if marker&0x03 == 2 { // SOF2, SOF6, SOF10, and SOF14 are progressive
+				need += 4 * samples
+			}
+			pixels = width * height
+			rgbIDs = comps == 3 && sof[6] == 'R' && sof[9] == 'G' && sof[12] == 'B'
+			n = 0
 		}
-		// SOF: precision, height, width, component count, then id, HiVi, and
-		// Tq for each of at most 4 components.
-		var sof [6 + 3*4]byte
-		if n < 6+3 || n > len(sof) {
-			return 0, fmt.Errorf("unsupported JPEG SOF length %d", n)
+		if _, err = br.Discard(n); err != nil {
+			break
 		}
-		if _, err := io.ReadFull(br, sof[:n]); err != nil {
-			return 0, err
-		}
-		height := int64(binary.BigEndian.Uint16(sof[1:3]))
-		width := int64(binary.BigEndian.Uint16(sof[3:5]))
-		comps := (n - 6) / 3
-		// Component i holds width*height*h_i*v_i/(hMax*vMax) samples.
-		var sumHV int64
-		hMax, vMax := int64(1), int64(1)
-		for i := 0; i < comps; i++ {
-			h, v := int64(sof[7+3*i]>>4), int64(sof[7+3*i]&0x0f)
-			sumHV += h * v
-			hMax, vMax = max(hMax, h), max(vMax, v)
-		}
-		samples := width * height * sumHV / (hMax * vMax)
-		need := samples
-		if marker&0x03 == 2 { // SOF2, SOF6, SOF10, and SOF14 are progressive
-			need += 4 * samples
-		}
-		if comps == 4 {
-			need += 4 * width * height
-		}
-		return need, nil
 	}
+	// Once the frame header is known, a stream may end without EOI.
+	if err != nil && (need < 0 || !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF)) {
+		return 0, err
+	}
+	if need < 0 {
+		return 0, errors.New("JPEG has no SOF segment")
+	}
+	if comps == 4 || comps == 3 && !jfif && (adobeRGB || rgbIDs) {
+		need += 4 * pixels
+	}
+	return need, nil
 }
 
 // imageReaderAtStart returns a seeker positioned for DecodeConfig.
