@@ -9,6 +9,7 @@
 </div>
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 **If you're using this tool to generate income, consider supporting its development by becoming a Patreon member!**
 
@@ -127,6 +128,7 @@ Download:
   - `--auto-mark-read=true`
 - Automatically download media from incoming messages:
   - `--auto-download-media=false` disables automatic media downloads (default: `true`).
+  - See [Media storage and cleanup](./docs/media-storage.md) for storage locations and manual retention commands.
 - Ignore downloading status media:
   - `--ignore-status-media=true` disables downloading status media (default: `false`).
 - Automatically reject incoming calls:
@@ -156,10 +158,12 @@ Download:
     device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
     device URL keeps its own secret and event filter.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
-  header, generated with the default key `secret`.
+  header. Set a private key with `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`. The old published
+  default `secret` is not used. If no secret is configured, the process generates a random key and
+  logs a warning; that key changes on restart, so receivers should not rely on it.
 
-  Change the key with:
-  - `--webhook-secret="secret"`
+  Generate a stable key once, for example with `openssl rand -hex 32`, and set it with:
+  - `--webhook-secret="<generated key>"`
 - **Webhook payload documentation** — For detailed schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md).
 - **Webhook event filtering** — Filter which events are forwarded to your webhook with:
@@ -219,6 +223,8 @@ Download:
 
 ## Configuration
 
+To store WhatsApp sessions and keys in managed PostgreSQL, follow the [Neon setup guide](./docs/neon.md).
+
 Configuration is loaded in this order of priority:
 
 1. Command-line flags (highest priority)
@@ -241,10 +247,12 @@ To use environment variables:
 | `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
 | `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
 | `APP_OS`                                | OS name (device name in WhatsApp)                             | `GOWA`                                       | `APP_OS=MyApp`                                |
-| `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_BASIC_AUTH`                        | Basic authentication credentials. Required for a non-loopback bind, with a username and password in every entry; loopback stays open for local dev | -                             | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_ALLOW_UNAUTHENTICATED`             | Expose the API with no Basic Auth on a non-loopback bind (insecure; for reverse proxies) | `false`                       | `APP_ALLOW_UNAUTHENTICATED=true`              |
+| `APP_TRUSTED_ORIGINS`                   | Extra browser origins for state-changing requests (request host and specific CORS origins are included). A reverse proxy that rewrites `Host` needs `proxy_set_header Host $host`, or `APP_TRUSTED_PROXIES` with `X-Forwarded-Host`, or the public origin listed here. App and extension origins such as `capacitor://localhost` are matched as written. `null` is never trusted: gowa-ui opened from a `file://` URL cannot make changes or open `/ws`, so serve it from gowa (the default) or from an http(s) origin listed here | -          | `APP_TRUSTED_ORIGINS=https://ui.example.com`  |
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
-| `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty)                  | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
+| `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty). A wildcard (`*`, the default) does not authorize state-changing requests or `/ws`; a dashboard on a separate origin must be listed in `APP_TRUSTED_ORIGINS` or here as a specific origin | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
 | `APP_UI_ENABLED`                        | Serve the downloaded gowa-ui dashboard                        | `true`                                       | `APP_UI_ENABLED=false`                        |
 | `APP_UI_AUTO_UPDATE`                    | Download and periodically refresh the latest dashboard        | `true`                                       | `APP_UI_AUTO_UPDATE=false`                    |
 | `APP_UI_REPO`                           | GitHub repository containing gowa-ui releases                 | `aldinokemal/gowa-ui`                        | `APP_UI_REPO=my-org/gowa-ui`                  |
@@ -257,8 +265,8 @@ To use environment variables:
 | `MCP_OAUTH_ISSUER_URL`                  | Public HTTPS OAuth issuer URL                                 | -                                            | `MCP_OAUTH_ISSUER_URL=https://gowa.example.com` |
 | `MCP_OAUTH_RESOURCE_URL`                | Optional canonical public MCP URL                             | Derived from issuer and base path            | `MCP_OAUTH_RESOURCE_URL=https://gowa.example.com/mcp` |
 | `MCP_OAUTH_DB_URI`                      | SQLite URI for OAuth clients, codes, and token hashes         | `file:storages/oauth.db`                     | `MCP_OAUTH_DB_URI=file:storages/oauth.db`     |
-| `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db`                  | `DB_URI=postgres://user:pass@host/db`         |
-| `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
+| `DB_URI`                                | Database connection URI. A Postgres URI without `sslmode` (or `PGSSLMODE`) uses `verify-full` for remote hosts and `disable` for loopback targets (`localhost`, `127.0.0.1`, `::1`) or unix sockets; set `sslmode=require` to keep unverified TLS. | `file:storages/whatsapp.db` | `DB_URI=postgres://user:pass@host/db` |
+| `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. A Postgres URI gets the same `sslmode` default as `DB_URI`. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
 | `CHAT_STORAGE_MAX_OPEN_CONNS`           | Maximum concurrent SQLite connections for chat storage        | `5`                                          | `CHAT_STORAGE_MAX_OPEN_CONNS=10`              |
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
@@ -266,7 +274,7 @@ To use environment variables:
 | `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
-| `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook HMAC secret; generate one with `openssl rand -hex 32`. Empty or a published value (`secret`, `super-secret-key`, `your-private-key`) is replaced by a random per-process key | -            | `WHATSAPP_WEBHOOK_SECRET=<generated key>`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
@@ -291,8 +299,10 @@ To use environment variables:
 | `CHATWOOT_IMPORT_MEDIA_WITH_REST`       | Upload direct-DB import media rows through Chatwoot REST       | `false`                                      | `CHATWOOT_IMPORT_MEDIA_WITH_REST=true`        |
 | `CHATWOOT_AUTO_CREATE`                  | Auto-create or reuse the Chatwoot API inbox at startup        | `false`                                      | `CHATWOOT_AUTO_CREATE=true`                   |
 | `CHATWOOT_INBOX_NAME`                   | Inbox name used when auto-create is enabled                   | `WhatsApp`                                   | `CHATWOOT_INBOX_NAME=WhatsApp Support`        |
-| `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook?secret=shared` |
-| `CHATWOOT_WEBHOOK_SECRET`               | Shared secret required for incoming Chatwoot webhooks          | -                                            | `CHATWOOT_WEBHOOK_SECRET=shared`              |
+| `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook` |
+| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature). Empty rejects calls | -               | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED`       | Accept Chatwoot webhooks when no secret is configured (insecure) | `false`                                  | `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true`        |
+| `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE`  | Maximum age of a signed Chatwoot webhook's timestamp           | `5m`                                         | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE=2m`     |
 | `CHATWOOT_REOPEN_CONVERSATION`          | Reopen resolved Chatwoot conversations for returning contacts  | `true`                                       | `CHATWOOT_REOPEN_CONVERSATION=false`          |
 | `CHATWOOT_CONVERSATION_PENDING`         | Create new Chatwoot conversations as pending                  | `false`                                      | `CHATWOOT_CONVERSATION_PENDING=true`          |
 | `CHATWOOT_IGNORE_JIDS`                  | JIDs or wildcards to exclude from Chatwoot forwarding          | -                                            | `CHATWOOT_IGNORE_JIDS=@g.us,628123@s.whatsapp.net` |
@@ -375,7 +385,8 @@ Docker avoids the need to install Go, FFmpeg, and libwebp directly on the host.
    - Windows: `.\whatsapp.exe rest`
 6. Open `http://localhost:3000` in a browser.
 
-Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags.
+Run `./whatsapp --help` (or `.\whatsapp.exe --help` on Windows) to see all flags. Run `./whatsapp version` to
+print only the version number (for example, `9.6.0`).
 
 ### Cross-compile for Raspberry Pi (ARM)
 

@@ -132,7 +132,7 @@ All webhook requests include an HMAC SHA256 signature for security verification:
 - **Header**: `X-Hub-Signature-256`
 - **Format**: `sha256={signature}`
 - **Algorithm**: HMAC SHA256
-- **Default Secret**: `secret` (configurable via `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`)
+- **Secret**: set `WHATSAPP_WEBHOOK_SECRET` or `--webhook-secret` to a private value. The old published default `secret` is not a signing key. When the secret is unset, the process generates a random key that changes on restart and logs a warning.
 
 ### Verification Example (Node.js)
 
@@ -456,9 +456,12 @@ another linked device is reported just like opening it on the phone. For these, 
 | `device_id`                        | string   | JID of the device that received this event                |
 | `timestamp`                        | string   | RFC3339 formatted timestamp when the receipt was received |
 | `payload.ids`                      | array    | Array of message IDs that received the acknowledgment     |
-| `payload.chat_id`                  | string   | Chat identifier (group or individual chat)                |
+| `payload.chat_id`                  | string   | Chat identifier (group or individual chat). A LID chat whose phone number is known is reported as that phone JID, as on message events |
+| `payload.chat_lid`                 | string   | Original LID chat identifier when WhatsApp supplied a LID before normalization, or a 1:1 chat's LID taken from `recipient_alt` |
 | `payload.from`                     | string   | JID of the user who triggered the receipt                 |
 | `payload.from_lid`                 | string   | LID of the user (if available)                            |
+| `payload.sender_alt`               | string   | The user's other address (phone or LID), when WhatsApp supplied one |
+| `payload.recipient_alt`            | string   | The recipient's other address (phone or LID) in a 1:1 chat, when WhatsApp supplied one |
 | `payload.sender_display_name`      | string   | Dynamic sender label when `payload.from` is non-empty     |
 | `payload.receipt_type`             | string   | Type of receipt: `"delivered"`, `"read"`, etc.            |
 | `payload.receipt_type_description` | string   | Human-readable description of the receipt type            |
@@ -1291,7 +1294,7 @@ Sent by WhatsApp Business / Cloud API senders (order confirmations, OTPs, bookin
 
 ### Buttons Message
 
-Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text):
+Same shape as a template, under `buttons`. `body` renders it the same way (`Buttons message` when there is no text). A top-level interactive message with native-flow buttons (Cloud API reply buttons, CTAs, single select) also fills `buttons`, next to its `interactive` text — so a client can tell it apart and answer it as a native-flow reply:
 
 ```json
 "buttons": {
@@ -1410,8 +1413,10 @@ Triggered when a message is deleted for the current user (DeleteForMe event).
 | `payload.deleted_message_id`   | string   | ID of the deleted message                             |
 | `payload.timestamp`            | string   | RFC3339 timestamp when the delete event occurred      |
 | `payload.from`                 | string   | JID of the user who deleted the message               |
+| `payload.from_lid`             | string   | LID of the user who deleted the message, when the event named them by LID |
 | `payload.sender_display_name`  | string   | Dynamic sender label when `payload.from` is non-empty |
 | `payload.chat_id`              | string   | Chat identifier where the message was deleted         |
+| `payload.chat_lid`             | string   | Original LID chat identifier when the event named the chat by LID |
 | `payload.original_content`     | string   | Original message content (if available from storage)  |
 | `payload.original_sender`      | string   | Original sender of the deleted message                |
 | `payload.original_timestamp`   | string   | Original message timestamp                            |

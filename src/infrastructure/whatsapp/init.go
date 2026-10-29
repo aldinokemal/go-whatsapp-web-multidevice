@@ -2,12 +2,15 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -107,7 +110,12 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %v", redactProxyURL(proxyURL), err)
+			// url.Parse errors include the raw URL, so log only its scheme and host.
+			reason := err.Error()
+			if errors.As(err, new(*url.Error)) {
+				reason = utils.FormatProxyParseFailure(proxyURL)
+			}
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %s", redactProxyURL(proxyURL), reason)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY")
 		}
