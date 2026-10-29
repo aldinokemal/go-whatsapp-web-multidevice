@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"sync"
 	"time"
 
@@ -327,8 +328,8 @@ func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.
 	}
 	defer file.Close()
 
-	// Read original image
-	srcImage, err := imaging.Decode(file)
+	// Read original image. Dimensions are checked before the raster is allocated.
+	srcImage, err := decodeAvatarImage(file)
 	if err != nil {
 		return fmt.Errorf("failed to decode image: %v", err)
 	}
@@ -370,6 +371,13 @@ func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.
 	}
 
 	return nil
+}
+
+// decodeAvatarImage decodes an uploaded avatar only after its header dimensions
+// pass the shared pixel budget.
+func decodeAvatarImage(r io.Reader) (image.Image, error) {
+	img, _, err := utils.DecodeImageWithinBudget(r)
+	return img, err
 }
 
 func (service serviceUser) ChangePushName(ctx context.Context, request domainUser.ChangePushNameRequest) (err error) {

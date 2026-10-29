@@ -290,19 +290,25 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 			// Same answer as a wrong secret, so the status does not reveal
 			// which inboxes are mapped to a protected device.
 			{name: "unsigned reply for an unknown inbox", inbox: 99, want: 401},
-			// A device with no secret at all is unauthenticated by configuration.
-			{name: "unsigned reply for a device without any secret", inbox: 4, want: 200, wantSend: "open" + toContact},
+			// An empty effective secret is rejected unless the unsigned opt-in is set.
+			{name: "unsigned reply for a device without any secret", inbox: 4, want: 401},
 		})
 	})
 
 	t.Run("with a global secret", func(t *testing.T) {
 		const global = "global-secret"
 		f := newRouteAuthFixture(t, global)
-		// Conversation 7 is linked to the support device (by storage JID), so
-		// it routes there whatever inbox the payload names.
+		// Conversation 7 is linked to the support device (by storage JID) under
+		// support's configuration. Only a payload for support's inbox uses the
+		// link; another inbox's configuration routes its own payload and does
+		// not take the link's device or recipient. Conversation 6 has only a
+		// legacy config-0 (env-era) link, which per-device mode never uses.
 		f.repo.links = []*domainChatStorage.ChatwootMessageLink{{
-			DeviceID: routeAuthSupportJID, WhatsAppChatJID: "628999999999@s.whatsapp.net",
+			DeviceID: routeAuthSupportJID, WhatsAppChatJID: "628777777777@s.whatsapp.net",
 			ChatwootConversationID: 7, ChatwootAccountID: 1, ChatwootConfigID: 2,
+		}, {
+			DeviceID: routeAuthSalesJID, WhatsAppChatJID: "628666666666@s.whatsapp.net",
+			ChatwootConversationID: 6, ChatwootAccountID: 1,
 		}}
 		runRouteAuthCases(t, f, []routeAuthCase{
 			{name: "global secret for a protected device", inbox: 2, signWith: global, want: 401},
@@ -314,9 +320,10 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 			{name: "global secret, unknown inbox: acknowledged, nothing sent", inbox: 99, signWith: global, want: 200},
 			{name: "unsigned, unknown inbox", inbox: 99, want: 401},
 			{name: "device secret, unknown inbox", inbox: 99, signWith: routeAuthSalesSecret, want: 401},
-			{name: "linked conversation, global secret", inbox: 4, conv: 7, signWith: global, want: 401},
-			{name: "linked conversation, another device's secret", inbox: 2, conv: 7, signWith: routeAuthSalesSecret, want: 401},
-			{name: "linked conversation, the linked device's secret", inbox: 3, conv: 7, signWith: routeAuthSupportSecret, want: 200, wantSend: "support" + toContact},
+			{name: "linked conversation from another inbox, global secret", inbox: 4, conv: 7, signWith: global, want: 200, wantSend: "open" + toContact},
+			{name: "linked conversation from another inbox, that inbox's secret", inbox: 2, conv: 7, signWith: routeAuthSalesSecret, want: 200, wantSend: "sales" + toContact},
+			{name: "linked conversation, the linked device's secret", inbox: 3, conv: 7, signWith: routeAuthSupportSecret, want: 200, wantSend: "support -> 628777777777"},
+			{name: "legacy config-0 link is not used", inbox: 2, conv: 6, signWith: routeAuthSalesSecret, want: 200, wantSend: "sales" + toContact},
 		})
 	})
 
@@ -334,19 +341,39 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 		})
 	})
 
-	// Events nothing is done for are acknowledged as before.
-	t.Run("ignored events without a global secret stay acknowledged", func(t *testing.T) {
+	// Events nothing is done for still require a secret. The explicit opt-in
+	// acknowledges them again, but a device that has its own secret stays closed.
+	t.Run("ignored events without a global secret are rejected", func(t *testing.T) {
 		f := newRouteAuthFixture(t, "")
 		for _, body := range []string{
 			`{"event":"conversation_updated","account":{"id":1}}`,
 			`{"event":"message_created","message_type":"incoming","id":1,"account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`,
 		} {
-			if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusOK {
-				t.Errorf("status = %d for %s, want 200", got, body)
+			if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusUnauthorized {
+				t.Errorf("status = %d for %s, want 401", got, body)
 			}
 		}
 		if sends := f.send.taken(); len(sends) != 0 {
 			t.Errorf("sent %v, want nothing sent", sends)
+		}
+	})
+
+	t.Run("unsigned opt-in acknowledges events with no effective secret", func(t *testing.T) {
+		prev := config.ChatwootWebhookAllowUnsigned
+		config.ChatwootWebhookAllowUnsigned = true
+		t.Cleanup(func() { config.ChatwootWebhookAllowUnsigned = prev })
+
+		f := newRouteAuthFixture(t, "")
+		body := `{"event":"conversation_updated","account":{"id":1}}`
+		if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusOK {
+			t.Fatalf("status = %d, want 200 when unsigned webhooks are enabled", got)
+		}
+		protected := `{"event":"message_created","message_type":"outgoing","id":77,"content":"hi","account":{"id":1},"conversation":{"id":5,"inbox_id":2,"meta":{"sender":{"phone_number":"+628999999999"}}}}`
+		if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: protected}); got != fiber.StatusUnauthorized {
+			t.Fatalf("protected device status = %d, want 401 even when the unsigned opt-in is on", got)
+		}
+		if sends := f.send.taken(); len(sends) != 0 {
+			t.Fatalf("sent %v, want nothing sent", sends)
 		}
 	})
 }
@@ -363,7 +390,7 @@ func TestChatwootSharedWebhookDeleteEnforcesRoutedDeviceSecret(t *testing.T) {
 			f := newRouteAuthFixture(t, global)
 			f.repo.links = []*domainChatStorage.ChatwootMessageLink{{
 				DeviceID: routeAuthSalesJID, WhatsAppMessageID: "WA-OUT-1", WhatsAppChatJID: "628999999999@s.whatsapp.net",
-				ChatwootMessageID: 55, Direction: "outgoing",
+				ChatwootMessageID: 55, Direction: "outgoing", ChatwootConfigID: 1,
 			}}
 			body := `{"event":"message_updated","message_type":"outgoing","id":55,"content_attributes":{"deleted":true},` +
 				`"account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`
@@ -391,6 +418,21 @@ func TestChatwootSharedWebhookDeleteEnforcesRoutedDeviceSecret(t *testing.T) {
 						t.Errorf("revoked = %v, want revoke=%v", f.message.revoked, tt.wantRevoke)
 					}
 				})
+			}
+
+			// The same Chatwoot message id linked under another configuration
+			// (another server's, or legacy config 0) names an unrelated
+			// customer's message: a delete through sales must not revoke it.
+			for _, foreign := range []int64{0, 2} {
+				f.repo.links[0].ChatwootConfigID = foreign
+				for _, path := range []string{"", "/chatwoot/webhook/sales"} {
+					chatwootReplays.reset()
+					f.message.revoked = nil
+					got := postChatwootWebhook(t, f.app, webhookAuthRequest{path: path, body: body, headers: chatwootSigned(routeAuthSalesSecret, body)})
+					if got != fiber.StatusOK || len(f.message.revoked) != 0 {
+						t.Errorf("link under config %d, path %q: status = %d, revoked = %v; want 200 and nothing revoked", foreign, path, got, f.message.revoked)
+					}
+				}
 			}
 		})
 	}
