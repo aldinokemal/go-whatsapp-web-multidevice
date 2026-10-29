@@ -459,12 +459,17 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 // job in the queue always has attempts on record, which is what keeps its id
 // through RetryScheduledSend.
 func (s *ScheduleService) recoverInterrupted() {
-	expired, err := s.repo.ListExpiredScheduledSends(s.now())
-	if err != nil {
-		logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
-	}
 	const reason = "execution interrupted before completion"
-	for _, job := range expired {
+	for {
+		now := s.now()
+		job, err := s.repo.ClaimExpiredScheduledSend(now, now.Add(2*time.Minute), fiberUtils.UUIDv4())
+		if err != nil {
+			logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
+			return
+		}
+		if job == nil {
+			return
+		}
 		attempts := job.Attempts
 		if job.PendingMessageID != "" {
 			attempts++
@@ -512,25 +517,24 @@ func (s *ScheduleService) processJob(parent context.Context, job *domainChatStor
 // The identity and poll secret are stored together before dispatch. Every retry
 // reuses them, including after a crash, without claiming exactly-once delivery.
 func (s *ScheduleService) pinOccurrenceMessageID(ctx context.Context, job *domainChatStorage.ScheduledSend) (context.Context, error) {
-	if job.PendingMessageID == "" {
-		messageID := s.newMessageID(ctx)
-		var pollSecret []byte
+	messageID, pollSecret := job.PendingMessageID, job.PendingPollSecret
+	if messageID == "" {
+		messageID = s.newMessageID(ctx)
 		if job.MessageType == "poll" {
 			pollSecret = make([]byte, 32)
 			if _, err := rand.Read(pollSecret); err != nil {
 				return ctx, fmt.Errorf("generate poll secret: %w", err)
 			}
 		}
-		held, err := s.repo.SetScheduledSendPendingAttempt(job.ID, job.LeaseToken, messageID, pollSecret)
-		if err != nil {
-			return ctx, fmt.Errorf("store the message id of the occurrence: %w", err)
-		}
-		if !held {
-			return ctx, errScheduleLeaseLost
-		}
-		job.PendingMessageID = messageID
-		job.PendingPollSecret = pollSecret
 	}
+	held, err := s.repo.SetScheduledSendPendingAttempt(job.ID, job.LeaseToken, messageID, pollSecret, s.now())
+	if err != nil {
+		return ctx, fmt.Errorf("store the message id of the occurrence: %w", err)
+	}
+	if !held {
+		return ctx, errScheduleLeaseLost
+	}
+	job.PendingMessageID, job.PendingPollSecret = messageID, pollSecret
 	ctx = whatsapp.ContextWithSendMessageID(ctx, job.PendingMessageID)
 	return whatsapp.ContextWithPollSecret(ctx, job.PendingPollSecret), nil
 }

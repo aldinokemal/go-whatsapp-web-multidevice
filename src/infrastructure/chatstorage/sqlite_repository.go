@@ -1855,21 +1855,16 @@ func (r *SQLiteRepository) ClaimNextScheduledSend(now, leaseUntil time.Time, lea
 	return job, err
 }
 
-func (r *SQLiteRepository) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
-	rows, err := r.db.Query(`SELECT `+scheduledSendColumns+` FROM scheduled_sends WHERE status = 'running' AND lease_until <= ?`, now)
-	if err != nil {
-		return nil, err
+// ClaimExpiredScheduledSend fences the previous worker before exposing recovery state.
+func (r *SQLiteRepository) ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	row := r.db.QueryRow(`UPDATE scheduled_sends SET lease_token = ?, lease_until = ?, updated_at = ?
+		WHERE id = (SELECT id FROM scheduled_sends WHERE status = 'running' AND lease_until <= ? ORDER BY lease_until, id LIMIT 1)
+		RETURNING `+scheduledSendColumns, leaseToken, leaseUntil, now, now)
+	job, err := scanScheduledSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	defer rows.Close()
-	result := make([]*domainChatStorage.ScheduledSend, 0)
-	for rows.Next() {
-		job, err := scanScheduledSend(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, job)
-	}
-	return result, rows.Err()
+	return job, err
 }
 
 func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
@@ -1889,8 +1884,8 @@ func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (r *SQLiteRepository) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte) (bool, error) {
-	result, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = ?, pending_poll_secret = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, messageID, pollSecret, time.Now().UTC(), id, leaseToken)
+func (r *SQLiteRepository) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error) {
+	result, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = ?, pending_poll_secret = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ? AND lease_until > ? AND (pending_message_id = '' OR (pending_message_id = ? AND pending_poll_secret IS ?))`, messageID, pollSecret, now, id, leaseToken, now, messageID, pollSecret)
 	if err != nil {
 		return false, err
 	}

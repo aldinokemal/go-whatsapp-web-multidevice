@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
@@ -145,7 +146,7 @@ type scheduleFailingPinRepo struct {
 	domainChatStorage.IChatStorageRepository
 }
 
-func (r scheduleFailingPinRepo) SetScheduledSendPendingAttempt(string, string, string, []byte) (bool, error) {
+func (r scheduleFailingPinRepo) SetScheduledSendPendingAttempt(string, string, string, []byte, time.Time) (bool, error) {
 	return false, errors.New("database is locked")
 }
 
@@ -166,4 +167,21 @@ func TestScheduledSendNeverGoesOutUnderAnUnstoredID(t *testing.T) {
 	require.Equal(t, scheduleStatusActive, stored.Status)
 	require.Equal(t, 0, stored.Attempts)
 	require.True(t, scheduleTestNow.Add(30*time.Second).Equal(stored.NextRunAt))
+}
+
+func TestScheduledExpiredLeaseCannotDispatch(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		t.Run(fmt.Sprint(pinned), func(t *testing.T) {
+			base := &scheduleIDSendStub{}
+			service, repo := newScheduleTestService(t, base)
+			job := claimScheduleTestJob(t, service, repo, newScheduleTestJob("job", "once", scheduleTestNow.Add(-time.Minute)))
+			if pinned {
+				_, err := service.pinOccurrenceMessageID(scheduleTestContext(), job)
+				require.NoError(t, err)
+			}
+			service.now = func() time.Time { return *job.LeaseUntil }
+			require.ErrorIs(t, service.deliver(scheduleTestContext(), job), errScheduleLeaseLost)
+			require.Empty(t, base.ids)
+		})
+	}
 }
