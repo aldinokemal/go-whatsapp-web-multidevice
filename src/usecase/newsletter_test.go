@@ -96,3 +96,16 @@ func TestNewsletterDownloadableMedia(t *testing.T) {
 func stringPointer(value string) *string {
 	return &value
 }
+
+func TestNewsletterMessagesToDomainOmitsMissingFields(t *testing.T) {
+	messages := newsletterMessagesToDomain([]*types.NewsletterMessage{
+		{MessageServerID: 9806, ForwardsCount: 44, ReactionCounts: map[string]int{"❤️": 20}},
+		nil,
+	})
+
+	require.Len(t, messages, 1)
+	assert.Equal(t, 9806, messages[0].ServerID)
+	assert.Empty(t, messages[0].Timestamp)
+	assert.Empty(t, messages[0].MessageID)
+	assert.Equal(t, 44, messages[0].ForwardsCount)
+}

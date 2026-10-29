@@ -50,7 +50,10 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleTemporaryBan(ctx, instance, evt)
 	case *events.NotifyAccountReachoutTimelock:
 		handleReachoutTimelock(ctx, instance, evt)
-	case *events.Connected, *events.PushNameSetting:
+	case *events.Connected:
+		handleConnectionEvents(ctx, client, instance)
+		newsletterLiveUpdates.renewDevice(instance.ID())
+	case *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
 		handleStreamReplaced(instance)
