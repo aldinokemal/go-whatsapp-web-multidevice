@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -197,23 +198,24 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 // treat as formulas, including the full-width ＝ ＋ － ＠ that some locales
 // accept. Leading ASCII space, tab, CR, and LF are skipped when deciding, and
 // the original cell is prefixed so the apostrophe is the first character a
-// spreadsheet sees. A spreadsheet that splits on ';' starts a cell after each
-// semicolon, so every ';'-separated part is checked the same way.
+// spreadsheet sees. A spreadsheet that splits on ';' or tabs, or a parser
+// that ignores CSV quoting, starts another cell after a separator or line
+// break, so a formula prefix there gets an apostrophe after the separator.
 func spreadsheetSafeCell(value string) string {
-	parts := strings.Split(value, ";")
-	for i, part := range parts {
-		trimmed := strings.TrimLeft(part, " \t\r\n")
-		if trimmed == "" {
-			continue
-		}
-		first, _ := utf8.DecodeRuneInString(trimmed)
-		switch first {
-		case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
-			parts[i] = "'" + part
-		}
+	trimmed := strings.TrimLeft(value, " \t\r\n")
+	safe := value[:len(value)-len(trimmed)] + formulaAfterSeparator.ReplaceAllString(trimmed, "${1}'${2}${3}")
+	first, _ := utf8.DecodeRuneInString(trimmed)
+	switch first {
+	case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
+		return "'" + safe
+	default:
+		return safe
 	}
-	return strings.Join(parts, ";")
 }
+
+// formulaAfterSeparator matches a separator or line break, optional spaces,
+// and a formula prefix that would start the next cell.
+var formulaAfterSeparator = regexp.MustCompile(`([;,\t\r\n])( *)([=+\-@\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}])`)
 
 func (controller *Group) AddParticipants(c fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeAdd, "Success add participants")
