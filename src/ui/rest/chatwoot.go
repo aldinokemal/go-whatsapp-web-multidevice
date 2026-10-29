@@ -176,7 +176,8 @@ func chatwootContactAttrString(attrs map[string]any, key string) string {
 
 // resolveChatwootWebhookRoute resolves which WhatsApp device (and destination)
 // a Chatwoot agent reply should be sent from. Resolution order, safest first:
-//  1. Account-scoped conversation link (handles replies to existing conversations).
+//  1. Conversation link of the request's configuration (handles replies to
+//     existing conversations).
 //  2. Contact custom attribute gowa_device_id (explicit operator override).
 //  3. Inbox+account reverse map (agent-initiated conversations).
 //  4. Env config.ChatwootDeviceID — ONLY while no per-device config rows exist
@@ -194,16 +195,33 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	// another account could match a legacy (account 0) link and misroute.
 	legacy := h.legacyChatwootMode()
 
-	// 1) Account-scoped conversation link. On the per-device endpoint the link
-	// must additionally belong to the device's own config: two separate Chatwoot
-	// servers can collide on (conversation_id, account_id) — fresh installs all
-	// start at account 1, conversation 1 — and an unscoped match would take the
-	// destination chat JID from the other server's conversation.
-	if h != nil && h.ChatStorageRepo != nil && payload.Conversation.ID != 0 {
-		var scopeConfigID int64
-		if forced != nil {
-			scopeConfigID = forced.ConfigID
+	// The configuration that owns the payload's (account, inbox), or nil when
+	// none or more than one does. It scopes the shared-endpoint link lookup in
+	// step 1 and routes agent-initiated conversations in step 3.
+	var byInbox *chatwoot.ResolvedConfig
+	if reg := chatwoot.GetClientRegistry(); reg != nil {
+		rc, err := reg.ResolveByInbox(payload.Account.ID, payload.Conversation.InboxID)
+		if err != nil {
+			logrus.Errorf("Chatwoot Webhook: inbox reverse lookup failed (account=%d inbox=%d): %v", payload.Account.ID, payload.Conversation.InboxID, err)
 		}
+		byInbox = rc
+	}
+
+	// 1) Account-scoped conversation link. Outside legacy mode the link must
+	// also belong to the configuration the request is for: two separate
+	// Chatwoot servers can collide on (conversation_id, account_id) — fresh
+	// installs all start at account 1, conversation 1 — and an unscoped match
+	// would take the destination chat JID from the other server's conversation.
+	// The per-device endpoint forces its config. The shared endpoint uses the
+	// config that owns the payload's (account, inbox), which also keeps out
+	// legacy config-0 links; with no such config there is no link lookup.
+	var scopeConfigID int64
+	if forced != nil {
+		scopeConfigID = forced.ConfigID
+	} else if !legacy && byInbox != nil {
+		scopeConfigID = byInbox.ConfigID
+	}
+	if h != nil && h.ChatStorageRepo != nil && payload.Conversation.ID != 0 && (legacy || scopeConfigID != 0) {
 		link, err := h.ChatStorageRepo.GetLatestChatwootMessageLinkByConversation(payload.Conversation.ID, payload.Account.ID, legacy, scopeConfigID)
 		if err != nil {
 			logrus.Errorf("Chatwoot Webhook: Failed to lookup conversation route %d: %v", payload.Conversation.ID, err)
@@ -234,8 +252,16 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	// by any agent of that Chatwoot account, so an unchecked override would let
 	// account A send from a device belonging to account B.
 	if deviceID := chatwootContactAttrString(contact.CustomAttributes, "gowa_device_id"); deviceID != "" {
-		if legacy || h.deviceMatchesPayloadScope(deviceID, payload) {
+		if legacy {
 			route.DeviceID = deviceID
+			return route
+		}
+		if rc := h.resolveChatwootForDevice(deviceID); rc != nil && rc.Client != nil &&
+			rc.Client.AccountID == payload.Account.ID && rc.Client.InboxID == payload.Conversation.InboxID {
+			route.DeviceID = deviceID
+			route.ConfigID = rc.ConfigID
+			route.AccountID = rc.Client.AccountID
+			route.InboxID = rc.Client.InboxID
 			return route
 		}
 		logrus.Warnf("Chatwoot Webhook: ignoring gowa_device_id %q: device is not configured for account %d inbox %d",
@@ -243,14 +269,10 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	}
 
 	// 3) Inbox+account reverse map (agent-initiated conversation with no link yet).
-	if reg := chatwoot.GetClientRegistry(); reg != nil {
-		if rc, err := reg.ResolveByInbox(payload.Account.ID, payload.Conversation.InboxID); err != nil {
-			logrus.Errorf("Chatwoot Webhook: inbox reverse lookup failed (account=%d inbox=%d): %v", payload.Account.ID, payload.Conversation.InboxID, err)
-		} else if rc != nil {
-			route.DeviceID = rc.DeviceID
-			route.ConfigID = rc.ConfigID
-			return route
-		}
+	if byInbox != nil {
+		route.DeviceID = byInbox.DeviceID
+		route.ConfigID = byInbox.ConfigID
+		return route
 	}
 
 	// 4) Legacy env fallback, only while there are no per-device configs.
@@ -264,13 +286,47 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 	return route
 }
 
-// deviceMatchesPayloadScope reports whether deviceID has a per-device config
-// bound to the payload's account and inbox. Used to validate the
-// gowa_device_id contact-attribute override in per-device mode.
-func (h *ChatwootHandler) deviceMatchesPayloadScope(deviceID string, payload chatwoot.WebhookPayload) bool {
-	rc := h.resolveChatwootForDevice(deviceID)
-	return rc != nil && rc.Client != nil &&
-		rc.Client.AccountID == payload.Account.ID && rc.Client.InboxID == payload.Conversation.InboxID
+// chatwootRouteEnabled reports whether the route's current Chatwoot
+// configuration may send or revoke. A disabled or missing configuration fails
+// closed. The check uses the route's configuration id when it has one: a
+// conversation link is stored under the WhatsApp JID, which is not always the
+// key the config row was saved with. Legacy single-account mode has no
+// per-device enabled flag; the process-wide CHATWOOT_ENABLED gate covers it.
+// There an empty device id is the documented single-device setup
+// (CHATWOOT_DEVICE_ID unset), which sends from the only device.
+func (h *ChatwootHandler) chatwootRouteEnabled(route chatwootWebhookRoute) bool {
+	if h.legacyChatwootMode() {
+		return true
+	}
+	if strings.TrimSpace(route.DeviceID) == "" {
+		return false
+	}
+	if route.ConfigID != 0 {
+		cfg, err := h.chatwootConfigByID(route.ConfigID)
+		if err != nil {
+			logrus.Errorf("Chatwoot Webhook: failed to load configuration %d: %v", route.ConfigID, err)
+			return false
+		}
+		return cfg != nil && cfg.Enabled
+	}
+	rc := h.resolveChatwootForDevice(route.DeviceID)
+	return rc != nil && rc.Client != nil
+}
+
+func (h *ChatwootHandler) chatwootConfigByID(id int64) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	if h == nil || h.ChatStorageRepo == nil || id == 0 {
+		return nil, nil
+	}
+	configs, err := h.ChatStorageRepo.ListChatwootDeviceConfigs()
+	if err != nil {
+		return nil, err
+	}
+	for _, cfg := range configs {
+		if cfg != nil && cfg.ID == id {
+			return cfg, nil
+		}
+	}
+	return nil, nil
 }
 
 // legacyChatwootMode reports whether the integration is in single-device env
@@ -497,6 +553,10 @@ func (h *ChatwootHandler) processChatwootWebhook(c fiber.Ctx, payload chatwoot.W
 		// WhatsApp account.
 		return c.SendStatus(fiber.StatusOK)
 	}
+	if !h.chatwootRouteEnabled(route) {
+		logrus.Warnf("Chatwoot Webhook: configuration for device %s is disabled; not sending", route.DeviceID)
+		return c.SendStatus(fiber.StatusOK)
+	}
 	return h.deliverChatwootReply(c, payload, route, contact)
 }
 
@@ -610,9 +670,12 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 
 	route := h.resolveChatwootWebhookRoute(payload, forced)
 	if forced != nil {
-		// The delete path only needs the device to revoke from; the per-device
-		// endpoint forces it so revokes route to the same device as sends.
+		// The per-device endpoint forces the device and its configuration so a
+		// revoke cannot keep a disabled or foreign config from the payload.
 		route.DeviceID = forced.DeviceID
+		route.ConfigID = forced.ConfigID
+		route.AccountID = forced.AccountID
+		route.InboxID = forced.InboxID
 		route.Unroutable = false
 	}
 	// A delete revokes a WhatsApp message: same gate as a send.
@@ -620,6 +683,10 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 		return c.SendStatus(status)
 	}
 	if route.Unroutable {
+		return c.SendStatus(fiber.StatusOK)
+	}
+	if !h.chatwootRouteEnabled(route) {
+		logrus.Warnf("Chatwoot Webhook: configuration for device %s is disabled; not revoking", route.DeviceID)
 		return c.SendStatus(fiber.StatusOK)
 	}
 	instance, resolvedID, err := h.DeviceManager.ResolveDevice(route.DeviceID)
@@ -639,6 +706,17 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 	}
 	if link.Direction != "outgoing" {
 		logrus.Debugf("Chatwoot Webhook: Not revoking inbound WhatsApp message %s for Chatwoot delete %d", link.WhatsAppMessageID, payload.ID)
+		return c.SendStatus(fiber.StatusOK)
+	}
+	// The link must belong to this route's configuration, the rule
+	// chatwootLinkMatchesClient applies in the other direction: a link stored
+	// through another Chatwoot server names an unrelated customer's message.
+	linkMatches := link.ChatwootConfigID == route.ConfigID
+	if h.legacyChatwootMode() {
+		linkMatches = link.ChatwootConfigID == 0 && (link.ChatwootAccountID == 0 || link.ChatwootAccountID == route.AccountID)
+	}
+	if !linkMatches {
+		logrus.Warnf("Chatwoot Webhook: Not revoking WhatsApp message %s for Chatwoot delete %d: its link belongs to another Chatwoot configuration", link.WhatsAppMessageID, payload.ID)
 		return c.SendStatus(fiber.StatusOK)
 	}
 
@@ -766,6 +844,8 @@ func (h *ChatwootHandler) notifySendFailure(payload chatwoot.WebhookPayload, rou
 }
 
 func (h *ChatwootHandler) handleAttachment(ctx context.Context, phone string, att chatwoot.Attachment, caption string) (domainSend.GenericResponse, error) {
+	// Chatwoot serves attachments from its own, possibly private, host.
+	ctx = utils.WithChatwootAttachmentFetch(ctx)
 	switch att.FileType {
 	case "image":
 		req := domainSend.ImageRequest{
