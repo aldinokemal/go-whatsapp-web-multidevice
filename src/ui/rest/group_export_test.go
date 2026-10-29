@@ -38,6 +38,7 @@ func TestExportParticipantsQuotesFormulaCells(t *testing.T) {
 			{JID: "3@s.whatsapp.net", DisplayName: " =HYPERLINK(\"http://evil.example\",\"x\")"},
 			{JID: "4@s.whatsapp.net", DisplayName: "\t+SUM(A1)"},
 			{JID: "\t－1", PhoneNumber: "＋62813", LID: "＠evil", DisplayName: "＝HYPERLINK(\"http://evil.example\",\"x\")"},
+			{JID: "5@s.whatsapp.net", DisplayName: "Bob;=1+1;x"},
 		},
 	}}}
 	app.Get("/group/participants/export", controller.ExportParticipants)
@@ -49,7 +50,7 @@ func TestExportParticipantsQuotesFormulaCells(t *testing.T) {
 
 	records, err := csv.NewReader(resp.Body).ReadAll()
 	require.NoError(t, err)
-	require.Len(t, records, 7)
+	require.Len(t, records, 8)
 	require.Equal(t, `'=HYPERLINK("http://evil.example","click")`, records[1][3])
 	require.Equal(t, "'+62811", records[1][1])
 	require.Equal(t, "admin", records[1][4])
@@ -65,4 +66,5 @@ func TestExportParticipantsQuotesFormulaCells(t *testing.T) {
 	require.Equal(t, "'＋62813", records[6][1])
 	require.Equal(t, "'＠evil", records[6][2])
 	require.Equal(t, "'＝HYPERLINK(\"http://evil.example\",\"x\")", records[6][3])
+	require.Equal(t, "Bob;'=1+1;x", records[7][3])
 }

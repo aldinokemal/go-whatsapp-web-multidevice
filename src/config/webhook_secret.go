@@ -15,11 +15,15 @@ const PublishedWhatsappWebhookSecret = "secret"
 // shipped. It is public for the same reason and is never used as an HMAC key.
 const PublishedExampleWebhookSecret = "super-secret-key"
 
+// PublishedPlaceholderWebhookSecret is a placeholder the README once showed.
+// It is public for the same reason and is never used as an HMAC key.
+const PublishedPlaceholderWebhookSecret = "your-private-key"
+
 // WebhookSecretUnusable reports whether secret is empty or a published
 // value. Callers must not sign webhook bodies with those values.
 func WebhookSecretUnusable(secret string) bool {
 	switch strings.TrimSpace(secret) {
-	case "", PublishedWhatsappWebhookSecret, PublishedExampleWebhookSecret:
+	case "", PublishedWhatsappWebhookSecret, PublishedExampleWebhookSecret, PublishedPlaceholderWebhookSecret:
 		return true
 	default:
 		return false

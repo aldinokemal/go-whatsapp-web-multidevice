@@ -197,19 +197,22 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 // treat as formulas, including the full-width ＝ ＋ － ＠ that some locales
 // accept. Leading ASCII space, tab, CR, and LF are skipped when deciding, and
 // the original cell is prefixed so the apostrophe is the first character a
-// spreadsheet sees.
+// spreadsheet sees. A spreadsheet that splits on ';' starts a cell after each
+// semicolon, so every ';'-separated part is checked the same way.
 func spreadsheetSafeCell(value string) string {
-	trimmed := strings.TrimLeft(value, " \t\r\n")
-	if trimmed == "" {
-		return value
+	parts := strings.Split(value, ";")
+	for i, part := range parts {
+		trimmed := strings.TrimLeft(part, " \t\r\n")
+		if trimmed == "" {
+			continue
+		}
+		first, _ := utf8.DecodeRuneInString(trimmed)
+		switch first {
+		case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
+			parts[i] = "'" + part
+		}
 	}
-	first, _ := utf8.DecodeRuneInString(trimmed)
-	switch first {
-	case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
-		return "'" + value
-	default:
-		return value
-	}
+	return strings.Join(parts, ";")
 }
 
 func (controller *Group) AddParticipants(c fiber.Ctx) error {

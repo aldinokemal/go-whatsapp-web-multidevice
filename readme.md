@@ -161,8 +161,8 @@ Download:
   default `secret` is not used. If no secret is configured, the process generates a random key and
   logs a warning; that key changes on restart, so receivers should not rely on it.
 
-  Set a stable key with:
-  - `--webhook-secret="your-private-key"`
+  Generate a stable key once, for example with `openssl rand -hex 32`, and set it with:
+  - `--webhook-secret="<generated key>"`
 - **Webhook payload documentation** — For detailed schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md).
 - **Webhook event filtering** — Filter which events are forwarded to your webhook with:
@@ -273,7 +273,7 @@ To use environment variables:
 | `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
-| `WHATSAPP_WEBHOOK_SECRET`               | Webhook HMAC secret. Empty or an old public value (`secret`, `super-secret-key`) is replaced by a random per-process key | -            | `WHATSAPP_WEBHOOK_SECRET=your-private-key`    |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook HMAC secret; generate one with `openssl rand -hex 32`. Empty or a published value (`secret`, `super-secret-key`, `your-private-key`) is replaced by a random per-process key | -            | `WHATSAPP_WEBHOOK_SECRET=<generated key>`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |

@@ -19,7 +19,7 @@ func TestWebhookHMACIsNotThePublishedDefault(t *testing.T) {
 	prev := WhatsappWebhookSecret
 	t.Cleanup(func() { WhatsappWebhookSecret = prev })
 
-	for _, configured := range []string{"", "secret", " secret ", "super-secret-key", " super-secret-key "} {
+	for _, configured := range []string{"", "secret", " secret ", "super-secret-key", " super-secret-key ", "your-private-key"} {
 		WhatsappWebhookSecret = configured
 		replaced, err := UseEphemeralWebhookSecret()
 		require.NoError(t, err)
