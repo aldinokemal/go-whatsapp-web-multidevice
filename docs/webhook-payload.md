@@ -575,13 +575,17 @@ Presence events are triggered when a subscribed contact goes online or offline. 
 (typing), these require an explicit per-user subscription: call `POST /user/presence/subscribe` with
 the contact's phone number first.
 
-**Requirement — the device must be marked available (online).** WhatsApp only delivers presence
-updates while your device is marked as available. The default `WHATSAPP_PRESENCE_ON_CONNECT` is
-`unavailable`, so enable it explicitly:
+WhatsApp only delivers contact presence updates while your device is marked as available (online).
+For continuous tracking, set both options below:
 
 ```env
 WHATSAPP_PRESENCE_ON_CONNECT=available
+WHATSAPP_PRESENCE_PULSE_ENABLED=false
 ```
+
+The presence pulse is enabled by default. It marks the device unavailable after each pulse
+(default: five minutes), which stops contact presence updates until the device becomes available again.
+Disabling the pulse keeps it from overriding the available-on-connect setting.
 
 Note: marking the device as available tells WhatsApp someone is actively using WhatsApp on the
 linked device, which suppresses push notifications on your phone while the server runs. If phone
