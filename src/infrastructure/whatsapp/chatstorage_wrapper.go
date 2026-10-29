@@ -53,6 +53,10 @@ func (r *deviceChatStorage) StoreChat(chat *domainChatStorage.Chat) error {
 	return r.base.StoreChat(r.withDeviceChat(chat))
 }
 
+func (r *deviceChatStorage) UpdateGroupSubject(_ string, groupJID, subject string) error {
+	return r.base.UpdateGroupSubject(r.deviceID, groupJID, subject)
+}
+
 func (r *deviceChatStorage) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	return r.base.GetChatByDevice(r.deviceID, jid)
 }
