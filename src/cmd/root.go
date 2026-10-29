@@ -668,6 +668,9 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
+	if err := whatsapp.SecureSQLiteFile(config.ChatStorageURI); err != nil {
+		return nil, fmt.Errorf("prepare chat storage file: %w", err)
+	}
 	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
 	db, err := sql.Open(sqlite.DriverName, connStr)

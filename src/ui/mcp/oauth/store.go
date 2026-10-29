@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 )
 
@@ -76,6 +77,9 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client_id ON oauth_tokens(client_id)
 `
 
 func openStore(uri string) (*store, error) {
+	if err := whatsapp.SecureSQLiteFile(uri); err != nil {
+		return nil, fmt.Errorf("prepare oauth storage: %w", err)
+	}
 	db, err := sql.Open(sqlite.DriverName, sqlite.FormatChatStorageURI(uri, true, true))
 	if err != nil {
 		return nil, fmt.Errorf("open oauth storage: %w", err)
