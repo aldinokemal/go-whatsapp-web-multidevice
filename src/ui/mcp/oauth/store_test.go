@@ -194,3 +194,196 @@ func TestStoreRegistrationRateLimitUsesDurableWindow(t *testing.T) {
 	require.NoError(t, store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
 	assert.Equal(t, 2, clients)
 }
+
+func TestReplayOfExpiredConsumedRefreshRevokesDescendants(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := openStore("file:" + filepath.ToSlash(dbPath))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	client := Client{ID: "client-1", Name: "Claude", RedirectURIs: []string{testRedirect}, ApplicationType: "web", TokenEndpointAuthMethod: "none", CreatedAt: now}
+	require.NoError(t, store.createClient(ctx, client))
+
+	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc"
+	sum := sha256.Sum256([]byte(verifier))
+	code, err := store.issueAuthorizationCode(ctx, AuthorizationGrant{
+		ClientID: client.ID, Subject: "user", RedirectURI: testRedirect,
+		CodeChallenge: base64.RawURLEncoding.EncodeToString(sum[:]),
+		Resource:      testResource, Scope: "mcp",
+	}, now, 5*time.Minute)
+	require.NoError(t, err)
+	ancestor, err := store.exchangeAuthorizationCode(ctx, CodeExchange{
+		ClientID: client.ID, Code: code, RedirectURI: testRedirect,
+		CodeVerifier: verifier, Resource: testResource,
+	}, now, time.Hour, 30*24*time.Hour)
+	require.NoError(t, err)
+
+	replacement, err := store.rotateRefreshToken(ctx, RefreshExchange{
+		ClientID: client.ID, RefreshToken: ancestor.RefreshToken, Resource: testResource,
+	}, now.Add(time.Minute), time.Hour, 30*24*time.Hour)
+	require.NoError(t, err)
+	child, err := store.rotateRefreshToken(ctx, RefreshExchange{
+		ClientID: client.ID, RefreshToken: replacement.RefreshToken, Resource: testResource,
+	}, now.Add(2*time.Minute), time.Hour, 30*24*time.Hour)
+	require.NoError(t, err)
+	require.NotEqual(t, ancestor.RefreshToken, replacement.RefreshToken)
+	require.NotEqual(t, replacement.RefreshToken, child.RefreshToken)
+
+	replayAt := now.Add(3 * time.Minute)
+	_, err = store.db.ExecContext(ctx, `
+UPDATE oauth_tokens SET expires_at = ? WHERE token_hash = ?`,
+		replayAt.Add(-time.Minute).Unix(), hashSecret(ancestor.RefreshToken))
+	require.NoError(t, err)
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO oauth_tokens (
+    token_hash, token_type, family_id, client_id, subject, resource, scope,
+    expires_at, created_at
+) VALUES (?, 'refresh', 'other-family', ?, 'user', ?, 'mcp', ?, ?)`,
+		"expired-unused", client.ID, testResource, replayAt.Add(-time.Minute).Unix(), now.Unix())
+	require.NoError(t, err)
+
+	_, err = store.issueAuthorizationCode(ctx, AuthorizationGrant{
+		ClientID: client.ID, Subject: "user", RedirectURI: testRedirect,
+		CodeChallenge: "challenge", Resource: testResource, Scope: "mcp",
+	}, replayAt, time.Minute)
+	require.NoError(t, err)
+
+	var ancestorLeft, unusedLeft int
+	require.NoError(t, store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_tokens WHERE token_hash = ?`, hashSecret(ancestor.RefreshToken)).Scan(&ancestorLeft))
+	require.NoError(t, store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_tokens WHERE token_hash = ?`, "expired-unused").Scan(&unusedLeft))
+	assert.Equal(t, 1, ancestorLeft, "cleanup must keep an expired consumed ancestor while descendants are live")
+	assert.Zero(t, unusedLeft, "cleanup must still drop an expired refresh token that was never consumed")
+
+	_, err = store.rotateRefreshToken(ctx, RefreshExchange{
+		ClientID: client.ID, RefreshToken: ancestor.RefreshToken,
+	}, replayAt, time.Hour, 30*24*time.Hour)
+	assert.ErrorIs(t, err, ErrRefreshReuse)
+
+	for _, token := range []string{replacement.RefreshToken, child.RefreshToken} {
+		_, refreshErr := store.rotateRefreshToken(ctx, RefreshExchange{
+			ClientID: client.ID, RefreshToken: token,
+		}, replayAt, time.Hour, 30*24*time.Hour)
+		assert.ErrorIs(t, refreshErr, ErrRefreshReuse)
+	}
+	_, err = store.validateAccessToken(ctx, replacement.AccessToken, testResource, replayAt)
+	assert.ErrorIs(t, err, ErrInvalidToken)
+	_, err = store.validateAccessToken(ctx, child.AccessToken, testResource, replayAt)
+	assert.ErrorIs(t, err, ErrInvalidToken)
+
+	_, err = store.issueAuthorizationCode(ctx, AuthorizationGrant{
+		ClientID: client.ID, Subject: "user", RedirectURI: testRedirect,
+		CodeChallenge: "challenge", Resource: testResource, Scope: "mcp",
+	}, replayAt, time.Minute)
+	require.NoError(t, err)
+	require.NoError(t, store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_tokens WHERE token_hash = ?`, hashSecret(ancestor.RefreshToken)).Scan(&ancestorLeft))
+	assert.Zero(t, ancestorLeft, "consumed ancestor can be removed once its family has no live descendants")
+}
+
+func TestExpiredUnusedRefreshDoesNotRevokeActiveFamily(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := openStore("file:" + filepath.ToSlash(dbPath))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	now := time.Date(2026, 8, 21, 13, 0, 0, 0, time.UTC)
+	client := Client{ID: "client-1", Name: "Claude", RedirectURIs: []string{testRedirect}, ApplicationType: "web", TokenEndpointAuthMethod: "none", CreatedAt: now}
+	require.NoError(t, store.createClient(ctx, client))
+
+	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc"
+	sum := sha256.Sum256([]byte(verifier))
+	code, err := store.issueAuthorizationCode(ctx, AuthorizationGrant{
+		ClientID: client.ID, Subject: "user", RedirectURI: testRedirect,
+		CodeChallenge: base64.RawURLEncoding.EncodeToString(sum[:]),
+		Resource:      testResource, Scope: "mcp",
+	}, now, 5*time.Minute)
+	require.NoError(t, err)
+	active, err := store.exchangeAuthorizationCode(ctx, CodeExchange{
+		ClientID: client.ID, Code: code, RedirectURI: testRedirect,
+		CodeVerifier: verifier, Resource: testResource,
+	}, now, time.Hour, 30*24*time.Hour)
+	require.NoError(t, err)
+
+	replayAt := now.Add(time.Minute)
+	unused := "expired-unused-refresh"
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO oauth_tokens (
+    token_hash, token_type, family_id, client_id, subject, resource, scope,
+    expires_at, created_at
+) VALUES (?, 'refresh', 'expired-family', ?, 'user', ?, 'mcp', ?, ?)`,
+		hashSecret(unused), client.ID, testResource, replayAt.Add(-time.Minute).Unix(), now.Unix())
+	require.NoError(t, err)
+
+	_, err = store.rotateRefreshToken(ctx, RefreshExchange{
+		ClientID: client.ID, RefreshToken: unused,
+	}, replayAt, time.Hour, 30*24*time.Hour)
+	assert.ErrorIs(t, err, ErrInvalidGrant)
+
+	rotated, err := store.rotateRefreshToken(ctx, RefreshExchange{
+		ClientID: client.ID, RefreshToken: active.RefreshToken, Resource: testResource,
+	}, replayAt, time.Hour, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.NotEmpty(t, rotated.RefreshToken)
+	assert.NotEqual(t, active.RefreshToken, rotated.RefreshToken)
+}
+
+func TestConsumedRefreshRetentionIsBoundedAcrossRotations(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := openStore("file:" + filepath.ToSlash(dbPath))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	now := time.Date(2026, 8, 21, 14, 0, 0, 0, time.UTC)
+	client := Client{ID: "client-1", Name: "Claude", RedirectURIs: []string{testRedirect}, ApplicationType: "web", TokenEndpointAuthMethod: "none", CreatedAt: now}
+	require.NoError(t, store.createClient(ctx, client))
+
+	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abc"
+	sum := sha256.Sum256([]byte(verifier))
+	code, err := store.issueAuthorizationCode(ctx, AuthorizationGrant{
+		ClientID: client.ID, Subject: "user", RedirectURI: testRedirect,
+		CodeChallenge: base64.RawURLEncoding.EncodeToString(sum[:]),
+		Resource:      testResource, Scope: "mcp",
+	}, now, 5*time.Minute)
+	require.NoError(t, err)
+	pair, err := store.exchangeAuthorizationCode(ctx, CodeExchange{
+		ClientID: client.ID, Code: code, RedirectURI: testRedirect,
+		CodeVerifier: verifier, Resource: testResource,
+	}, now, time.Hour, refreshTokenTTL)
+	require.NoError(t, err)
+
+	// Rotate ten times per refresh-token lifetime for three lifetimes. A consumed
+	// refresh token is kept at most one lifetime past its expiry, so only the 20
+	// refresh tokens issued during the last two lifetimes remain.
+	interval := refreshTokenTTL / 10
+	for i := 1; i <= 30; i++ {
+		pair, err = store.rotateRefreshToken(ctx, RefreshExchange{
+			ClientID: client.ID, RefreshToken: pair.RefreshToken,
+		}, now.Add(time.Duration(i)*interval), time.Hour, refreshTokenTTL)
+		require.NoError(t, err)
+	}
+
+	var refreshRows int
+	require.NoError(t, store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_tokens WHERE token_type = 'refresh'`).Scan(&refreshRows))
+	assert.Equal(t, 20, refreshRows)
+}
+
+func TestLiveFamilyLookupUsesCompositeIndex(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := openStore("file:" + filepath.ToSlash(dbPath))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	// cleanupExpiredTx runs this lookup for every expired consumed refresh token,
+	// so it must not scan the whole family through the family_id-only index.
+	var id, parent, notUsed int
+	var detail string
+	require.NoError(t, store.db.QueryRowContext(ctx, `
+EXPLAIN QUERY PLAN
+SELECT 1 FROM oauth_tokens AS live
+WHERE live.family_id = ? AND live.revoked_at IS NULL AND live.expires_at > ?`, "family", 0).Scan(&id, &parent, &notUsed, &detail))
+	assert.Contains(t, detail, "idx_oauth_tokens_family_live")
+}

@@ -86,7 +86,8 @@ func init() {
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
+	// Key names stay visible; secret values and URL userinfo are masked.
+	fmt.Println(utils.RedactSettings(viper.AllSettings()))
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
@@ -462,7 +463,7 @@ func initFlags() {
 		&config.WhatsappWebhookSecret,
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
-		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+		`secure webhook request --webhook-secret <string> | example: --webhook-secret="<output of openssl rand -hex 32>"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookInsecureSkipVerify,
@@ -667,6 +668,9 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
+	if err := whatsapp.SecureSQLiteFile(config.ChatStorageURI); err != nil {
+		return nil, fmt.Errorf("prepare chat storage file: %w", err)
+	}
 	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
 	db, err := sql.Open(sqlite.DriverName, connStr)

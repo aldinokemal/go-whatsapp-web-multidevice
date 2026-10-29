@@ -2,6 +2,8 @@ package whatsapp
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -287,6 +289,96 @@ func reactionEventForTest(eventID, targetID, emoji string) *events.Message {
 				Text: protoString(emoji),
 			},
 		},
+	}
+}
+
+type captureLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *captureLogger) Infof(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(msg, args...))
+}
+
+func (l *captureLogger) Errorf(msg string, args ...any) { l.Infof(msg, args...) }
+func (l *captureLogger) Warnf(msg string, args ...any)  { l.Infof(msg, args...) }
+func (l *captureLogger) Debugf(string, ...any)          {}
+func (l *captureLogger) Sub(string) waLog.Logger        { return l }
+
+func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
+	originalLog := log
+	originalAutoReply := config.WhatsappAutoReplyMessage
+	originalAutoMarkRead := config.WhatsappAutoMarkRead
+	originalWebhook := append([]string(nil), config.WhatsappWebhook...)
+	originalChatwoot := config.ChatwootEnabled
+	t.Cleanup(func() {
+		log = originalLog
+		config.WhatsappAutoReplyMessage = originalAutoReply
+		config.WhatsappAutoMarkRead = originalAutoMarkRead
+		config.WhatsappWebhook = originalWebhook
+		config.ChatwootEnabled = originalChatwoot
+	})
+
+	capture := &captureLogger{}
+	log = capture
+	config.WhatsappAutoReplyMessage = ""
+	config.WhatsappAutoMarkRead = false
+	config.WhatsappWebhook = nil
+	config.ChatwootEnabled = false
+
+	const forged = "INFO forged-entry"
+	pushName := "Alice\r\n" + forged + "\x1b[31m\u0085\u009b\u2028\u2029 …"
+	// A status broadcast chat returns from handleWebhookForward before it
+	// spawns the forwarding goroutine, which would race with t.Cleanup.
+	evt := textEventForTest("log-newline-1\nINFO forged-id", types.StatusBroadcastJID)
+	evt.Info.PushName = pushName
+	evt.Info.Sender = types.NewJID("62811\n999", types.DefaultUserServer)
+	// The protobuf text format keeps U+2028 and U+2029 in the body unescaped.
+	evt.Message.Conversation = protoString("body\u2028INFO forged-body\u2029")
+
+	handleMessage(context.Background(), evt, &messageHandlerRepoSpy{}, nil)
+
+	capture.mu.Lock()
+	lines := append([]string(nil), capture.lines...)
+	capture.mu.Unlock()
+
+	var received []string
+	for _, line := range lines {
+		if strings.Contains(line, "Received message") {
+			received = append(received, line)
+		}
+	}
+	if len(received) != 1 {
+		t.Fatalf("expected one received-message record, got %d: %#v", len(received), lines)
+	}
+	record := received[0]
+	// A stdout logger writes the formatted record plus one trailing newline.
+	// A CR/LF inside the sender name would show up as an extra line here.
+	written := record + "\n"
+	writtenLines := strings.Split(strings.TrimSuffix(written, "\n"), "\n")
+	if len(writtenLines) != 1 {
+		t.Fatalf("sender name forged an extra log line: %#v", writtenLines)
+	}
+	if strings.ContainsAny(record, "\r\n\u0085\u009b\u2028\u2029") || strings.Contains(record, "\x1b") {
+		t.Fatalf("log record still contains control characters: %q", record)
+	}
+	if !strings.Contains(record, "Alice") || !strings.Contains(record, forged) || !strings.Contains(record, `\x1b[31m\u0085\u009b\u2028\u2029 …`) {
+		t.Fatalf("sender name missing from the same log line: %q", record)
+	}
+	if !strings.Contains(record, `log-newline-1\nINFO forged-id`) {
+		t.Fatalf("message id was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `62811\n999`) {
+		t.Fatalf("sender jid was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `body\u2028INFO forged-body\u2029`) {
+		t.Fatalf("message body was not escaped onto the same line: %q", record)
+	}
+	if evt.Info.PushName != pushName {
+		t.Fatalf("push name was mutated: %q", evt.Info.PushName)
 	}
 }
 

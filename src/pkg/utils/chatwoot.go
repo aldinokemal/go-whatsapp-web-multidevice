@@ -30,6 +30,22 @@ func MatchesIgnoredJID(jid string, ignore []string) bool {
 	return false
 }
 
+// MatchesIgnoredAliasJID matches jid against the exact (non-wildcard) entries of
+// an ignore list. It is used for a chat's other address (its LID or phone
+// counterpart), so a wildcard such as "@lid" keeps applying only to the address
+// a chat is delivered under.
+func MatchesIgnoredAliasJID(jid string, ignore []string) bool {
+	if jid == "" {
+		return false
+	}
+	for _, pattern := range ignore {
+		if pattern = strings.TrimSpace(pattern); pattern != "" && !strings.HasPrefix(pattern, "@") && jid == pattern {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSystemBroadcastJID reports the WhatsApp system JIDs that must never reach
 // Chatwoot: status@broadcast (the per-account status feed) and 0@s.whatsapp.net
 // (WhatsApp's official service account). Forwarding either creates noise
