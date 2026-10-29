@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const redactedSecret = "***"
@@ -192,9 +193,17 @@ func maskSecretQueryValues(s string) string {
 // maskURLUserinfo masks everything between "://" and the last '@' before the
 // next URL or whitespace. Userinfo may hold '/', '?', '#', ',' or quotes, so
 // the authority is not parsed; an '@' later in the path is masked too, which
-// only hides more.
+// only hides more. A later scheme starts the next URL only after a comma or
+// whitespace; elsewhere, as in a password holding "https://", it stays part
+// of the current URL.
 func maskURLUserinfo(s string) string {
-	starts := urlScheme.FindAllStringIndex(s, -1)
+	var starts [][]int
+	for _, loc := range urlScheme.FindAllStringIndex(s, -1) {
+		prev, _ := utf8.DecodeLastRuneInString(s[:loc[0]])
+		if len(starts) == 0 || prev == ',' || unicode.IsSpace(prev) {
+			starts = append(starts, loc)
+		}
+	}
 	var b strings.Builder
 	prev := 0
 	for i, loc := range starts {
