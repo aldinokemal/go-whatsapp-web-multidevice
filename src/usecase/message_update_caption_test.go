@@ -115,12 +115,26 @@ func TestUpdateMessageWithMediaTypeEditsCaption(t *testing.T) {
 	}
 }
 
-func TestUpdateMessageWithMediaTypeStoresUncachedOriginalAsMedia(t *testing.T) {
-	for _, mediaType := range []string{"image", "document"} {
-		t.Run(mediaType, func(t *testing.T) {
+func TestUpdateMessageWithMediaTypeLeavesUncachedOriginalOutOfStorage(t *testing.T) {
+	tests := []struct {
+		mediaType string
+		caption   func(*waE2E.Message) (string, bool)
+	}{
+		{"image", func(m *waE2E.Message) (string, bool) {
+			return m.GetImageMessage().GetCaption(), m.GetImageMessage() != nil
+		}},
+		{"document", func(m *waE2E.Message) (string, bool) {
+			return m.GetDocumentMessage().GetCaption(), m.GetDocumentMessage() != nil
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mediaType, func(t *testing.T) {
 			service, repo, ctx := newMessageActionTestService(t, nil)
-			messageID := "uncached-" + mediaType
-			service.sendMessageFn = func(_ context.Context, _ *whatsmeow.Client, _ types.JID, _ *waE2E.Message) (whatsmeow.SendResponse, error) {
+			messageID := "uncached-" + tt.mediaType
+			var sent *waE2E.Message
+			service.sendMessageFn = func(_ context.Context, _ *whatsmeow.Client, _ types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error) {
+				sent = message
 				return whatsmeow.SendResponse{ID: "edit-event-1"}, nil
 			}
 
@@ -128,15 +142,18 @@ func TestUpdateMessageWithMediaTypeStoresUncachedOriginalAsMedia(t *testing.T) {
 				MessageID: messageID,
 				Phone:     "628123456789@s.whatsapp.net",
 				Message:   "new caption",
-				MediaType: mediaType,
+				MediaType: tt.mediaType,
 			})
 			require.NoError(t, err)
 
+			require.NotNil(t, sent)
+			caption, ok := tt.caption(sent.GetEditedMessage().GetMessage().GetProtocolMessage().GetEditedMessage())
+			require.True(t, ok, "the edit must still be sent as a %s caption edit", tt.mediaType)
+			assert.Equal(t, "new caption", caption)
+
 			got, err := repo.GetMessageByIDAndDevice("device-a@s.whatsapp.net", messageID)
 			require.NoError(t, err)
-			require.NotNil(t, got, "the edit must record the message it edited")
-			assert.Equal(t, "new caption", got.Content)
-			assert.Equal(t, mediaType, got.MediaType, "an edited %s missing from storage must not be recorded as text", mediaType)
+			assert.Nil(t, got, "a message missing from storage must not gain a row whose type was never checked")
 		})
 	}
 }

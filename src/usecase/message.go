@@ -435,8 +435,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 // The edit is replayed in the ProtocolMessage shape CreateMessage already
 // recognises, so it runs through the existing, tested edit path (content update
 // plus a message_edits history row) rather than a second implementation that
-// could drift from it. editedMessage is the content to store; when the original
-// is not stored yet, its media type decides how the new row is typed.
+// could drift from it.
 //
 // This is an adapter for local storage, not a claim of equivalence with a
 // dispatched event. whatsmeow's ParseWebMessage unwraps MESSAGE_EDIT before a
@@ -448,7 +447,7 @@ func (service serviceMessage) updateStoredMessage(
 	client *whatsmeow.Client,
 	messageID string,
 	recipient types.JID,
-	editedMessage *waE2E.Message,
+	newContent string,
 	editEventID string,
 	editedAt time.Time,
 ) error {
@@ -479,7 +478,7 @@ func (service serviceMessage) updateStoredMessage(
 					RemoteJID: proto.String(recipient.String()),
 					FromMe:    proto.Bool(true),
 				},
-				EditedMessage: editedMessage,
+				EditedMessage: &waE2E.Message{Conversation: proto.String(newContent)},
 			},
 		},
 	}
@@ -509,13 +508,16 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
+	// WhatsApp ignores a caption edit of another message type, so only a stored
+	// copy of the requested type is updated. With no stored copy the type cannot
+	// be checked: the edit is sent, and storage gets no row whose type is a guess.
+	uncachedCaptionEdit := false
 	if request.MediaType != "" {
-		// WhatsApp ignores a caption edit of another message type, while the local
-		// copy would still change. With no stored copy the type cannot be checked.
 		stored, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
 		if err != nil {
 			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
 		}
+		uncachedCaptionEdit = stored == nil
 		if stored != nil && stored.MediaType != request.MediaType {
 			storedType := stored.MediaType
 			if storedType == "" {
@@ -544,19 +546,15 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 			return response, err
 		}
 	}
-	// A caption edit is stored as sent, so an image or document missing from
-	// storage is recorded with its media type rather than as text.
-	storedEdit := &waE2E.Message{Conversation: proto.String(text)}
-	if request.MediaType != "" {
-		storedEdit = msg
-	}
 	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), storedEdit, ts.ID, ts.Timestamp); err != nil {
-		return response, err
+	if !uncachedCaptionEdit {
+		if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
+			return response, err
+		}
 	}
 
 	response.MessageID = ts.ID
