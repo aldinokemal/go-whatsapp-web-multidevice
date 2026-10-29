@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -391,6 +392,21 @@ func TestSyncPayloadSkipsUnauthorizedEditAndRevoke(t *testing.T) {
 		t.Fatal("unauthorized revoke wrote to Chatwoot")
 	}
 
+	// No decision was recorded (storage failed or never saw the event): a
+	// peer's edit or revoke is denied.
+	for _, event := range []string{"message.edited", "message.revoked"} {
+		err = syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
+			"id": "PEER-UNDECIDED", "original_message_id": "m1", "revoked_message_id": "m1", "body": "pwned",
+			"from": "628000@s.whatsapp.net", "chat_id": chatID, "is_from_me": false,
+		}}, event, "dev", repo)
+		if err != nil {
+			t.Fatalf("undecided peer %s: %v", event, err)
+		}
+		if hit {
+			t.Fatalf("undecided peer %s wrote to Chatwoot", event)
+		}
+	}
+
 	NoteMessageEventAuthorization("dev", "EDIT-OWN", true)
 	err = syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
 		"id": "EDIT-OWN", "original_message_id": "m1", "body": "edited by us",
@@ -398,6 +414,18 @@ func TestSyncPayloadSkipsUnauthorizedEditAndRevoke(t *testing.T) {
 	}}, "message.edited", "dev", repo)
 	if !hit {
 		t.Fatalf("same-account edit was not forwarded (err=%v)", err)
+	}
+
+	// This account may edit or revoke what it sent without a recorded decision.
+	for _, event := range []string{"message.edited", "message.revoked"} {
+		hit = false
+		err = syncPayloadToChatwoot(context.Background(), map[string]any{"payload": map[string]any{
+			"id": "OWN-UNDECIDED", "original_message_id": "m1", "revoked_message_id": "m1", "body": "edited by us",
+			"from": "628123@s.whatsapp.net", "chat_id": chatID, "is_from_me": true,
+		}}, event, "dev", repo)
+		if !hit {
+			t.Fatalf("undecided same-account %s was not forwarded (err=%v)", event, err)
+		}
 	}
 }
 
@@ -634,6 +662,20 @@ func TestQueuedRevokeKeepsItsAuthorization(t *testing.T) {
 	}
 	if len(requests) != 0 {
 		t.Fatalf("queued revoke without a decision reached Chatwoot: %v", requests)
+	}
+
+	// This account's own revoke without a recorded decision is queued as
+	// authorized, as the live path treats it.
+	own := map[string]any{"event": "message.revoked", "payload": map[string]any{
+		"id": "REV-3", "revoked_message_id": "m1", "chat_id": chatJID, "from": chatJID, "is_from_me": true,
+	}}
+	if !enqueueChatwootForwardRetry(queue, "dev-retry", "message.revoked", own, &chatwoot.HTTPStatusError{
+		StatusCode: http.StatusInternalServerError, Op: "delete message",
+	}) {
+		t.Fatal("own revoke was not queued")
+	}
+	if queued := queue.events[len(queue.events)-1].PayloadJSON; !strings.Contains(queued, `"chatwoot_authorized":true`) {
+		t.Fatalf("own revoke queued without authorization: %s", queued)
 	}
 }
 

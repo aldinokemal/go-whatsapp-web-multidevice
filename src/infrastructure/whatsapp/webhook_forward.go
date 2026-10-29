@@ -1297,13 +1297,18 @@ func MessageEventAuthorized(deviceID, eventID string) (authorized bool, ok bool)
 	return rec.authorized, true
 }
 
+// chatwootEventDenied reports whether an edit or revoke must not reach
+// Chatwoot. Without a recorded decision (storage failed or never saw the
+// event) only this account's own event passes: it may edit or revoke
+// anything it sent.
 func chatwootEventDenied(deviceID string, data map[string]any) bool {
 	eventID, _ := data["id"].(string)
-	if strings.TrimSpace(deviceID) == "" || strings.TrimSpace(eventID) == "" {
-		return false
-	}
 	authorized, ok := MessageEventAuthorized(deviceID, eventID)
-	return ok && !authorized
+	if !ok {
+		isFromMe, _ := data["is_from_me"].(bool)
+		return !isFromMe
+	}
+	return !authorized
 }
 
 // MessageRevokeAuthorized reports a previously recorded revoke decision.
@@ -1531,9 +1536,11 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 	}
 
 	// Edit and revoke decisions live in memory. Queue this one with the event,
-	// on a copy so the live map is not changed.
+	// on a copy so the live map is not changed. It follows the live rule, so this
+	// account's own event without a recorded decision stays authorized.
 	if eventName == "message.edited" || eventName == "message.revoked" {
-		authorized, _ := MessageEventAuthorized(deviceID, messageID)
+		data, _ := payload["payload"].(map[string]any)
+		authorized := !chatwootEventDenied(deviceID, data)
 		payload = maps.Clone(payload)
 		payload[queuedAuthorizationKey] = authorized
 	}

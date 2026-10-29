@@ -156,8 +156,9 @@ func TestChatwootClientSSRFGuardBlocksConnect(t *testing.T) {
 	defer srv.Close() // listens on 127.0.0.1
 
 	// Guarded per-device client: connect to the loopback server must be blocked.
+	// It is named by host, since Proxy already refuses the literal IP.
 	guarded := NewClientFromConfig(srv.URL, "t", 1, 1)
-	if _, err := guarded.HTTPClient.Get(srv.URL); err == nil {
+	if _, err := guarded.HTTPClient.Get(strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)); err == nil {
 		t.Fatal("guarded client connected to a loopback address, want block")
 	} else if !strings.Contains(err.Error(), "disallowed address") {
 		t.Fatalf("guarded client error = %v, want a disallowed-address block", err)
@@ -289,6 +290,32 @@ func TestChatwootAllowlistChecksRequestHostNotDialedAddress(t *testing.T) {
 		}
 		if _, err := tr.Proxy(req); (err != nil) != wantErr {
 			t.Errorf("Proxy(%s) err = %v, want error=%v", host, err, wantErr)
+		}
+	}
+}
+
+// TestChatwootProxyRejectsLiteralPrivateIPWithoutAllowlist: behind
+// HTTP(S)_PROXY the dial guard sees only the proxy, so a request or redirect
+// to a literal private or metadata IP must fail in Proxy, before the
+// environment's proxy is chosen.
+func TestChatwootProxyRejectsLiteralPrivateIPWithoutAllowlist(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tr := ssrfGuardedTransport()
+	for target, wantErr := range map[string]bool{
+		"http://169.254.169.254/latest/meta-data/": true,
+		"http://[fd00::1]/api/v1":                  true,
+		"http://203.0.113.10/api/v1":               false,
+		"http://chatwoot.example/api/v1":           false,
+	} {
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.Proxy(req); (err != nil) != wantErr {
+			t.Errorf("Proxy(%s) err = %v, want error=%v", target, err, wantErr)
 		}
 	}
 }

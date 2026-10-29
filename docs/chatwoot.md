@@ -623,7 +623,7 @@ Inbound replies and reactions are threaded onto the message they reference (agai
 CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
 
-An exact entry matches a chat under either of its addresses, so `111222333@lid` still excludes that contact after its LID resolves to a phone number, for live forwarding and history import alike. Wildcards apply only to the address the chat is delivered under: `@lid` excludes chats whose LID has not resolved to a phone number.
+An exact entry matches a chat under either of its addresses, so `111222333@lid` still excludes that contact after its LID resolves to a phone number, for live forwarding and history import alike. Wildcards match only the address a message is delivered under. Live forwarding checks the chat and the sender, so `@lid` excludes a chat whose LID has not resolved to a phone number and also a group message whose sender's LID has not resolved, although the chat is `@g.us`. History import checks only the stored chat address.
 
 ## Supported Features
 

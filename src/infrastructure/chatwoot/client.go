@@ -291,7 +291,10 @@ func (t cappedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error
 // With an empty allowlist it rejects, at connect time, any loopback / private /
 // link-local / metadata address. Checking post-resolution (via Dialer.Control)
 // closes the DNS rebinding window left open by validating the URL's host once
-// up front.
+// up front. Behind HTTP(S)_PROXY the dialed address is the proxy, so Proxy
+// also refuses a request, redirects included, whose host is such an address
+// written as a literal IP. A host name that resolves to one is not caught
+// there: the proxy resolves it.
 //
 // With a non-empty allowlist the request's host must be on that list. Proxy
 // checks it for every request, redirects included, before a connection is
@@ -303,6 +306,9 @@ func ssrfGuardedTransport() *http.Transport {
 	t.Proxy = func(req *http.Request) (*url.URL, error) {
 		if len(config.ChatwootAllowedHosts) > 0 && !chatwootHostAllowlisted(req.URL.Hostname()) {
 			return nil, fmt.Errorf("chatwoot: host %q is not in the allowed hosts list", req.URL.Hostname())
+		}
+		if ip := net.ParseIP(req.URL.Hostname()); len(config.ChatwootAllowedHosts) == 0 && ip != nil && isDisallowedSSRFIP(ip) {
+			return nil, fmt.Errorf("chatwoot: blocked request to disallowed address %s", req.URL.Hostname())
 		}
 		return http.ProxyFromEnvironment(req)
 	}
