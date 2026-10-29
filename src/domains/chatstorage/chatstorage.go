@@ -126,6 +126,9 @@ type ChatwootDeviceConfig struct {
 	Enabled     bool      `db:"enabled"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
+	// WebhookSecret authenticates Chatwoot's webhooks on this device's own
+	// endpoint. Empty means the global CHATWOOT_WEBHOOK_SECRET applies.
+	WebhookSecret string `db:"webhook_secret"`
 }
 
 // ChatwootForwardEvent is a durable retry record for a live WhatsApp event

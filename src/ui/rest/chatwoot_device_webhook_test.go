@@ -27,6 +27,13 @@ func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByIdentifier(identifier s
 	return nil, nil
 }
 
+func (r *deviceWebhookTestRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.cfg == nil {
+		return nil, nil
+	}
+	return []*domainChatStorage.ChatwootDeviceConfig{r.cfg}, nil
+}
+
 func (r *deviceWebhookTestRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	return nil, nil
 }
@@ -44,6 +51,7 @@ func (r *deviceWebhookTestRepo) CountChatwootDeviceConfigs() (int, error) {
 // configured account/inbox is rejected (401), while a matching payload passes
 // the gate (here a non-action event, so it returns 200 without sending).
 func TestHandleDeviceWebhookValidatesAccountInbox(t *testing.T) {
+	withChatwootWebhookSecret(t, "device-gate")
 	repo := &deviceWebhookTestRepo{
 		cfg:   &domainChatStorage.ChatwootDeviceConfig{ID: 1, DeviceID: "d", ChatwootURL: "https://chat.example.com", AccountID: 1, InboxID: 2, APIToken: "t", Enabled: true},
 		count: 1,
@@ -58,6 +66,7 @@ func TestHandleDeviceWebhookValidatesAccountInbox(t *testing.T) {
 	post := func(body string) int {
 		req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook/d", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Chatwoot-Webhook-Secret", "device-gate")
 		resp, err := app.Test(req)
 		if err != nil {
 			t.Fatalf("app.Test: %v", err)
@@ -105,11 +114,13 @@ func TestProcessChatwootWebhookDropsUnroutablePayload(t *testing.T) {
 	// End-to-end: the webhook handler must return 200 without touching the
 	// device manager (nil here — a delivery attempt would resolve the default
 	// device and panic on the nil usecases before responding).
+	withChatwootWebhookSecret(t, "gate-secret")
 	app := fiber.New()
 	app.Post("/chatwoot/webhook", handler.HandleWebhook)
 	body := `{"event":"message_created","message_type":"outgoing","account":{"id":1},"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628999999999"}}},"content":"hi"}`
 	req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Chatwoot-Webhook-Secret", "gate-secret")
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
@@ -161,5 +172,95 @@ func TestResolveChatwootWebhookRouteFailsFastWhenConfigsExist(t *testing.T) {
 	}, nil)
 	if route.DeviceID != "env-default-device" {
 		t.Fatalf("legacy mode should use env device, got %q", route.DeviceID)
+	}
+}
+
+type linkRouteRepo struct {
+	deviceWebhookTestRepo
+	link *domainChatStorage.ChatwootMessageLink
+}
+
+func (r *linkRouteRepo) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	if r.link == nil || r.link.ChatwootConversationID != conversationID {
+		return nil, nil
+	}
+	if r.link.ChatwootAccountID != accountID && !(allowLegacyZero && r.link.ChatwootAccountID == 0) {
+		return nil, nil
+	}
+	if configID != 0 && r.link.ChatwootConfigID != configID {
+		return nil, nil
+	}
+	cloned := *r.link
+	return &cloned, nil
+}
+
+func (r *linkRouteRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.cfg != nil && r.cfg.AccountID == accountID && r.cfg.InboxID == inboxID {
+		return r.cfg, nil
+	}
+	return nil, nil
+}
+
+func TestContactDeviceOverridePreservesConfigID(t *testing.T) {
+	repo := &deviceWebhookTestRepo{
+		cfg: &domainChatStorage.ChatwootDeviceConfig{
+			ID: 42, DeviceID: "sales", ChatwootURL: "https://chat.example.com",
+			AccountID: 7, InboxID: 3, APIToken: "t", Enabled: true,
+		},
+		count: 1,
+	}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	route := (&ChatwootHandler{ChatStorageRepo: repo}).resolveChatwootWebhookRoute(chatwoot.WebhookPayload{
+		Account: chatwoot.Account{ID: 7},
+		Conversation: chatwoot.ConversationWebhook{
+			ID: 4, InboxID: 3,
+			Meta: chatwoot.ConversationMeta{Sender: chatwoot.Contact{CustomAttributes: map[string]any{
+				"gowa_device_id":    "sales",
+				"gowa_whatsapp_jid": "628111@s.whatsapp.net",
+			}}},
+		},
+	}, nil)
+	if route.Unroutable || route.DeviceID != "sales" || route.ConfigID != 42 || route.AccountID != 7 || route.InboxID != 3 {
+		t.Fatalf("override dropped configuration identity: %+v", route)
+	}
+}
+
+func TestConversationLinkDisabledConfigDoesNotRoute(t *testing.T) {
+	repo := &linkRouteRepo{
+		deviceWebhookTestRepo: deviceWebhookTestRepo{
+			cfg: &domainChatStorage.ChatwootDeviceConfig{
+				ID: 42, DeviceID: "sales", ChatwootURL: "https://chat.example.com",
+				AccountID: 7, InboxID: 3, APIToken: "t", Enabled: false,
+			},
+			count: 1,
+		},
+		link: &domainChatStorage.ChatwootMessageLink{
+			DeviceID: "sales", WhatsAppChatJID: "628111@s.whatsapp.net",
+			ChatwootConversationID: 4, ChatwootConfigID: 42, ChatwootAccountID: 7,
+		},
+	}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	handler := &ChatwootHandler{ChatStorageRepo: repo}
+	payload := chatwoot.WebhookPayload{
+		Account:      chatwoot.Account{ID: 7},
+		Conversation: chatwoot.ConversationWebhook{ID: 4, InboxID: 3},
+	}
+	// The shared endpoint scopes the link to the config that owns the inbox,
+	// and a disabled config owns none.
+	if route := handler.resolveChatwootWebhookRoute(payload, nil); !route.Unroutable {
+		t.Fatalf("disabled configuration's link routed the shared endpoint: %+v", route)
+	}
+	// A route that still carries the config (disabled after the per-device
+	// endpoint resolved it) must not send either.
+	route := handler.resolveChatwootWebhookRoute(payload, &chatwootWebhookRoute{DeviceID: "sales", ConfigID: 42})
+	if route.DeviceID == "" || route.Destination == "" {
+		t.Fatalf("stored link should still identify the conversation: %+v", route)
+	}
+	if handler.chatwootRouteEnabled(route) {
+		t.Fatalf("disabled configuration must not send: %+v", route)
 	}
 }

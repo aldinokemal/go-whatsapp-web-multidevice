@@ -92,13 +92,27 @@ type replyRepo struct {
 	lookups    []domainChatStorage.ChatwootReplyLinkFilter
 	lookupErr  error
 	counts     int
+	configs    []*domainChatStorage.ChatwootDeviceConfig
 }
 
-// CountChatwootDeviceConfigs counts the legacy-mode checks: routing makes one,
+// CountChatwootDeviceConfigs counts the legacy-mode checks: routing makes two,
 // and a numeric quote one more.
 func (r *replyRepo) CountChatwootDeviceConfigs() (int, error) {
 	r.counts++
 	return r.chatwootRouteTestRepo.CountChatwootDeviceConfigs()
+}
+
+func (r *replyRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	return r.configs, nil
+}
+
+func (r *replyRepo) GetChatwootDeviceConfigByIdentifier(identifier string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	for _, cfg := range r.configs {
+		if cfg.DeviceID == identifier || cfg.DeviceJID == identifier {
+			return cfg, nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *replyRepo) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
@@ -158,6 +172,9 @@ type replyEnv struct {
 // that counts them.
 func newReplyEnv(t *testing.T) *replyEnv {
 	t.Helper()
+	withChatwootWebhookSecret(t, "reply-test-secret")
+	chatwootReplays.reset()
+	t.Cleanup(chatwootReplays.reset)
 	env := &replyEnv{
 		repo: &replyRepo{chatwootRouteTestRepo: chatwootRouteTestRepo{link: &domainChatStorage.ChatwootMessageLink{
 			DeviceID: replyTestDevice, WhatsAppChatJID: replyTestChat,
@@ -212,8 +229,16 @@ func (e *replyEnv) seed(chatwootMessageID int, waMessageID, chatJID string) {
 
 func (e *replyEnv) post(t *testing.T, body string) {
 	t.Helper()
-	if resp, raw := doJSON(t, e.app, http.MethodPost, "/chatwoot/webhook", body); resp.StatusCode != fiber.StatusOK {
-		t.Fatalf("webhook status = %d (%s), want 200", resp.StatusCode, raw)
+	timestamp := nowUnix(0)
+	status := postChatwootWebhook(t, e.app, webhookAuthRequest{
+		body: body,
+		headers: map[string]string{
+			"X-Chatwoot-Timestamp": timestamp,
+			"X-Chatwoot-Signature": chatwootSign("reply-test-secret", timestamp, body),
+		},
+	})
+	if status != fiber.StatusOK {
+		t.Fatalf("webhook status = %d, want 200", status)
 	}
 }
 
@@ -520,7 +545,6 @@ func TestChatwootReplyQuotesAnEarlierAgentReply(t *testing.T) {
 		configID int64
 	}{
 		{"per-device", 1, 11},
-		{"per-device route without a config", 1, 0},
 		{"legacy", 0, 0},
 	}
 	for _, mode := range modes {
@@ -528,6 +552,14 @@ func TestChatwootReplyQuotesAnEarlierAgentReply(t *testing.T) {
 			env := newReplyEnv(t)
 			env.repo.count = mode.configs
 			env.repo.link.ChatwootConfigID = mode.configID
+			if mode.configID != 0 {
+				configs := &routeAuthRepo{configs: []*domainChatStorage.ChatwootDeviceConfig{{
+					ID: mode.configID, DeviceID: "slot-a", DeviceJID: replyTestDevice,
+					ChatwootURL: config.ChatwootURL, APIToken: "token", AccountID: 3, InboxID: 5, Enabled: true,
+				}}}
+				env.repo.configs = configs.configs
+				chatwoot.InitClientRegistry(configs)
+			}
 
 			env.post(t, replyBody(t, nil, map[string]any{"id": 50, "content": "Primeira"}))
 			env.store(replyTestDevice, "WA-SENT-1", replyTestChat) // stored by the send usecase
@@ -674,8 +706,8 @@ func TestChatwootReplyIgnoresAnInvalidInReplyTo(t *testing.T) {
 			env.post(t, replyBody(t, quotingID(tc.value), nil))
 
 			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
-			if len(env.repo.lookups) != tc.lookups || env.repo.counts != 1+tc.lookups {
-				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want %d and %d", env.repo.lookups, env.repo.counts, tc.lookups, 1+tc.lookups)
+			if len(env.repo.lookups) != tc.lookups || env.repo.counts != 2+tc.lookups {
+				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want %d and %d", env.repo.lookups, env.repo.counts, tc.lookups, 2+tc.lookups)
 			}
 		})
 	}
@@ -702,8 +734,8 @@ func TestChatwootReplyPrefersTheWAIDReference(t *testing.T) {
 			env.post(t, replyBody(t, quoting("WA-ORIG"), nil))
 
 			env.assertSends(t, env.send("SendText", "peer-a", "Olá", "", tc.want))
-			if len(env.repo.lookups) != 0 || env.repo.counts != 1 {
-				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want none and 1 (routing)", env.repo.lookups, env.repo.counts)
+			if len(env.repo.lookups) != 0 || env.repo.counts != 2 {
+				t.Fatalf("lookups = %+v, legacy-mode checks = %d; want none and 2 (routing)", env.repo.lookups, env.repo.counts)
 			}
 		})
 	}
@@ -725,5 +757,15 @@ func TestChatwootReplyQuotesAnEarlierAgentReplyOnEveryFile(t *testing.T) {
 	)
 	if len(env.repo.lookups) != 1 {
 		t.Fatalf("lookups = %d, want 1", len(env.repo.lookups))
+	}
+}
+
+func TestChatwootReplyRejectsUnscopedLinkInPerDeviceMode(t *testing.T) {
+	env := newReplyEnv(t)
+	env.repo.count = 1
+	env.seed(50, "WA-AGENT", replyTestChat)
+	env.post(t, replyBody(t, quotingID(50), nil))
+	if len(env.sender.calls) != 0 || len(env.repo.lookups) != 0 {
+		t.Fatalf("unscoped link triggered sends=%+v lookups=%+v", env.sender.calls, env.repo.lookups)
 	}
 }

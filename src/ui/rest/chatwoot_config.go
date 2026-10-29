@@ -22,6 +22,10 @@ type chatwootConfigRequest struct {
 	InboxID     int    `json:"inbox_id"`
 	APIToken    string `json:"api_token"`
 	Enabled     *bool  `json:"enabled"`
+	// WebhookSecret is the secret Chatwoot signs this inbox's webhooks with.
+	// Omitted keeps the stored value; an empty string clears it (the global
+	// CHATWOOT_WEBHOOK_SECRET then applies).
+	WebhookSecret *string `json:"webhook_secret"`
 }
 
 // maskAPIToken redacts a stored token for read responses, revealing only the
@@ -60,8 +64,10 @@ func chatwootConfigView(cfg *domainChatStorage.ChatwootDeviceConfig) map[string]
 		"api_token":    maskAPIToken(cfg.APIToken),
 		"enabled":      cfg.Enabled,
 		"webhook_url":  perDeviceWebhookURL(cfg.DeviceID),
-		"created_at":   cfg.CreatedAt,
-		"updated_at":   cfg.UpdatedAt,
+		// The secret itself is never returned, only whether one is set.
+		"webhook_secret_set": strings.TrimSpace(cfg.WebhookSecret) != "",
+		"created_at":         cfg.CreatedAt,
+		"updated_at":         cfg.UpdatedAt,
 	}
 }
 
@@ -167,14 +173,22 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c fiber.Ctx) error {
 		enabled = existing.Enabled
 	}
 
+	webhookSecret := ""
+	if req.WebhookSecret != nil {
+		webhookSecret = strings.TrimSpace(*req.WebhookSecret)
+	} else if existing != nil {
+		webhookSecret = existing.WebhookSecret
+	}
+
 	cfg := &domainChatStorage.ChatwootDeviceConfig{
-		DeviceID:    deviceID,
-		DeviceJID:   h.deviceJID(deviceID),
-		ChatwootURL: canonicalURL,
-		AccountID:   req.AccountID,
-		InboxID:     req.InboxID,
-		APIToken:    apiToken,
-		Enabled:     enabled,
+		DeviceID:      deviceID,
+		DeviceJID:     h.deviceJID(deviceID),
+		ChatwootURL:   canonicalURL,
+		AccountID:     req.AccountID,
+		InboxID:       req.InboxID,
+		APIToken:      apiToken,
+		Enabled:       enabled,
+		WebhookSecret: webhookSecret,
 	}
 	if existing != nil {
 		cfg.ID = existing.ID

@@ -22,8 +22,11 @@ the matching domain interface; keep Fiber/MCP response types in the adapters.
   undecorated base usecase, never the decorator. Rows are keyed by `instance.ID()`
   (slot alias) so the worker can resolve them with `DeviceManager.GetDevice`.
 - `chat.go` owns history queries; `message.go` owns reactions, revokes, edits, and
-  other message actions. Existing protocol-specific global ID lookups are exceptions,
-  not a pattern for new user-facing reads; verify their caller contract before reuse.
+  other message actions. Message actions read the calling device's own stored copy
+  in the requested chat; a lookup by ID alone can return another device's row,
+  whose "from me" flag and media keys differ. Media downloads use
+  `storedMessageForAction`; resolve scope with `storageDeviceID(ctx)` and refuse
+  that read when it is empty.
 - `group.go` handles participant JIDs and group settings, `user.go` account/contact
   operations, and `device.go` delegates lifecycle operations to `DeviceManager`.
 
