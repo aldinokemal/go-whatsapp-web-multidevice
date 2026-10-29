@@ -13,13 +13,16 @@ import (
 // application-wide BodyLimit before the handler can refuse the request.
 func RejectCompressedBody() fiber.Handler {
 	return func(c fiber.Ctx) error {
-		for _, part := range strings.Split(c.Get(fiber.HeaderContentEncoding), ",") {
-			if coding := strings.ToLower(strings.TrimSpace(part)); coding != "" && coding != "identity" {
-				return c.Status(fiber.StatusUnsupportedMediaType).JSON(utils.ResponseData{
-					Status:  fiber.StatusUnsupportedMediaType,
-					Code:    "UNSUPPORTED_CONTENT_ENCODING",
-					Message: "compressed request bodies are not supported",
-				})
+		// Every header line counts, not only the first one c.Get returns.
+		for _, value := range c.Request().Header.PeekAll(fiber.HeaderContentEncoding) {
+			for _, part := range strings.Split(string(value), ",") {
+				if coding := strings.ToLower(strings.TrimSpace(part)); coding != "" && coding != "identity" {
+					return c.Status(fiber.StatusUnsupportedMediaType).JSON(utils.ResponseData{
+						Status:  fiber.StatusUnsupportedMediaType,
+						Code:    "UNSUPPORTED_CONTENT_ENCODING",
+						Message: "compressed request bodies are not supported",
+					})
+				}
 			}
 		}
 		return c.Next()

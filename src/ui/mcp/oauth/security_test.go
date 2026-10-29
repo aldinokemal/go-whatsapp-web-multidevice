@@ -372,12 +372,14 @@ func TestOAuthPOSTRejectsCompressedBodiesBeforeDecode(t *testing.T) {
 	require.Less(t, len(validGzip), maxOAuthBodyBytes)
 
 	cases := []struct {
-		name        string
-		path        string
-		contentType string
-		encoding    string
-		body        []byte
+		name          string
+		path          string
+		contentType   string
+		encoding      string
+		extraEncoding string
+		body          []byte
 	}{
+		{name: "identity then gzip header lines", path: "/oauth/register", contentType: "application/json", encoding: "identity", extraEncoding: "gzip", body: valid},
 		{name: "gzip register larger than 16KiB decoded", path: "/oauth/register", contentType: "application/json", encoding: "gzip", body: oversizedGzip},
 		{name: "gzip register that would otherwise succeed", path: "/oauth/register", contentType: "application/json", encoding: "gzip", body: validGzip},
 		{name: "x-gzip register", path: "/oauth/register", contentType: "application/json", encoding: "x-gzip", body: validGzip},
@@ -392,6 +394,9 @@ func TestOAuthPOSTRejectsCompressedBodiesBeforeDecode(t *testing.T) {
 			req := httptest.NewRequest("POST", tc.path, bytes.NewReader(tc.body))
 			req.Header.Set("Content-Type", tc.contentType)
 			req.Header.Set("Content-Encoding", tc.encoding)
+			if tc.extraEncoding != "" {
+				req.Header.Add("Content-Encoding", tc.extraEncoding)
+			}
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			require.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)

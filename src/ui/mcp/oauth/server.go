@@ -770,10 +770,13 @@ func decodeBasicCredentials(encoded string) (string, string, bool) {
 // The bool is true when a response was written. oauthError's JSON write returns
 // nil, so callers must stop on that bool instead of only checking the error.
 func rejectCompressedOAuthBody(c fiber.Ctx) (bool, error) {
-	if !compressedContentEncoding(c.Get(fiber.HeaderContentEncoding)) {
-		return false, nil
+	// Every header line counts, not only the first one c.Get returns.
+	for _, value := range c.Request().Header.PeekAll(fiber.HeaderContentEncoding) {
+		if compressedContentEncoding(string(value)) {
+			return true, oauthError(c, fiber.StatusUnsupportedMediaType, "invalid_request", "compressed request bodies are not supported")
+		}
 	}
-	return true, oauthError(c, fiber.StatusUnsupportedMediaType, "invalid_request", "compressed request bodies are not supported")
+	return false, nil
 }
 
 func compressedContentEncoding(header string) bool {
