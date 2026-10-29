@@ -29,6 +29,18 @@ Download:
 - [Docker Hub](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 - [GitHub Container Registry](https://github.com/aldinokemal/go-whatsapp-web-multidevice/pkgs/container/go-whatsapp-web-multidevice)
 
+## Documentation
+
+Read the detailed [GOWA documentation](https://github.com/aldinokemal/gowa-docs) for setup,
+authentication, device management, webhooks, examples, and the API reference.
+The documentation tracks merged `main`, including changes after v9.7.0. Check the
+release notes and `GET /app/info` when using a pinned binary or container tag.
+
+- [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` is immediate-only and REST-only; recipient compatibility varies.
+- [Webhook payloads](./docs/webhook-payload.md) describes event schemas and signing.
+- [Chatwoot](./docs/chatwoot.md), [MCP OAuth](./docs/mcp-oauth.md), [Neon](./docs/neon.md), and [media storage](./docs/media-storage.md) provide integration and operations guides.
+- [OpenAPI](./docs/openapi.yaml) defines the machine-readable REST contract. The interactive endpoint currently has its own guide.
+
 ## n8n Community Node
 
 - [n8n package](https://www.npmjs.com/package/@aldinokemal2104/n8n-nodes-gowa)
@@ -52,7 +64,7 @@ Download:
     - `X-Device-Id` header, or
     - `device_id` query parameter.
     - If only one device is registered, it is used as the default.
-  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope the WebSocket connection to a specific device.
+  - **WebSocket device selection**: Connect to `/ws?device_id=<id>` for the device middleware. The current WebSocket hub broadcasts dashboard events to all authenticated subscribers. This parameter does not isolate events between accounts; use per-device webhooks for application integrations.
   - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
     (for example, [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
     `GET /app/info` exposes the version and media size limits. Because browsers cannot set headers on WebSocket
@@ -95,7 +107,7 @@ Download:
   - Use the special keyword `@everyone` to automatically mention all group participants.
 - Post WhatsApp status updates.
 - Mark incoming audio messages and voice notes as played.
-- **Scheduled sends** — Send any message later, once or on a daily, weekly, or monthly repeat.
+- **Scheduled sends** — Schedule supported send types once or on a daily, weekly, or monthly repeat.
   - Add `scheduled_at` (RFC3339) and `timezone` (IANA) to a send request; `recurrence`, `weekdays`, `day_of_month`,
     `end_at`, and `occurrence_limit` control repeats.
   - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
@@ -104,6 +116,12 @@ Download:
     retried under a fresh identity. Poll retries also reuse the persisted secret. New-protocol occurrences
     interrupted by a restart resume the same way; legacy attempts with unknown outcomes are skipped or failed.
     This does not guarantee exactly-once delivery.
+- **Newsletter channels** — Follow or unfollow channels, fetch metadata by JID or invite, query the channel directory, and download channel media.
+  - Read messages with `/newsletter/messages`, refresh counters with `/newsletter/message-updates`, and manage renewable live counter subscriptions with `/newsletter/live-updates`.
+  - Live subscriptions are in memory. Subscribe again after a server restart; counter events arrive as `newsletter.message` webhooks.
+- **Server metrics** — Authenticated `GET /app/metrics` reports process, memory, disk, device counts, and storage metadata without a device header. It returns JSON, not Prometheus text.
+- **Contact presence** — `POST /user/presence/subscribe` subscribes to a contact's online/offline updates, delivered through the `presence` webhook event. Sending your own presence remains under `/send/presence`.
+- **Avatar errors** — `GET /user/avatar` distinguishes `404 AVATAR_NOT_SET` from `403 AVATAR_HIDDEN`. Use the error code before invalidating a cached image.
 - **Send stickers** — Automatically convert images to WebP sticker format.
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.
@@ -184,6 +202,7 @@ Download:
   | `message.edited`     | Edited messages                               |
   | `message.ack`        | Delivery and read receipts                    |
   | `message.deleted`    | Messages deleted for the user                 |
+  | `presence`           | Contact online/offline changes after presence subscription |
   | `chat_presence`      | Typing and recording indicators from contacts |
   | `group.participants` | Group member join/leave/promote/demote events |
   | `group.info`         | Group name (subject) changed                  |
@@ -223,9 +242,9 @@ Download:
 
   **Security Warning**: This option disables TLS certificate verification and should only be used in:
   - Development or testing environments.
-  - Cloudflare tunnels, which provide their own security layer.
   - Internal networks with self-signed certificates.
 
+  A Cloudflare tunnel does not make an unverified outbound TLS connection safe.
   **For production environments**, use a valid TLS certificate (for example, from Let's Encrypt) instead of
   disabling verification.
 
@@ -233,11 +252,15 @@ Download:
 
 To store WhatsApp sessions and keys in managed PostgreSQL, follow the [Neon setup guide](./docs/neon.md).
 
-Configuration is loaded in this order of priority:
+Configuration is initialized from flags, then most environment settings are applied.
+A set environment value can therefore override the matching flag. The `.env` file
+only fills variables not already set in the process environment.
 
-1. Command-line flags (highest priority)
-2. Environment variables
-3. `.env` file (lowest priority)
+Explicit flags win for MCP OAuth settings, `--allow-unauthenticated`,
+`--trusted-origins`, `--chatwoot-webhook-allow-unsigned`, and
+`--webhook-all-device-receipts`. Configure each option in one place to avoid
+conflicting values. For example, `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`
+overrides `--webhook-insecure-skip-verify=false`.
 
 ### Environment Variables
 
@@ -660,6 +683,9 @@ You may also fork or modify the source code.
 
 | Status   | Operation                              | Method | URL                                 |
 |----------|----------------------------------------|--------|-------------------------------------|
+| ✅       | Server Metrics                         | GET    | /app/metrics                        |
+| ✅       | Subscribe Contact Presence             | POST   | /user/presence/subscribe             |
+| Experimental | Send Buttons, Location Request, Carousel | POST | /send/interactive                   |
 | ✅       | Health Check                           | GET    | /health                             |
 | ✅       | List Devices                           | GET    | /devices                            |
 | ✅       | Add Device                             | POST   | /devices                            |
