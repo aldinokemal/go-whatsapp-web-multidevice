@@ -278,7 +278,7 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 
 		// Persist updated JID/DisplayName to database after successful connection
 		// Skip if instance.ID looks like a JID (auto-created device) to avoid recreating deleted duplicates
-		if repo := instance.GetChatStorage(); repo != nil && !strings.Contains(instance.ID(), "@") {
+		if repo := instance.GetChatStorage(); repo != nil && instance.ID() != "" && !strings.Contains(instance.ID(), "@") {
 			jid := instance.JID()
 			displayName := instance.DisplayName()
 			if jid != "" {
