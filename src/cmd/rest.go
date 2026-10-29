@@ -121,6 +121,9 @@ func restServer(_ *cobra.Command, _ []string) {
 		if config.AppBasePath != "" {
 			webhookPath = config.AppBasePath + webhookPath
 		}
+		// Both webhook routes read the body before checking a secret, so refuse
+		// compressed bodies Fiber would expand up to the app BodyLimit.
+		app.Use(webhookPath, middleware.RejectCompressedBody())
 		// In front of both webhook routes: a Chatwoot-signed request is only
 		// remembered as delivered once it has been answered 2xx.
 		app.Use(webhookPath, rest.ChatwootWebhookReplayGuard())
