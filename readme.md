@@ -282,6 +282,7 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS`  | Forward all linked-device receipts; consumers must handle duplicates and out-of-order updates   | `false`                                      | `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS=true`   |
 | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
