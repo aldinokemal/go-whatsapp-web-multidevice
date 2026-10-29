@@ -140,6 +140,15 @@ func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	}
 }
 
+func getWithContext(t *testing.T, c *http.Client, target string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Do(req)
+}
+
 // TestChatwootClientSSRFGuardBlocksConnect exercises the Dialer.Control guard
 // end to end: a guarded client must refuse to actually connect to a loopback
 // address (the DNS-rebinding case a one-time URL validation can't catch),
@@ -158,9 +167,12 @@ func TestChatwootClientSSRFGuardBlocksConnect(t *testing.T) {
 	// Guarded per-device client: connect to the loopback server must be blocked.
 	// It is named by host, since Proxy already refuses the literal IP.
 	guarded := NewClientFromConfig(srv.URL, "t", 1, 1)
-	if _, err := guarded.HTTPClient.Get(strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)); err == nil {
+	blockedResp, err := getWithContext(t, guarded.HTTPClient, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1))
+	if err == nil {
+		blockedResp.Body.Close()
 		t.Fatal("guarded client connected to a loopback address, want block")
-	} else if !strings.Contains(err.Error(), "disallowed address") {
+	}
+	if !strings.Contains(err.Error(), "disallowed address") {
 		t.Fatalf("guarded client error = %v, want a disallowed-address block", err)
 	}
 
@@ -198,7 +210,7 @@ func TestChatwootAllowlistPermitsPrivateHostAndRejectsRedirect(t *testing.T) {
 	defer okSrv.Close()
 
 	allowed := NewClientFromConfig(okSrv.URL, "t", 1, 1)
-	resp, err := allowed.HTTPClient.Get(okSrv.URL)
+	resp, err := getWithContext(t, allowed.HTTPClient, okSrv.URL)
 	if err != nil {
 		t.Fatalf("allowlisted loopback should connect: %v", err)
 	}
@@ -212,7 +224,11 @@ func TestChatwootAllowlistPermitsPrivateHostAndRejectsRedirect(t *testing.T) {
 	// CheckRedirect's own error: the transport would refuse the host too, but
 	// with another message, so this fails if CheckRedirect is not wired.
 	redirected := NewClientFromConfig(redirectSrv.URL, "t", 1, 1)
-	if _, err := redirected.HTTPClient.Get(redirectSrv.URL + "/v1"); err == nil || !strings.Contains(err.Error(), `redirect host "evil.example" is not in the allowed hosts list`) {
+	redirectResp, err := getWithContext(t, redirected.HTTPClient, redirectSrv.URL+"/v1")
+	if err == nil {
+		redirectResp.Body.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), `redirect host "evil.example" is not in the allowed hosts list`) {
 		t.Fatalf("redirect off the allowlist: err=%v", err)
 	}
 }
@@ -341,7 +357,7 @@ func TestPerDeviceClientCapsDecompressedBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := NewClientFromConfig(srv.URL, "t", 1, 1).HTTPClient.Get(srv.URL)
+	resp, err := getWithContext(t, NewClientFromConfig(srv.URL, "t", 1, 1).HTTPClient, srv.URL)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
