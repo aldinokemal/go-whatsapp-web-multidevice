@@ -86,7 +86,8 @@ func init() {
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
+	// Key names stay visible; secret values and URL userinfo are masked.
+	fmt.Println(utils.RedactSettings(viper.AllSettings()))
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
