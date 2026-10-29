@@ -349,7 +349,7 @@ func safeProxyHost(host string) bool {
 		return false
 	}
 	plausibleName := name == "localhost" || strings.Contains(name, ".") || isAllDigits(name)
-	if !plausibleName && !(hasPort && isAllDigits(port)) {
+	if !plausibleName && !hasPort {
 		return false
 	}
 	return true
