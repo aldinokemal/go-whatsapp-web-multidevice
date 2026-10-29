@@ -298,11 +298,17 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 	t.Run("with a global secret", func(t *testing.T) {
 		const global = "global-secret"
 		f := newRouteAuthFixture(t, global)
-		// Conversation 7 is linked to the support device (by storage JID), so
-		// it routes there whatever inbox the payload names.
+		// Conversation 7 is linked to the support device (by storage JID) under
+		// support's configuration. Only a payload for support's inbox uses the
+		// link; another inbox's configuration routes its own payload and does
+		// not take the link's device or recipient. Conversation 6 has only a
+		// legacy config-0 (env-era) link, which per-device mode never uses.
 		f.repo.links = []*domainChatStorage.ChatwootMessageLink{{
-			DeviceID: routeAuthSupportJID, WhatsAppChatJID: "628999999999@s.whatsapp.net",
+			DeviceID: routeAuthSupportJID, WhatsAppChatJID: "628777777777@s.whatsapp.net",
 			ChatwootConversationID: 7, ChatwootAccountID: 1, ChatwootConfigID: 2,
+		}, {
+			DeviceID: routeAuthSalesJID, WhatsAppChatJID: "628666666666@s.whatsapp.net",
+			ChatwootConversationID: 6, ChatwootAccountID: 1,
 		}}
 		runRouteAuthCases(t, f, []routeAuthCase{
 			{name: "global secret for a protected device", inbox: 2, signWith: global, want: 401},
@@ -314,9 +320,10 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 			{name: "global secret, unknown inbox: acknowledged, nothing sent", inbox: 99, signWith: global, want: 200},
 			{name: "unsigned, unknown inbox", inbox: 99, want: 401},
 			{name: "device secret, unknown inbox", inbox: 99, signWith: routeAuthSalesSecret, want: 401},
-			{name: "linked conversation, global secret", inbox: 4, conv: 7, signWith: global, want: 401},
-			{name: "linked conversation, another device's secret", inbox: 2, conv: 7, signWith: routeAuthSalesSecret, want: 401},
-			{name: "linked conversation, the linked device's secret", inbox: 3, conv: 7, signWith: routeAuthSupportSecret, want: 200, wantSend: "support" + toContact},
+			{name: "linked conversation from another inbox, global secret", inbox: 4, conv: 7, signWith: global, want: 200, wantSend: "open" + toContact},
+			{name: "linked conversation from another inbox, that inbox's secret", inbox: 2, conv: 7, signWith: routeAuthSalesSecret, want: 200, wantSend: "sales" + toContact},
+			{name: "linked conversation, the linked device's secret", inbox: 3, conv: 7, signWith: routeAuthSupportSecret, want: 200, wantSend: "support -> 628777777777"},
+			{name: "legacy config-0 link is not used", inbox: 2, conv: 6, signWith: routeAuthSalesSecret, want: 200, wantSend: "sales" + toContact},
 		})
 	})
 
@@ -363,7 +370,7 @@ func TestChatwootSharedWebhookDeleteEnforcesRoutedDeviceSecret(t *testing.T) {
 			f := newRouteAuthFixture(t, global)
 			f.repo.links = []*domainChatStorage.ChatwootMessageLink{{
 				DeviceID: routeAuthSalesJID, WhatsAppMessageID: "WA-OUT-1", WhatsAppChatJID: "628999999999@s.whatsapp.net",
-				ChatwootMessageID: 55, Direction: "outgoing",
+				ChatwootMessageID: 55, Direction: "outgoing", ChatwootConfigID: 1,
 			}}
 			body := `{"event":"message_updated","message_type":"outgoing","id":55,"content_attributes":{"deleted":true},` +
 				`"account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`
@@ -391,6 +398,21 @@ func TestChatwootSharedWebhookDeleteEnforcesRoutedDeviceSecret(t *testing.T) {
 						t.Errorf("revoked = %v, want revoke=%v", f.message.revoked, tt.wantRevoke)
 					}
 				})
+			}
+
+			// The same Chatwoot message id linked under another configuration
+			// (another server's, or legacy config 0) names an unrelated
+			// customer's message: a delete through sales must not revoke it.
+			for _, foreign := range []int64{0, 2} {
+				f.repo.links[0].ChatwootConfigID = foreign
+				for _, path := range []string{"", "/chatwoot/webhook/sales"} {
+					chatwootReplays.reset()
+					f.message.revoked = nil
+					got := postChatwootWebhook(t, f.app, webhookAuthRequest{path: path, body: body, headers: chatwootSigned(routeAuthSalesSecret, body)})
+					if got != fiber.StatusOK || len(f.message.revoked) != 0 {
+						t.Errorf("link under config %d, path %q: status = %d, revoked = %v; want 200 and nothing revoked", foreign, path, got, f.message.revoked)
+					}
+				}
 			}
 		})
 	}
