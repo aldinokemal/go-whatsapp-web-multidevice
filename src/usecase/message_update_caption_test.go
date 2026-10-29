@@ -115,6 +115,32 @@ func TestUpdateMessageWithMediaTypeEditsCaption(t *testing.T) {
 	}
 }
 
+func TestUpdateMessageWithMediaTypeStoresUncachedOriginalAsMedia(t *testing.T) {
+	for _, mediaType := range []string{"image", "document"} {
+		t.Run(mediaType, func(t *testing.T) {
+			service, repo, ctx := newMessageActionTestService(t, nil)
+			messageID := "uncached-" + mediaType
+			service.sendMessageFn = func(_ context.Context, _ *whatsmeow.Client, _ types.JID, _ *waE2E.Message) (whatsmeow.SendResponse, error) {
+				return whatsmeow.SendResponse{ID: "edit-event-1"}, nil
+			}
+
+			_, err := service.UpdateMessage(ctx, domainMessage.UpdateMessageRequest{
+				MessageID: messageID,
+				Phone:     "628123456789@s.whatsapp.net",
+				Message:   "new caption",
+				MediaType: mediaType,
+			})
+			require.NoError(t, err)
+
+			got, err := repo.GetMessageByIDAndDevice("device-a@s.whatsapp.net", messageID)
+			require.NoError(t, err)
+			require.NotNil(t, got, "the edit must record the message it edited")
+			assert.Equal(t, "new caption", got.Content)
+			assert.Equal(t, mediaType, got.MediaType, "an edited %s missing from storage must not be recorded as text", mediaType)
+		})
+	}
+}
+
 func TestUpdateMessageRejectsMediaTypeOfAnotherStoredType(t *testing.T) {
 	tests := []struct {
 		name      string

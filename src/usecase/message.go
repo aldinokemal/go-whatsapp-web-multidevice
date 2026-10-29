@@ -435,7 +435,8 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 // The edit is replayed in the ProtocolMessage shape CreateMessage already
 // recognises, so it runs through the existing, tested edit path (content update
 // plus a message_edits history row) rather than a second implementation that
-// could drift from it.
+// could drift from it. editedMessage is the content to store; when the original
+// is not stored yet, its media type decides how the new row is typed.
 //
 // This is an adapter for local storage, not a claim of equivalence with a
 // dispatched event. whatsmeow's ParseWebMessage unwraps MESSAGE_EDIT before a
@@ -447,7 +448,7 @@ func (service serviceMessage) updateStoredMessage(
 	client *whatsmeow.Client,
 	messageID string,
 	recipient types.JID,
-	newContent string,
+	editedMessage *waE2E.Message,
 	editEventID string,
 	editedAt time.Time,
 ) error {
@@ -478,7 +479,7 @@ func (service serviceMessage) updateStoredMessage(
 					RemoteJID: proto.String(recipient.String()),
 					FromMe:    proto.Bool(true),
 				},
-				EditedMessage: &waE2E.Message{Conversation: proto.String(newContent)},
+				EditedMessage: editedMessage,
 			},
 		},
 	}
@@ -543,12 +544,18 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 			return response, err
 		}
 	}
+	// A caption edit is stored as sent, so an image or document missing from
+	// storage is recorded with its media type rather than as text.
+	storedEdit := &waE2E.Message{Conversation: proto.String(text)}
+	if request.MediaType != "" {
+		storedEdit = msg
+	}
 	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
+	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), storedEdit, ts.ID, ts.Timestamp); err != nil {
 		return response, err
 	}
 
