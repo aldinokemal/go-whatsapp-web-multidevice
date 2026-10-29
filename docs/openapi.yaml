@@ -327,6 +327,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /app/metrics:
+    get:
+      operationId: appMetrics
+      tags:
+        - app
+      summary: Get server health metrics
+      description: >
+        Memory of the process and of its container (cgroup v2, then v1), CPU
+        time, size of statics/media and storages (walk cached for a minute),
+        free space on the volume, the session store and how many devices are
+        registered, logged in and connected. Requires no device. Nullable fields
+        are unknown on the current platform (non-Linux) or unlimited (container
+        memory limit). Folder usage is best effort: missing or unreadable entries
+        are omitted, and symlink targets are not traversed. Container metrics use
+        the standard /sys/fs/cgroup mount and are null when unavailable. Uptime
+        includes process initialization.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  code: { type: string, example: SUCCESS }
+                  message: { type: string, example: Fetch app metrics success }
+                  results:
+                    type: object
+                    properties:
+                      version: { type: string, example: v9.6.0 }
+                      session_store: { type: string, enum: [sqlite, postgres] }
+                      devices:
+                        type: object
+                        properties:
+                          total: { type: integer, example: 5 }
+                          logged_in: { type: integer, example: 3 }
+                          connected: { type: integer, example: 3 }
+                      system:
+                        type: object
+                        properties:
+                          started_at: { type: string, format: date-time }
+                          uptime_seconds: { type: integer, example: 3600 }
+                          go_version: { type: string, example: go1.26.9 }
+                          cpu_seconds: { type: number, nullable: true, example: 17.9 }
+                          memory:
+                            type: object
+                            properties:
+                              heap_alloc_bytes: { type: integer, format: int64 }
+                              runtime_sys_bytes: { type: integer, format: int64 }
+                              process_rss_bytes: { type: integer, format: int64, nullable: true }
+                              container_bytes: { type: integer, format: int64, nullable: true }
+                              container_limit_bytes: { type: integer, format: int64, nullable: true }
+                              goroutines: { type: integer }
+                              gc_cycles: { type: integer }
+                          folders:
+                            type: object
+                            additionalProperties:
+                              type: object
+                              properties:
+                                bytes: { type: integer, format: int64 }
+                                files: { type: integer, format: int64 }
+                          filesystem:
+                            type: object
+                            properties:
+                              total_bytes: { type: integer, format: int64, nullable: true }
+                              free_bytes: { type: integer, format: int64, nullable: true }
   /app/info:
     get:
       operationId: appInfo
@@ -890,6 +957,70 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /user/presence/subscribe:
+    post:
+      operationId: userSubscribePresence
+      tags:
+        - user
+      summary: Subscribe to contact presence
+      description: |
+        Subscribe the selected logged-in device to an individual contact's online/offline updates.
+        Updates arrive through presence webhooks. For continuous tracking, set
+        WHATSAPP_PRESENCE_ON_CONNECT=available and WHATSAPP_PRESENCE_PULSE_ENABLED=false.
+        Keeping the device available suppresses phone push notifications.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+                  description: Individual contact phone number with country code
+                  example: '6289685028129'
+      responses:
+        '200':
+          description: Subscription accepted. This does not guarantee contact presence delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  code:
+                    type: string
+                    example: SUCCESS
+                  message:
+                    type: string
+                    example: Success subscribe to user presence
+                  results:
+                    type: object
+                    properties:
+                      subscribed:
+                        type: boolean
+                        example: true
+                      jid:
+                        type: string
+                        example: '6289685028129@s.whatsapp.net'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/info:
     get:
       operationId: userInfo
@@ -962,6 +1093,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBadRequest'
+        '403':
+          description: 'AVATAR_HIDDEN: the contact hides the picture from this account (says nothing about whether one exists)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorForbidden'
+              example:
+                code: AVATAR_HIDDEN
+                message: the user has hidden their profile picture from you
+        '404':
+          description: 'The contact has no profile picture (AVATAR_NOT_SET) or the device is unknown (DEVICE_NOT_FOUND). Check `code`, not only the status.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+              examples:
+                avatarNotSet:
+                  summary: The contact has no profile picture
+                  value:
+                    code: AVATAR_NOT_SET
+                    message: that user or group does not have a profile picture
+                deviceNotFound:
+                  summary: Unknown device
+                  value:
+                    code: DEVICE_NOT_FOUND
+                    message: device not found; create a device first from /api/devices or provide a valid X-Device-Id
+                    results:
+                      device_id: my-device
         '500':
           description: Internal Server Error
           content:
@@ -3906,6 +4065,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/follow:
+    post:
+      operationId: followNewsletter
+      tags:
+        - newsletter
+      summary: Follow newsletter
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newsletter_id]
+              properties:
+                newsletter_id:
+                  type: string
+                  example: '120363024512399999@newsletter'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /newsletter/unfollow:
     post:
       operationId: unfollowNewsletter
@@ -3942,6 +4138,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/info:
+    get:
+      operationId: getNewsletterInfo
+      tags:
+        - newsletter
+      summary: Get newsletter (channel) metadata
+      description: |
+        Returns the channel metadata (name, description, subscribers count,
+        verification, picture, invite code, state). Provide exactly one of
+        `newsletter_id` or `invite`. Neither requires following the channel;
+        `viewer_metadata` is null when WhatsApp does not return viewer-specific metadata.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: false
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+        - name: invite
+          in: query
+          required: false
+          description: Channel invite link (https://whatsapp.com/channel/...) or just the code
+          schema:
+            type: string
+          example: 'https://whatsapp.com/channel/0029Va4K0PZ5a245NkngBA2M'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterInfoResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/directory:
+    get:
+      operationId: searchNewsletterDirectory
+      tags:
+        - newsletter
+      summary: Browse or search the public channel directory
+      description: |
+        Mirrors the "Find channels" screen of the official clients. Without
+        `search_text` it browses a `view` and requires at least one country
+        code; with `search_text` it searches channels by name (country codes
+        are not supported by the search). Paginate with `cursor` while
+        `has_more` is true. Uses undocumented WhatsApp queries captured from
+        WhatsApp Web, which may change without notice.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [RECOMMENDED, TRENDING, POPULAR, NEW, FEATURED]
+            default: RECOMMENDED
+        - name: search_text
+          in: query
+          required: false
+          schema:
+            type: string
+          example: news
+        - name: country_codes
+          in: query
+          required: false
+          description: ISO 3166-1 alpha-2 codes, repeated or comma separated. Required when browsing a view.
+          schema:
+            type: array
+            items:
+              type: string
+          example: [ID]
+        - name: categories
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [BUSINESS, ENTERTAINMENT, LIFESTYLE, NEWS, ORGANIZATIONS, PEOPLE, SPORTS]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 50
+        - name: cursor
+          in: query
+          required: false
+          description: next_cursor from the previous page
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterDirectoryResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /newsletter/messages:
     get:
       operationId: getNewsletterMessages
@@ -3950,8 +4269,9 @@ paths:
       summary: Get latest newsletter (channel) messages
       description: |
         Fetches the latest messages posted in a newsletter (channel) directly
-        from WhatsApp servers. You must be following/subscribed to the
-        newsletter to fetch its messages.
+        from WhatsApp servers. Following the channel is not required. The
+        server keeps roughly the last 30 days of posts; `views_count` is only
+        reported to channel admins and is 0 otherwise.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
         - name: newsletter_id
@@ -3983,6 +4303,167 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NewsletterMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /newsletter/message-updates:
+    get:
+      operationId: getNewsletterMessageUpdates
+      tags:
+        - newsletter
+      summary: Get newsletter message counters
+      description: |
+        Returns only the counters (forwards and reactions per emoji) of the
+        messages after `after`, without message content. Cheaper than
+        re-fetching messages to refresh engagement. Does not require following.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+        - name: after
+          in: query
+          required: true
+          description: Return updates for messages with a server ID greater than this one
+          schema:
+            type: integer
+            minimum: 1
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: since
+          in: query
+          required: false
+          description: Unix timestamp (seconds); only messages updated after it
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterMessagesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /newsletter/live-updates:
+    get:
+      operationId: listNewsletterLiveUpdates
+      tags:
+        - newsletter
+      summary: List live updates subscriptions of the device
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterLiveUpdatesListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    post:
+      operationId: subscribeNewsletterLiveUpdates
+      tags:
+        - newsletter
+      summary: Subscribe to newsletter live updates
+      description: |
+        Subscribes the device to live counter updates of a channel, delivered
+        as `newsletter.message` webhooks. WhatsApp grants the subscription for
+        a short duration (90 seconds observed); GOWA renews it before it
+        expires and after reconnects until it is unsubscribed. Subscriptions
+        are kept in memory and do not survive a restart.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newsletter_id]
+              properties:
+                newsletter_id:
+                  type: string
+                  example: '120363024512399999@newsletter'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsletterLiveUpdatesResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+    delete:
+      operationId: unsubscribeNewsletterLiveUpdates
+      tags:
+        - newsletter
+      summary: Stop renewing newsletter live updates
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: newsletter_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: '120363024512399999@newsletter'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
         '400':
           description: Bad Request
           content:
@@ -5447,6 +5928,20 @@ components:
           type: object
           example: null
           description: 'additional data'
+    ErrorForbidden:
+      type: object
+      properties:
+        code:
+          type: string
+          example: AVATAR_HIDDEN
+          description: 'SYSTEM_CODE_ERROR'
+        message:
+          type: string
+          example: the user has hidden their profile picture from you
+          description: 'Detail error message'
+        results:
+          type: object
+          description: 'additional data'
     ErrorNotFound:
       type: object
       properties:
@@ -5570,6 +6065,8 @@ components:
                       example: "ALL"
         viewer_metadata:
           type: object
+          nullable: true
+          description: Null when viewer-specific metadata is unavailable.
           properties:
             mute:
               type: string
@@ -5577,6 +6074,84 @@ components:
             role:
               type: string
               example: "subscriber"
+    NewsletterInfoResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get newsletter info"
+        results:
+          $ref: '#/components/schemas/Newsletter'
+    NewsletterDirectoryResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success search newsletter directory"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Newsletter'
+            next_cursor:
+              type: string
+              example: "GTby6Oiy0/jOqwPYxYXQtvjOqwPC0uaVue3OqwMZ"
+            has_more:
+              type: boolean
+              example: true
+    NewsletterLiveUpdatesSubscription:
+      type: object
+      properties:
+        newsletter_id:
+          type: string
+          example: '120363024512399999@newsletter'
+        duration_seconds:
+          type: integer
+          example: 90
+        expires_at:
+          type: string
+          example: "2026-10-28T17:37:28Z"
+        renewed_at:
+          type: string
+          example: "2026-10-28T17:35:58Z"
+        last_error:
+          type: string
+          description: Last renewal error, cleared after a successful renewal
+    NewsletterLiveUpdatesResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success subscribe newsletter live updates"
+        results:
+          $ref: '#/components/schemas/NewsletterLiveUpdatesSubscription'
+    NewsletterLiveUpdatesListResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success list newsletter live updates"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NewsletterLiveUpdatesSubscription'
     NewsletterMessagesResponse:
       type: object
       properties:
@@ -5610,7 +6185,11 @@ components:
           example: "2026-06-30T10:00:00Z"
         views_count:
           type: integer
+          description: Only reported to channel admins; 0 otherwise
           example: 42
+        forwards_count:
+          type: integer
+          example: 7
         reaction_counts:
           type: object
           additionalProperties:
