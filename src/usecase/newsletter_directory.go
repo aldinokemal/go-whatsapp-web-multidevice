@@ -10,6 +10,7 @@ import (
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -28,6 +29,11 @@ type newsletterMexClient interface {
 	SendMexIQ(ctx context.Context, queryID string, variables any) (json.RawMessage, error)
 }
 
+func newsletterMexClientOf(client *whatsmeow.Client) newsletterMexClient {
+	//lint:ignore SA1019 whatsmeow has no public API for the directory or metadata without viewer fields.
+	return client.DangerousInternals()
+}
+
 func (service serviceNewsletter) Directory(ctx context.Context, request domainNewsletter.DirectoryRequest) (response domainNewsletter.DirectoryResponse, err error) {
 	if err = validations.ValidateNewsletterDirectory(ctx, &request); err != nil {
 		return response, err
@@ -39,7 +45,7 @@ func (service serviceNewsletter) Directory(ctx context.Context, request domainNe
 	}
 	utils.MustLogin(client)
 
-	return fetchNewsletterDirectory(ctx, client.DangerousInternals(), request)
+	return fetchNewsletterDirectory(ctx, newsletterMexClientOf(client), request)
 }
 
 func fetchNewsletterDirectory(ctx context.Context, client newsletterMexClient, request domainNewsletter.DirectoryRequest) (response domainNewsletter.DirectoryResponse, err error) {

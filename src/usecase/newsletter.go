@@ -86,7 +86,7 @@ func (service serviceNewsletter) GetInfo(ctx context.Context, request domainNews
 		if err != nil {
 			// WhatsApp refuses viewer metadata (405) for channels the account
 			// does not follow; the public metadata is still available.
-			metadata, err = fetchNewsletterInfoWithoutViewer(ctx, client.DangerousInternals(), JID)
+			metadata, err = fetchNewsletterInfoWithoutViewer(ctx, newsletterMexClientOf(client), JID)
 		}
 	}
 	if err != nil {

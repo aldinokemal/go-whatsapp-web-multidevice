@@ -60,22 +60,26 @@ type liveUpdatesSubscription struct {
 	lastError string
 }
 
+type liveUpdatesPending struct {
+	requests int
+}
+
 type newsletterLiveUpdatesManager struct {
 	mu   sync.Mutex
 	subs map[string]map[string]*liveUpdatesSubscription // device ID -> newsletter JID -> subscription
-	// generation is bumped whenever a device's subscriptions are stopped, so a
-	// subscribe call that was waiting on WhatsApp at that moment is discarded.
-	generation map[string]uint64
-	now        func() time.Time
+	// A pending group exists only while requests are in flight. Removing it
+	// invalidates those requests without leaving a per-channel tombstone.
+	pending map[string]map[string]*liveUpdatesPending
+	now     func() time.Time
 }
 
 var newsletterLiveUpdates = newNewsletterLiveUpdatesManager()
 
 func newNewsletterLiveUpdatesManager() *newsletterLiveUpdatesManager {
 	return &newsletterLiveUpdatesManager{
-		subs:       make(map[string]map[string]*liveUpdatesSubscription),
-		generation: make(map[string]uint64),
-		now:        time.Now,
+		subs:    make(map[string]map[string]*liveUpdatesSubscription),
+		pending: make(map[string]map[string]*liveUpdatesPending),
+		now:     time.Now,
 	}
 }
 
@@ -122,20 +126,40 @@ func (m *newsletterLiveUpdatesManager) subscribe(ctx context.Context, deviceID s
 	}
 
 	m.mu.Lock()
-	generation := m.generation[deviceID]
+	key := jid.String()
+	if m.pending[deviceID] == nil {
+		m.pending[deviceID] = make(map[string]*liveUpdatesPending)
+	}
+	pending := m.pending[deviceID][key]
+	if pending == nil {
+		pending = &liveUpdatesPending{}
+		m.pending[deviceID][key] = pending
+	}
+	pending.requests++
 	m.mu.Unlock()
 
 	duration, err := client.NewsletterSubscribeLiveUpdates(ctx, jid)
-	if err != nil {
-		return LiveUpdatesStatus{}, fmt.Errorf("failed to subscribe to newsletter live updates: %w", err)
-	}
 
 	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.generation[deviceID] != generation {
-		return LiveUpdatesStatus{}, fmt.Errorf("device %s was logged out or removed while subscribing", deviceID)
+	if m.pending[deviceID][key] != pending {
+		return LiveUpdatesStatus{}, fmt.Errorf("device %s subscription was stopped, logged out or removed while subscribing", deviceID)
+	}
+	pending.requests--
+	if pending.requests == 0 {
+		delete(m.pending[deviceID], key)
+		if len(m.pending[deviceID]) == 0 {
+			delete(m.pending, deviceID)
+		}
+	}
+	if err != nil {
+		return LiveUpdatesStatus{}, fmt.Errorf("failed to subscribe to newsletter live updates: %w", err)
+	}
+	_, currentAccount := source()
+	if currentAccount != account {
+		return LiveUpdatesStatus{}, errLiveUpdatesAccountChanged
 	}
 
 	if existing := m.subs[deviceID][jid.String()]; existing != nil {
@@ -170,9 +194,14 @@ func (m *newsletterLiveUpdatesManager) subscribe(ctx context.Context, deviceID s
 func (m *newsletterLiveUpdatesManager) unsubscribe(deviceID string, jid types.JID) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	pending := m.pending[deviceID][jid.String()]
+	delete(m.pending[deviceID], jid.String())
+	if len(m.pending[deviceID]) == 0 {
+		delete(m.pending, deviceID)
+	}
 	sub := m.subs[deviceID][jid.String()]
 	if sub == nil {
-		return false
+		return pending != nil
 	}
 	close(sub.stop)
 	delete(m.subs[deviceID], jid.String())
@@ -185,7 +214,7 @@ func (m *newsletterLiveUpdatesManager) unsubscribe(deviceID string, jid types.JI
 func (m *newsletterLiveUpdatesManager) stopDevice(deviceID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.generation[deviceID]++
+	delete(m.pending, deviceID)
 	for _, sub := range m.subs[deviceID] {
 		close(sub.stop)
 	}
@@ -242,7 +271,7 @@ func (m *newsletterLiveUpdatesManager) renewLoop(deviceID string, sub *liveUpdat
 		}
 		if err != nil {
 			failures++
-			delay = liveUpdatesBackoff(failures)
+			delay = sub.retryDelay(m.now(), failures)
 			sub.recordFailure(err)
 			logrus.Warnf("Newsletter live updates renewal failed for %s on device %s (retry in %s): %v", sub.jid, deviceID, delay, err)
 			continue
@@ -338,4 +367,14 @@ func (s *liveUpdatesSubscription) status() LiveUpdatesStatus {
 		RenewedAt:     s.renewedAt,
 		LastError:     s.lastError,
 	}
+}
+
+func (s *liveUpdatesSubscription) retryDelay(now time.Time, failures int) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delay := liveUpdatesBackoff(failures)
+	if remaining := s.expiresAt.Sub(now); remaining > 0 {
+		delay = min(delay, remaining)
+	}
+	return max(delay, liveUpdatesMinRenewDelay)
 }
