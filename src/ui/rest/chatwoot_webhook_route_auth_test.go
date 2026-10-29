@@ -290,8 +290,8 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 			// Same answer as a wrong secret, so the status does not reveal
 			// which inboxes are mapped to a protected device.
 			{name: "unsigned reply for an unknown inbox", inbox: 99, want: 401},
-			// A device with no secret at all is unauthenticated by configuration.
-			{name: "unsigned reply for a device without any secret", inbox: 4, want: 200, wantSend: "open" + toContact},
+			// An empty effective secret is rejected unless the unsigned opt-in is set.
+			{name: "unsigned reply for a device without any secret", inbox: 4, want: 401},
 		})
 	})
 
@@ -341,19 +341,39 @@ func TestChatwootSharedWebhookEnforcesRoutedDeviceSecret(t *testing.T) {
 		})
 	})
 
-	// Events nothing is done for are acknowledged as before.
-	t.Run("ignored events without a global secret stay acknowledged", func(t *testing.T) {
+	// Events nothing is done for still require a secret. The explicit opt-in
+	// acknowledges them again, but a device that has its own secret stays closed.
+	t.Run("ignored events without a global secret are rejected", func(t *testing.T) {
 		f := newRouteAuthFixture(t, "")
 		for _, body := range []string{
 			`{"event":"conversation_updated","account":{"id":1}}`,
 			`{"event":"message_created","message_type":"incoming","id":1,"account":{"id":1},"conversation":{"id":5,"inbox_id":2}}`,
 		} {
-			if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusOK {
-				t.Errorf("status = %d for %s, want 200", got, body)
+			if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusUnauthorized {
+				t.Errorf("status = %d for %s, want 401", got, body)
 			}
 		}
 		if sends := f.send.taken(); len(sends) != 0 {
 			t.Errorf("sent %v, want nothing sent", sends)
+		}
+	})
+
+	t.Run("unsigned opt-in acknowledges events with no effective secret", func(t *testing.T) {
+		prev := config.ChatwootWebhookAllowUnsigned
+		config.ChatwootWebhookAllowUnsigned = true
+		t.Cleanup(func() { config.ChatwootWebhookAllowUnsigned = prev })
+
+		f := newRouteAuthFixture(t, "")
+		body := `{"event":"conversation_updated","account":{"id":1}}`
+		if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: body}); got != fiber.StatusOK {
+			t.Fatalf("status = %d, want 200 when unsigned webhooks are enabled", got)
+		}
+		protected := `{"event":"message_created","message_type":"outgoing","id":77,"content":"hi","account":{"id":1},"conversation":{"id":5,"inbox_id":2,"meta":{"sender":{"phone_number":"+628999999999"}}}}`
+		if got := postChatwootWebhook(t, f.app, webhookAuthRequest{body: protected}); got != fiber.StatusUnauthorized {
+			t.Fatalf("protected device status = %d, want 401 even when the unsigned opt-in is on", got)
+		}
+		if sends := f.send.taken(); len(sends) != 0 {
+			t.Fatalf("sent %v, want nothing sent", sends)
 		}
 	})
 }

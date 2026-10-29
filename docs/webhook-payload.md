@@ -132,7 +132,7 @@ All webhook requests include an HMAC SHA256 signature for security verification:
 - **Header**: `X-Hub-Signature-256`
 - **Format**: `sha256={signature}`
 - **Algorithm**: HMAC SHA256
-- **Default Secret**: `secret` (configurable via `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`)
+- **Secret**: set `WHATSAPP_WEBHOOK_SECRET` or `--webhook-secret` to a private value. The old published default `secret` is not a signing key. When the secret is unset, the process generates a random key that changes on restart and logs a warning.
 
 ### Verification Example (Node.js)
 
