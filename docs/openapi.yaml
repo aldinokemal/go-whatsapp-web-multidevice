@@ -4148,7 +4148,7 @@ paths:
         Returns the channel metadata (name, description, subscribers count,
         verification, picture, invite code, state). Provide exactly one of
         `newsletter_id` or `invite`. Neither requires following the channel;
-        `viewer_metadata` is only present for channels the account follows.
+        `viewer_metadata` is null when WhatsApp does not return viewer-specific metadata.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
         - name: newsletter_id
@@ -6065,6 +6065,8 @@ components:
                       example: "ALL"
         viewer_metadata:
           type: object
+          nullable: true
+          description: Null when viewer-specific metadata is unavailable.
           properties:
             mute:
               type: string

@@ -188,7 +188,7 @@ Download:
   | `label.association`  | Label applied to or removed from a chat       |
   | `newsletter.joined`  | You subscribed to a newsletter/channel        |
   | `newsletter.left`    | You unsubscribed from a newsletter            |
-  | `newsletter.message` | Live counter updates of a subscribed newsletter |
+  | `newsletter.message` | Live counter updates from an active `/newsletter/live-updates` subscription |
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
   | `device.logged_out`  | The device was logged out, with the reason    |
