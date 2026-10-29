@@ -172,6 +172,7 @@ func TestUpdateMessageRejectsMediaTypeOfAnotherStoredType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// newMessageActionTestService already stores message-1, a text message.
 			service, repo, ctx := newMessageActionTestService(t, nil)
 			image := storedMediaMessage("image-1", "image", "photo.jpg")
 			document := storedMediaMessage("document-1", "document", "invoice.pdf")
