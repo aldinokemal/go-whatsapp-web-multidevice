@@ -33,10 +33,11 @@ var sensitiveKeySubstrings = []string{
 // webhook list starts.
 var urlScheme = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://`)
 
-// secretQueryParam matches a query parameter whose name looks secret. The
-// value runs to the next '&', '#' or whitespace because commas are legal in
-// it, so a later URL in the same comma-separated list is masked with it.
-var secretQueryParam = regexp.MustCompile(`(?i)([?&][^?&=#\s]*(?:secret|token|password|passwd|key|sig|auth|credential)[^?&=#\s]*=)[^&#\s]*`)
+// queryParamName matches a query separator and parameter name up to its '='.
+var queryParamName = regexp.MustCompile(`[?&]([^?&=#\s]*)=`)
+
+// secretQueryName matches a query parameter name that looks secret.
+var secretQueryName = regexp.MustCompile(`(?i)secret|token|password|passwd|key|sig|auth|credential`)
 
 // RedactSettings returns a deep copy of a Viper AllSettings map safe to print
 // at startup. Key names are preserved. Secret values become "***". Other
@@ -158,7 +159,34 @@ func redactURLSecretsInText(s string) string {
 		return s
 	}
 	s = maskURLUserinfo(s)
-	return secretQueryParam.ReplaceAllString(s, "${1}"+redactedSecret)
+	return maskSecretQueryValues(s)
+}
+
+// maskSecretQueryValues masks the value of each query parameter whose name
+// looks secret as written or percent-decoded, keeping the rest of the text.
+// The value runs to the next '&', '#' or whitespace because commas are legal
+// in it, so a later URL in the same comma-separated list is masked with it.
+func maskSecretQueryValues(s string) string {
+	var b strings.Builder
+	prev := 0
+	for _, m := range queryParamName.FindAllStringSubmatchIndex(s, -1) {
+		if m[0] < prev {
+			continue // inside a value that is already masked
+		}
+		name := s[m[2]:m[3]]
+		decoded, _ := url.QueryUnescape(name)
+		if !secretQueryName.MatchString(name) && !secretQueryName.MatchString(decoded) {
+			continue
+		}
+		b.WriteString(s[prev:m[1]])
+		b.WriteString(redactedSecret)
+		prev = len(s)
+		if end := strings.IndexAny(s[m[1]:], "&#\t\n\f\r "); end >= 0 {
+			prev = m[1] + end
+		}
+	}
+	b.WriteString(s[prev:])
+	return b.String()
 }
 
 // maskURLUserinfo masks everything between "://" and the last '@' before the
@@ -245,7 +273,12 @@ func manualProxySchemeHost(s string) (scheme, host string) {
 
 func cutHostToken(rest string) string {
 	if i := strings.IndexAny(rest, "/?# \t\r\n\"'"); i >= 0 {
-		return rest[:i]
+		rest = rest[:i]
+	}
+	// Drop a port that is not all digits: it may be a secret. A ':' before the
+	// last ']' belongs to an IPv6 literal.
+	if i := strings.LastIndexByte(rest, ':'); i > strings.LastIndexByte(rest, ']') && !isAllDigits(rest[i+1:]) {
+		rest = rest[:i]
 	}
 	return rest
 }
@@ -297,13 +330,13 @@ func safeProxyHost(host string) bool {
 		if end == len(host)-1 {
 			return true
 		}
-		return host[end+1] == ':' && host[end+2:] != ""
+		return host[end+1] == ':' && isAllDigits(host[end+2:])
 	}
 	if strings.Count(host, ":") > 1 {
 		return false
 	}
 	name, port, hasPort := strings.Cut(host, ":")
-	if name == "" || (hasPort && port == "") {
+	if name == "" || (hasPort && !isAllDigits(port)) {
 		return false
 	}
 	plausibleName := name == "localhost" || strings.Contains(name, ".") || isAllDigits(name)

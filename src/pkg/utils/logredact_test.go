@@ -182,6 +182,23 @@ func TestRedactSettingsMasksSecretQueryValues(t *testing.T) {
 	}
 }
 
+func TestRedactSettingsMasksPercentEncodedSecretQueryNames(t *testing.T) {
+	got := RedactSettings(map[string]any{
+		"whatsapp_webhook": "https://hooks.example/?to%6Ben=LIVE_TOKEN",
+		"chatwoot_url":     "https://chat.example/?a%20b=1,https://hooks.example/in?p%61ssword=LIVE&x=1",
+		"bad_escape_url":   "https://hooks.example/?token%zz=LIVE&ok=%zz",
+	})
+	for key, want := range map[string]string{
+		"whatsapp_webhook": "https://hooks.example/?to%6Ben=***",
+		"chatwoot_url":     "https://chat.example/?a%20b=1,https://hooks.example/in?p%61ssword=***&x=1",
+		"bad_escape_url":   "https://hooks.example/?token%zz=***&ok=%zz",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %#v, want %q", key, got[key], want)
+		}
+	}
+}
+
 func TestRedactSettingsKeepsOAuthSettingsAndEmptySecrets(t *testing.T) {
 	got := RedactSettings(map[string]any{
 		"mcp_oauth_enabled":      true,
@@ -259,5 +276,18 @@ func TestFormatProxyParseFailureCredentialOnlyURL(t *testing.T) {
 	}
 	if !strings.Contains(logged, "scheme=http") || !strings.Contains(logged, "parse failure") {
 		t.Fatalf("expected scheme and parse failure, got %q", logged)
+	}
+}
+
+func TestFormatProxyParseFailureDropsNonNumericPort(t *testing.T) {
+	for raw, want := range map[string]string{
+		"ftp://example.com:supersecret":                   "scheme=ftp host=example.com: parse failure",
+		"socks5://user:pass@[::1]:supersecret":            "scheme=socks5 host=[::1]: parse failure",
+		"socks5://user:pass@[::1]:supersecret]:x":         "scheme=socks5: parse failure",
+		"socks5://user:pass@proxy.example:supersecret]:x": "scheme=socks5: parse failure",
+	} {
+		if got := FormatProxyParseFailure(raw); got != want {
+			t.Fatalf("FormatProxyParseFailure(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }

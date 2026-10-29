@@ -336,6 +336,8 @@ func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
 	evt := textEventForTest("log-newline-1\nINFO forged-id", types.StatusBroadcastJID)
 	evt.Info.PushName = pushName
 	evt.Info.Sender = types.NewJID("62811\n999", types.DefaultUserServer)
+	// The protobuf text format keeps U+2028 and U+2029 in the body unescaped.
+	evt.Message.Conversation = protoString("body\u2028INFO forged-body\u2029")
 
 	handleMessage(context.Background(), evt, &messageHandlerRepoSpy{}, nil)
 
@@ -371,6 +373,9 @@ func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
 	}
 	if !strings.Contains(record, `62811\n999`) {
 		t.Fatalf("sender jid was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `body\u2028INFO forged-body\u2029`) {
+		t.Fatalf("message body was not escaped onto the same line: %q", record)
 	}
 	if evt.Info.PushName != pushName {
 		t.Fatalf("push name was mutated: %q", evt.Info.PushName)
