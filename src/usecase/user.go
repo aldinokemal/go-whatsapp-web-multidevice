@@ -410,6 +410,10 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 }
 
 func (service serviceUser) SubscribePresence(ctx context.Context, request domainUser.SubscribePresenceRequest) (response domainUser.SubscribePresenceResponse, err error) {
+	if err = validations.ValidateSubscribePresence(ctx, request); err != nil {
+		return response, err
+	}
+
 	client := whatsapp.ClientFromContext(ctx)
 	if client == nil {
 		return response, pkgError.ErrWaCLI
