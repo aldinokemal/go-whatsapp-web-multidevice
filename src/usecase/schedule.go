@@ -575,8 +575,12 @@ func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.Sc
 	if err != nil {
 		var validationErr pkgError.ValidationError
 		if errors.As(err, &validationErr) || errors.Is(err, errScheduledPayload) {
-			_ = s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error())
-			s.cleanupAssets(job)
+			if failErr := s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error()); failErr != nil {
+				return failErr
+			}
+			if !s.stillPending(job) {
+				s.cleanupAssets(job)
+			}
 			return err
 		}
 		if job.Attempts+1 >= scheduleMaxAttempts {
@@ -606,8 +610,8 @@ func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.Sc
 }
 
 // stillPending reports whether the job is still to be sent by another worker:
-// this one's lease lapsed during the send, so its completion was not recorded
-// and the worker that took the job over needs the media to resend it.
+// this one's lease lapsed, so its terminal transition may not have been recorded.
+// Terminal jobs cannot be resumed; active, running, and paused jobs need media.
 func (s *ScheduleService) stillPending(job *domainChatStorage.ScheduledSend) bool {
 	stored, err := s.repo.GetScheduledSend(job.DeviceID, job.ID)
 	if err != nil {
@@ -635,9 +639,13 @@ func (s *ScheduleService) skipOccurrence(job *domainChatStorage.ScheduledSend, r
 	if next, ok := s.nextRun(job, job.OccurrenceCount); ok {
 		return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, 0, next)
 	}
-	err := s.repo.FailScheduledSend(job.ID, job.LeaseToken, reason)
-	s.cleanupAssets(job)
-	return err
+	if err := s.repo.FailScheduledSend(job.ID, job.LeaseToken, reason); err != nil {
+		return err
+	}
+	if !s.stillPending(job) {
+		s.cleanupAssets(job)
+	}
+	return nil
 }
 
 func (s *ScheduleService) nextRun(job *domainChatStorage.ScheduledSend, count int) (time.Time, bool) {
