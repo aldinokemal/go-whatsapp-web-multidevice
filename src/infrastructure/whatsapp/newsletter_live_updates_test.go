@@ -3,13 +3,21 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 type fakeLiveUpdatesClient struct {
@@ -233,4 +241,286 @@ func TestLiveUpdatesResubscribeAfterStop(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.stopDevice("device-a")
 	assert.Len(t, manager.list("device-a"), 1)
+}
+
+func TestLiveUpdatesConnectedRenewsReconciledStartupSlot(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+	adA := types.NewADJID("6281777000099", types.WhatsAppDomain, 28)
+	adB := types.NewADJID(adA.User, types.WhatsAppDomain, 32)
+	require.NoError(t, newTestStoreDevice(container, adA, "").Save(ctx))
+	storage := &registryStubStorage{records: []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", JID: adA.ToNonAD().String(), ADJID: adA.String()},
+		{DeviceID: "slot-b", JID: adB.ToNonAD().String(), ADJID: adB.String()},
+	}}
+	globalStateMu.Lock()
+	oldManager, oldClient, oldDB, oldKeys := deviceManager, cli, db, keysDB
+	deviceManager = nil
+	globalStateMu.Unlock()
+	oldNewsletter := newsletterLiveUpdates
+	newsletterLiveUpdates = newNewsletterLiveUpdatesManager()
+	oldOS, oldPlatform := store.DeviceProps.Os, store.DeviceProps.PlatformType
+	oldChatwoot := config.ChatwootEnabled
+	config.ChatwootEnabled = false
+	t.Cleanup(func() {
+		newsletterLiveUpdates.stopDevice("slot-a")
+		newsletterLiveUpdates.stopDevice("slot-b")
+		newsletterLiveUpdates = oldNewsletter
+		config.ChatwootEnabled = oldChatwoot
+		store.DeviceProps.Os, store.DeviceProps.PlatformType = oldOS, oldPlatform
+		globalStateMu.Lock()
+		deviceManager, cli, db, keysDB = oldManager, oldClient, oldDB, oldKeys
+		globalStateMu.Unlock()
+	})
+	client := InitWaCLI(ctx, container, nil, storage)
+	dispatch := registeredNewsletterEventHandler(t, client)
+	require.NoError(t, newTestStoreDevice(container, adB, "").Save(ctx))
+	manager := GetDeviceManager()
+	startup, ok := manager.GetDevice(adA.String())
+	require.True(t, ok)
+	require.NoError(t, manager.LoadExistingDevices(ctx))
+	current, ok := manager.GetDevice("slot-a")
+	require.True(t, ok)
+	require.NotSame(t, startup, current)
+	require.Same(t, client, current.GetClient())
+	sibling, err := manager.EnsureClient(ctx, "slot-b")
+	require.NoError(t, err)
+	siblingDispatch := registeredNewsletterEventHandler(t, sibling.GetClient())
+	fakeA, fakeB := newFakeLiveUpdatesClient(time.Hour), newFakeLiveUpdatesClient(time.Hour)
+	for slot, fake := range map[string]*fakeLiveUpdatesClient{"slot-a": fakeA, "slot-b": fakeB} {
+		_, err := newsletterLiveUpdates.subscribe(ctx, slot, testNewsletterJID, sourceOf(fake))
+		require.NoError(t, err)
+		waitCall(t, fake)
+	}
+	dispatch(&events.Connected{})
+	waitCall(t, fakeA)
+	assert.Equal(t, 2, fakeA.callCount())
+	assert.Equal(t, 1, fakeB.callCount())
+
+	dispatch(&events.PushNameSetting{})
+	select {
+	case <-fakeA.called:
+		t.Fatal("pushname update must not renew subscriptions")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	siblingDispatch(&events.Connected{})
+	waitCall(t, fakeB)
+	assert.Equal(t, 2, fakeB.callCount())
+	assert.Equal(t, 2, fakeA.callCount())
+
+	current.SetClient(whatsmeow.NewClient(newTestStoreDevice(container, adA, ""), nil))
+	dispatch(&events.Connected{})
+	select {
+	case <-fakeA.called:
+		t.Fatal("obsolete client must not renew replacement client's subscriptions")
+	case <-fakeB.called:
+		t.Fatal("obsolete client must not renew sibling subscriptions")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// whatsmeow does not expose dispatch. Read the registered callback to verify the
+// production registration, without opening a connection or recreating its closure.
+func registeredNewsletterEventHandler(t *testing.T, client *whatsmeow.Client) func(any) {
+	t.Helper()
+	handlers := reflect.ValueOf(client).Elem().FieldByName("eventHandlers")
+	require.True(t, handlers.IsValid())
+	require.Equal(t, 1, handlers.Len(), "client must register exactly one event handler")
+	field := handlers.Index(0).FieldByName("fn")
+	require.True(t, field.IsValid())
+	require.Equal(t, reflect.TypeOf((whatsmeow.EventHandlerWithSuccessStatus)(nil)), field.Type())
+	callback := *(*whatsmeow.EventHandlerWithSuccessStatus)(unsafe.Pointer(field.UnsafeAddr()))
+	return func(event any) { require.True(t, callback(event)) }
+}
+
+func TestLiveUpdatesUnsubscribeDiscardsPendingGrant(t *testing.T) {
+	for _, active := range []bool{false, true} {
+		t.Run(fmt.Sprint("active=", active), func(t *testing.T) {
+			manager := newNewsletterLiveUpdatesManager()
+			defer manager.stopDevice("device-a")
+			defer manager.stopDevice("device-b")
+			client := newFakeLiveUpdatesClient(time.Hour)
+			if active {
+				_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+				require.NoError(t, err)
+				waitCall(t, client)
+			}
+			block := make(chan struct{})
+			client.block = block
+			defer func() {
+				select {
+				case <-block:
+				default:
+					close(block)
+				}
+			}()
+			result := make(chan error, 1)
+			go func() {
+				_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+				result <- err
+			}()
+			waitCall(t, client)
+			require.True(t, manager.unsubscribe("device-a", testNewsletterJID))
+			require.False(t, manager.unsubscribe("device-a", testNewsletterJID))
+			sibling := newFakeLiveUpdatesClient(2 * time.Hour)
+			_, err := manager.subscribe(context.Background(), "device-b", testNewsletterJID, sourceOf(sibling))
+			require.NoError(t, err)
+			fresh := newFakeLiveUpdatesClient(3 * time.Hour)
+			fresh.block = make(chan struct{})
+			freshResult := make(chan error, 1)
+			go func() {
+				_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(fresh))
+				freshResult <- err
+			}()
+			waitCall(t, fresh)
+			close(block)
+			select {
+			case err := <-result:
+				require.Error(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("subscribe did not return")
+			}
+			close(fresh.block)
+			select {
+			case err := <-freshResult:
+				require.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("fresh subscribe did not return")
+			}
+			require.Len(t, manager.list("device-a"), 1)
+			assert.Equal(t, 3*time.Hour, manager.list("device-a")[0].Duration)
+			assert.Equal(t, 2*time.Hour, manager.list("device-b")[0].Duration)
+		})
+	}
+}
+
+func TestLiveUpdatesRetryDelay(t *testing.T) {
+	now := time.Unix(1000, 0)
+	for _, tc := range []struct {
+		name      string
+		remaining time.Duration
+		failures  int
+		want      time.Duration
+	}{
+		{"ninety second grant at renewal", 18 * time.Second, 1, 18 * time.Second},
+		{"timeout near expiry", 3 * time.Second, 1, 5 * time.Second},
+		{"long grant", 10 * time.Minute, 2, time.Minute},
+		{"expired", 0, 2, time.Minute},
+		{"long expired", -time.Hour, 20, 5 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := &liveUpdatesSubscription{expiresAt: now.Add(tc.remaining)}
+			assert.Equal(t, tc.want, sub.retryDelay(now, tc.failures))
+		})
+	}
+}
+
+func TestLiveUpdatesPendingRequestsCleanup(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint("fail=", fail), func(t *testing.T) {
+			manager := newNewsletterLiveUpdatesManager()
+			defer manager.stopDevice("device-a")
+			client := newFakeLiveUpdatesClient(time.Hour)
+			client.block = make(chan struct{})
+			if fail {
+				client.err = errors.New("upstream unavailable")
+			}
+			result := make(chan error, 2)
+			for range 2 {
+				go func() {
+					_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+					result <- err
+				}()
+			}
+			waitCall(t, client)
+			waitCall(t, client)
+			close(client.block)
+			for range 2 {
+				select {
+				case err := <-result:
+					if fail {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("subscribe did not return")
+				}
+			}
+			manager.mu.Lock()
+			assert.Empty(t, manager.pending)
+			manager.mu.Unlock()
+			if fail {
+				assert.Empty(t, manager.list("device-a"))
+			} else {
+				assert.Len(t, manager.list("device-a"), 1)
+			}
+		})
+	}
+}
+
+func TestLiveUpdatesPendingGrantRejectsAccountChange(t *testing.T) {
+	manager := newNewsletterLiveUpdatesManager()
+	defer manager.stopDevice("device-a")
+	client := newFakeLiveUpdatesClient(time.Hour)
+	client.block = make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+		result <- err
+	}()
+	waitCall(t, client)
+	client.mu.Lock()
+	client.account = "628999@s.whatsapp.net"
+	client.mu.Unlock()
+	close(client.block)
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, errLiveUpdatesAccountChanged)
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscribe did not return")
+	}
+	assert.Empty(t, manager.list("device-a"))
+	assert.Empty(t, manager.pending)
+}
+
+func TestLiveUpdatesCanceledRequestsDoNotRestartRenewal(t *testing.T) {
+	manager := newNewsletterLiveUpdatesManager()
+	defer manager.stopDevice("device-a")
+	client := newFakeLiveUpdatesClient(time.Hour)
+	_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+	require.NoError(t, err)
+	waitCall(t, client)
+	client.mu.Lock()
+	client.block = make(chan struct{})
+	client.mu.Unlock()
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := manager.subscribe(context.Background(), "device-a", testNewsletterJID, sourceOf(client))
+			results <- err
+		}()
+	}
+	waitCall(t, client)
+	waitCall(t, client)
+	require.True(t, manager.unsubscribe("device-a", testNewsletterJID))
+	close(client.block)
+	for range 2 {
+		select {
+		case err := <-results:
+			require.Error(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("subscribe did not return")
+		}
+	}
+	assert.Empty(t, manager.list("device-a"))
+	assert.Empty(t, manager.pending)
+	manager.renewDevice("device-a")
+	select {
+	case <-client.called:
+		t.Fatal("canceled subscription renewed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assert.Equal(t, 3, client.callCount())
 }

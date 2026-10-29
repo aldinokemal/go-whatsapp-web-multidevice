@@ -197,6 +197,9 @@ func initEnvConfig() {
 		}
 		config.WhatsappWebhookIgnoreJids = jids
 	}
+	if !rootCmd.PersistentFlags().Changed("webhook-all-device-receipts") && viper.IsSet("whatsapp_webhook_all_device_receipts") {
+		config.WhatsappWebhookAllDeviceReceipts = viper.GetBool("whatsapp_webhook_all_device_receipts")
+	}
 	if viper.IsSet("whatsapp_webhook_device_merge_global") {
 		config.WhatsappWebhookDeviceMergeGlobal = viper.GetBool("whatsapp_webhook_device_merge_global")
 	}
@@ -482,6 +485,12 @@ func initFlags() {
 		"webhook-ignore-jids", "",
 		config.WhatsappWebhookIgnoreJids,
 		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookAllDeviceReceipts,
+		"webhook-all-device-receipts", "",
+		config.WhatsappWebhookAllDeviceReceipts,
+		`forward receipts from all linked devices instead of only the primary device --webhook-all-device-receipts <true/false> | example: --webhook-all-device-receipts=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookDeviceMergeGlobal,
