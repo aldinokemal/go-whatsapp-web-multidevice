@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
@@ -112,6 +113,65 @@ func TestValidateGetNewsletterMessages(t *testing.T) {
 			if tt.wantBefore != 0 {
 				assert.Equal(t, tt.wantBefore, req.Before)
 			}
+		})
+	}
+}
+
+func TestValidateDownloadNewsletterMedia(t *testing.T) {
+	tests := []struct {
+		name    string
+		request domainNewsletter.DownloadMediaRequest
+		err     any
+	}{
+		{
+			name: "should accept valid request",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@newsletter",
+				ServerID:     8872,
+			},
+		},
+		{
+			name:    "should reject empty newsletter id",
+			request: domainNewsletter.DownloadMediaRequest{ServerID: 8872},
+			err:     pkgError.ValidationError("newsletter_id: cannot be blank."),
+		},
+		{
+			name: "should reject non-newsletter jid",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@g.us",
+				ServerID:     8872,
+			},
+			err: pkgError.ValidationError("newsletter_id: must end with @newsletter."),
+		},
+		{
+			name: "should reject zero server id",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@newsletter",
+			},
+			err: pkgError.ValidationError("server_id: must be no less than 1."),
+		},
+		{
+			name: "should reject negative server id",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@newsletter",
+				ServerID:     -1,
+			},
+			err: pkgError.ValidationError("server_id: must be no less than 1."),
+		},
+		{
+			name: "should reject server id that would overflow lookup boundary",
+			request: domainNewsletter.DownloadMediaRequest{
+				NewsletterID: "120363123456789@newsletter",
+				ServerID:     math.MaxInt,
+			},
+			err: pkgError.ValidationError("server_id: must be less than the maximum integer value."),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateDownloadNewsletterMedia(context.Background(), tt.request)
+			assert.Equal(t, tt.err, err)
 		})
 	}
 }

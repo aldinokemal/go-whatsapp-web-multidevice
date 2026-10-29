@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -15,21 +18,120 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
+type markReadFunc func(context.Context, *whatsmeow.Client, []types.MessageID, time.Time, types.JID, types.JID, ...types.ReceiptType) error
+
 type serviceMessage struct {
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+	validateJIDFn   func(client *whatsmeow.Client, jid string) (types.JID, error)
+	markReadFn      markReadFunc
+	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
+	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
 }
 
 func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
 	return &serviceMessage{
 		chatStorageRepo: chatStorageRepo,
 	}
+}
+
+func (service serviceMessage) validateJID(client *whatsmeow.Client, jid string) (types.JID, error) {
+	if service.validateJIDFn != nil {
+		return service.validateJIDFn(client, jid)
+	}
+	return utils.ValidateJidWithLogin(client, jid)
+}
+
+func (service serviceMessage) sendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error) {
+	if service.sendMessageFn != nil {
+		return service.sendMessageFn(ctx, client, recipient, message)
+	}
+	return client.SendMessage(ctx, recipient, message)
+}
+
+func (service serviceMessage) markRead(ctx context.Context, client *whatsmeow.Client, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error {
+	if service.markReadFn != nil {
+		return service.markReadFn(ctx, client, ids, timestamp, chat, sender, receiptTypeExtra...)
+	}
+	return client.MarkRead(ctx, ids, timestamp, chat, sender, receiptTypeExtra...)
+}
+
+func (service serviceMessage) sendAppState(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error {
+	if service.sendAppStateFn != nil {
+		return service.sendAppStateFn(ctx, client, patch)
+	}
+	return client.SendAppState(ctx, patch)
+}
+
+func (service serviceMessage) deleteStoredMessage(ctx context.Context, client *whatsmeow.Client, messageID, chatJID string) error {
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+		deviceID = client.Store.ID.ToNonAD().String()
+	}
+	if deviceID == "" {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be deleted without a device ID", messageID)
+	}
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be deleted without chat storage", messageID)
+	}
+	if err := service.chatStorageRepo.DeleteMessageByDevice(deviceID, messageID, chatJID); err != nil {
+		return fmt.Errorf("WhatsApp action succeeded, but failed to delete local message %s: %w", messageID, err)
+	}
+	return nil
+}
+
+// storedMessageForAction loads the calling device's own copy of a message in
+// one chat. Each device stores its own row for a message, and the rows differ:
+// the sender's copy is "from me", a recipient's is not, and only a device that
+// received the message holds its media keys. A lookup by ID alone can return
+// another device's row, so it must never back a user-facing action.
+func (service serviceMessage) storedMessageForAction(ctx context.Context, chatJID types.JID, messageID string) (*domainChatStorage.Message, error) {
+	if service.chatStorageRepo == nil {
+		return nil, nil
+	}
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
+		return nil, fmt.Errorf("device identification required")
+	}
+	return service.chatStorageRepo.GetMessageByIDChatAndDevice(deviceID, chatJID.ToNonAD().String(), messageID)
+}
+
+func isGroupReadSenderServer(server string) bool {
+	switch server {
+	case types.DefaultUserServer, types.HiddenUserServer, types.LegacyUserServer, types.MessengerServer:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeGroupReadSender(ctx context.Context, client *whatsmeow.Client, rawSender string, messageID string) (types.JID, error) {
+	if rawSender == "" {
+		return types.JID{}, fmt.Errorf("sender is missing for group message %s", messageID)
+	}
+
+	senderJID, err := utils.ParseJID(rawSender)
+	if err != nil {
+		return types.JID{}, fmt.Errorf("failed to parse sender for message %s: %w", messageID, err)
+	}
+	senderJID = senderJID.ToNonAD()
+
+	if senderJID.Server == types.HiddenUserServer {
+		senderJID = utils.ResolveLIDToPhone(ctx, senderJID, client).ToNonAD()
+	}
+	if senderJID.User == "" || !isGroupReadSenderServer(senderJID.Server) {
+		return types.JID{}, fmt.Errorf("invalid sender JID %s for group message %s", senderJID.String(), messageID)
+	}
+	return senderJID, nil
 }
 
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
@@ -42,25 +144,126 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	chatJID, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
+	senderJID := client.Store.ID.ToNonAD()
+	if chatJID.Server == types.GroupServer {
+		if service.chatStorageRepo == nil {
+			return response, fmt.Errorf("cannot mark message %s as read without chat storage", request.MessageID)
+		}
+
+		message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+			deviceIDFromContext(ctx),
+			chatJID.ToNonAD().String(),
+			request.MessageID,
+		)
+		if lookupErr != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, lookupErr)
+		}
+		if message == nil {
+			return response, fmt.Errorf(
+				"message with ID %s not found for current device and chat %s",
+				request.MessageID,
+				chatJID.ToNonAD().String(),
+			)
+		}
+
+		if !message.IsFromMe {
+			senderJID, err = normalizeGroupReadSender(ctx, client, message.Sender, request.MessageID)
+			if err != nil {
+				return response, err
+			}
+		}
+	}
+
 	ids := []types.MessageID{request.MessageID}
-	if err = client.MarkRead(ctx, ids, time.Now(), dataWaRecipient, *client.Store.ID); err != nil {
+	if err = service.markRead(ctx, client, ids, time.Now(), chatJID, senderJID); err != nil {
 		return response, err
 	}
 
 	logrus.Info(map[string]any{
 		"phone":      request.Phone,
 		"message_id": request.MessageID,
-		"chat":       dataWaRecipient.String(),
-		"sender":     client.Store.ID.String(),
+		"chat":       chatJID.String(),
+		"sender":     senderJID.String(),
 	})
 
 	response.MessageID = request.MessageID
 	response.Status = fmt.Sprintf("Mark as read success %s", request.MessageID)
+	return response, nil
+}
+
+func (service serviceMessage) MarkAsPlayed(ctx context.Context, request domainMessage.MarkAsPlayedRequest) (response domainMessage.GenericResponse, err error) {
+	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	chatJID, err := service.validateJID(client, request.Phone)
+	if err != nil {
+		return response, err
+	}
+
+	if service.chatStorageRepo == nil {
+		return response, fmt.Errorf("cannot mark message %s as played without chat storage", request.MessageID)
+	}
+	message, err := service.chatStorageRepo.GetMessageByIDAndDevice(deviceIDFromContext(ctx), request.MessageID)
+	if err != nil {
+		return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+	}
+	if message == nil {
+		return response, fmt.Errorf("message with ID %s not found for current device", request.MessageID)
+	}
+	storedChatJID, err := utils.ParseJID(message.ChatJID)
+	if err != nil {
+		return response, fmt.Errorf("failed to parse chat for message %s: %w", request.MessageID, err)
+	}
+	if storedChatJID.ToNonAD().String() != chatJID.ToNonAD().String() {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s does not belong to chat %s", request.MessageID, chatJID.ToNonAD().String()))
+	}
+	if message.MediaType != "audio" && message.MediaType != "ptt" {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s is not an audio message", request.MessageID))
+	}
+	if message.IsFromMe {
+		return response, pkgError.ValidationError(fmt.Sprintf("message %s is not an incoming message", request.MessageID))
+	}
+
+	senderJID, err := utils.ParseJID(message.Sender)
+	if err != nil {
+		return response, fmt.Errorf("failed to parse sender for message %s: %w", request.MessageID, err)
+	}
+	if chatJID.Server == types.GroupServer && senderJID.User == "" {
+		return response, fmt.Errorf("sender is missing for group message %s", request.MessageID)
+	}
+	if err = service.markRead(
+		ctx,
+		client,
+		[]types.MessageID{request.MessageID},
+		time.Now(),
+		chatJID,
+		senderJID,
+		types.ReceiptTypePlayed,
+	); err != nil {
+		return response, err
+	}
+
+	logrus.Info(map[string]any{
+		"phone":        request.Phone,
+		"message_id":   request.MessageID,
+		"chat":         chatJID.String(),
+		"sender":       senderJID.String(),
+		"receipt_type": types.ReceiptTypePlayed,
+	})
+
+	response.MessageID = request.MessageID
+	response.Status = fmt.Sprintf("Mark as played success %s", request.MessageID)
 	return response, nil
 }
 
@@ -74,7 +277,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -84,7 +287,13 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// Participant field for group chats — required by the WhatsApp protocol.
 	// An empty JID means "message was from me".
 	senderJID := types.EmptyJID
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// IsFromMe is relative to the receiving device, so another device's copy
+	// of the same message cannot determine the reaction's sender.
+	message, err := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if err != nil {
 		logrus.Warnf("Failed to lookup message %s for reaction: %v, using heuristic", request.MessageID, err)
 		if len(request.MessageID) > 22 {
@@ -108,7 +317,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// BuildReaction correctly constructs the MessageKey with Participant field
 	// for group chats, which is required for the reaction to be delivered.
 	msg := client.BuildReaction(dataWaRecipient, senderJID, request.MessageID, request.Emoji)
-	ts, err := client.SendMessage(ctx, dataWaRecipient, msg)
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, msg)
 	if err != nil {
 		return response, err
 	}
@@ -128,7 +337,7 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -136,11 +345,14 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	// Resolve the original sender so group admins can revoke other members'
 	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
 	// any other JID is admin-revoke and requires the bot to be group admin.
-	// WhatsApp message IDs are globally unique, so a cross-device lookup
-	// via GetMessageByID yields the same sender regardless of which device
-	// owns the row.
+	// IsFromMe belongs to a device's copy of the message, so resolve it
+	// within the current device and chat before choosing self- or admin-revoke.
 	senderJID := types.EmptyJID
-	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if lookupErr != nil {
 		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
 	} else if message != nil && !message.IsFromMe && message.Sender != "" {
@@ -154,8 +366,11 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 		}
 	}
 
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildRevoke(dataWaRecipient, senderJID, request.MessageID))
 	if err != nil {
+		return response, err
+	}
+	if err := service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String()); err != nil {
 		return response, err
 	}
 
@@ -174,7 +389,7 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 		return pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return err
 	}
@@ -198,8 +413,78 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 		}},
 	}
 
-	if err = client.SendAppState(ctx, patchInfo); err != nil {
+	if err = service.sendAppState(ctx, client, patchInfo); err != nil {
 		return err
+	}
+	return service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String())
+}
+
+// updateStoredMessage mirrors an edit sent through the API into local chat
+// storage, the same way deleteStoredMessage does for a revoke or delete.
+//
+// An edit that ARRIVES from another device is already applied: CreateMessage
+// spots the MESSAGE_EDIT protocol message and calls storeEditedMessage. An edit
+// we send ourselves is never echoed back to us, so nothing applied it, and the
+// stored copy keeps the text as first sent — indefinitely.
+//
+// That matters beyond the chat viewer, because mergeReplyContext builds a
+// reply's quoted context from the stored copy. Quoting a message that was edited
+// therefore sends the recipient the PRE-EDIT text, so the quote can show wording
+// the message no longer contains.
+//
+// The edit is replayed in the ProtocolMessage shape CreateMessage already
+// recognises, so it runs through the existing, tested edit path (content update
+// plus a message_edits history row) rather than a second implementation that
+// could drift from it.
+//
+// This is an adapter for local storage, not a claim of equivalence with a
+// dispatched event. whatsmeow's ParseWebMessage unwraps MESSAGE_EDIT before a
+// history-synced edit is handled (Info.ID becomes the target id and Message
+// becomes the edited content); only the live receive path leaves the
+// ProtocolMessage intact.
+func (service serviceMessage) updateStoredMessage(
+	ctx context.Context,
+	client *whatsmeow.Client,
+	messageID string,
+	recipient types.JID,
+	newContent string,
+	editEventID string,
+	editedAt time.Time,
+) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be updated without chat storage", messageID)
+	}
+
+	senderJID := types.EmptyJID
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = *client.Store.ID
+	}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     recipient,
+				Sender:   senderJID,
+				IsFromMe: true,
+			},
+			ID:        editEventID,
+			Timestamp: editedAt,
+		},
+		Message: &waE2E.Message{
+			ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+				Key: &waCommon.MessageKey{
+					ID:        proto.String(messageID),
+					RemoteJID: proto.String(recipient.String()),
+					FromMe:    proto.Bool(true),
+				},
+				EditedMessage: &waE2E.Message{Conversation: proto.String(newContent)},
+			},
+		},
+	}
+
+	if err := service.chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+		return fmt.Errorf("WhatsApp action succeeded, but failed to update local message %s: %w", messageID, err)
 	}
 	return nil
 }
@@ -214,20 +499,100 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
+	text := request.Message
+	msg := &waE2E.Message{Conversation: proto.String(text)}
+	if link := strings.TrimSpace(request.Link); link != "" {
+		if !containsLinkToken(text, link) {
+			text = buildLinkMessageText(text, link)
+		}
+		msg, err = buildLinkPreviewMessage(ctx, client, dataWaRecipient, text, link)
+		if err != nil {
+			return response, err
+		}
+	}
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
+		return response, err
+	}
+
+	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
 		return response, err
 	}
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
+}
+
+// containsLinkToken reports whether link already appears in text as a complete
+// URL. The match must start at the beginning of text, after whitespace, or after
+// an opening bracket or quote that does not continue another URL token, and must
+// end at the end of text, at whitespace, or at trailing punctuation followed by
+// the end of text or whitespace. Prose and markdown such as
+// "Visit (https://example.com)." or "[label](https://example.com)" count as
+// present; https://example.com.evil and https://evil.test/(https://example.com)
+// do not. This accepts prose such as "Visit (https://example.com)." while a
+// longer URL that merely starts with link (https://example.com.evil) does not
+// count as present.
+func containsLinkToken(text, link string) bool {
+	if link == "" {
+		return false
+	}
+	for offset := 0; ; {
+		idx := strings.Index(text[offset:], link)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(link)
+		if linkStartsAtBoundary(text, start) && linkEndsAtBoundary(text, end) {
+			return true
+		}
+		offset = start + 1
+	}
+}
+
+func linkStartsAtBoundary(text string, start int) bool {
+	prefix := text[:start]
+	if prefix == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(prefix)
+	if unicode.IsSpace(r) {
+		return true
+	}
+	before := strings.TrimRight(prefix, "([{<\"'“‘")
+	if before == prefix {
+		// Directly attached to other text (e.g. "?u=" in a query string).
+		return false
+	}
+	// Wrapped in an opening bracket or quote: accept prose and markdown such as
+	// "See(link)" or "[label](link)", but not a wrapper that continues another
+	// URL token such as "https://evil.test/(link)".
+	fields := strings.Fields(before)
+	if len(fields) == 0 || unicode.IsSpace(lastRune(before)) {
+		return true
+	}
+	return !strings.Contains(fields[len(fields)-1], "://")
+}
+
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
+}
+
+func linkEndsAtBoundary(text string, end int) bool {
+	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'”’")
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r)
 }
 
 // StarMessage implements message.IMessageService.
@@ -270,19 +635,24 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// Query the message from chat storage. The row holds the media keys, so
+	// it must be this device's own copy in the requested chat: a message that
+	// only another device received is "not found" here.
+	if service.chatStorageRepo == nil {
+		return response, fmt.Errorf("cannot download media for message %s without chat storage", request.MessageID)
+	}
+	message, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
 
 	if message == nil {
-		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+		return response, fmt.Errorf("message with ID %s not found in chat %s for current device", request.MessageID, dataWaRecipient.String())
 	}
 
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
@@ -290,11 +660,6 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	// Check if message has media
 	if message.MediaType == "" || directPath == "" {
 		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
-	}
-
-	// Verify the message is from the specified chat
-	if message.ChatJID != dataWaRecipient.String() {
-		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
 	// Create directory structure for organized storage

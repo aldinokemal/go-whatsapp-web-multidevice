@@ -33,6 +33,7 @@ type Message struct {
 	FileEncSHA256    []byte     `db:"file_enc_sha256"`
 	FileLength       uint64     `db:"file_length"`
 	ReferralMetadata string     `db:"referral_metadata"`
+	ContextMetadata  string     `db:"context_metadata"`
 	Reactions        []Reaction `db:"-"`
 	CreatedAt        time.Time  `db:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at"`
@@ -51,6 +52,26 @@ type MessageEdit struct {
 	CreatedAt         time.Time `db:"created_at"`
 }
 
+// PollOption is one stable poll choice and its lowercase SHA-256 name hash.
+type PollOption struct {
+	Name string `json:"name"`
+	Hash string `json:"hash"`
+}
+
+// PollDefinition stores the option catalogue required to resolve encrypted
+// poll vote hashes after restarts and history synchronization.
+type PollDefinition struct {
+	DeviceID              string       `db:"device_id"`
+	ChatJID               string       `db:"chat_jid"`
+	PollMessageID         string       `db:"poll_message_id"`
+	Question              string       `db:"question"`
+	Options               []PollOption `db:"-"`
+	SelectableOptionCount uint32       `db:"selectable_option_count"`
+	Version               string       `db:"version"`
+	CreatedAt             time.Time    `db:"created_at"`
+	UpdatedAt             time.Time    `db:"updated_at"`
+}
+
 // ChatwootMessageLink maps a WhatsApp message to the Chatwoot message created
 // for it. It is device-scoped because the same WhatsApp message ID can appear
 // in independent device stores.
@@ -67,6 +88,34 @@ type ChatwootMessageLink struct {
 	IsRead                       bool      `db:"is_read"`
 	CreatedAt                    time.Time `db:"created_at"`
 	UpdatedAt                    time.Time `db:"updated_at"`
+	// ChatwootConfigID is the id of the chatwoot_device_configs row this link
+	// belongs to. 0 means the legacy/env config (single-account). It scopes
+	// reverse routing so conversation/message ids cannot collide across accounts.
+	ChatwootConfigID int64 `db:"chatwoot_config_id"`
+	// ChatwootAccountID is the resolved Chatwoot account id, denormalized so the
+	// conversation lookup can be account-scoped without a join. 0 = legacy.
+	ChatwootAccountID int `db:"chatwoot_account_id"`
+}
+
+// ChatwootDeviceConfig is the per-device Chatwoot destination (URL + account +
+// inbox + token). It enables routing each WhatsApp device to its own Chatwoot
+// inbox. DeviceID is the user-facing device id; DeviceJID mirrors the WhatsApp
+// storage JID so the registry can resolve a client from either identity (the
+// forward/link paths key on the JID, the REST/reverse paths on the device id).
+type ChatwootDeviceConfig struct {
+	ID          int64     `db:"id"`
+	DeviceID    string    `db:"device_id"`
+	DeviceJID   string    `db:"device_jid"`
+	ChatwootURL string    `db:"chatwoot_url"`
+	AccountID   int       `db:"account_id"`
+	InboxID     int       `db:"inbox_id"`
+	APIToken    string    `db:"api_token"`
+	Enabled     bool      `db:"enabled"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+	// WebhookSecret authenticates Chatwoot's webhooks on this device's own
+	// endpoint. Empty means the global CHATWOOT_WEBHOOK_SECRET applies.
+	WebhookSecret string `db:"webhook_secret"`
 }
 
 // ChatwootForwardEvent is a durable retry record for a live WhatsApp event
@@ -99,24 +148,29 @@ type MediaInfo struct {
 }
 
 // DeviceRecord tracks a registered device for persistence purposes.
+// JID holds the bare-number (NonAD) form used for chat storage partitioning; ADJID
+// holds the full companion identity (number:NN@s.whatsapp.net) that pins the slot to
+// one specific whatsmeow session. ADJID is empty until the first connect after
+// pairing (the :NN suffix is only known once the socket authenticates).
 type DeviceRecord struct {
-	DeviceID                 string    `db:"device_id"`
-	DisplayName              string    `db:"display_name"`
-	JID                      string    `db:"jid"`
-	WebhookURL               *string   `db:"webhook_url"`
-	WebhookSecret            string    `db:"webhook_secret"`
-	WebhookEvents            string    `db:"webhook_events"`
+	DeviceID                  string    `db:"device_id"`
+	DisplayName               string    `db:"display_name"`
+	JID                       string    `db:"jid"`
+	ADJID                     string    `db:"ad_jid"`
+	WebhookURL                *string   `db:"webhook_url"`
+	WebhookSecret             string    `db:"webhook_secret"`
+	WebhookEvents             string    `db:"webhook_events"`
 	WebhookInsecureSkipVerify bool      `db:"webhook_insecure_skip_verify"`
-	CreatedAt                time.Time `db:"created_at"`
-	UpdatedAt                time.Time `db:"updated_at"`
+	CreatedAt                 time.Time `db:"created_at"`
+	UpdatedAt                 time.Time `db:"updated_at"`
 }
 
 // DeviceWebhookConfig holds the complete webhook configuration for a device.
 type DeviceWebhookConfig struct {
-	WebhookURL               *string `json:"webhook_url,omitempty"`
-	WebhookSecret           string  `json:"webhook_secret,omitempty"`
-	WebhookEvents           string  `json:"webhook_events,omitempty"`
-	WebhookInsecureSkipVerify bool   `json:"webhook_insecure_skip_verify,omitempty"`
+	WebhookURL                *string `json:"webhook_url,omitempty"`
+	WebhookSecret             string  `json:"webhook_secret,omitempty"`
+	WebhookEvents             string  `json:"webhook_events,omitempty"`
+	WebhookInsecureSkipVerify bool    `json:"webhook_insecure_skip_verify,omitempty"`
 }
 
 // MessageFilter represents query filters for messages
@@ -129,6 +183,16 @@ type MessageFilter struct {
 	EndTime   *time.Time
 	MediaOnly bool
 	IsFromMe  *bool
+}
+
+// ScheduledSendFilter represents query filters for scheduled sends
+type ScheduledSendFilter struct {
+	DeviceID    string
+	Status      string
+	Search      string
+	MessageType string
+	Limit       int
+	Offset      int
 }
 
 // ChatFilter represents query filters for chats

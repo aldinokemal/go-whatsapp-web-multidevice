@@ -1,43 +1,19 @@
-# DOMAINS
+# Domain contracts
 
-Generated: 2026-06-06
+These packages define request/response DTOs and usecase/storage interfaces.
+Validation, SQL, transport parsing, and WhatsApp operations belong in other layers.
 
-## OVERVIEW
-
-Domain packages hold request/response DTOs and interfaces for usecases and storage. They are contracts, not execution layers.
-
-## STRUCTURE
-
-```text
-domains/
-|-- app/ chat/ device/ group/ message/ newsletter/ user/
-|-- send/          # one file per send request type plus combined sender interface
-`-- chatstorage/   # chat/message/edit/device storage entities, filters, repository interface
-```
-
-## WHERE TO LOOK
-
-| Task | Location | Notes |
-|------|----------|-------|
-| Add send request | `send/<type>.go`, `send/interfaces.go` | Keep `BaseRequest` embedding if the request targets a chat/contact. |
-| Add reply field | `send/text.go`, media request DTOs | Optional `ReplyMessageID *string` serializes as `reply_message_id`. |
-| Add usecase contract | `<domain>/interfaces.go` | Return the domain interface from `usecase.New*Service`. |
-| Add chat storage method | `chatstorage/interfaces.go` | Also update concrete repository and WhatsApp storage wrapper. |
-| Add Chatwoot storage state | `chatstorage/chatstorage.go`, `chatstorage/interfaces.go` | Link and retry queue contracts must remain device-scoped. |
-| Add response field | Matching DTO file | Check REST/MCP serialization expectations before renaming JSON fields. |
-
-## CONVENTIONS
-
-- DTOs use JSON tags for API payloads and may include form/multipart fields where existing request types already do.
-- Send requests are split by message type, but `ISendUsecase` composes smaller sender interfaces for compatibility.
-- Chat filters use pointer booleans, for example `*bool`, when "not set" differs from `false`.
-- Storage entities carry `DeviceID`; preserve it through chat/message/edit flows.
-- `GetMessageByIDAndDevice` is the device-scoped ID lookup for user/device-isolated flows.
-- `ChatwootMessageLink` and `ChatwootForwardEvent` are storage contracts, not Chatwoot API DTOs.
-- Existing contracts expose whatsmeow types in places. Keep that local to contracts that already need protocol details.
-
-## ANTI-PATTERNS
-
-- Do not put validation rules, SQL, Fiber handlers, MCP tool parsing, or whatsmeow send logic in domain packages.
-- Do not add a chat/message repository method that cannot be scoped by device unless the caller contract is explicitly global.
-- Do not rename JSON fields casually; views, REST clients, MCP tools, docs, and tests may rely on them.
+- Send DTOs live in `send/`; retain `BaseRequest` where chat/contact targeting uses
+  it. `send/interfaces.go` composes the smaller sender interfaces into `ISendUsecase`.
+- Preserve JSON and form tags across REST, MCP, views, docs, and tests. Optional
+  `ReplyMessageID *string` remains `reply_message_id`; boolean filters use `*bool`
+  when omitted and `false` have different meanings.
+- Existing multipart and whatsmeow types may remain in contracts that need them;
+  do not spread protocol dependencies into unrelated DTOs.
+- `chatstorage/chatstorage.go` holds storage entities, including Chatwoot links and
+  retry events. Preserve `DeviceID` throughout message, chat, and edit flows; these
+  Chatwoot entities are persistence contracts, not REST API payloads.
+- For repository changes, use `chatstorage/interfaces.go` and the linked
+  [storage guide](../infrastructure/chatstorage/AGENTS.md). User/device lookups use
+  `GetMessageByIDAndDevice`; chat-specific lookups can use `GetMessageByIDChatAndDevice`.
+  Global methods need an explicitly global caller contract.

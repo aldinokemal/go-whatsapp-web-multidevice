@@ -233,12 +233,108 @@ func TestSQLiteRepositoryGetsLatestChatwootMessageLinkByConversation(t *testing.
 		}
 	}
 
-	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID)
+	link, err := repo.GetLatestChatwootMessageLinkByConversation(conversationID, 0, true, 0)
 	if err != nil {
 		t.Fatalf("lookup latest conversation link: %v", err)
 	}
 	if link == nil || link.WhatsAppMessageID != "latest" || link.DeviceID != "device-b@s.whatsapp.net" {
 		t.Fatalf("latest conversation link = %+v, want device-b/latest", link)
+	}
+}
+
+func TestSQLiteRepositoryConversationLookupExcludesLegacyZeroInPerDeviceMode(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	// A pre-migration legacy link (account id 0) for conversation 9. Chatwoot
+	// numbers conversations per account, so account 7 can also have a conversation
+	// 9 — the legacy row must not be allowed to satisfy that account's reply.
+	legacy := &domainChatStorage.ChatwootMessageLink{
+		DeviceID:               "legacy-dev",
+		WhatsAppMessageID:      "legacy-1",
+		WhatsAppChatJID:        "628000000000@s.whatsapp.net",
+		ChatwootConversationID: 9,
+		ChatwootAccountID:      0,
+		Direction:              "incoming",
+	}
+	if err := repo.UpsertChatwootMessageLink(legacy); err != nil {
+		t.Fatalf("upsert legacy link: %v", err)
+	}
+
+	// Per-device mode: account 7 webhook must NOT match the account-0 legacy row.
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(9, 7, false, 0)
+	if err != nil {
+		t.Fatalf("scoped lookup: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("per-device lookup must not match legacy account-0 link, got %+v", got)
+	}
+
+	// Legacy mode: the account-0 wildcard still resolves the historical link.
+	got, err = repo.GetLatestChatwootMessageLinkByConversation(9, 7, true, 0)
+	if err != nil {
+		t.Fatalf("legacy lookup: %v", err)
+	}
+	if got == nil || got.DeviceID != "legacy-dev" {
+		t.Fatalf("legacy-mode lookup should match account-0 link, got %+v", got)
+	}
+}
+
+func TestSQLiteRepositoryBackfillChatwootMessageLinkAccount(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+
+	legacyLink := &domainChatStorage.ChatwootMessageLink{
+		DeviceID:               "legacy-dev",
+		WhatsAppMessageID:      "legacy-1",
+		WhatsAppChatJID:        "628000000000@s.whatsapp.net",
+		ChatwootConversationID: 9,
+		ChatwootAccountID:      0,
+		Direction:              "incoming",
+	}
+	scopedLink := &domainChatStorage.ChatwootMessageLink{
+		DeviceID:               "scoped-dev",
+		WhatsAppMessageID:      "scoped-1",
+		WhatsAppChatJID:        "628111111111@s.whatsapp.net",
+		ChatwootConversationID: 10,
+		ChatwootAccountID:      7,
+		Direction:              "incoming",
+	}
+	for _, l := range []*domainChatStorage.ChatwootMessageLink{legacyLink, scopedLink} {
+		if err := repo.UpsertChatwootMessageLink(l); err != nil {
+			t.Fatalf("upsert %s: %v", l.WhatsAppMessageID, err)
+		}
+	}
+
+	n, err := repo.BackfillChatwootMessageLinkAccount(5)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("backfill rows affected = %d, want 1 (only the account-0 row)", n)
+	}
+
+	got, err := repo.GetChatwootMessageLinkByWhatsAppID("legacy-dev", "legacy-1")
+	if err != nil || got == nil {
+		t.Fatalf("get legacy link: %v (%v)", err, got)
+	}
+	if got.ChatwootAccountID != 5 {
+		t.Fatalf("legacy link account id = %d, want 5 after backfill", got.ChatwootAccountID)
+	}
+
+	got, err = repo.GetChatwootMessageLinkByWhatsAppID("scoped-dev", "scoped-1")
+	if err != nil || got == nil {
+		t.Fatalf("get scoped link: %v (%v)", err, got)
+	}
+	if got.ChatwootAccountID != 7 {
+		t.Fatalf("non-zero link account id = %d, want untouched 7", got.ChatwootAccountID)
+	}
+
+	// Idempotent: a second run finds nothing left at 0.
+	n, err = repo.BackfillChatwootMessageLinkAccount(5)
+	if err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("second backfill rows affected = %d, want 0", n)
 	}
 }
 

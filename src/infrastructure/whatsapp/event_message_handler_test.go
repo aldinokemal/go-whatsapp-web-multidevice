@@ -2,6 +2,8 @@ package whatsapp
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -71,6 +73,62 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for webhook submission")
+	}
+}
+
+func TestHandleMessagePersistsPollBeforeForwardingWebhook(t *testing.T) {
+	originalWebhookURLs := config.WhatsappWebhook
+	originalWebhookEvents := config.WhatsappWebhookEvents
+	originalSubmit := submitWebhookFn
+	originalLog := log
+	defer func() {
+		config.WhatsappWebhook = originalWebhookURLs
+		config.WhatsappWebhookEvents = originalWebhookEvents
+		submitWebhookFn = originalSubmit
+		log = originalLog
+	}()
+	log = waLog.Noop
+	config.WhatsappWebhook = []string{"https://example.test/webhook"}
+	config.WhatsappWebhookEvents = nil
+
+	repo := &messageHandlerRepoSpy{}
+	done := make(chan map[string]any, 1)
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		done <- payload
+		return nil
+	}
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("device-a", nil, nil))
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: types.NewJID("120363000000", types.GroupServer)},
+			ID:            "POLL-HANDLER-1",
+			Timestamp:     time.Date(2026, time.August, 26, 10, 0, 0, 0, time.UTC),
+		},
+		Message: &waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{
+			Name: protoString("Lunch?"),
+			Options: []*waE2E.PollCreationMessage_Option{
+				{OptionName: protoString("Pizza")},
+				{OptionName: protoString("Sushi")},
+			},
+		}},
+	}
+
+	handleMessage(ctx, evt, repo, nil)
+	select {
+	case delivered := <-done:
+		payload := delivered["payload"].(map[string]any)
+		poll, ok := payload["poll"].(*webhookPollPayload)
+		if !ok || poll.Type != "creation" || len(poll.Options) != 2 || payload["body"] != "Poll: Lunch?" {
+			t.Fatalf("unexpected webhook payload: %+v", payload)
+		}
+		repo.mu.Lock()
+		definition := repo.pollDefinition
+		repo.mu.Unlock()
+		if definition == nil || definition.PollMessageID != "POLL-HANDLER-1" {
+			t.Fatalf("poll was not persisted before webhook delivery: %+v", definition)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for poll webhook")
 	}
 }
 
@@ -159,6 +217,29 @@ type messageHandlerRepoSpy struct {
 	mu                  sync.Mutex
 	createMessageCalls  int
 	createReactionCalls int
+	pollDefinition      *domainChatStorage.PollDefinition
+}
+
+func (r *messageHandlerRepoSpy) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pollDefinition = definition
+	return nil
+}
+
+func (r *messageHandlerRepoSpy) GetPollDefinition(_, _, _ string) (*domainChatStorage.PollDefinition, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pollDefinition, nil
+}
+
+func (r *messageHandlerRepoSpy) AppendPollOption(_, _, _ string, option domainChatStorage.PollOption) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pollDefinition != nil {
+		r.pollDefinition.Options = append(r.pollDefinition.Options, option)
+	}
+	return nil
 }
 
 func (r *messageHandlerRepoSpy) CreateMessage(context.Context, *events.Message) error {
@@ -208,5 +289,159 @@ func reactionEventForTest(eventID, targetID, emoji string) *events.Message {
 				Text: protoString(emoji),
 			},
 		},
+	}
+}
+
+type captureLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *captureLogger) Infof(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(msg, args...))
+}
+
+func (l *captureLogger) Errorf(msg string, args ...any) { l.Infof(msg, args...) }
+func (l *captureLogger) Warnf(msg string, args ...any)  { l.Infof(msg, args...) }
+func (l *captureLogger) Debugf(string, ...any)          {}
+func (l *captureLogger) Sub(string) waLog.Logger        { return l }
+
+func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
+	originalLog := log
+	originalAutoReply := config.WhatsappAutoReplyMessage
+	originalAutoMarkRead := config.WhatsappAutoMarkRead
+	originalWebhook := append([]string(nil), config.WhatsappWebhook...)
+	originalChatwoot := config.ChatwootEnabled
+	t.Cleanup(func() {
+		log = originalLog
+		config.WhatsappAutoReplyMessage = originalAutoReply
+		config.WhatsappAutoMarkRead = originalAutoMarkRead
+		config.WhatsappWebhook = originalWebhook
+		config.ChatwootEnabled = originalChatwoot
+	})
+
+	capture := &captureLogger{}
+	log = capture
+	config.WhatsappAutoReplyMessage = ""
+	config.WhatsappAutoMarkRead = false
+	config.WhatsappWebhook = nil
+	config.ChatwootEnabled = false
+
+	const forged = "INFO forged-entry"
+	pushName := "Alice\r\n" + forged + "\x1b[31m\u0085\u009b\u2028\u2029 …"
+	// A status broadcast chat returns from handleWebhookForward before it
+	// spawns the forwarding goroutine, which would race with t.Cleanup.
+	evt := textEventForTest("log-newline-1\nINFO forged-id", types.StatusBroadcastJID)
+	evt.Info.PushName = pushName
+	evt.Info.Sender = types.NewJID("62811\n999", types.DefaultUserServer)
+	// The protobuf text format keeps U+2028 and U+2029 in the body unescaped.
+	evt.Message.Conversation = protoString("body\u2028INFO forged-body\u2029")
+
+	handleMessage(context.Background(), evt, &messageHandlerRepoSpy{}, nil)
+
+	capture.mu.Lock()
+	lines := append([]string(nil), capture.lines...)
+	capture.mu.Unlock()
+
+	var received []string
+	for _, line := range lines {
+		if strings.Contains(line, "Received message") {
+			received = append(received, line)
+		}
+	}
+	if len(received) != 1 {
+		t.Fatalf("expected one received-message record, got %d: %#v", len(received), lines)
+	}
+	record := received[0]
+	// A stdout logger writes the formatted record plus one trailing newline.
+	// A CR/LF inside the sender name would show up as an extra line here.
+	written := record + "\n"
+	writtenLines := strings.Split(strings.TrimSuffix(written, "\n"), "\n")
+	if len(writtenLines) != 1 {
+		t.Fatalf("sender name forged an extra log line: %#v", writtenLines)
+	}
+	if strings.ContainsAny(record, "\r\n\u0085\u009b\u2028\u2029") || strings.Contains(record, "\x1b") {
+		t.Fatalf("log record still contains control characters: %q", record)
+	}
+	if !strings.Contains(record, "Alice") || !strings.Contains(record, forged) || !strings.Contains(record, `\x1b[31m\u0085\u009b\u2028\u2029 …`) {
+		t.Fatalf("sender name missing from the same log line: %q", record)
+	}
+	if !strings.Contains(record, `log-newline-1\nINFO forged-id`) {
+		t.Fatalf("message id was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `62811\n999`) {
+		t.Fatalf("sender jid was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `body\u2028INFO forged-body\u2029`) {
+		t.Fatalf("message body was not escaped onto the same line: %q", record)
+	}
+	if evt.Info.PushName != pushName {
+		t.Fatalf("push name was mutated: %q", evt.Info.PushName)
+	}
+}
+
+func TestShouldIgnoreImageDownload(t *testing.T) {
+	tests := []struct {
+		name              string
+		autoDownloadMedia bool
+		ignoreStatusMedia bool
+		chatJID           types.JID
+		expected          bool
+	}{
+		{
+			name:              "auto download disabled",
+			autoDownloadMedia: false,
+			ignoreStatusMedia: false,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          true,
+		},
+		{
+			name:              "status media ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          true,
+		},
+		{
+			name:              "normal broadcast list not ignored when status ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.NewJID("123456789", types.BroadcastServer),
+			expected:          false,
+		},
+		{
+			name:              "status media downloaded when ignore disabled",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: false,
+			chatJID:           types.StatusBroadcastJID,
+			expected:          false,
+		},
+		{
+			name:              "normal user chat not ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.NewJID("123456789", types.DefaultUserServer),
+			expected:          false,
+		},
+		{
+			// whatsmeow's broadcast branch does not ToNonAD() source.Chat, so
+			// the status JID can arrive device-qualified and must still match.
+			name:              "device-qualified status jid ignored",
+			autoDownloadMedia: true,
+			ignoreStatusMedia: true,
+			chatJID:           types.JID{User: "status", Server: types.BroadcastServer, Device: 1},
+			expected:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldIgnoreImageDownload(tt.autoDownloadMedia, tt.ignoreStatusMedia, tt.chatJID)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
 	}
 }

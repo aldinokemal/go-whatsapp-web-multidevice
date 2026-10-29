@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/dustin/go-humanize"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/go-ozzo/ozzo-validation/v4/is"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // ValidDurationValues contains WhatsApp's allowed disappearing message durations in seconds.
@@ -36,6 +38,15 @@ func validateDuration(dur *int) error {
 	return pkgError.ValidationError(
 		"duration must be one of: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)",
 	)
+}
+
+// validateAllowReshare rejects allow_reshare outside a status post: the
+// reshare eligibility flag only has meaning on status@broadcast.
+func validateAllowReshare(allow bool, phone string) error {
+	if allow && strings.TrimSpace(phone) != types.StatusBroadcastJID.String() {
+		return pkgError.ValidationError("allow_reshare is only supported when phone is status@broadcast")
+	}
+	return nil
 }
 
 // validatePhoneNumber validates that the phone number is in international format (not starting with 0)
@@ -81,9 +92,16 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 		return err
 	}
 
-	// Validate mentions if provided
-	for _, mention := range request.Mentions {
-		// Skip validation for special @everyone keyword
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
+		return err
+	}
+
+	return validateMentions(request.Mentions)
+}
+
+// validateMentions checks explicit (ghost) mentions; "@everyone" is a keyword, not a phone.
+func validateMentions(mentions []string) error {
+	for _, mention := range mentions {
 		if mention == "@everyone" {
 			continue
 		}
@@ -91,7 +109,6 @@ func ValidateSendMessage(ctx context.Context, request domainSend.MessageRequest)
 			return pkgError.ValidationError(fmt.Sprintf("mention %s: phone number must be in international format", mention))
 		}
 	}
-
 	return nil
 }
 
@@ -141,7 +158,11 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 		return err
 	}
 
-	return nil
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
+		return err
+	}
+
+	return validateMentions(request.Mentions)
 }
 
 func ValidateSendSticker(ctx context.Context, request domainSend.StickerRequest) error {
@@ -238,7 +259,7 @@ func ValidateSendFile(ctx context.Context, request domainSend.FileRequest) error
 		return err
 	}
 
-	return nil
+	return validateMentions(request.Mentions)
 }
 
 func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) error {
@@ -295,7 +316,11 @@ func ValidateSendVideo(ctx context.Context, request domainSend.VideoRequest) err
 		return err
 	}
 
-	return nil
+	if err := validateAllowReshare(request.AllowReshare, request.Phone); err != nil {
+		return err
+	}
+
+	return validateMentions(request.Mentions)
 }
 
 func ValidateSendContact(ctx context.Context, request domainSend.ContactRequest) error {
@@ -451,6 +476,9 @@ func ValidateSendPoll(ctx context.Context, request domainSend.PollRequest) error
 	// Validate options first to ensure it is not blank before validating MaxAnswer
 	if len(request.Options) == 0 {
 		return pkgError.ValidationError("options: cannot be blank.")
+	}
+	if request.MaxAnswer > 0 && uint64(request.MaxAnswer) > uint64(math.MaxUint32) {
+		return pkgError.ValidationError(fmt.Sprintf("max_answer: must be no greater than %d.", uint64(math.MaxUint32)))
 	}
 
 	err := validation.ValidateStructWithContext(ctx, &request,

@@ -2,12 +2,15 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -53,15 +56,17 @@ func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid typ
 		log.Errorf("Failed to get keys devices: %v", err)
 		return
 	}
-	targetJID := dev.ID.ToNonAD().String()
+	// Sibling companions of the same number are distinct sessions: a keys row for
+	// companion :32 does not satisfy companion :28 (issue #760). Legacy bare-number
+	// rows still match their AD counterpart.
 	for _, existing := range devices {
-		if existing != nil && existing.ID != nil && existing.ID.ToNonAD().String() == targetJID {
+		if existing != nil && existing.ID != nil && sameStoreIdentity(*existing.ID, *dev.ID) {
 			return
 		}
 	}
 
 	if err := keysDB.PutDevice(ctx, dev); err != nil {
-		log.Errorf("Failed to sync keys device %s: %v", targetJID, err)
+		log.Errorf("Failed to sync keys device %s: %v", dev.ID.String(), err)
 	}
 }
 
@@ -105,7 +110,12 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %v", redactProxyURL(proxyURL), err)
+			// url.Parse errors include the raw URL, so log only its scheme and host.
+			reason := err.Error()
+			if errors.As(err, new(*url.Error)) {
+				reason = utils.FormatProxyParseFailure(proxyURL)
+			}
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %s", redactProxyURL(proxyURL), reason)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY")
 		}

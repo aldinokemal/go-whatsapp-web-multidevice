@@ -7,36 +7,65 @@ import (
 )
 
 var (
-	AppVersion             = "v8.10.0"
+	AppVersion             = "v9.7.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
-	AppBasePath            = ""
-	AppTrustedProxies      []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
+	// AppAllowUnauthenticated exposes device admin, send, logout, and MCP
+	// routes without Basic Auth. It is required when credentials are empty and
+	// AppHost is not a loopback address (the default 0.0.0.0). Loopback binds
+	// stay open for local development. Intended for a reverse proxy that
+	// authenticates in front of this process.
+	AppAllowUnauthenticated = false
+	// AppTrustedOrigins lists browser origins allowed to call state-changing
+	// routes, in addition to the request's own host and any specific
+	// AppCORSAllowedOrigins. A CORS wildcard does not allow cross-site mutations.
+	AppTrustedOrigins     []string
+	AppBasePath           = ""
+	AppTrustedProxies     []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
+	AppCORSAllowedOrigins []string // CORS allowed origins; empty means "*" (any origin)
 
-	McpPort = "8080"
-	McpHost = "localhost"
+	// Web UI (gowa-ui) runtime download settings. The dashboard is a separate
+	// project released as a single HTML file; gowa fetches the latest release
+	// asset and serves it at "/".
+	AppUIEnabled        = true
+	AppUIAutoUpdate     = true
+	AppUIRepo           = "aldinokemal/gowa-ui"
+	AppUIAssetName      = "gowa-ui.html"
+	AppUIUpdateInterval = 3 * time.Hour
+	AppUIGithubToken    = "" // optional, raises the GitHub API rate limit
+	AppUIAssetSHA256    = "" // optional supply-chain pin: only serve the asset with this sha256
+
+	// MCP (Model Context Protocol) endpoint, served at {AppBasePath}/mcp on
+	// the REST server. Streamable HTTP transport; inherits basic auth.
+	McpEnabled = true
 
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
 	PathMedia     = "statics/media"
 	PathStorages  = "storages"
+	PathUICache   = "storages/ui"
 
 	DBURI     = "file:storages/whatsapp.db"
 	DBKeysURI = ""
 
-	WhatsappAutoReplyMessage          string
-	WhatsappAutoMarkRead              = false // Auto-mark incoming messages as read
-	WhatsappAutoDownloadMedia         = true  // Auto-download media from incoming messages
-	WhatsappWebhook                   []string
-	WhatsappWebhookSecret             = "secret"
+	WhatsappAutoReplyMessage  string
+	WhatsappAutoMarkRead      = false // Auto-mark incoming messages as read
+	WhatsappAutoDownloadMedia = true  // Auto-download media from incoming messages
+	WhatsappIgnoreStatusMedia = false // Ignore downloading status media
+	WhatsappWebhook           []string
+	// WhatsappWebhookSecret signs outbound webhooks. Empty, and the published
+	// default "secret", are replaced at startup with a random per-process key
+	// so receivers are not asked to trust a key that ships in the documentation.
+	WhatsappWebhookSecret             = ""
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
 	WhatsappWebhookIgnoreJids         []string         // JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks
 	WhatsappWebhookAllDeviceReceipts           = false // Forward receipts from all linked devices, not only the primary device
+	WhatsappWebhookDeviceMergeGlobal           = false // Per-device webhook adds to the global WHATSAPP_WEBHOOK targets instead of replacing them
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
 	WhatsappLogLevel                           = "ERROR"
 	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB
@@ -107,9 +136,22 @@ var (
 	ChatwootAutoCreate = false
 	ChatwootInboxName  = "WhatsApp"
 	ChatwootWebhookURL = ""
-	// Optional shared secret for incoming Chatwoot webhooks. When empty, inbound
-	// webhook requests remain unauthenticated for backward compatibility.
-	ChatwootWebhookSecret = ""
+	// Optional shared secret for incoming Chatwoot webhooks. An empty effective
+	// secret rejects the request. ChatwootWebhookAllowUnsigned restores the
+	// previous open behavior and must be set explicitly.
+	ChatwootWebhookSecret        = ""
+	ChatwootWebhookAllowUnsigned = false
+	// ChatwootWebhookSignatureTolerance bounds the age (and clock skew) of the
+	// X-Chatwoot-Timestamp accepted with Chatwoot's signed webhooks, which
+	// limits how long a captured request can be replayed.
+	ChatwootWebhookSignatureTolerance = 5 * time.Minute
+
+	// ChatwootAllowedHosts optionally restricts which Chatwoot hosts a
+	// per-device config may point at. When non-empty, a config's chatwoot_url
+	// host must match one of these entries (exact, case-insensitive). It hardens
+	// the SSRF surface introduced by operator-supplied per-device URLs in
+	// deployments where authenticated API users are not fully trusted.
+	ChatwootAllowedHosts []string
 
 	// Chatwoot conversation handling. ChatwootReopenConversation reuses (and
 	// reopens) a resolved conversation for a returning contact instead of

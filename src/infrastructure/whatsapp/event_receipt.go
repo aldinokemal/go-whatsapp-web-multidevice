@@ -45,19 +45,27 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 		payload["ids"] = evt.MessageIDs
 	}
 
-	// Add chat_id
-	payload["chat_id"] = evt.Chat.ToNonAD().String()
+	// Add chat_id. A LID chat keeps its original id beside the phone it resolves to.
+	chatJID := evt.Chat.ToNonAD()
+	if chatJID.Server == types.HiddenUserServer {
+		payload["chat_lid"] = chatJID.String()
+		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
+	}
+	payload["chat_id"] = chatJID.String()
 
-	// Build from/from_lid fields from sender
+	// Build from/from_lid fields from sender. SenderAlt and RecipientAlt carry
+	// the other address when the primary JID was already normalized to a phone.
 	senderJID := evt.Sender
 
-	if senderJID.Server == "lid" {
+	if senderJID.Server == types.HiddenUserServer {
 		payload["from_lid"] = senderJID.ToNonAD().String()
 	}
 
 	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addChatwootIdentityAliases(payload, evt.Chat, senderJID, evt.SenderAlt, evt.RecipientAlt)
+	addSenderDisplayName(ctx, client, payload, false, "")
 
 	// Receipt type
 	if evt.Type == types.ReceiptTypeDelivered {
@@ -78,31 +86,26 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 	return body
 }
 
-// shouldForwardReceipt reports whether a receipt event should be forwarded to webhooks.
-//
-// By default only receipts sent from the primary device (Device == 0) are forwarded.
-// WhatsApp emits a separate receipt event for each linked device (phone, web, desktop,
-// etc.) of a user, so forwarding everything would duplicate webhooks for users whose
-// phone is online.
-//
-// However, when the counterpart uses WhatsApp mainly through linked/companion devices
-// (WhatsApp Web, Desktop, another gateway instance) and their primary phone stays
-// offline, every receipt they emit comes from a non-zero device and would be dropped —
-// delivered/read status then never reaches the webhook at all. Enabling
-// --webhook-all-device-receipts (env WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS) forwards
-// receipts from every device; downstream consumers should apply receipts idempotently
-// (e.g. a monotonic sent < delivered < read merge), which makes duplicates harmless.
-func shouldForwardReceipt(evt *events.Receipt) bool {
-	return config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0
-}
-
 // forwardReceiptToWebhook forwards message acknowledgement events to the configured webhook URLs.
+//
+// Receipts are filtered by shouldForwardReceipt; see that function for the
+// per-device rules.
 func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID string, client *whatsmeow.Client) error {
 	if !shouldForwardReceipt(evt) {
-		logrus.Debugf("Skipping receipt webhook for linked device %d (enable --webhook-all-device-receipts to forward receipts from all devices)", evt.Sender.Device)
+		logrus.Debugf("Skipping %s receipt webhook from linked device %d of %s", evt.Type, evt.Sender.Device, evt.Sender.ToNonAD())
 		return nil
 	}
 
 	payload := createReceiptPayload(ctx, evt, deviceID, client)
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
+}
+
+// shouldForwardReceipt suppresses duplicate contact receipts from linked devices
+// unless explicitly enabled. Own-device reads always pass because only the device
+// where the account owner opened the chat emits them.
+func shouldForwardReceipt(evt *events.Receipt) bool {
+	if config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0 {
+		return true
+	}
+	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
 }

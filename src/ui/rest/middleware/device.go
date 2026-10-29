@@ -7,7 +7,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 const DeviceIDHeader = "X-Device-Id"
@@ -15,7 +15,7 @@ const DeviceIDHeader = "X-Device-Id"
 // DeviceMiddleware fetches a device instance by header (preferred), path param, or query param
 // and injects it into the context. It falls back to the default/only device for single-device mode.
 func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		// Allow non-device-scoped public endpoints (e.g., landing page) to pass through.
 		path := strings.TrimSpace(c.Path())
 		if path == "/" || path == "" || path == config.AppBasePath || path == config.AppBasePath+"/" {
@@ -62,7 +62,7 @@ func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 
 		c.Locals("device_id", resolvedID)
 		c.Locals("device", instance)
-		c.SetUserContext(whatsapp.ContextWithDevice(c.UserContext(), instance))
+		c.SetContext(whatsapp.ContextWithDevice(c.Context(), instance))
 		return c.Next()
 	}
 }

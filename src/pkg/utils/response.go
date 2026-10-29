@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type ResponseData struct {
@@ -11,7 +11,7 @@ type ResponseData struct {
 	Results any    `json:"results,omitempty"`
 }
 
-func ResponseError(c *fiber.Ctx, message string) error {
+func ResponseError(c fiber.Ctx, message string) error {
 	return c.Status(fiber.StatusBadRequest).JSON(ResponseData{
 		Code:    "INVALID_REQUEST",
 		Message: message,

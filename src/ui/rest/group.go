@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -44,12 +46,12 @@ func InitRestGroup(app fiber.Router, service domainGroup.IGroupUsecase) Group {
 	return rest
 }
 
-func (controller *Group) JoinGroupWithLink(c *fiber.Ctx) error {
+func (controller *Group) JoinGroupWithLink(c fiber.Ctx) error {
 	var request domainGroup.JoinGroupWithLinkRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
-	response, err := controller.Service.JoinGroupWithLink(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	response, err := controller.Service.JoinGroupWithLink(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -62,12 +64,12 @@ func (controller *Group) JoinGroupWithLink(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) GetGroupInfoFromLink(c *fiber.Ctx) error {
+func (controller *Group) GetGroupInfoFromLink(c fiber.Ctx) error {
 	var request domainGroup.GetGroupInfoFromLinkRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
-	response, err := controller.Service.GetGroupInfoFromLink(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	response, err := controller.Service.GetGroupInfoFromLink(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -78,14 +80,14 @@ func (controller *Group) GetGroupInfoFromLink(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
+func (controller *Group) LeaveGroup(c fiber.Ctx) error {
 	var request domainGroup.LeaveGroupRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.LeaveGroup(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	err = controller.Service.LeaveGroup(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -95,12 +97,12 @@ func (controller *Group) LeaveGroup(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) CreateGroup(c *fiber.Ctx) error {
+func (controller *Group) CreateGroup(c fiber.Ctx) error {
 	var request domainGroup.CreateGroupRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
-	groupID, err := controller.Service.CreateGroup(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	groupID, err := controller.Service.CreateGroup(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -113,9 +115,9 @@ func (controller *Group) CreateGroup(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) ListParticipants(c *fiber.Ctx) error {
+func (controller *Group) ListParticipants(c fiber.Ctx) error {
 	var request domainGroup.GetGroupParticipantsRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	if request.GroupID == "" {
@@ -128,7 +130,7 @@ func (controller *Group) ListParticipants(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.GroupID)
 
-	result, err := controller.Service.GetGroupParticipants(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	result, err := controller.Service.GetGroupParticipants(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -139,9 +141,9 @@ func (controller *Group) ListParticipants(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) ExportParticipants(c *fiber.Ctx) error {
+func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 	var request domainGroup.GetGroupParticipantsRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	if request.GroupID == "" {
@@ -154,7 +156,7 @@ func (controller *Group) ExportParticipants(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.GroupID)
 
-	result, err := controller.Service.GetGroupParticipants(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	result, err := controller.Service.GetGroupParticipants(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	var buffer bytes.Buffer
@@ -171,11 +173,11 @@ func (controller *Group) ExportParticipants(c *fiber.Ctx) error {
 		}
 
 		record := []string{
-			participant.JID,
-			participant.PhoneNumber,
-			participant.LID,
-			participant.DisplayName,
-			role,
+			spreadsheetSafeCell(participant.JID),
+			spreadsheetSafeCell(participant.PhoneNumber),
+			spreadsheetSafeCell(participant.LID),
+			spreadsheetSafeCell(participant.DisplayName),
+			spreadsheetSafeCell(role),
 		}
 
 		utils.PanicIfNeeded(writer.Write(record))
@@ -192,25 +194,48 @@ func (controller *Group) ExportParticipants(c *fiber.Ctx) error {
 	return c.Send(buffer.Bytes())
 }
 
-func (controller *Group) AddParticipants(c *fiber.Ctx) error {
+// spreadsheetSafeCell prefixes cells that spreadsheet applications would
+// treat as formulas, including the full-width ＝ ＋ － ＠ that some locales
+// accept. Leading ASCII space, tab, CR, and LF are skipped when deciding, and
+// the original cell is prefixed so the apostrophe is the first character a
+// spreadsheet sees. A spreadsheet that splits on ';' or tabs, or a parser
+// that ignores CSV quoting, starts another cell after a separator or line
+// break, so a formula prefix there gets an apostrophe after the separator.
+func spreadsheetSafeCell(value string) string {
+	trimmed := strings.TrimLeft(value, " \t\r\n")
+	safe := formulaAfterSeparator.ReplaceAllString(value, "${1}'${2}${3}")
+	first, _ := utf8.DecodeRuneInString(trimmed)
+	switch first {
+	case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
+		return "'" + safe
+	default:
+		return safe
+	}
+}
+
+// formulaAfterSeparator matches a separator or line break, optional spaces,
+// and a formula prefix that would start the next cell.
+var formulaAfterSeparator = regexp.MustCompile(`([;,\t\r\n])( *)([=+\-@\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}])`)
+
+func (controller *Group) AddParticipants(c fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeAdd, "Success add participants")
 }
 
-func (controller *Group) DeleteParticipants(c *fiber.Ctx) error {
+func (controller *Group) DeleteParticipants(c fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeRemove, "Success delete participants")
 }
 
-func (controller *Group) PromoteParticipants(c *fiber.Ctx) error {
+func (controller *Group) PromoteParticipants(c fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangePromote, "Success promote participants")
 }
 
-func (controller *Group) DemoteParticipants(c *fiber.Ctx) error {
+func (controller *Group) DemoteParticipants(c fiber.Ctx) error {
 	return controller.manageParticipants(c, whatsmeow.ParticipantChangeDemote, "Success demote participants")
 }
 
-func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
+func (controller *Group) ListParticipantRequests(c fiber.Ctx) error {
 	var request domainGroup.GetGroupRequestParticipantsRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	if request.GroupID == "" {
@@ -223,7 +248,7 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 
 	utils.SanitizePhone(&request.GroupID)
 
-	result, err := controller.Service.GetGroupRequestParticipants(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	result, err := controller.Service.GetGroupRequestParticipants(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -234,22 +259,22 @@ func (controller *Group) ListParticipantRequests(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) ApproveParticipantRequests(c *fiber.Ctx) error {
+func (controller *Group) ApproveParticipantRequests(c fiber.Ctx) error {
 	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeApprove, "Success approve requested participants")
 }
 
-func (controller *Group) RejectParticipantRequests(c *fiber.Ctx) error {
+func (controller *Group) RejectParticipantRequests(c fiber.Ctx) error {
 	return controller.handleRequestedParticipants(c, whatsmeow.ParticipantChangeReject, "Success reject requested participants")
 }
 
 // Generalized participant management handler
-func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.ParticipantChange, successMsg string) error {
+func (controller *Group) manageParticipants(c fiber.Ctx, action whatsmeow.ParticipantChange, successMsg string) error {
 	var request domainGroup.ParticipantRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
-	result, err := controller.Service.ManageParticipant(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	result, err := controller.Service.ManageParticipant(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -260,13 +285,13 @@ func (controller *Group) manageParticipants(c *fiber.Ctx, action whatsmeow.Parti
 }
 
 // Generalized requested participants handler
-func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsmeow.ParticipantRequestChange, successMsg string) error {
+func (controller *Group) handleRequestedParticipants(c fiber.Ctx, action whatsmeow.ParticipantRequestChange, successMsg string) error {
 	var request domainGroup.GroupRequestParticipantsRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 	utils.SanitizePhone(&request.GroupID)
 	request.Action = action
-	result, err := controller.Service.ManageGroupRequestParticipants(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	result, err := controller.Service.ManageGroupRequestParticipants(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 	return c.JSON(utils.ResponseData{
 		Status:  200,
@@ -276,9 +301,9 @@ func (controller *Group) handleRequestedParticipants(c *fiber.Ctx, action whatsm
 	})
 }
 
-func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
+func (controller *Group) SetGroupPhoto(c fiber.Ctx) error {
 	var request domainGroup.SetGroupPhotoRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
@@ -303,7 +328,7 @@ func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 		logrus.Printf("DEBUG: No photo file provided - Error: %v", err)
 	}
 
-	pictureID, err := controller.Service.SetGroupPhoto(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	pictureID, err := controller.Service.SetGroupPhoto(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	if err != nil {
 		logrus.Printf("ERROR: WhatsApp service failed to set group photo - %v", err)
 	}
@@ -325,14 +350,14 @@ func (controller *Group) SetGroupPhoto(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) SetGroupName(c *fiber.Ctx) error {
+func (controller *Group) SetGroupName(c fiber.Ctx) error {
 	var request domainGroup.SetGroupNameRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupName(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	err = controller.Service.SetGroupName(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -342,14 +367,14 @@ func (controller *Group) SetGroupName(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
+func (controller *Group) SetGroupLocked(c fiber.Ctx) error {
 	var request domainGroup.SetGroupLockedRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupLocked(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	err = controller.Service.SetGroupLocked(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	message := "Success set group as unlocked"
@@ -364,14 +389,14 @@ func (controller *Group) SetGroupLocked(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
+func (controller *Group) SetGroupAnnounce(c fiber.Ctx) error {
 	var request domainGroup.SetGroupAnnounceRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupAnnounce(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	err = controller.Service.SetGroupAnnounce(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	message := "Success disable announce mode"
@@ -386,14 +411,14 @@ func (controller *Group) SetGroupAnnounce(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
+func (controller *Group) SetGroupTopic(c fiber.Ctx) error {
 	var request domainGroup.SetGroupTopicRequest
-	err := c.BodyParser(&request)
+	err := c.Bind().Body(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	err = controller.Service.SetGroupTopic(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	err = controller.Service.SetGroupTopic(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	message := "Success update group topic"
@@ -409,14 +434,14 @@ func (controller *Group) SetGroupTopic(c *fiber.Ctx) error {
 }
 
 // GroupInfo handles the /group/info endpoint to fetch group information
-func (controller *Group) GroupInfo(c *fiber.Ctx) error {
+func (controller *Group) GroupInfo(c fiber.Ctx) error {
 	var request domainGroup.GroupInfoRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	response, err := controller.Service.GroupInfo(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	response, err := controller.Service.GroupInfo(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{
@@ -427,14 +452,14 @@ func (controller *Group) GroupInfo(c *fiber.Ctx) error {
 	})
 }
 
-func (controller *Group) GetGroupInviteLink(c *fiber.Ctx) error {
+func (controller *Group) GetGroupInviteLink(c fiber.Ctx) error {
 	var request domainGroup.GetGroupInviteLinkRequest
-	err := c.QueryParser(&request)
+	err := c.Bind().Query(&request)
 	utils.PanicIfNeeded(err)
 
 	utils.SanitizePhone(&request.GroupID)
 
-	response, err := controller.Service.GetGroupInviteLink(whatsapp.ContextWithDevice(c.UserContext(), getDeviceFromCtx(c)), request)
+	response, err := controller.Service.GetGroupInviteLink(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

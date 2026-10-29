@@ -19,7 +19,8 @@ type DeviceInstance struct {
 	state           domainDevice.DeviceState
 	displayName     string
 	phoneNumber     string
-	jid             string
+	jid             string // bare-number (NonAD) JID: chat storage / webhook partition key
+	adJID           string // full AD JID (number:NN@s.whatsapp.net): pins the exact companion session
 	createdAt       time.Time
 	onLoggedOut     func(deviceID string) // Callback for remote logout cleanup
 
@@ -31,9 +32,11 @@ type DeviceInstance struct {
 
 func NewDeviceInstance(deviceID string, client *whatsmeow.Client, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceInstance {
 	jid := ""
+	adJID := ""
 	display := ""
 	if client != nil && client.Store != nil && client.Store.ID != nil {
 		jid = client.Store.ID.ToNonAD().String()
+		adJID = client.Store.ID.String()
 		display = client.Store.PushName
 	}
 
@@ -44,6 +47,7 @@ func NewDeviceInstance(deviceID string, client *whatsmeow.Client, chatStorageRep
 		state:           domainDevice.DeviceStateDisconnected,
 		displayName:     display,
 		jid:             jid,
+		adJID:           adJID,
 		createdAt:       time.Now(),
 	}
 }
@@ -94,6 +98,14 @@ func (d *DeviceInstance) JID() string {
 	return d.jid
 }
 
+// ADJID returns the full companion identity (number:NN@s.whatsapp.net), or "" while
+// the slot is unpaired / the suffix is not yet known.
+func (d *DeviceInstance) ADJID() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.adJID
+}
+
 func (d *DeviceInstance) CreatedAt() time.Time {
 	return d.createdAt
 }
@@ -116,6 +128,7 @@ func (d *DeviceInstance) ResetClient() {
 	defer d.mu.Unlock()
 	d.client = nil
 	d.jid = ""
+	d.adJID = ""
 	d.phoneNumber = ""
 	d.state = domainDevice.DeviceStateDisconnected
 }
@@ -170,6 +183,7 @@ func (d *DeviceInstance) UpdateStateFromClient() domainDevice.DeviceState {
 func (d *DeviceInstance) refreshIdentityLocked() {
 	if d.client != nil && d.client.Store != nil && d.client.Store.ID != nil {
 		d.jid = d.client.Store.ID.ToNonAD().String()
+		d.adJID = d.client.Store.ID.String()
 		d.displayName = d.client.Store.PushName
 	}
 }

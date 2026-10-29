@@ -11,7 +11,7 @@ import (
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // sendFileStubUsecase implements domainSend.ISendUsecase by embedding the
@@ -79,6 +79,12 @@ func TestSendFileMultipartStillPopulatesFile(t *testing.T) {
 	if err := writer.WriteField("phone", "628123456789@s.whatsapp.net"); err != nil {
 		t.Fatalf("WriteField: %v", err)
 	}
+	if err := writer.WriteField("scheduled_at", "2026-09-22T03:00:00Z"); err != nil {
+		t.Fatalf("WriteField scheduled_at: %v", err)
+	}
+	if err := writer.WriteField("timezone", "UTC"); err != nil {
+		t.Fatalf("WriteField timezone: %v", err)
+	}
 	part, err := writer.CreateFormFile("file", "doc.pdf")
 	if err != nil {
 		t.Fatalf("CreateFormFile: %v", err)
@@ -109,5 +115,8 @@ func TestSendFileMultipartStillPopulatesFile(t *testing.T) {
 	}
 	if stub.receivedRequest.File.Filename != "doc.pdf" {
 		t.Fatalf("File.Filename = %q, want doc.pdf", stub.receivedRequest.File.Filename)
+	}
+	if stub.receivedRequest.ScheduledAt != "2026-09-22T03:00:00Z" {
+		t.Fatalf("ScheduledAt = %q, want scheduled timestamp", stub.receivedRequest.ScheduledAt)
 	}
 }

@@ -3,8 +3,11 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"io"
 	"math"
 	"mime"
 	"net/http"
@@ -26,7 +29,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/disintegration/imaging"
-	fiberUtils "github.com/gofiber/fiber/v2/utils"
+	fiberUtils "github.com/gofiber/utils/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"go.mau.fi/whatsmeow"
@@ -37,6 +40,188 @@ import (
 
 // webpCanvasSizeRegex is compiled once at package level for efficiency
 var webpCanvasSizeRegex = regexp.MustCompile(`Canvas size:\s*(\d+)\s*x\s*(\d+)`)
+
+const hdImageMaxEdge = 2560
+
+// compressedImageMaxEdge is the width of the legacy compress=true send. The
+// derived height is capped at hdImageMaxEdge so a narrow source cannot grow a
+// fixed width into a multi-megapixel height.
+const compressedImageMaxEdge = 600
+
+// stickerMaxEdge is the longest side of a static sticker before WebP conversion.
+const stickerMaxEdge = 512
+
+type videoMetadata struct {
+	Width   uint32
+	Height  uint32
+	Seconds uint32
+}
+
+func resizeImageForHD(src image.Image) image.Image {
+	return imaging.Fit(src, hdImageMaxEdge, hdImageMaxEdge, imaging.Lanczos)
+}
+
+func prepareImageForSend(src image.Image, compress, hd bool) (image.Image, bool) {
+	if hd {
+		return resizeImageForHD(src), true
+	}
+	if compress {
+		return utils.FitBox(src, compressedImageMaxEdge, hdImageMaxEdge), true
+	}
+	return src, false
+}
+
+func openImageForSend(imagePath string, hd bool) (image.Image, error) {
+	return utils.DecodeImageFileWithinBudget(imagePath, imaging.AutoOrientation(hd))
+}
+
+// videoThumbnailFFmpegArgs extracts one frame already fitted inside the
+// 100x512 thumbnail box. force_original_aspect_ratio=decrease does not
+// enlarge a short edge to fill the box.
+func videoThumbnailFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-i", inputPath,
+		"-ss", "00:00:01.000",
+		"-vframes", "1",
+		"-vf", "scale=100:512:force_original_aspect_ratio=decrease",
+		outputPath,
+	}
+}
+
+// openVideoThumbnail decodes a frame only after its header fits the shared
+// pixel budget, then fits it inside the thumbnail box.
+func openVideoThumbnail(path string) (image.Image, error) {
+	img, err := utils.DecodeImageFileWithinBudget(path)
+	if err != nil {
+		return nil, err
+	}
+	return utils.FitThumbnail(img), nil
+}
+
+// openStickerImage decodes a sticker only after its header fits the shared
+// pixel budget.
+func openStickerImage(path string) (image.Image, error) {
+	return utils.DecodeImageFileWithinBudget(path)
+}
+
+func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
+	prefix := "new-"
+	var saveOptions []imaging.EncodeOption
+	if hd {
+		prefix = "hd-"
+		imageName = strings.TrimSuffix(imageName, filepath.Ext(imageName)) + ".jpg"
+		saveOptions = append(saveOptions, imaging.JPEGQuality(92))
+	}
+	processedImagePath := filepath.Join(directory, prefix+imageName)
+	return processedImagePath, imaging.Save(src, processedImagePath, saveOptions...)
+}
+
+func buildHDVideoFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-i", inputPath,
+		"-c:v", "libx264",
+		"-crf", "23",
+		"-preset", "fast",
+		"-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		"-pix_fmt", "yuv420p",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		outputPath,
+	}
+}
+
+// buildStickerWebPFFmpegArgs converts a single still PNG into a static WebP sticker.
+// It must not pass -vsync: ffmpeg deprecated it in 5.1 and removed it in 9.0, and
+// frame-rate sync does nothing for a one-frame input anyway.
+func buildStickerWebPFFmpegArgs(inputPath, outputPath string) []string {
+	return []string{
+		"-y",
+		"-i", inputPath,
+		"-vcodec", "libwebp",
+		"-lossless", "0",
+		"-compression_level", "6",
+		"-q:v", "60",
+		"-preset", "default",
+		"-loop", "0",
+		"-an",
+		outputPath,
+	}
+}
+
+func buildVideoTranscodeArgs(inputPath, outputPath string, compress, hd bool) ([]string, bool) {
+	if hd {
+		return buildHDVideoFFmpegArgs(inputPath, outputPath), true
+	}
+	if !compress {
+		return nil, false
+	}
+	return []string{
+		"-i", inputPath,
+		"-c:v", "libx264",
+		"-crf", "28",
+		"-preset", "fast",
+		"-vf", "scale=720:-2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-y",
+		outputPath,
+	}, true
+}
+
+func parseVideoMetadata(data []byte) (videoMetadata, error) {
+	var probe struct {
+		Streams []struct {
+			Width    uint32 `json:"width"`
+			Height   uint32 `json:"height"`
+			Duration string `json:"duration"`
+		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return videoMetadata{}, err
+	}
+
+	var metadata videoMetadata
+	if len(probe.Streams) > 0 {
+		metadata.Width = probe.Streams[0].Width
+		metadata.Height = probe.Streams[0].Height
+	}
+	durationText := probe.Format.Duration
+	if durationText == "" || durationText == "N/A" {
+		if len(probe.Streams) > 0 {
+			durationText = probe.Streams[0].Duration
+		}
+	}
+	if duration, err := strconv.ParseFloat(durationText, 64); err == nil && duration > 0 {
+		metadata.Seconds = uint32(duration)
+	}
+	return metadata, nil
+}
+
+func getVideoMetadata(videoPath string) videoMetadata {
+	output, err := runFFProbe(
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=width,height,duration:format=duration",
+		"-of", "json",
+		videoPath,
+	)
+	if err != nil {
+		logrus.Warnf("Failed to get video metadata: %v", err)
+		return videoMetadata{}
+	}
+	metadata, err := parseVideoMetadata(output)
+	if err != nil {
+		logrus.Warnf("Failed to parse video metadata: %v", err)
+		return videoMetadata{}
+	}
+	return metadata
+}
 
 type serviceSend struct {
 	appService      app.IAppUsecase
@@ -54,34 +239,60 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 // whatsmeow handles the trusted-contact (tctoken) lifecycle internally; a 463
 // "reach-out timelock" rejection is a WhatsApp server-side restriction that the
 // client cannot retry around, so it is surfaced as-is via normalizeSendError.
-func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg)
+func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
+	ts, err := client.SendMessage(ctx, recipient, msg, extra...)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
 
 	// Store the sent message using chatstorage
-	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.String()
-	}
+	senderJID := whatsapp.OwnSenderJID(client)
 
 	// Store message asynchronously with timeout.
 	// Preserve device context (for device_id scoping) but detach from request cancellation.
+	// The budget must survive chat-storage write contention (history sync batches
+	// hold the SQLite writer for a while; busy_timeout is 30s) — with a short
+	// deadline the sent message is silently missing from the chat viewer.
 	go func() {
-		storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 
 		if err := service.chatStorageRepo.StoreSentMessageWithContext(storeCtx, ts.ID, senderJID, recipient.String(), content, ts.Timestamp, msg); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				logrus.Warn("Timeout storing sent message")
+				logrus.Warnf("Timeout storing sent message %s to %s", ts.ID, recipient.String())
 			} else {
-				logrus.Warnf("Failed to store sent message: %v", err)
+				logrus.Warnf("Failed to store sent message %s to %s: %v", ts.ID, recipient.String(), err)
 			}
 		}
 	}()
 
 	return ts, nil
+}
+
+// normalizeStoredSender renders a stored sender in the plain user form a quote's
+// Participant requires.
+//
+// The reader cannot trust what is persisted. Rows written before senders were
+// normalised on the way in still carry AD/device identity
+// ("628123456789:32@s.whatsapp.net"), and a device-suffixed JID matches no
+// participant of a chat, so the recipient cannot attribute the quoted message.
+// Normalising here covers those rows without a migration, and mirrors
+// RevokeMessage, which parses and LID-normalises a stored sender for the same
+// reason. A value that will not parse is passed through untouched.
+func normalizeStoredSender(ctx context.Context, sender string) string {
+	// ParseJID does not report failure on a malformed value — it appends the
+	// default server, so "not-a-jid" becomes "not-a-jid@s.whatsapp.net". Only
+	// touch a value that already carries one, so anything else survives verbatim
+	// instead of being rewritten into a different unusable form.
+	if !strings.Contains(sender, "@") {
+		return sender
+	}
+	parsed, err := utils.ParseJID(sender)
+	if err != nil {
+		logrus.Warnf("Could not parse stored sender %q for reply context: %v", sender, err)
+		return sender
+	}
+	return whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).ToNonAD().String()
 }
 
 func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *waE2E.ContextInfo, replyMessageID *string) *waE2E.ContextInfo {
@@ -105,10 +316,24 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 		contextInfo = &waE2E.ContextInfo{}
 	}
 	contextInfo.StanzaID = replyMessageID
-	contextInfo.Participant = proto.String(message.Sender)
+	contextInfo.Participant = proto.String(normalizeStoredSender(ctx, message.Sender))
 	contextInfo.QuotedMessage = &waE2E.Message{
 		Conversation: proto.String(message.Content),
 	}
+	return contextInfo
+}
+
+// withAllowReshare marks a status post as reshareable. Without
+// FeatureEligibilities.CanBeReshared, viewers get no reshare button, even when
+// the poster's status privacy allows resharing.
+func withAllowReshare(contextInfo *waE2E.ContextInfo, allowReshare bool) *waE2E.ContextInfo {
+	if !allowReshare {
+		return contextInfo
+	}
+	if contextInfo == nil {
+		contextInfo = &waE2E.ContextInfo{}
+	}
+	contextInfo.FeatureEligibilities = &waE2E.ContextInfo_FeatureEligibilities{CanBeReshared: proto.Bool(true)}
 	return contextInfo
 }
 
@@ -156,25 +381,15 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(request.BaseRequest.Phone))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, request.BaseRequest.Phone))
 	}
 
-	// Get mentions from text (existing behavior - parses @phone from message text)
-	parsedMentions := service.getMentionFromText(ctx, request.Message)
-
-	// Add explicit mentions from request.Mentions (ghost mentions - no @ required in text)
-	if len(request.Mentions) > 0 {
-		explicitMentions := service.getMentionsFromList(ctx, request.Mentions, dataWaRecipient)
-		parsedMentions = append(parsedMentions, explicitMentions...)
-		// Deduplicate to avoid mentioning the same person twice
-		parsedMentions = utils.UniqueStrings(parsedMentions)
-	}
-
-	if len(parsedMentions) > 0 {
-		msg.ExtendedTextMessage.ContextInfo.MentionedJID = parsedMentions
+	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		msg.ExtendedTextMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 
 	msg.ExtendedTextMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ExtendedTextMessage.ContextInfo, request.ReplyMessageID)
+	msg.ExtendedTextMessage.ContextInfo = withAllowReshare(msg.ExtendedTextMessage.ContextInfo, request.AllowReshare)
 
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, request.Message)
 	if err != nil {
@@ -210,9 +425,14 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		oriImagePath   string
 	)
 
+	// Prefix every temp file with a UUID, as the video path already does.
+	// Without it two concurrent sends of the same filename share one path on
+	// disk and the deferred cleanup below deletes the other request's files.
+	generateUUID := fiberUtils.UUIDv4()
+
 	if request.ImageURL != nil && *request.ImageURL != "" {
 		// Download image from URL
-		imageData, fileName, err := utils.DownloadImageFromURL(*request.ImageURL)
+		imageData, fileName, err := utils.DownloadImageFromURL(ctx, *request.ImageURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
 		}
@@ -221,7 +441,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		mimeType := http.DetectContentType(imageData)
 		if mimeType == "image/webp" {
 			// Convert WebP to PNG
-			webpImage, err := imaging.Decode(bytes.NewReader(imageData))
+			webpImage, _, err := utils.DecodeImageWithinBudget(bytes.NewReader(imageData))
 			if err != nil {
 				return response, pkgError.InternalServerError(fmt.Sprintf("failed to decode WebP image %v", err))
 			}
@@ -242,50 +462,57 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 			imageData = pngBuffer.Bytes()
 		}
 
-		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, fileName)
-		imageName = fileName
+		imageName = generateUUID + fileName
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
 		err = os.WriteFile(oriImagePath, imageData, 0644)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save downloaded image %v", err))
 		}
 	} else if request.Image != nil {
 		// Save image to server
-		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, request.Image.Filename)
+		imageName = generateUUID + request.Image.Filename
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
 		err = fasthttp.SaveMultipartFile(request.Image, oriImagePath)
 		if err != nil {
 			return response, err
 		}
-		imageName = request.Image.Filename
 	}
 	deletedItems = append(deletedItems, oriImagePath)
+	// Remove the temp files on every return, including the early errors below.
+	defer func() {
+		errDelete := utils.RemoveFile(0, deletedItems...)
+		if errDelete != nil {
+			fmt.Println("error when deleting picture: ", errDelete)
+		}
+	}()
 
 	/* Generate thumbnail with smalled image size */
-	srcImage, err := imaging.Open(oriImagePath)
-	if err != nil {
+	srcImage, err := openImageForSend(oriImagePath, request.HD)
+	switch {
+	case err == nil:
+		// Resize thumbnail within a fixed box. A fixed width with a derived height
+		// would upscale a very narrow image into a tall raster.
+		resizedImage := utils.FitThumbnail(srcImage)
+		imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
+		if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
+		}
+		deletedItems = append(deletedItems, imageThumbnail)
+	case !request.Compress && !request.HD && errors.Is(err, utils.ErrImageTooLarge):
+		// Original mode uploads the file unchanged and decodes it only for the
+		// thumbnail, so an image past the decode budget is sent without one.
+	default:
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for thumbnail generation: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
 	}
 
-	// Resize Thumbnail
-	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
-	imageThumbnail = fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, imageName)
-	if err = imaging.Save(resizedImage, imageThumbnail); err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
-	}
-	deletedItems = append(deletedItems, imageThumbnail)
-
-	if request.Compress {
-		// Resize image
-		openImageBuffer, err := imaging.Open(oriImagePath)
-		if err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open image file '%s' for compression: %v. Possible causes: file not found, unsupported format, or permission denied.", oriImagePath, err))
+	preparedImage, processed := prepareImageForSend(srcImage, request.Compress, request.HD)
+	if processed {
+		processedImagePath, saveErr := saveProcessedImage(preparedImage, config.PathSendItems, imageName, request.HD)
+		if saveErr != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save processed image %v", saveErr))
 		}
-		newImage := imaging.Resize(openImageBuffer, 600, 0, imaging.Lanczos)
-		newImagePath := fmt.Sprintf("%s/new-%s", config.PathSendItems, imageName)
-		if err = imaging.Save(newImage, newImagePath); err != nil {
-			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save image %v", err))
-		}
-		deletedItems = append(deletedItems, newImagePath)
-		imagePath = newImagePath
+		deletedItems = append(deletedItems, processedImagePath)
+		imagePath = processedImagePath
 	} else {
 		imagePath = oriImagePath
 	}
@@ -296,14 +523,21 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	if err != nil {
 		return response, err
 	}
+	imageConfig, _, err := image.DecodeConfig(bytes.NewReader(dataWaImage))
+	if err != nil {
+		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read sent image dimensions %v", err))
+	}
 	uploadedImage, err := service.uploadMedia(ctx, client, whatsmeow.MediaImage, dataWaImage, dataWaRecipient)
 	if err != nil {
 		fmt.Printf("failed to upload file: %v", err)
 		return response, err
 	}
-	dataWaThumbnail, err := os.ReadFile(imageThumbnail)
-	if err != nil {
-		return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+	var dataWaThumbnail []byte
+	if imageThumbnail != "" {
+		dataWaThumbnail, err = os.ReadFile(imageThumbnail)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to read thumbnail %v", err))
+		}
 	}
 
 	msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
@@ -316,6 +550,8 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		FileEncSHA256: uploadedImage.FileEncSHA256,
 		FileSHA256:    uploadedImage.FileSHA256,
 		FileLength:    proto.Uint64(uint64(len(dataWaImage))),
+		Width:         proto.Uint32(uint32(imageConfig.Width)),
+		Height:        proto.Uint32(uint32(imageConfig.Height)),
 		ViewOnce:      proto.Bool(request.ViewOnce),
 	}}
 
@@ -333,19 +569,20 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		}
 		msg.ImageMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.ImageMessage.ContextInfo == nil {
+			msg.ImageMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.ImageMessage.ContextInfo.MentionedJID = mentionedJIDs
+	}
 	msg.ImageMessage.ContextInfo = service.mergeReplyContext(ctx, msg.ImageMessage.ContextInfo, request.ReplyMessageID)
+	msg.ImageMessage.ContextInfo = withAllowReshare(msg.ImageMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🖼️ Image"
 	if request.Caption != "" {
 		caption = request.Caption
 	}
 	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, caption)
-	go func() {
-		errDelete := utils.RemoveFile(0, deletedItems...)
-		if errDelete != nil {
-			fmt.Println("error when deleting picture: ", errDelete)
-		}
-	}()
 	if err != nil {
 		return response, err
 	}
@@ -377,7 +614,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 	)
 
 	if request.FileURL != nil && *request.FileURL != "" {
-		fileBytes, fileName, err = utils.DownloadFileFromURL(*request.FileURL)
+		fileBytes, fileName, err = utils.DownloadFileFromURL(ctx, *request.FileURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download file from URL: %v", err))
 		}
@@ -424,6 +661,12 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
 		}
 		msg.DocumentMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
+	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.DocumentMessage.ContextInfo == nil {
+			msg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.DocumentMessage.ContextInfo.MentionedJID = mentionedJIDs
 	}
 	msg.DocumentMessage.ContextInfo = service.mergeReplyContext(ctx, msg.DocumentMessage.ContextInfo, request.ReplyMessageID)
 
@@ -479,13 +722,19 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		return nil
 	}
 
-	// Try pdftoppm first (poppler-utils) — widely available, no Ghostscript needed
+	pxW, pxH, ok := pdfApprovedRasterPixels(tempPDF)
+	if !ok {
+		logrus.Warnf("skipping PDF thumbnail: page exceeds render budget or size is unknown")
+		return nil
+	}
+
+	// pdftoppm is pinned to the approved pixel size. A missing or failed
+	// pdfinfo measurement never reaches this command.
 	pngGenerated := false
 	pdftoppmOut := fmt.Sprintf("%s/thumb_%s", config.PathSendItems, uuid)
 	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "pdftoppm", "-png", "-f", "1", "-l", "1", "-r", "150", "-singlefile", tempPDF, pdftoppmOut)
-	if err := cmd.Run(); err == nil {
+	if err := runExternal(cmdCtx, "pdftoppm", pdfPopplerArgs(tempPDF, pdftoppmOut, pxW, pxH)...); err == nil {
 		// pdftoppm with -singlefile outputs to {prefix}.png
 		actualOut := pdftoppmOut + ".png"
 		if _, statErr := os.Stat(actualOut); statErr == nil {
@@ -494,20 +743,21 @@ func generatePDFThumbnail(pdfBytes []byte, uuid string) []byte {
 		}
 	}
 
-	// Fallback to ImageMagick convert
+	// Fallback to ImageMagick convert. Density and a shrink-only geometry keep
+	// the fallback from expanding a narrow page into a tall raster.
 	if !pngGenerated {
-		cmd = exec.CommandContext(cmdCtx, "convert", tempPDF+"[0]", "-resize", "300x", "-quality", "85", tempPNG)
-		if err := cmd.Run(); err != nil {
+		if err := runExternal(cmdCtx, "convert", "-density", "72", "-limit", "width", "8192", "-limit", "height", "8192", tempPDF+"[0]", "-resize", "100x512>", "-quality", "85", tempPNG); err != nil {
 			return nil
 		}
 	}
 
-	// Resize to thumbnail
-	srcImage, err := imaging.Open(tempPNG)
+	// Resize to thumbnail. Reject a render that exceeds the shared pixel budget
+	// instead of allocating it.
+	srcImage, err := utils.DecodeImageFileWithinBudget(tempPNG)
 	if err != nil {
 		return nil
 	}
-	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	resized := utils.FitThumbnail(srcImage)
 	if err = imaging.Save(resized, thumbPath); err != nil {
 		return nil
 	}
@@ -533,12 +783,12 @@ func generateImageDocThumbnail(imageBytes []byte, fileName string, uuid string) 
 		return nil
 	}
 
-	srcImage, err := imaging.Open(tempPath)
+	srcImage, err := utils.DecodeImageFileWithinBudget(tempPath)
 	if err != nil {
 		return nil
 	}
 
-	resized := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
+	resized := utils.FitThumbnail(srcImage)
 	if err = imaging.Save(resized, thumbPath); err != nil {
 		return nil
 	}
@@ -634,23 +884,39 @@ func getAudioDuration(audioPath string) uint32 {
 
 // generateWaveform generates a waveform visualization for voice notes using ffmpeg.
 // Returns a []byte with 64 amplitude samples (0-100) for WhatsApp UI visualization.
-func generateWaveform(audioPath string) []byte {
-	// Extract audio samples as signed 8-bit PCM
-	// -ac 1: mono, -ar 8000: 8kHz sample rate, -f s8: signed 8-bit output
-	output, err := runFFMpeg(
-		"-i", audioPath,
-		"-ac", "1",
-		"-ar", "8000",
-		"-f", "s8",
-		"-acodec", "pcm_s8",
-		"pipe:1",
-	)
+func generateWaveform(audioPath string, durationSeconds uint32) []byte {
+	// Extract signed 8-bit PCM sized to span the whole note. The reader keeps
+	// at most waveformMaxPCMBytes so a highly compressed recording cannot
+	// expand into an unbounded buffer.
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", waveformFFmpegArgs(audioPath, durationSeconds)...)
+	cmd.Stderr = io.Discard
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		logrus.Warnf("Failed to generate waveform: %v", err)
 		return generateDefaultWaveform()
 	}
+	if err := cmd.Start(); err != nil {
+		logrus.Warnf("Failed to generate waveform: %v", err)
+		return generateDefaultWaveform()
+	}
+	samples, readErr := readWaveformPCM(stdout, waveformMaxPCMBytes)
+	_ = stdout.Close()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if len(samples) == 0 {
+		logrus.Warnf("Failed to generate waveform: read=%v wait=%v", readErr, waitErr)
+		return generateDefaultWaveform()
+	}
 
-	return downsampleToWaveform(output, 64)
+	return downsampleToWaveform(samples, 64)
 }
 
 // downsampleToWaveform converts raw PCM samples to a fixed number of amplitude peaks.
@@ -755,7 +1021,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	// Determine source of video (URL or uploaded file)
 	if request.VideoURL != nil && *request.VideoURL != "" {
 		// Download video bytes
-		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(*request.VideoURL)
+		videoBytes, fileName, errDownload := utils.DownloadVideoFromURL(ctx, *request.VideoURL)
 		if errDownload != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download video from URL %v", errDownload))
 		}
@@ -782,22 +1048,23 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, pkgError.InternalServerError("ffmpeg not installed")
 	}
 
-	// Generate thumbnail using ffmpeg
+	// Generate thumbnail using ffmpeg. The scale filter fits the frame inside
+	// the thumbnail box without stretching a tiny edge into a tall raster.
 	thumbnailVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".png")
-	cmdThumbnail := exec.Command("ffmpeg", "-i", oriVideoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailVideoPath)
+	cmdThumbnail := exec.Command("ffmpeg", videoThumbnailFFmpegArgs(oriVideoPath, thumbnailVideoPath)...)
 	err = cmdThumbnail.Run()
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to create thumbnail %v", err))
 	}
 
-	// Resize Thumbnail
-	srcImage, err := imaging.Open(thumbnailVideoPath)
+	// Reject an extracted frame that still exceeds the shared pixel budget
+	// before imaging fully decodes it, then keep the preview inside 100x512.
+	srcImage, err := openVideoThumbnail(thumbnailVideoPath)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to open generated video thumbnail image '%s': %v. Possible causes: file not found, unsupported format, or permission denied.", thumbnailVideoPath, err))
 	}
-	resizedImage := imaging.Resize(srcImage, 100, 0, imaging.Lanczos)
 	thumbnailResizeVideoPath := fmt.Sprintf("%s/thumbnails-%s", config.PathSendItems, generateUUID+".png")
-	if err = imaging.Save(resizedImage, thumbnailResizeVideoPath); err != nil {
+	if err = imaging.Save(srcImage, thumbnailResizeVideoPath); err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("failed to save thumbnail %v", err))
 	}
 
@@ -805,37 +1072,21 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	deletedItems = append(deletedItems, thumbnailResizeVideoPath)
 	videoThumbnail = thumbnailResizeVideoPath
 
-	// Compress if requested
-	if request.Compress {
-		compresVideoPath := fmt.Sprintf("%s/%s", config.PathSendItems, generateUUID+".mp4")
-
-		// Use proper compression settings to reduce file size
-		// -crf 28: Constant Rate Factor (18-28 is good range, higher = smaller file)
-		// -preset medium: Balance between encoding speed and compression efficiency
-		// -c:v libx264: Use H.264 codec for video
-		// -c:a aac: Use AAC codec for audio
-		// -movflags +faststart: Optimize for web streaming
-		// -vf scale=720:-2: Scale video to max width 720px, maintain aspect ratio
-		cmdCompress := exec.Command("ffmpeg", "-i", oriVideoPath,
-			"-c:v", "libx264",
-			"-crf", "28",
-			"-preset", "fast",
-			"-vf", "scale=720:-2",
-			"-c:a", "aac",
-			"-b:a", "128k",
-			"-movflags", "+faststart",
-			"-y", // Overwrite output file if it exists
-			compresVideoPath)
-
-		// Capture both stdout and stderr for better error reporting
-		output, err := cmdCompress.CombinedOutput()
+	transcodedVideoPath := fmt.Sprintf("%s/%s.mp4", config.PathSendItems, generateUUID)
+	transcodeArgs, shouldTranscode := buildVideoTranscodeArgs(oriVideoPath, transcodedVideoPath, request.Compress, request.HD)
+	if shouldTranscode {
+		cmdTranscode := exec.Command("ffmpeg", transcodeArgs...)
+		output, err := cmdTranscode.CombinedOutput()
 		if err != nil {
+			if request.HD {
+				logrus.Errorf("ffmpeg HD conversion failed: %v, output: %s", err, string(output))
+				return response, pkgError.InternalServerError(fmt.Sprintf("failed to convert video to HD: %v", err))
+			}
 			logrus.Errorf("ffmpeg compression failed: %v, output: %s", err, string(output))
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to compress video: %v", err))
 		}
-
-		videoPath = compresVideoPath
-		deletedItems = append(deletedItems, compresVideoPath)
+		videoPath = transcodedVideoPath
+		deletedItems = append(deletedItems, transcodedVideoPath)
 	} else {
 		videoPath = oriVideoPath
 	}
@@ -846,6 +1097,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 	if err != nil {
 		return response, err
 	}
+	metadata := getVideoMetadata(videoPath)
 	uploaded, err := service.uploadMedia(ctx, client, whatsmeow.MediaVideo, dataWaVideo, dataWaRecipient)
 	if err != nil {
 		return response, pkgError.InternalServerError(fmt.Sprintf("Failed to upload file: %v", err))
@@ -871,6 +1123,15 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		ThumbnailSHA256:     dataWaThumbnail,
 		ThumbnailDirectPath: proto.String(uploaded.DirectPath),
 	}}
+	if metadata.Width > 0 {
+		msg.VideoMessage.Width = proto.Uint32(metadata.Width)
+	}
+	if metadata.Height > 0 {
+		msg.VideoMessage.Height = proto.Uint32(metadata.Height)
+	}
+	if metadata.Seconds > 0 {
+		msg.VideoMessage.Seconds = proto.Uint32(metadata.Seconds)
+	}
 
 	if request.BaseRequest.IsForwarded {
 		msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{
@@ -885,7 +1146,14 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		}
 		msg.VideoMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
+	if mentionedJIDs := service.resolveMentions(ctx, request.Caption, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
+		if msg.VideoMessage.ContextInfo == nil {
+			msg.VideoMessage.ContextInfo = &waE2E.ContextInfo{}
+		}
+		msg.VideoMessage.ContextInfo.MentionedJID = mentionedJIDs
+	}
 	msg.VideoMessage.ContextInfo = service.mergeReplyContext(ctx, msg.VideoMessage.ContextInfo, request.ReplyMessageID)
+	msg.VideoMessage.ContextInfo = withAllowReshare(msg.VideoMessage.ContextInfo, request.AllowReshare)
 
 	caption := "🎥 Video"
 	if request.Caption != "" {
@@ -971,28 +1239,12 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		return response, err
 	}
 
-	metadata, err := utils.GetMetaDataFromURL(request.Link)
+	messageText := buildLinkMessageText(request.Caption, request.Link)
+
+	msg, err := buildLinkPreviewMessage(ctx, client, dataWaRecipient, messageText, request.Link)
 	if err != nil {
 		return response, err
 	}
-
-	// Log image dimensions if available, otherwise note it's a square image or dimensions not available
-	if metadata.Width != nil && metadata.Height != nil {
-		logrus.Debugf("Image dimensions: %dx%d", *metadata.Width, *metadata.Height)
-	} else {
-		logrus.Debugf("Image dimensions: Square image or dimensions not available")
-	}
-
-	messageText := buildLinkMessageText(request.Caption, request.Link)
-
-	// Create the message
-	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-		Text:          proto.String(messageText),
-		Title:         proto.String(metadata.Title),
-		MatchedText:   proto.String(request.Link),
-		Description:   proto.String(metadata.Description),
-		JPEGThumbnail: metadata.JPEGThumb,
-	}}
 
 	if request.BaseRequest.IsForwarded {
 		msg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{
@@ -1008,11 +1260,42 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
+	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, messageText)
+	if err != nil {
+		return response, err
+	}
+
+	response.MessageID = ts.ID
+	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
+	return response, nil
+}
+
+// buildLinkPreviewMessage builds an ExtendedTextMessage carrying a rich preview for link.
+// It is shared by SendLink and link-aware message edits.
+func buildLinkPreviewMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, text, link string) (*waE2E.Message, error) {
+	metadata, err := utils.GetMetaDataFromURL(link)
+	if err != nil {
+		return nil, err
+	}
+
+	if metadata.Width != nil && metadata.Height != nil {
+		logrus.Debugf("Image dimensions: %dx%d", *metadata.Width, *metadata.Height)
+	} else {
+		logrus.Debugf("Image dimensions: Square image or dimensions not available")
+	}
+
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		Text:          proto.String(text),
+		Title:         proto.String(metadata.Title),
+		MatchedText:   proto.String(link),
+		Description:   proto.String(metadata.Description),
+		JPEGThumbnail: metadata.JPEGThumb,
+	}}
+
 	// If we have a thumbnail image, upload it to WhatsApp's servers
 	if len(metadata.ImageThumb) > 0 {
-		uploadedThumb, err := service.uploadMedia(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, dataWaRecipient)
+		uploadedThumb, err := uploadMediaForRecipient(ctx, client, whatsmeow.MediaLinkThumbnail, metadata.ImageThumb, recipient)
 		if err == nil {
-			// Update the message with the uploaded thumbnail information
 			msg.ExtendedTextMessage.ThumbnailDirectPath = proto.String(uploadedThumb.DirectPath)
 			msg.ExtendedTextMessage.ThumbnailSHA256 = uploadedThumb.FileSHA256
 			msg.ExtendedTextMessage.ThumbnailEncSHA256 = uploadedThumb.FileEncSHA256
@@ -1029,14 +1312,7 @@ func (service serviceSend) SendLink(ctx context.Context, request domainSend.Link
 		}
 	}
 
-	ts, err := service.wrapSendMessage(ctx, client, dataWaRecipient, msg, messageText)
-	if err != nil {
-		return response, err
-	}
-
-	response.MessageID = ts.ID
-	response.Status = fmt.Sprintf("Link sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
-	return response, nil
+	return msg, nil
 }
 
 func buildLinkMessageText(caption, link string) string {
@@ -1139,7 +1415,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 
 	// Handle audio from URL or file
 	if request.AudioURL != nil && *request.AudioURL != "" {
-		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(*request.AudioURL)
+		audioBytes, audioFilename, err = utils.DownloadAudioFromURL(ctx, *request.AudioURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download audio from URL %v", err))
 		}
@@ -1177,7 +1453,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	// Generate waveform for PTT voice notes
 	var waveformData []byte
 	if request.PTT && tempAudioPath != "" {
-		waveformData = generateWaveform(tempAudioPath)
+		waveformData = generateWaveform(tempAudioPath, audioDuration)
 	}
 
 	// If PTT is requested, convert audio to OGG Opus format for WhatsApp voice note compatibility
@@ -1342,8 +1618,45 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 	}
 
 	response.MessageID = ts.ID
+	if err := service.persistSentPollDefinition(ctx, dataWaRecipient, ts.ID, request, ts.Timestamp); err != nil {
+		// The WhatsApp send already succeeded. Keep the API response successful
+		// while making the loss of future vote resolution visible in logs.
+		logrus.Warnf("Failed to persist sent poll definition %s: %v", ts.ID, err)
+	}
 	response.Status = fmt.Sprintf("Send poll success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
+}
+
+func (service serviceSend) persistSentPollDefinition(ctx context.Context, recipient types.JID, pollID string, request domainSend.PollRequest, sentAt ...time.Time) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("chat storage repository is not configured")
+	}
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return domainChatStorage.ErrMissingDeviceContext
+	}
+	options := make([]domainChatStorage.PollOption, 0, len(request.Options))
+	for _, name := range request.Options {
+		hash := whatsmeow.HashPollOptions([]string{name})
+		hashHex := ""
+		if len(hash) > 0 {
+			hashHex = fmt.Sprintf("%x", hash[0])
+		}
+		options = append(options, domainChatStorage.PollOption{Name: name, Hash: hashHex})
+	}
+	definition := &domainChatStorage.PollDefinition{
+		DeviceID:              deviceID,
+		ChatJID:               recipient.ToNonAD().String(),
+		PollMessageID:         pollID,
+		Question:              request.Question,
+		Options:               options,
+		SelectableOptionCount: uint32(request.MaxAnswer),
+		Version:               "v1",
+	}
+	if len(sentAt) > 0 {
+		definition.UpdatedAt = sentAt[0]
+	}
+	return service.chatStorageRepo.UpsertPollDefinition(definition)
 }
 
 func (service serviceSend) SendPresence(ctx context.Context, request domainSend.PresenceRequest) (response domainSend.GenericResponse, err error) {
@@ -1426,6 +1739,16 @@ func (service serviceSend) getMentionFromText(ctx context.Context, messages stri
 	return result
 }
 
+// resolveMentions combines @phone mentions parsed from text with explicit (ghost)
+// mentions, deduplicated so the same person is not mentioned twice.
+func (service serviceSend) resolveMentions(ctx context.Context, text string, mentions []string, recipientJID types.JID) []string {
+	result := service.getMentionFromText(ctx, text)
+	if len(mentions) > 0 {
+		result = utils.UniqueStrings(append(result, service.getMentionsFromList(ctx, mentions, recipientJID)...))
+	}
+	return result
+}
+
 // getMentionsFromList converts a list of phone numbers to JIDs for ghost mentions
 // Special keyword "@everyone" will fetch all group participants
 func (service serviceSend) getMentionsFromList(ctx context.Context, mentions []string, recipientJID types.JID) (result []string) {
@@ -1497,7 +1820,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Handle sticker from URL or file
 	if request.StickerURL != nil && *request.StickerURL != "" {
 		// Download sticker from URL
-		imageData, _, err := utils.DownloadImageFromURL(*request.StickerURL)
+		imageData, _, err := utils.DownloadImageFromURL(ctx, *request.StickerURL)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to download sticker from URL: %v", err))
 		}
@@ -1598,6 +1921,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 		}
 
+		msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
+
 		content := "🎨 Animated Sticker"
 
 		// Send the animated sticker message
@@ -1611,11 +1936,15 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		return response, nil
 	}
 
-	// Convert image to WebP format for sticker (512x512 max size)
-	srcImage, err := imaging.Open(stickerPath)
+	// Convert image to WebP format for sticker (512x512 max size).
+	// Header dimensions are checked before the raster is allocated.
+	srcImage, err := openStickerImage(stickerPath)
 	if err != nil {
-		// Fallback for animated WebP (imaging.Open doesn't support animated WebP)
-		logrus.Warnf("imaging.Open failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
+		if errors.Is(err, utils.ErrImageTooLarge) {
+			return response, pkgError.InternalServerError(fmt.Sprintf("sticker image exceeds pixel budget: %v", err))
+		}
+		// Fallback for animated WebP (the still decoder does not support it).
+		logrus.Warnf("sticker decode failed for %s: %v. Trying animated WebP fallback...", stickerPath, err)
 
 		fallbackPngPath := filepath.Join(absBaseDir, fmt.Sprintf("fallback_%s.png", fiberUtils.UUIDv4()))
 		deletedItems = append(deletedItems, fallbackPngPath)
@@ -1661,25 +1990,16 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open image for sticker conversion: %v (animated WebP requires webpmux and dwebp tools)", err))
 		}
 
-		srcImage, err = imaging.Open(fallbackPngPath)
+		srcImage, err = openStickerImage(fallbackPngPath)
 		if err != nil {
 			return response, pkgError.InternalServerError(fmt.Sprintf("failed to open fallback PNG image: %v", err))
 		}
 		logrus.Info("Fallback conversion successful")
 	}
 
-	// Resize image to max 512x512 maintaining aspect ratio
-	bounds := srcImage.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-
-	if width > 512 || height > 512 {
-		if width > height {
-			srcImage = imaging.Resize(srcImage, 512, 0, imaging.Lanczos)
-		} else {
-			srcImage = imaging.Resize(srcImage, 0, 512, imaging.Lanczos)
-		}
-	}
+	// Fit inside 512x512. Both edges are capped; a narrow source is not
+	// stretched by deriving an unbounded height from a fixed width.
+	srcImage = utils.FitBox(srcImage, stickerMaxEdge, stickerMaxEdge)
 
 	// Convert to WebP using external command (ffmpeg or cwebp)
 	webpPath := filepath.Join(absBaseDir, fmt.Sprintf("sticker_%s.webp", fiberUtils.UUIDv4()))
@@ -1704,7 +2024,7 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	// Check if ffmpeg is available
 	if _, err := exec.LookPath("ffmpeg"); err == nil {
 		// Use ffmpeg to convert to WebP with transparency support, overwrite if exists
-		convertCmd = exec.CommandContext(convCtx, "ffmpeg", "-y", "-i", pngPath, "-vcodec", "libwebp", "-lossless", "0", "-compression_level", "6", "-q:v", "60", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", webpPath)
+		convertCmd = exec.CommandContext(convCtx, "ffmpeg", buildStickerWebPFFmpegArgs(pngPath, webpPath)...)
 	} else if _, err := exec.LookPath("cwebp"); err == nil {
 		// Use cwebp as fallback
 		convertCmd = exec.CommandContext(convCtx, "cwebp", "-q", "60", "-o", webpPath, pngPath)
@@ -1762,6 +2082,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 		msg.StickerMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	}
 
+	msg.StickerMessage.ContextInfo = service.mergeReplyContext(ctx, msg.StickerMessage.ContextInfo, request.ReplyMessageID)
+
 	content := "🎨 Sticker"
 
 	// Send the sticker message
@@ -1776,6 +2098,10 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 }
 
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
+}
+
+func uploadMediaForRecipient(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if recipient.Server == types.NewsletterServer {
 		uploaded, err = client.UploadNewsletter(ctx, media, mediaType)
 	} else {
@@ -1820,13 +2146,20 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 	return isAnimated, width, height
 }
 
-func (service serviceSend) getDefaultEphemeralExpiration(jid string) (expiration uint32) {
+// getDefaultEphemeralExpiration returns the disappearing-message timer this
+// device has stored for the chat. Another device's timer for the same chat is
+// not this device's setting, so the lookup is device-scoped.
+func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, jid string) (expiration uint32) {
 	expiration = 0
-	if jid == "" {
+	if jid == "" || service.chatStorageRepo == nil {
+		return expiration
+	}
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
 		return expiration
 	}
 
-	chat, err := service.chatStorageRepo.GetChat(jid)
+	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid)
 	if err != nil {
 		return expiration
 	}
