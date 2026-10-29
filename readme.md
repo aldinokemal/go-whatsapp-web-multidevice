@@ -39,7 +39,7 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
 - [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` is immediate-only and REST-only; recipient compatibility varies.
 - [Webhook payloads](./docs/webhook-payload.md) describes event schemas and signing.
 - [Chatwoot](./docs/chatwoot.md), [MCP OAuth](./docs/mcp-oauth.md), [Neon](./docs/neon.md), and [media storage](./docs/media-storage.md) provide integration and operations guides.
-- [OpenAPI](./docs/openapi.yaml) defines the machine-readable REST contract. The interactive endpoint currently has its own guide.
+- [OpenAPI](./docs/openapi.yaml) defines the machine-readable REST contract, including `/send/interactive`.
 
 ## n8n Community Node
 

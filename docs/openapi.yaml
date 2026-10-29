@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: 9.0.0
+  version: "9.7.0"
   description: |
     This API is used for sending whatsapp via API.
 
@@ -4892,6 +4892,53 @@ paths:
                         type: string
                         example: 'my-device-id'
 
+  /send/interactive:
+    post:
+      operationId: sendInteractive
+      tags: [send]
+      summary: Send an experimental interactive message
+      description: |
+        Immediate-only REST send for native-flow buttons, selection lists,
+        location requests, and carousels. Not supported by scheduled sends or MCP.
+        Uses an unofficial protocol; API success does not guarantee recipient
+        rendering or delivery. Accepts individual user or group recipients only.
+        Provide either buttons or cards. Overall HTTP body limits also apply.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InteractiveSendRequest'
+            example:
+              phone: '628123456789'
+              body: Confirm your order?
+              buttons:
+                - name: quick_reply
+                  params:
+                    display_text: Confirm
+                    id: confirm
+      responses:
+        '200':
+          description: Accepted for send; recipient rendering is unverified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '400':
+          description: Invalid recipient, text, button parameters, or image limits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Device, media upload, or WhatsApp send failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
 components:
   parameters:
     DeviceIdHeader:
@@ -6821,3 +6868,82 @@ components:
               format: date-time
             error:
               type: string
+
+    InteractiveNativeFlowButton:
+      type: object
+      required: [name, params]
+      properties:
+        name:
+          type: string
+          enum: [quick_reply, cta_url, cta_copy, cta_call, single_select, send_location]
+        params:
+          type: object
+          additionalProperties: true
+          description: |
+            Maximum 16384 JSON bytes. quick_reply requires display_text and id;
+            cta_url requires display_text and an absolute HTTP(S) url;
+            cta_copy requires display_text and copy_code;
+            cta_call requires display_text and phone_number.
+            single_select requires title and nonempty sections, each with
+            nonempty rows whose id and title are nonempty strings.
+            send_location accepts an object such as {} and must be the sole
+            button in a non-carousel message. All named text parameters must
+            be nonempty strings.
+    InteractiveCarouselCard:
+      type: object
+      required: [body, buttons]
+      properties:
+        title:
+          type: string
+          description: Maximum 256 bytes.
+        body:
+          type: string
+          description: Required nonblank text, maximum 4096 bytes.
+        footer:
+          type: string
+          description: Maximum 256 bytes.
+        image_base64:
+          type: string
+          description: |
+            Optional raw standard base64 JPEG or PNG, without a data URL prefix.
+            Maximum 2800000 encoded characters and 2000000 decoded bytes, also
+            subject to the configured image limit. Maximum 4096 pixels per side.
+            Resized, JPEG-encoded, thumbnailed, and uploaded before sending.
+        buttons:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InteractiveNativeFlowButton'
+    InteractiveSendRequest:
+      type: object
+      required: [phone, body]
+      properties:
+        phone:
+          type: string
+          description: Phone number or full individual user or group JID.
+        body:
+          type: string
+          description: Required nonblank text, maximum 4096 bytes.
+        footer:
+          type: string
+          description: Maximum 256 bytes.
+        buttons:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InteractiveNativeFlowButton'
+        cards:
+          type: array
+          minItems: 2
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/InteractiveCarouselCard'
+      oneOf:
+        - required: [buttons]
+          not:
+            required: [cards]
+        - required: [cards]
+          not:
+            required: [buttons]
