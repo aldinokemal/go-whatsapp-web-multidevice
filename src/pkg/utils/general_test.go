@@ -2,6 +2,7 @@ package utils_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -95,7 +96,12 @@ func (suite *UtilsTestSuite) TestStrToFloat64() {
 	assert.Equal(suite.T(), 0.0, utils.StrToFloat64(""))
 }
 
+func (suite *UtilsTestSuite) allowLoopbackFetch() {
+	suite.T().Cleanup(utils.AllowUntrustedLoopbackForTest())
+}
+
 func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
+	suite.allowLoopbackFetch()
 	// Use httptest.NewServer to mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<!DOCTYPE html><html><head><title>Test Title</title><meta name='description' content='Test Description'><meta property='og:image' content='http://example.com/image.jpg'></head><body></body></html>`))
@@ -110,6 +116,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURL() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLSendsBrowserHeaders() {
+	suite.allowLoopbackFetch()
 	// assertBrowserHeaders verifies that a request carries the full set of browser-like headers.
 	assertBrowserHeaders := func(t *testing.T, r *http.Request, label string) {
 		assert.Contains(t, r.Header.Get("User-Agent"), "Mozilla", label+": User-Agent should look browser-like")
@@ -143,6 +150,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLSendsBrowserHeaders() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
+	suite.allowLoopbackFetch()
 	// Test with OG title and Twitter image
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<!DOCTYPE html><html><head><meta property='og:title' content='OG Title'><meta name='twitter:image' content='relative-image.jpg'></head><body></body></html>`))
@@ -198,7 +206,8 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 
 	_, err = utils.GetMetaDataFromURL(slowServer.URL)
 	assert.Error(suite.T(), err)
-	assert.Contains(suite.T(), err.Error(), "deadline exceeded")
+	errText := strings.ToLower(err.Error())
+	assert.True(suite.T(), strings.Contains(errText, "timeout") || strings.Contains(errText, "deadline exceeded"), err.Error())
 
 	// Test too many redirects
 	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +241,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLEdgeCases() {
 }
 
 func (suite *UtilsTestSuite) TestGetMetaDataFromURLNormalizesLinkPreviewThumbnails() {
+	suite.allowLoopbackFetch()
 	source := image.NewRGBA(image.Rect(0, 0, 1200, 800))
 	for y := 0; y < source.Bounds().Dy(); y++ {
 		for x := 0; x < source.Bounds().Dx(); x++ {
@@ -275,6 +285,7 @@ func (suite *UtilsTestSuite) TestGetMetaDataFromURLNormalizesLinkPreviewThumbnai
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURL() {
+	suite.allowLoopbackFetch()
 	// Use httptest.NewServer to mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/image.jpg" {
@@ -286,7 +297,7 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURL() {
 	}))
 	defer server.Close() // Ensure the server is closed when the test ends
 
-	imageData, fileName, err := utils.DownloadImageFromURL(server.URL + "/image.jpg")
+	imageData, fileName, err := utils.DownloadImageFromURL(context.Background(), server.URL+"/image.jpg")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), []byte("image data"), imageData)
 	assert.Equal(suite.T(), "image.jpg", fileName)
@@ -413,6 +424,7 @@ func (suite *UtilsTestSuite) TestStrToFloat64EdgeCases() {
 }
 
 func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
+	suite.allowLoopbackFetch()
 	// Test non-image content type
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -420,7 +432,7 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 	}))
 	defer server.Close()
 
-	_, _, err := utils.DownloadImageFromURL(server.URL)
+	_, _, err := utils.DownloadImageFromURL(context.Background(), server.URL)
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "invalid content type")
 
@@ -430,7 +442,7 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 	}))
 	defer errorServer.Close()
 
-	_, _, err = utils.DownloadImageFromURL(errorServer.URL)
+	_, _, err = utils.DownloadImageFromURL(context.Background(), errorServer.URL)
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "HTTP request failed")
 
@@ -443,7 +455,7 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 	}))
 	defer extServer.Close()
 
-	_, _, err = utils.DownloadImageFromURL(extServer.URL + "/image.gif")
+	_, _, err = utils.DownloadImageFromURL(context.Background(), extServer.URL+"/image.gif")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "unsupported file type")
 
@@ -462,28 +474,29 @@ func (suite *UtilsTestSuite) TestDownloadImageFromURLEdgeCases() {
 	defer validExtServer.Close()
 
 	// Test .jpg
-	data, filename, err := utils.DownloadImageFromURL(validExtServer.URL + "/test.jpg")
+	data, filename, err := utils.DownloadImageFromURL(context.Background(), validExtServer.URL+"/test.jpg")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.jpg", filename)
 	assert.Equal(suite.T(), []byte("valid image data"), data)
 
 	// Test .png
-	data, filename, err = utils.DownloadImageFromURL(validExtServer.URL + "/test.png")
+	data, filename, err = utils.DownloadImageFromURL(context.Background(), validExtServer.URL+"/test.png")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.png", filename)
 
 	// Test .webp
-	data, filename, err = utils.DownloadImageFromURL(validExtServer.URL + "/test.webp")
+	data, filename, err = utils.DownloadImageFromURL(context.Background(), validExtServer.URL+"/test.webp")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.webp", filename)
 
 	// Test filename extraction with query parameters
-	data, filename, err = utils.DownloadImageFromURL(validExtServer.URL + "/test.jpg?v=1&size=large")
+	data, filename, err = utils.DownloadImageFromURL(context.Background(), validExtServer.URL+"/test.jpg?v=1&size=large")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.jpg", filename)
 }
 
 func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
+	suite.allowLoopbackFetch()
 	// Mock original config values
 	origMaxSize := config.WhatsappSettingMaxDownloadSize
 	config.WhatsappSettingMaxDownloadSize = 1024 * 1024 // 1MB for testing
@@ -521,33 +534,33 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	defer server.Close()
 
 	// Test valid MP3 download
-	data, filename, err := utils.DownloadAudioFromURL(server.URL + "/test.mp3")
+	data, filename, err := utils.DownloadAudioFromURL(context.Background(), server.URL+"/test.mp3")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.mp3", filename)
 	assert.Equal(suite.T(), []byte("audio data"), data)
 
 	// Test valid WAV download
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/test.wav")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/test.wav")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.wav", filename)
 
 	// Test valid OGG download
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/test.ogg")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/test.ogg")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.ogg", filename)
 
 	// Test valid M4A download
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/test.m4a")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/test.m4a")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.m4a", filename)
 
 	// Test invalid content type - should now warn but still proceed (changed behavior for Chatwoot compatibility)
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/invalid.mp3")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/invalid.mp3")
 	assert.NoError(suite.T(), err) // Now proceeds with warning instead of error
 	assert.NotEmpty(suite.T(), data)
 
 	// Test file too large by content length
-	_, _, err = utils.DownloadAudioFromURL(server.URL + "/large.mp3")
+	_, _, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/large.mp3")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "exceeds maximum allowed size")
 
@@ -557,23 +570,23 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	}))
 	defer errorServer.Close()
 
-	_, _, err = utils.DownloadAudioFromURL(errorServer.URL + "/error.mp3")
+	_, _, err = utils.DownloadAudioFromURL(context.Background(), errorServer.URL+"/error.mp3")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "HTTP request failed")
 
 	// Test filename without extension (should generate timestamp-based name)
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/no-filename/")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/no-filename/")
 	assert.NoError(suite.T(), err)
 	assert.Contains(suite.T(), filename, "audio_")
 	assert.Equal(suite.T(), []byte("audio without filename"), data)
 
 	// Test URL with query parameters
-	data, filename, err = utils.DownloadAudioFromURL(server.URL + "/test.mp3?v=1&quality=high")
+	data, filename, err = utils.DownloadAudioFromURL(context.Background(), server.URL+"/test.mp3?v=1&quality=high")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.mp3", filename)
 
 	// Test invalid URL
-	_, _, err = utils.DownloadAudioFromURL("not-a-valid-url")
+	_, _, err = utils.DownloadAudioFromURL(context.Background(), "not-a-valid-url")
 	assert.Error(suite.T(), err)
 
 	// Test too many redirects
@@ -582,12 +595,13 @@ func (suite *UtilsTestSuite) TestDownloadAudioFromURL() {
 	}))
 	defer redirectServer.Close()
 
-	_, _, err = utils.DownloadAudioFromURL(redirectServer.URL + "/redirect.mp3")
+	_, _, err = utils.DownloadAudioFromURL(context.Background(), redirectServer.URL+"/redirect.mp3")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "too many redirects")
 }
 
 func (suite *UtilsTestSuite) TestDownloadVideoFromURL() {
+	suite.allowLoopbackFetch()
 	// Mock original config values
 	origMaxSize := config.WhatsappSettingMaxDownloadSize
 	config.WhatsappSettingMaxDownloadSize = 1024 * 1024 // 1MB for testing
@@ -622,28 +636,28 @@ func (suite *UtilsTestSuite) TestDownloadVideoFromURL() {
 	defer server.Close()
 
 	// Test valid MP4 download
-	data, filename, err := utils.DownloadVideoFromURL(server.URL + "/test.mp4")
+	data, filename, err := utils.DownloadVideoFromURL(context.Background(), server.URL+"/test.mp4")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.mp4", filename)
 	assert.Equal(suite.T(), []byte("video data"), data)
 
 	// Test valid MKV download
-	data, filename, err = utils.DownloadVideoFromURL(server.URL + "/test.mkv")
+	data, filename, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/test.mkv")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.mkv", filename)
 
 	// Test valid AVI download
-	data, filename, err = utils.DownloadVideoFromURL(server.URL + "/test.avi")
+	data, filename, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/test.avi")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.avi", filename)
 
 	// Test invalid content type
-	_, _, err = utils.DownloadVideoFromURL(server.URL + "/invalid.mp4")
+	_, _, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/invalid.mp4")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "invalid content type")
 
 	// Test file too large by content length
-	_, _, err = utils.DownloadVideoFromURL(server.URL + "/large.mp4")
+	_, _, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/large.mp4")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "exceeds maximum allowed size")
 
@@ -653,24 +667,24 @@ func (suite *UtilsTestSuite) TestDownloadVideoFromURL() {
 	}))
 	defer errorServer.Close()
 
-	_, _, err = utils.DownloadVideoFromURL(errorServer.URL + "/error.mp4")
+	_, _, err = utils.DownloadVideoFromURL(context.Background(), errorServer.URL+"/error.mp4")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "HTTP request failed")
 
 	// Test filename without extension (should generate timestamp-based name)
-	data, filename, err = utils.DownloadVideoFromURL(server.URL + "/no-filename/")
+	data, filename, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/no-filename/")
 	assert.NoError(suite.T(), err)
 	assert.Contains(suite.T(), filename, "video_")
 	assert.True(suite.T(), strings.HasSuffix(filename, ".mp4"))
 	assert.Equal(suite.T(), []byte("video without filename"), data)
 
 	// Test URL with query parameters
-	data, filename, err = utils.DownloadVideoFromURL(server.URL + "/test.mp4?v=1&quality=hd")
+	data, filename, err = utils.DownloadVideoFromURL(context.Background(), server.URL+"/test.mp4?v=1&quality=hd")
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "test.mp4", filename)
 
 	// Test invalid URL
-	_, _, err = utils.DownloadVideoFromURL("not-a-valid-url")
+	_, _, err = utils.DownloadVideoFromURL(context.Background(), "not-a-valid-url")
 	assert.Error(suite.T(), err)
 
 	// Test too many redirects
@@ -679,7 +693,7 @@ func (suite *UtilsTestSuite) TestDownloadVideoFromURL() {
 	}))
 	defer redirectServer.Close()
 
-	_, _, err = utils.DownloadVideoFromURL(redirectServer.URL + "/redirect.mp4")
+	_, _, err = utils.DownloadVideoFromURL(context.Background(), redirectServer.URL+"/redirect.mp4")
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "too many redirects")
 }

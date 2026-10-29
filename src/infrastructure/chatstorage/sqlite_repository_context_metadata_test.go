@@ -237,7 +237,12 @@ func TestContextMetadataEditCanSupplyMissingReply(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			repo, ctx := orderTestRepo(t)
 			if exists {
-				require.NoError(t, repo.StoreMessage(contextTestMessage(orderDevice, orderChatJID, orderMsgID, "")))
+				// The edit is from this account. The stored row has to be that
+				// author's, or the edit is refused.
+				existing := contextTestMessage(orderDevice, orderChatJID, orderMsgID, "")
+				existing.Sender = "628123456789@s.whatsapp.net"
+				existing.IsFromMe = true
+				require.NoError(t, repo.StoreMessage(existing))
 			}
 			evt := editEvent(orderMsgID, "edited", time.Now())
 			evt.Message.ProtocolMessage.EditedMessage = replyProto()
