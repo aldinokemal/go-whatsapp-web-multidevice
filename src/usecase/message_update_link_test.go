@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
@@ -16,6 +17,9 @@ import (
 
 func newLinkPreviewPage(t *testing.T) string {
 	t.Helper()
+	// Preview fetches refuse loopback. This fixture is an httptest server, so
+	// the address check is disabled for the test and restored afterward.
+	t.Cleanup(utils.AllowUntrustedLoopbackForTest())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte(`<html><head><title>Countdown</title><meta property="og:title" content="Countdown"><meta name="description" content="Live timer"></head><body></body></html>`))
