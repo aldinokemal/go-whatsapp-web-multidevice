@@ -199,7 +199,7 @@ All webhook payloads follow a consistent top-level structure:
 |--------------|----------|---------------------------------------------------------------------------------------------------------------------|
 | `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `group.participants`, `group.info`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer`, `device.logged_out`, `device.temporary_ban`, `device.reachout_timelock` |
 | `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
-| `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
+| `session_id` | string   | ID of the emitting slot. Device events always set this field; auto-created slots may use a WhatsApp JID. Other events may omit it when the JID cannot be mapped to a session. |
 | `payload`    | object   | Event-specific payload data                                                                                         |
 
 ### Common Payload Fields
