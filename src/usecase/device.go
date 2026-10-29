@@ -327,7 +327,7 @@ func (s *serviceDevice) GetDeviceWebhookConfig(ctx context.Context, deviceID str
 		return nil, fmt.Errorf("storage not available")
 	}
 
-	config, err := storage.GetDeviceWebhookConfig(deviceID)
+	config, err := storage.GetDeviceWebhookConfig(ctx, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device webhook config: %w", err)
 	}

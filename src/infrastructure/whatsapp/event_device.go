@@ -119,7 +119,9 @@ func forwardDeviceEvent(ctx context.Context, eventName string, instance *DeviceI
 	if jid := instance.JID(); jid != "" {
 		body["device_id"] = jid
 	}
-	webhookConfig := instanceWebhookConfig(instance)
+	lookupCtx, cancelLookup := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	webhookConfig := instanceWebhookConfig(lookupCtx, instance)
+	cancelLookup()
 
 	go func() {
 		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -130,29 +132,20 @@ func forwardDeviceEvent(ctx context.Context, eventName string, instance *DeviceI
 	}()
 }
 
-// instanceWebhookConfig resolves the slot's webhook config by its exact companion JID
-// first: two slots on one number share the bare JID, which the record lookup rejects as
-// ambiguous. The bare JID is the fallback for records saved without a companion JID, and
-// only counts when the record it finds is this slot's: a sibling whose record holds the
-// shared JID would otherwise lend this slot its webhook. Anything else uses the global config.
-func instanceWebhookConfig(instance *DeviceInstance) *domainChatStorage.DeviceWebhookConfig {
-	if adJID := instance.ADJID(); adJID != "" {
-		if webhookConfig := resolveWebhookConfig(adJID); webhookConfig != nil {
-			return webhookConfig
-		}
-	}
-
-	jid := instance.JID()
-	if jid == "" {
+// instanceWebhookConfig uses the stable slot ID, which survives logout and re-pairing.
+// A companion or bare JID may be stale or belong to another slot on the same number.
+func instanceWebhookConfig(ctx context.Context, instance *DeviceInstance) *domainChatStorage.DeviceWebhookConfig {
+	repo := instance.GetChatStorage()
+	if repo == nil {
 		return nil
 	}
-	record, err := getDeviceRecordForTest(jid)
+	webhookConfig, err := repo.GetDeviceWebhookConfig(ctx, instance.ID())
 	if err != nil {
-		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", jid, err)
+		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", instance.ID(), err)
 		return nil
 	}
-	if record == nil || record.DeviceID != instance.ID() {
+	if webhookConfig == nil || webhookConfig.WebhookURL == nil || *webhookConfig.WebhookURL == "" {
 		return nil
 	}
-	return webhookConfigFromRecord(record)
+	return webhookConfig
 }

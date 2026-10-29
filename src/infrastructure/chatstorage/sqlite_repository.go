@@ -2167,13 +2167,13 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
 // Returns (nil, nil) if no device-specific webhook configuration is set.
-func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+func (r *SQLiteRepository) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
 	var config domainChatStorage.DeviceWebhookConfig
 	var webhookURL *string
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
 		FROM devices WHERE device_id = ? LIMIT 1
 	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)

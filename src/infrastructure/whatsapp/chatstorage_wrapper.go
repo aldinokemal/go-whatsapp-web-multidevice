@@ -441,6 +441,6 @@ func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *doma
 }
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
-func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
-	return r.base.GetDeviceWebhookConfig(deviceID)
+func (r *deviceChatStorage) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	return r.base.GetDeviceWebhookConfig(ctx, deviceID)
 }

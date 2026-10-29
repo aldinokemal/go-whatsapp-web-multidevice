@@ -153,7 +153,7 @@ type IChatStorageRepository interface {
 	// SetDeviceWebhookConfig sets the full webhook configuration for a device.
 	SetDeviceWebhookConfig(deviceID string, config *DeviceWebhookConfig) error
 	// GetDeviceWebhookConfig retrieves the full webhook configuration for a device.
-	GetDeviceWebhookConfig(deviceID string) (*DeviceWebhookConfig, error)
+	GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*DeviceWebhookConfig, error)
 
 	// Schema operations
 	InitializeSchema() error

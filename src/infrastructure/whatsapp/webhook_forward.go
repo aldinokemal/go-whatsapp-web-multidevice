@@ -181,16 +181,6 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, webhookConfig)
 }
 
-// resolveWebhookConfig returns the device-specific webhook config, or nil to use the global one.
-func resolveWebhookConfig(deviceJID string) *domainChatStorage.DeviceWebhookConfig {
-	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
-	if err != nil {
-		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
-		return nil
-	}
-	return webhookConfig
-}
-
 // forwardPayloadWithWebhookConfig is forwardPayloadToConfiguredWebhooks with the device's
 // webhook config already resolved, for callers that must look it up before the device
 // record changes.

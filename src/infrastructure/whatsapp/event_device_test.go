@@ -2,7 +2,6 @@ package whatsapp
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,7 +170,7 @@ func TestHandlerReachoutTimelockBroadcastsAndForwards(t *testing.T) {
 }
 
 // The keep-slot reset that a remote logout triggers clears the device's JID, and the
-// webhook config is found by that JID. The logout webhook must still
+// webhook config belongs to its stable slot ID. The logout webhook must still
 // reach a device-only webhook, addressed to the JID the device had.
 func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 	got := captureDeviceWebhooks(t)
@@ -179,18 +178,11 @@ func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 
 	const jid = "6282222222222@s.whatsapp.net"
 	deviceURL := "https://device.example.test/webhook"
-	var reset atomic.Bool
-	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
-		if reset.Load() || deviceJID != jid {
-			return nil, nil
-		}
-		return &domainChatStorage.DeviceRecord{DeviceID: "slot-out", JID: jid, WebhookURL: &deviceURL}, nil
-	}
 
 	inst := &DeviceInstance{id: "slot-out", jid: jid, createdAt: time.Now()}
 	// Stands in for the device manager's keep-slot callback.
+	inst.SetChatStorage(deviceEventConfigRepo{records: []*domainChatStorage.DeviceRecord{{DeviceID: "slot-out", WebhookURL: &deviceURL}}})
 	inst.SetOnLoggedOut(func(string) {
-		reset.Store(true)
 		inst.ResetClient()
 	})
 
@@ -216,7 +208,7 @@ func TestHandlerLoggedOutForwardsWithIdentityFromBeforeReset(t *testing.T) {
 
 // Two slots linked to one number share the bare JID. The record lookup rejects a shared
 // JID as ambiguous, and a JID-to-session lookup can return the sibling, so a device event
-// must be routed by the emitting slot's companion JID and carry that slot's id.
+// must be routed by the emitting slot ID and carry that slot's id.
 func TestDeviceEventRoutesSharedNumberToEmittingSlot(t *testing.T) {
 	got := captureDeviceWebhooks(t)
 	config.WhatsappWebhook = nil
@@ -227,28 +219,9 @@ func TestDeviceEventRoutesSharedNumberToEmittingSlot(t *testing.T) {
 		{DeviceID: "slot-a", JID: bareJID, ADJID: "6284444444444:5@s.whatsapp.net", WebhookURL: &urlA},
 		{DeviceID: "slot-b", JID: bareJID, ADJID: "6284444444444:7@s.whatsapp.net", WebhookURL: &urlB},
 	}
-	// Mirrors GetDeviceRecordByJID: match jid or ad_jid, and ignore an ambiguous match.
-	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
-		var matches []*domainChatStorage.DeviceRecord
-		for _, rec := range records {
-			if rec.JID == deviceJID || rec.ADJID == deviceJID {
-				matches = append(matches, rec)
-			}
-		}
-		if len(matches) != 1 {
-			return nil, nil
-		}
-		return matches[0], nil
-	}
-	// Mirrors getDeviceByJID resolving the shared bare JID to the first slot.
-	sessionIDForJIDFn = func(deviceJID string) string {
-		if deviceJID == bareJID {
-			return "slot-a"
-		}
-		return ""
-	}
 
 	slotB := &DeviceInstance{id: "slot-b", jid: bareJID, adJID: "6284444444444:7@s.whatsapp.net", createdAt: time.Now()}
+	slotB.SetChatStorage(deviceEventConfigRepo{records: records})
 	go handler(context.Background(), slotB, &events.TemporaryBan{Code: events.TempBanSentTooManySameMessage})
 	recvBroadcast(t)
 
@@ -296,18 +269,28 @@ func TestDeviceEventIgnoresSiblingRecordFoundByBareJID(t *testing.T) {
 	const bareJID = "6286666666666@s.whatsapp.net"
 	siblingURL := "https://slot-a.example.test/webhook"
 	sibling := &domainChatStorage.DeviceRecord{DeviceID: "slot-a", JID: bareJID, ADJID: "6286666666666:5@s.whatsapp.net", WebhookURL: &siblingURL}
-	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
-		if deviceJID == sibling.JID || deviceJID == sibling.ADJID {
-			return sibling, nil
-		}
-		return nil, nil
-	}
 
 	slotB := &DeviceInstance{id: "slot-b", jid: bareJID, adJID: "6286666666666:7@s.whatsapp.net", createdAt: time.Now()}
+	slotB.SetChatStorage(deviceEventConfigRepo{records: []*domainChatStorage.DeviceRecord{sibling}})
 	go handler(context.Background(), slotB, &events.TemporaryBan{Code: events.TempBanBlockedByUsers})
 	recvBroadcast(t)
 
 	delivered := recvWebhook(t, got)
 	assert.Equal(t, "https://global.example.test/webhook", delivered.url)
 	assert.Equal(t, "slot-b", delivered.body["session_id"])
+}
+
+// deviceEventConfigRepo adapts the existing record fixtures to the slot storage API.
+type deviceEventConfigRepo struct {
+	domainChatStorage.IChatStorageRepository
+	records []*domainChatStorage.DeviceRecord
+}
+
+func (r deviceEventConfigRepo) GetDeviceWebhookConfig(_ context.Context, id string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	for _, rec := range r.records {
+		if rec.DeviceID == id {
+			return webhookConfigFromRecord(rec), nil
+		}
+	}
+	return nil, nil
 }
