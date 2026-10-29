@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -116,6 +117,36 @@ func TestPrepareImageForSendSelectsRequestedQuality(t *testing.T) {
 			assert.Equal(t, tt.wantProcessed, processed)
 		})
 	}
+}
+
+func TestPrepareImageForSendCompressCapsNarrowSource(t *testing.T) {
+	narrow := image.NewRGBA(image.Rect(0, 0, 1, 8192))
+	got, processed := prepareImageForSend(narrow, true, false)
+	require.True(t, processed)
+	require.LessOrEqual(t, got.Bounds().Dx(), compressedImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dy(), hdImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dx()*got.Bounds().Dy(), compressedImageMaxEdge*hdImageMaxEdge)
+
+	photo := image.NewRGBA(image.Rect(0, 0, 3000, 1500))
+	got, processed = prepareImageForSend(photo, true, false)
+	require.True(t, processed)
+	assert.Equal(t, 600, got.Bounds().Dx())
+	assert.Equal(t, 300, got.Bounds().Dy())
+
+	// A portrait screenshot keeps the 600 px width, as the fixed-width resize did.
+	portrait := image.NewRGBA(image.Rect(0, 0, 1080, 2340))
+	got, processed = prepareImageForSend(portrait, true, false)
+	require.True(t, processed)
+	assert.Equal(t, 600, got.Bounds().Dx())
+	assert.Equal(t, 1300, got.Bounds().Dy())
+}
+
+func TestVideoThumbnailFFmpegArgsFitInsideBox(t *testing.T) {
+	args := videoThumbnailFFmpegArgs("clip.mp4", "frame.png")
+	assert.Contains(t, args, "scale=100:512:force_original_aspect_ratio=decrease")
+	assert.NotContains(t, args, "scale=100:-1")
+	joined := strings.Join(args, " ")
+	assert.NotContains(t, joined, "100:0")
 }
 
 func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T) {
@@ -539,7 +570,7 @@ func TestSendForwardMessageNotFound(t *testing.T) {
 
 func TestForwardDurationOptionExplicitZero(t *testing.T) {
 	zero := 0
-	got := forwardDurationOption(serviceSend{}, domainSend.ForwardRequest{
+	got := forwardDurationOption(context.Background(), serviceSend{}, domainSend.ForwardRequest{
 		Phone:    "628123456789@s.whatsapp.net",
 		Duration: &zero,
 	})

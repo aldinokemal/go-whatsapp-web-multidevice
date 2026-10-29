@@ -1533,6 +1533,10 @@ paths:
                   type: integer
                   example: 86400
                   description: "Disappearing message duration in seconds. Allowed values: 0 (no expiry), 86400 (24h), 604800 (7d), 7776000 (90d)."
+                reply_message_id:
+                  type: string
+                  example: 3EB089B9D6ADD58153C561
+                  description: Message ID that you want reply
                 is_forwarded:
                   type: boolean
                   example: false
@@ -4142,6 +4146,41 @@ paths:
       description: |
         Receives webhook events from Chatwoot and sends messages to WhatsApp.
         Configure this URL in your Chatwoot inbox webhook settings.
+
+        When CHATWOOT_WEBHOOK_SECRET is set the request must prove knowledge of
+        it. Recommended: Chatwoot's own signature, sent by Chatwoot when the API
+        channel has a webhook secret — `X-Chatwoot-Timestamp` (unix seconds) and
+        `X-Chatwoot-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>">`.
+        The timestamp must be within CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE (5m by
+        default) of the server clock. Also accepted: `X-Hub-Signature-256`
+        (HMAC-SHA256 of the raw body), the secret in `X-Chatwoot-Webhook-Secret`
+        or `X-Gowa-Chatwoot-Secret`, or the `secret` query parameter (discouraged:
+        the secret then appears in URLs and logs).
+
+        The secret that applies is the secret of the device the payload is
+        routed to: that device config's `webhook_secret` when it has one (the
+        global secret is then not accepted for it), CHATWOOT_WEBHOOK_SECRET
+        otherwise and when no device resolves. A Chatwoot-signed request that
+        was already accepted (answered 2xx) inside the tolerance window is
+        acknowledged with 200 and not acted on again. One that was answered
+        with any other status is not remembered, so sending the identical
+        request again is handled.
+      parameters:
+        - name: X-Chatwoot-Signature
+          in: header
+          description: 'Chatwoot signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>" keyed with the webhook secret>'
+          schema:
+            type: string
+        - name: X-Chatwoot-Timestamp
+          in: header
+          description: Unix time (seconds) the webhook was signed at
+          schema:
+            type: string
+        - name: secret
+          in: query
+          description: The webhook secret. Discouraged; prefer the signature headers.
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -4151,8 +4190,10 @@ paths:
       responses:
         '200':
           description: Webhook processed
+        '401':
+          description: Secret or signature missing or invalid for the device the request is routed to, or the signature timestamp is outside the tolerance window
         '503':
-          description: Device not available
+          description: Device not available, the routed device's config could not be read, or an identical signed request is still being handled
           content:
             application/json:
               schema:
@@ -4168,10 +4209,13 @@ paths:
         Per-device variant of the Chatwoot webhook: configure each device's Chatwoot
         inbox to POST here (the URL is returned as `webhook_url` by the device config
         endpoints) so agent replies route deterministically to that device.
-        Route-by-config: in addition to the optional shared secret, the payload's
+        Route-by-config: in addition to the optional secret, the payload's
         account and inbox must match the device's stored config or the request is
         rejected with 401. Unknown device ids and non-message events are acknowledged
         with 200 and ignored.
+        The request is authenticated like `/chatwoot/webhook`, with the device
+        config's `webhook_secret` when it has one and CHATWOOT_WEBHOOK_SECRET
+        otherwise.
       parameters:
         - name: device_id
           in: path
@@ -4189,7 +4233,9 @@ paths:
         '200':
           description: Webhook processed (or acknowledged and ignored)
         '401':
-          description: Invalid secret, or payload account/inbox does not match the device's config
+          description: Invalid secret or signature, or payload account/inbox does not match the device's config
+        '503':
+          description: The device's config could not be read, so the request could not be authenticated, or an identical signed request is still being handled
 
   /chatwoot/configs:
     get:
@@ -4288,6 +4334,14 @@ paths:
                 api_token:
                   type: string
                   description: Chatwoot agent/bot API token. Required on create; empty (or the masked value) keeps the stored token on update.
+                webhook_secret:
+                  type: string
+                  description: |
+                    Webhook secret of this inbox's API channel. When set it protects every
+                    webhook routed to this device (on `/chatwoot/webhook/{device_id}` and on
+                    the shared `/chatwoot/webhook`) instead of
+                    CHATWOOT_WEBHOOK_SECRET. Omit to keep the stored value; send an empty
+                    string to remove it. Never returned by the API.
                 enabled:
                   type: boolean
                   default: true
@@ -4422,6 +4476,10 @@ components:
           type: string
           description: URL to set on this device's Chatwoot inbox so agent replies route back to this device
           example: 'https://gowa.example.com/chatwoot/webhook/my-device-id'
+        webhook_secret_set:
+          type: boolean
+          description: Whether this device has its own webhook secret (the secret itself is never returned)
+          example: true
         created_at:
           type: string
           format: date-time

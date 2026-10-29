@@ -445,21 +445,17 @@ func (i *Importer) insertMessage(
 	sourceID := "WAID:" + msg.ID
 
 	// Idempotency probe keyed to the inbox: Chatwoot's `index_messages_on_source_id`
-	// is plain (non-unique), but messages imported under the same inbox
-	// share a source_id iff they're the same WhatsApp message — whether
-	// they landed in a different conversation after a resolve/reopen cycle
-	// or not. Inbox-scoped lookup makes replays correctly skip duplicates.
-	var existingID, existingConvID int
-	err := tx.QueryRowContext(ctx, `
-		SELECT id, conversation_id FROM messages
-		WHERE inbox_id = $1 AND source_id = $2
-		LIMIT 1
-	`, i.inboxID, sourceID).Scan(&existingID, &existingConvID)
-	if err == nil {
-		return i.buildMessageLink(msg, existingConvID, existingID, sourceID, messageTypeForWA(msg.IsFromMe)), false, nil
-	}
-	if err != sql.ErrNoRows {
+	// is plain (non-unique). A hit is the same WhatsApp message only when the
+	// existing conversation belongs to this chat's contact — a resolve/reopen
+	// cycle keeps the contact and changes the conversation id. An inbox-wide
+	// source_id collision in some other contact's conversation must not become
+	// a routing link for this chat.
+	existingID, existingConvID, reuse, err := i.existingMessageForChat(ctx, tx, contactID, sourceID)
+	if err != nil {
 		return nil, false, err
+	}
+	if reuse {
+		return i.buildMessageLink(msg, existingConvID, existingID, sourceID, messageTypeForWA(msg.IsFromMe)), false, nil
 	}
 
 	content := buildContent(msg, isGroup)
@@ -534,6 +530,28 @@ func (i *Importer) insertMessage(
 		return nil, false, err
 	}
 	return i.buildMessageLink(msg, convID, chatwootMessageID, sourceID, mType), true, nil
+}
+
+// existingMessageForChat reports an inbox source_id hit in one of this chat
+// contact's conversations. reuse is false when nothing matches or the only
+// hits sit on other contacts' conversations; the caller then inserts instead
+// of linking a foreign conversation. The contact filter runs before LIMIT 1,
+// so another contact's copy of the source_id cannot hide this contact's row.
+func (i *Importer) existingMessageForChat(ctx context.Context, tx *sql.Tx, contactID int, sourceID string) (existingID, existingConvID int, reuse bool, err error) {
+	err = tx.QueryRowContext(ctx, `
+		SELECT m.id, m.conversation_id FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.inbox_id = $1 AND m.source_id = $2
+			AND c.account_id = $3 AND c.inbox_id = $1 AND c.contact_id = $4
+		LIMIT 1
+	`, i.inboxID, sourceID, i.accountID, contactID).Scan(&existingID, &existingConvID)
+	if err == sql.ErrNoRows {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return existingID, existingConvID, true, nil
 }
 
 func (i *Importer) buildMessageLink(msg *domainChatStorage.Message, convID, chatwootMessageID int, sourceID string, messageType int) *domainChatStorage.ChatwootMessageLink {

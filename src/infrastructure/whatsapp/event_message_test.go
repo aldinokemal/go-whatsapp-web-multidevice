@@ -167,8 +167,17 @@ func protoProtocolMessageType(value waE2E.ProtocolMessage_Type) *waE2E.ProtocolM
 	return &value
 }
 
-func TestBuildEventPayloadImageWithCaption(t *testing.T) {
+// disableAutoDownloadMedia turns media auto-download off for one test and
+// restores the previous setting when it ends.
+func disableAutoDownloadMedia(t *testing.T) {
+	t.Helper()
+	previous := config.WhatsappAutoDownloadMedia
 	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = previous })
+}
+
+func TestBuildEventPayloadImageWithCaption(t *testing.T) {
+	disableAutoDownloadMedia(t)
 	caption := "Check this out!"
 	evt := &events.Message{
 		Info: types.MessageInfo{
@@ -204,7 +213,7 @@ func TestBuildEventPayloadImageWithCaption(t *testing.T) {
 }
 
 func TestBuildEventPayloadVideoWithCaption(t *testing.T) {
-	config.WhatsappAutoDownloadMedia = false
+	disableAutoDownloadMedia(t)
 	caption := "Watch this video"
 	evt := &events.Message{
 		Info: types.MessageInfo{
@@ -240,7 +249,7 @@ func TestBuildEventPayloadVideoWithCaption(t *testing.T) {
 }
 
 func TestBuildEventPayloadImageWithoutCaption(t *testing.T) {
-	config.WhatsappAutoDownloadMedia = false
+	disableAutoDownloadMedia(t)
 	evt := &events.Message{
 		Info: types.MessageInfo{
 			MessageSource: types.MessageSource{
@@ -266,7 +275,7 @@ func TestBuildEventPayloadImageWithoutCaption(t *testing.T) {
 }
 
 func TestBuildEventPayloadDocumentWithCaption(t *testing.T) {
-	config.WhatsappAutoDownloadMedia = false
+	disableAutoDownloadMedia(t)
 	caption := "Important document"
 	evt := &events.Message{
 		Info: types.MessageInfo{
