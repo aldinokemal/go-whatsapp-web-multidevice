@@ -32,6 +32,9 @@ The following events can be received via webhook:
 | `newsletter.message` | New message(s) posted in a newsletter                   |
 | `newsletter.mute`    | Newsletter mute setting changed                         |
 | `call.offer`         | Incoming call received                                  |
+| `device.logged_out`  | The device was logged out, with WhatsApp's reason       |
+| `device.temporary_ban` | WhatsApp temporarily banned the account               |
+| `device.reachout_timelock` | WhatsApp restricted the account from starting new chats |
 
 ## Event Filtering
 
@@ -60,6 +63,9 @@ WHATSAPP_WEBHOOK_EVENTS=newsletter.joined,newsletter.left,newsletter.message,new
 
 # Receive call events
 WHATSAPP_WEBHOOK_EVENTS=call.offer
+
+# Receive device events
+WHATSAPP_WEBHOOK_EVENTS=device.logged_out,device.temporary_ban,device.reachout_timelock
 
 # Receive all group and newsletter events
 WHATSAPP_WEBHOOK_EVENTS=group.participants,group.info,group.joined,newsletter.joined,newsletter.left,newsletter.message
@@ -191,9 +197,9 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**    | **Type** | **Description**                                                                                                     |
 |--------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `group.participants`, `group.info`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer` |
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `group.participants`, `group.info`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer`, `device.logged_out`, `device.temporary_ban`, `device.reachout_timelock` |
 | `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
-| `session_id` | string   | Session ID registered via `POST /devices` (e.g., `org_2`), for correlating the event back to a tenant. Omitted when the JID can't be mapped to a session. |
+| `session_id` | string   | ID of the emitting slot. Device events always set this field; auto-created slots may use a WhatsApp JID. Other events may omit it when the JID cannot be mapped to a session. |
 | `payload`    | object   | Event-specific payload data                                                                                         |
 
 ### Common Payload Fields
@@ -1113,6 +1119,107 @@ app.post('/webhook', async (req, res) => {
 3. When a `call.offer` event arrives, apply your business logic
 4. If the call should be rejected, call `POST /call/reject` with the values from the webhook payload
 5. The call is rejected on WhatsApp, and the caller sees a "declined" status
+
+## Device Events
+
+Device events report what WhatsApp tells a device about its account: a logout and its reason, a temporary ban, or a
+restriction on starting new chats. Without them a temporary ban only shows as a disconnected device, and a reach-out
+timelock only shows as sends failing with error 463.
+
+The codes are WhatsApp's, forwarded unchanged; the reason texts are whatsmeow's descriptions of them. A code whatsmeow
+does not know is still forwarded, with its generic reason text. Device events are not sent to Chatwoot.
+
+`session_id` is always set on device events, to the slot the event is about, so slots that share one WhatsApp number
+can be told apart.
+
+### Device Logged Out
+
+Triggered when the device is logged out remotely: unlinked from the phone, or logged out by WhatsApp. The device slot
+is kept for re-pairing, as before. `device_id` and `session_id` are the ones the device had before the logout.
+
+```json
+{
+  "event": "device.logged_out",
+  "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
+  "timestamp": "2026-10-28T09:00:00Z",
+  "payload": {
+    "code": 401,
+    "reason": "logged out from another device",
+    "on_connect": true
+  }
+}
+```
+
+| **`code`** | **`reason`**                   | **Notes**                                                                  |
+|------------|--------------------------------|----------------------------------------------------------------------------|
+| 401        | logged out from another device | The usual code when the device is removed from the phone                   |
+| 403        | primary device was logged out  | Called LOCKED in WhatsApp Web; seen both on bans and when switching phones |
+| 406        | logged out for unknown reason  | Called BANNED in WhatsApp Web                                              |
+
+### Device Temporary Ban
+
+Triggered when WhatsApp refuses the connection because the account is temporarily banned. The session is kept, so the
+device can connect again once the ban expires.
+
+```json
+{
+  "event": "device.temporary_ban",
+  "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
+  "timestamp": "2026-10-28T09:00:00Z",
+  "payload": {
+    "code": 101,
+    "reason": "you sent too many messages to people who don't have you in their address books",
+    "expires_in_seconds": 86400,
+    "expires_at": "2026-10-29T09:00:00Z"
+  }
+}
+```
+
+| **`code`** | **`reason`**                                                                      |
+|------------|-----------------------------------------------------------------------------------|
+| 101        | you sent too many messages to people who don't have you in their address books    |
+| 102        | too many people blocked you                                                       |
+| 103        | you created too many groups with people who don't have you in their address books |
+| 104        | you sent the same message to too many people                                      |
+| 106        | you sent too many messages to a broadcast list                                    |
+
+### Device Reach-out Timelock
+
+Triggered when WhatsApp notifies the account that it is restricted from starting new chats. While the restriction is
+active, sends to people the account has no conversation with fail with error 463. `is_active` is `false` when WhatsApp
+reports the restriction as no longer active.
+
+```json
+{
+  "event": "device.reachout_timelock",
+  "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
+  "timestamp": "2026-10-28T09:00:00Z",
+  "payload": {
+    "is_active": true,
+    "ends_at": "2026-10-28T21:00:00Z"
+  }
+}
+```
+
+### Device Event Fields
+
+| **Field**                    | **Type** | **Description**                                                                                                     |
+|------------------------------|----------|---------------------------------------------------------------------------------------------------------------------|
+| `event`                      | string   | `device.logged_out`, `device.temporary_ban` or `device.reachout_timelock`                                           |
+| `device_id`                  | string   | JID of the device the event is about; omitted when the slot has no JID yet                                          |
+| `session_id`                 | string   | Slot ID: the ID registered via `POST /devices`, or a WhatsApp JID for slots gowa created; always set                |
+| `timestamp`                  | string   | RFC3339 formatted timestamp when the event was received                                                             |
+| `payload.code`               | number   | Logged out and temporary ban: the reason code                                                                       |
+| `payload.reason`             | string   | Logged out and temporary ban: whatsmeow's description of the code                                                   |
+| `payload.on_connect`         | boolean  | Logged out: `true` when WhatsApp refused the connection, `false` when it closed an open one                         |
+| `payload.expires_in_seconds` | number   | Temporary ban: seconds until the ban expires, as WhatsApp reported it; `0` when it gave none                        |
+| `payload.expires_at`         | string   | Temporary ban: RFC3339 expiry, computed from `expires_in_seconds` when the event was received; omitted when unknown |
+| `payload.is_active`          | boolean  | Reach-out timelock: whether the restriction is in force                                                             |
+| `payload.enforcement_type`   | string   | Reach-out timelock: WhatsApp's enforcement type, passed through unchanged; omitted when empty                       |
+| `payload.ends_at`            | string   | Reach-out timelock: RFC3339 time the restriction ends; omitted when WhatsApp gave none                              |
 
 ## Media Messages
 
