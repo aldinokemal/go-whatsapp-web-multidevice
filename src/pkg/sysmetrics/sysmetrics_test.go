@@ -3,6 +3,7 @@ package sysmetrics
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -28,7 +29,11 @@ func TestCollectSizesFoldersAndReportsTheVolume(t *testing.T) {
 	if got := snapshot.Folders["missing"]; got.Bytes != 0 || got.Files != 0 {
 		t.Fatalf("missing folder = %+v, want zero", got)
 	}
-	if snapshot.Filesystem.TotalBytes == nil || snapshot.Filesystem.FreeBytes == nil {
+	if runtime.GOOS == "windows" {
+		if snapshot.Filesystem.TotalBytes != nil || snapshot.Filesystem.FreeBytes != nil {
+			t.Fatal("filesystem capacity should be unknown on Windows")
+		}
+	} else if snapshot.Filesystem.TotalBytes == nil || snapshot.Filesystem.FreeBytes == nil {
 		t.Fatal("filesystem of the temp dir should be known")
 	}
 	if snapshot.Memory.HeapAllocBytes == 0 || snapshot.Memory.Goroutines == 0 {

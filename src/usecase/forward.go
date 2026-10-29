@@ -44,7 +44,7 @@ func (service serviceSend) SendForward(ctx context.Context, request domainSend.F
 		return response, err
 	}
 
-	opts := utils.ForwardBuildOptions{Duration: forwardDurationOption(service, request)}
+	opts := utils.ForwardBuildOptions{Duration: forwardDurationOption(ctx, service, request)}
 	content := forwardStoredContent(message)
 
 	var msg *waE2E.Message
@@ -74,11 +74,11 @@ func (service serviceSend) SendForward(ctx context.Context, request domainSend.F
 	return response, nil
 }
 
-func forwardDurationOption(service serviceSend, request domainSend.ForwardRequest) *int {
+func forwardDurationOption(ctx context.Context, service serviceSend, request domainSend.ForwardRequest) *int {
 	if request.Duration != nil {
 		return request.Duration
 	}
-	expiration := service.getDefaultEphemeralExpiration(request.Phone)
+	expiration := service.getDefaultEphemeralExpiration(ctx, request.Phone)
 	if expiration == 0 {
 		return nil
 	}

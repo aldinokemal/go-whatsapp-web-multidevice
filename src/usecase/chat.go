@@ -31,11 +31,17 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		return response, err
 	}
 
+	// An empty device filter would list every device's chats.
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
+		return response, fmt.Errorf("device identification required")
+	}
+
 	chatDisplayNameResolver := whatsapp.NewChatDisplayNameResolver(ctx, whatsapp.ClientFromContext(ctx))
 
 	// Create filter from request
 	filter := &domainChatStorage.ChatFilter{
-		DeviceID:   deviceIDFromContext(ctx),
+		DeviceID:   deviceID,
 		Limit:      request.Limit,
 		Offset:     request.Offset,
 		SearchName: request.Search,
@@ -258,6 +264,21 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	}).Info("Retrieved chat messages successfully")
 
 	return response, nil
+}
+
+// storageDeviceID returns the identity chat storage files this request's rows
+// under: the device in the context, or, for a caller that carries no device
+// (the single-device fallback of ClientFromContext), the account of the client
+// that fallback selects. It returns "" when neither is known; callers must then
+// refuse a read rather than run it without a device filter.
+func storageDeviceID(ctx context.Context) string {
+	if deviceID := deviceIDFromContext(ctx); deviceID != "" {
+		return deviceID
+	}
+	if client := whatsapp.ClientFromContext(ctx); client != nil && client.Store != nil && client.Store.ID != nil {
+		return client.Store.ID.ToNonAD().String()
+	}
+	return ""
 }
 
 func deviceIDFromContext(ctx context.Context) string {
