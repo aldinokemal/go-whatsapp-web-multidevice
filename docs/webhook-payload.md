@@ -29,7 +29,7 @@ The following events can be received via webhook:
 | `label.association`  | Label applied to or removed from a chat                 |
 | `newsletter.joined`  | You subscribed to a newsletter/channel                  |
 | `newsletter.left`    | You unsubscribed from a newsletter                      |
-| `newsletter.message` | New message(s) posted in a newsletter                   |
+| `newsletter.message` | Live counter updates of a subscribed newsletter         |
 | `newsletter.mute`    | Newsletter mute setting changed                         |
 | `call.offer`         | Incoming call received                                  |
 | `device.logged_out`  | The device was logged out, with WhatsApp's reason       |
@@ -878,7 +878,10 @@ Triggered when you unsubscribe from a newsletter/channel.
 
 ### Newsletter Message
 
-Triggered when new messages are posted in a newsletter you're subscribed to.
+Triggered by live counter updates of a channel. WhatsApp only sends them while the device holds a live updates
+subscription for that channel: subscribe with `POST /newsletter/live-updates` (GOWA keeps renewing it). Updates usually
+carry only counters, so `message_id`, `type` and `timestamp` are present only when WhatsApp includes them. New posts of
+followed channels are delivered as regular `message` events whose `chat_id` ends with `@newsletter`.
 
 ```json
 {
@@ -890,10 +893,7 @@ Triggered when new messages are posted in a newsletter you're subscribed to.
     "messages": [
       {
         "server_id": 123,
-        "message_id": "ABC123DEF456",
-        "type": "text",
-        "timestamp": "2026-01-18T12:00:00Z",
-        "views_count": 1500,
+        "forwards_count": 42,
         "reaction_counts": {"👍": 50, "❤️": 25}
       }
     ]
@@ -931,10 +931,11 @@ Triggered when you mute or unmute a newsletter.
 | `payload.mute`                 | string   | Mute state: `"on"` or `"off"` (only in `newsletter.mute`)|
 | `payload.messages`             | array    | Array of messages (only in `newsletter.message`)        |
 | `payload.messages[].server_id` | number   | Server-assigned message ID                              |
-| `payload.messages[].message_id`| string   | Message identifier                                      |
-| `payload.messages[].type`      | string   | Message type (e.g., `"text"`, `"image"`)                |
-| `payload.messages[].timestamp` | string   | Message timestamp                                       |
-| `payload.messages[].views_count`| number  | Number of views (if available)                          |
+| `payload.messages[].message_id`| string   | Message identifier (if available)                       |
+| `payload.messages[].type`      | string   | Message type (e.g., `"text"`, `"media"`) (if available) |
+| `payload.messages[].timestamp` | string   | Message timestamp (if available)                        |
+| `payload.messages[].views_count`| number  | Number of views (only reported to channel admins)       |
+| `payload.messages[].forwards_count`| number | Number of forwards (if available)                     |
 | `payload.messages[].reaction_counts`| object | Reaction emoji counts (if available)                 |
 
 ## Call Events

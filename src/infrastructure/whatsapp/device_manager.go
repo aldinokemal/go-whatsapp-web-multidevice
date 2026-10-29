@@ -255,6 +255,7 @@ func (m *DeviceManager) RemoveDevice(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.devices, id)
+	newsletterLiveUpdates.stopDevice(id)
 
 	if m.storage != nil && strings.TrimSpace(id) != "" {
 		_ = m.storage.DeleteDeviceRecord(id)
@@ -480,6 +481,7 @@ func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) err
 	// storage). Always delete (don't rely on cli.Logout having done it): an orphan row
 	// would otherwise get matched back on restart. Idempotent when the row is already gone.
 	jid := storeIdentity(inst)
+	newsletterLiveUpdates.stopDevice(deviceID)
 
 	var firstErr error
 	firstErr = errors.Join(firstErr, m.deleteStoreRowsForJID(ctx, jid))
