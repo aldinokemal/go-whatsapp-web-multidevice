@@ -340,6 +340,24 @@ func TestApplyPostgresTLSDefaultUsesDialTarget(t *testing.T) {
 	})
 }
 
+func TestApplyPostgresTLSDefaultErrorsOmitPassword(t *testing.T) {
+	isolatePostgresDialEnv(t)
+
+	for _, dsn := range []string{
+		"postgres://user:secret@host:abc/db",   // url.Parse quotes the input
+		"postgres:user:secret@host/db",         // lib/pq quotes an opaque URI as a key
+		"postgres://user:99999#secret@host/db", // '#' leaves "99999" as an invalid port
+	} {
+		_, err := applyPostgresTLSDefault(dsn)
+		if err == nil {
+			t.Fatalf("applyPostgresTLSDefault(%q) succeeded, want an error", dsn)
+		}
+		if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "99999") {
+			t.Fatalf("error for %q contains password text: %v", dsn, err)
+		}
+	}
+}
+
 func isolatePostgresDialEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"PGHOST", "PGHOSTADDR", "PGSSLMODE", "PGSERVICE"} {
@@ -452,6 +470,19 @@ func TestSQLiteNoCreateURIDoesNotCreateFileOrDirectory(t *testing.T) {
 	}
 	if !target.create {
 		t.Fatal("mode=rwc session file should be created when missing")
+	}
+}
+
+func TestSQLiteURIFragmentIsIgnored(t *testing.T) {
+	// SQLite ignores everything from '#', so mode=memory in the fragment does not apply.
+	for _, uri := range []string{"file:storages/whatsapp.db#backup", "file:storages/whatsapp.db#backup?mode=memory"} {
+		target, err := sqliteSessionTarget(uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target.skip || !target.create || target.path != filepath.Clean("storages/whatsapp.db") {
+			t.Fatalf("%s: target = %+v, want storages/whatsapp.db created when missing", uri, target)
+		}
 	}
 }
 

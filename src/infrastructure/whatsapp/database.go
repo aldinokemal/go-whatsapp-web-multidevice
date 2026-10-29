@@ -117,6 +117,8 @@ func sqliteSessionTarget(uri string) (sqliteTarget, error) {
 	if !ok {
 		return sqliteTarget{skip: true}, nil
 	}
+	// SQLite stops reading the URI at '#', even when a query follows it.
+	raw, _, _ = strings.Cut(raw, "#")
 	base, query, _ := strings.Cut(raw, "?")
 	create := true
 	if query != "" {
@@ -257,7 +259,8 @@ func chmodExistingFile(path string, mode os.FileMode) error {
 func applyPostgresTLSDefault(dsn string) (string, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return "", fmt.Errorf("parse postgres dsn: %w", err)
+		// url.Parse errors quote the whole DSN, password included.
+		return "", errors.New("parse postgres dsn: invalid URI")
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return "", fmt.Errorf("unsupported postgres scheme %q", u.Scheme)
@@ -271,7 +274,9 @@ func applyPostgresTLSDefault(dsn string) (string, error) {
 
 	cfg, err := pq.NewConfig(dsn)
 	if err != nil {
-		return "", fmt.Errorf("parse postgres dial target: %w", err)
+		// lib/pq errors can quote DSN text, such as an opaque postgres:user:pass@host
+		// URI or a password cut short by an unescaped '#'.
+		return "", errors.New("parse postgres dial target: invalid connection settings")
 	}
 	// Keep a mode lib/pq already took from PGSSLMODE, a service file, or
 	// sslrootcert=system (verify-full); a DSN sslmode would replace it.
