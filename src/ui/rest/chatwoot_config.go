@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -21,6 +22,10 @@ type chatwootConfigRequest struct {
 	InboxID     int    `json:"inbox_id"`
 	APIToken    string `json:"api_token"`
 	Enabled     *bool  `json:"enabled"`
+	// WebhookSecret is the secret Chatwoot signs this inbox's webhooks with.
+	// Omitted keeps the stored value; an empty string clears it (the global
+	// CHATWOOT_WEBHOOK_SECRET then applies).
+	WebhookSecret *string `json:"webhook_secret"`
 }
 
 // maskAPIToken redacts a stored token for read responses, revealing only the
@@ -40,8 +45,11 @@ func maskAPIToken(token string) string {
 // Chatwoot inbox so agent replies route back to this device. Derived from the
 // configured public webhook base, or a relative path when none is set.
 func perDeviceWebhookURL(deviceID string) string {
-	if base := strings.TrimRight(strings.TrimSpace(config.ChatwootWebhookURL), "/"); base != "" {
-		return base + "/" + deviceID
+	if base := strings.TrimSpace(config.ChatwootWebhookURL); base != "" {
+		if webhookURL, err := url.JoinPath(base, deviceID); err == nil {
+			return webhookURL
+		}
+		return strings.TrimRight(base, "/") + "/" + deviceID
 	}
 	return strings.TrimRight(config.AppBasePath, "/") + "/chatwoot/webhook/" + deviceID
 }
@@ -56,8 +64,10 @@ func chatwootConfigView(cfg *domainChatStorage.ChatwootDeviceConfig) map[string]
 		"api_token":    maskAPIToken(cfg.APIToken),
 		"enabled":      cfg.Enabled,
 		"webhook_url":  perDeviceWebhookURL(cfg.DeviceID),
-		"created_at":   cfg.CreatedAt,
-		"updated_at":   cfg.UpdatedAt,
+		// The secret itself is never returned, only whether one is set.
+		"webhook_secret_set": strings.TrimSpace(cfg.WebhookSecret) != "",
+		"created_at":         cfg.CreatedAt,
+		"updated_at":         cfg.UpdatedAt,
 	}
 }
 
@@ -163,14 +173,22 @@ func (h *ChatwootHandler) UpsertChatwootConfig(c fiber.Ctx) error {
 		enabled = existing.Enabled
 	}
 
+	webhookSecret := ""
+	if req.WebhookSecret != nil {
+		webhookSecret = strings.TrimSpace(*req.WebhookSecret)
+	} else if existing != nil {
+		webhookSecret = existing.WebhookSecret
+	}
+
 	cfg := &domainChatStorage.ChatwootDeviceConfig{
-		DeviceID:    deviceID,
-		DeviceJID:   h.deviceJID(deviceID),
-		ChatwootURL: canonicalURL,
-		AccountID:   req.AccountID,
-		InboxID:     req.InboxID,
-		APIToken:    apiToken,
-		Enabled:     enabled,
+		DeviceID:      deviceID,
+		DeviceJID:     h.deviceJID(deviceID),
+		ChatwootURL:   canonicalURL,
+		AccountID:     req.AccountID,
+		InboxID:       req.InboxID,
+		APIToken:      apiToken,
+		Enabled:       enabled,
+		WebhookSecret: webhookSecret,
 	}
 	if existing != nil {
 		cfg.ID = existing.ID
@@ -198,7 +216,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 	// param so a config orphaned by device removal stays deletable.
 	deviceID, ok := h.resolveConfigDeviceID(c)
 	if !ok {
-		deviceID = strings.TrimSpace(c.Params("device_id"))
+		deviceID = pathDeviceID(c)
 	}
 	if deviceID == "" {
 		return utils.ResponseError(c, "device_id is required")
@@ -229,7 +247,7 @@ func (h *ChatwootHandler) DeleteChatwootConfig(c fiber.Ctx) error {
 // request. Handlers persist this id (config rows, registry cache), so an
 // uncopied value would mutate under the next request.
 func (h *ChatwootHandler) resolveConfigDeviceID(c fiber.Ctx) (string, bool) {
-	deviceID := strings.TrimSpace(c.Params("device_id"))
+	deviceID := pathDeviceID(c)
 	if deviceID == "" || h.DeviceManager == nil {
 		return "", false
 	}

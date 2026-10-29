@@ -6,6 +6,7 @@ import (
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
 func ValidateMarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) error {
@@ -40,6 +41,7 @@ func ValidateUpdateMessage(ctx context.Context, request domainMessage.UpdateMess
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.MessageID, validation.Required),
 		validation.Field(&request.Message, validation.Required),
+		validation.Field(&request.Link, is.URL),
 	)
 
 	if err != nil {
@@ -80,7 +82,7 @@ func ValidateStarMessage(ctx context.Context, request domainMessage.StarRequest)
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),
 		validation.Field(&request.MessageID, validation.Required),
-		validation.Field(&request.IsStarred, validation.Required),
+		validation.Field(&request.IsStarred),
 	)
 
 	if err != nil {

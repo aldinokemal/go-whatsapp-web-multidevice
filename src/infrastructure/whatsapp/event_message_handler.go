@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -17,13 +18,14 @@ import (
 )
 
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	// Log message metadata
+	// Log message metadata. Message ID, sender name, JID and body are escaped so
+	// a newline in sender-controlled fields cannot forge a second log line.
 	metaParts := buildMessageMetaParts(evt)
-	log.Infof("Received message %s from %s (%s): %+v",
-		evt.Info.ID,
-		evt.Info.SourceString(),
-		strings.Join(metaParts, ", "),
-		evt.Message,
+	log.Infof("Received message %s from %s (%s): %s",
+		sanitizeLogText(evt.Info.ID),
+		sanitizeLogText(evt.Info.SourceString()),
+		sanitizeLogText(strings.Join(metaParts, ", ")),
+		logMessageBody{evt.Message},
 	)
 
 	// Materialize SecretEncryptedMessage{MESSAGE_EDIT} envelope (sent by recent
@@ -32,19 +34,20 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// edit-handling paths unchanged. No-op when the envelope is absent or when
 	// decryption fails.
 	evt = materializeSecretEditMessage(ctx, evt, client)
+	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
 
 	if isReactionMessage(evt) {
 		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
-			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+			log.Errorf("Failed to store incoming reaction %s: %v", sanitizeLogText(evt.Info.ID), err)
 		}
 
-		handleWebhookForward(ctx, evt, client)
+		handleWebhookForward(ctx, evt, client, pollPayload)
 		return
 	}
 
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
-		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+		log.Errorf("Failed to store incoming message %s: %v", sanitizeLogText(evt.Info.ID), err)
 	}
 
 	// Handle image message if present
@@ -57,12 +60,12 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	handleAutoReply(ctx, evt, chatStorageRepo, client)
 
 	// Forward to webhook if configured
-	handleWebhookForward(ctx, evt, client)
+	handleWebhookForward(ctx, evt, client, pollPayload)
 }
 
 func buildMessageMetaParts(evt *events.Message) []string {
 	metaParts := []string{
-		fmt.Sprintf("pushname: %s", evt.Info.PushName),
+		fmt.Sprintf("pushname: %s", sanitizeLogText(evt.Info.PushName)),
 		fmt.Sprintf("timestamp: %s", evt.Info.Timestamp),
 	}
 	if evt.Info.Type != "" {
@@ -77,8 +80,64 @@ func buildMessageMetaParts(evt *events.Message) []string {
 	return metaParts
 }
 
+// sanitizeLogText escapes control characters (C0, DEL, C1) and the Unicode
+// line and paragraph separators so one log record stays one line.
+func sanitizeLogText(s string) string {
+	if !strings.ContainsFunc(s, isLogControl) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for _, r := range s {
+		switch r {
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else if isLogControl(r) {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+func isLogControl(r rune) bool {
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+}
+
+// logMessageBody formats a message only when the log level prints it. The
+// protobuf text format escapes control characters but keeps U+2028/U+2029.
+type logMessageBody struct{ msg *waE2E.Message }
+
+func (b logMessageBody) String() string {
+	return sanitizeLogText(fmt.Sprintf("%+v", b.msg))
+}
+
+func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
+	if !autoDownloadMedia {
+		return true
+	}
+	// Match on the JID's shape rather than struct equality: whatsmeow's
+	// broadcast branch assigns source.Chat without ToNonAD(), so a
+	// device-qualified status JID would not compare equal to
+	// types.StatusBroadcastJID. IsBroadcastList() is defined as "broadcast
+	// server and user != status", so negating it selects exactly status.
+	if ignoreStatusMedia && chatJID.Server == types.BroadcastServer && !chatJID.IsBroadcastList() {
+		return true
+	}
+	return false
+}
+
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if !config.WhatsappAutoDownloadMedia {
+	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
 	if client == nil {
@@ -110,9 +169,9 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 	sender := evt.Info.Sender
 
 	if err := client.MarkRead(ctx, messageIDs, timestamp, chat, sender); err != nil {
-		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
+		log.Warnf("Failed to mark message %s as read: %v", sanitizeLogText(evt.Info.ID), err)
 	} else {
-		log.Debugf("Marked message %s as read", evt.Info.ID)
+		log.Debugf("Marked message %s as read", sanitizeLogText(evt.Info.ID))
 	}
 }
 
@@ -137,7 +196,7 @@ func materializeSecretEditMessage(ctx context.Context, evt *events.Message, clie
 		if k := sem.GetTargetMessageKey(); k != nil {
 			targetID = k.GetID()
 		}
-		log.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s (target=%s): %v", evt.Info.ID, targetID, err)
+		log.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s (target=%s): %v", sanitizeLogText(evt.Info.ID), sanitizeLogText(targetID), err)
 		return evt
 	}
 	if decrypted == nil {
@@ -148,7 +207,7 @@ func materializeSecretEditMessage(ctx context.Context, evt *events.Message, clie
 	return &cloned
 }
 
-func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+func handleWebhookForward(ctx context.Context, evt *events.Message, client *whatsmeow.Client, preparedPoll ...*webhookPollPayload) {
 	// Skip webhook for protocol messages that are internal sync messages
 	if protocolMessage := evt.Message.GetProtocolMessage(); protocolMessage != nil {
 		protocolType := protocolMessage.GetType().String()
@@ -173,11 +232,15 @@ func handleWebhookForward(ctx context.Context, evt *events.Message, client *what
 
 	// Forward to webhook if any webhook is configured (global or per-device)
 	// The forwardPayloadToConfiguredWebhooks function itself handles the no-op case
-	go func(e *events.Message, c *whatsmeow.Client) {
-		webhookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	var pollPayload *webhookPollPayload
+	if len(preparedPoll) > 0 {
+		pollPayload = preparedPoll[0]
+	}
+	go func(e *events.Message, c *whatsmeow.Client, poll *webhookPollPayload) {
+		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if err := forwardMessageToWebhook(webhookCtx, c, e); err != nil {
+		if err := forwardMessageToWebhook(webhookCtx, c, e, poll); err != nil {
 			logrus.Error("Failed forward to webhook: ", err)
 		}
-	}(evt, client)
+	}(evt, client, pollPayload)
 }

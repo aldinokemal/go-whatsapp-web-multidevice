@@ -1,6 +1,7 @@
 package send
 
 type ForwardRequest struct {
+	ScheduleOptions
 	MessageID     string `json:"message_id" form:"message_id"`
 	Phone         string `json:"phone" form:"phone"`
 	Duration      *int   `json:"duration,omitempty" form:"duration"`

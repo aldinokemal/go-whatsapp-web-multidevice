@@ -9,6 +9,7 @@ import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -182,6 +183,50 @@ func TestGetChatMessagesMapsReactions(t *testing.T) {
 	}
 }
 
+func TestGetChatMessagesCountsOnlySelectedDevice(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.August, 21, 8, 0, 0, 0, time.UTC)
+	repo := &chatUsecaseRepoStub{
+		chat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			Name:            "Alice",
+			LastMessageTime: now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		messages: []*domainChatStorage.Message{{
+			ID:        "msg-1",
+			ChatJID:   chatJID,
+			DeviceID:  deviceID,
+			Sender:    chatJID,
+			Content:   "hello",
+			Timestamp: now,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+		globalMessageCount: 15,
+		deviceMessageCounts: map[string]int64{
+			deviceID + "\x00" + chatJID: 1,
+		},
+	}
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	response, err := NewChatService(repo).GetChatMessages(ctx, domainChat.GetChatMessagesRequest{
+		ChatJID: chatJID,
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("get chat messages: %v", err)
+	}
+	if response.Pagination.Total != 1 {
+		t.Fatalf("pagination total = %d, want selected device's count 1", response.Pagination.Total)
+	}
+}
+
 func TestGetChatMessagesScopesSenderDisplayNameCacheToOneResponse(t *testing.T) {
 	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
 	senderJID := types.NewJID("628123456789", types.DefaultUserServer)
@@ -325,14 +370,113 @@ func TestChatSenderDisplayNameJSONContract(t *testing.T) {
 	}
 }
 
+func TestGetChatMessagesExposesReferralMetadata(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	chatJID := "628123456789@s.whatsapp.net"
+	now := time.Date(2026, time.May, 16, 8, 0, 0, 0, time.UTC)
+	referralMetadata := `{"ctwa_clid":"clid_123","source_app":"whatsapp"}`
+	repo := &chatUsecaseRepoStub{
+		chat: &domainChatStorage.Chat{
+			DeviceID:        deviceID,
+			JID:             chatJID,
+			Name:            "Alice",
+			LastMessageTime: now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		messages: []*domainChatStorage.Message{
+			{
+				ID:               "msg-ad",
+				ChatJID:          chatJID,
+				DeviceID:         deviceID,
+				Sender:           chatJID,
+				Content:          "hello from the ad",
+				Timestamp:        now,
+				CreatedAt:        now,
+				UpdatedAt:        now,
+				ReferralMetadata: referralMetadata,
+			},
+			{
+				ID:        "msg-plain",
+				ChatJID:   chatJID,
+				DeviceID:  deviceID,
+				Sender:    chatJID,
+				Content:   "hello again",
+				Timestamp: now.Add(time.Minute),
+				CreatedAt: now.Add(time.Minute),
+				UpdatedAt: now.Add(time.Minute),
+			},
+		},
+	}
+	service := NewChatService(repo)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID, PushName: "Primary Account"}}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	response, err := service.GetChatMessages(ctx, domainChat.GetChatMessagesRequest{
+		ChatJID: chatJID,
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("get chat messages: %v", err)
+	}
+	if len(response.Data) != 2 {
+		t.Fatalf("expected two messages, got %d", len(response.Data))
+	}
+	if response.Data[0].ReferralMetadata != referralMetadata {
+		t.Fatalf("referral metadata = %q, want %q", response.Data[0].ReferralMetadata, referralMetadata)
+	}
+	if response.Data[1].ReferralMetadata != "" {
+		t.Fatalf("expected empty referral metadata, got %q", response.Data[1].ReferralMetadata)
+	}
+
+	payload, err := json.Marshal(response.Data)
+	if err != nil {
+		t.Fatalf("marshal messages payload: %v", err)
+	}
+	var messages []map[string]any
+	if err := json.Unmarshal(payload, &messages); err != nil {
+		t.Fatalf("unmarshal messages payload: %v", err)
+	}
+	if messages[0]["referral_metadata"] != referralMetadata {
+		t.Fatalf("message referral_metadata = %#v", messages[0]["referral_metadata"])
+	}
+	if _, ok := messages[1]["referral_metadata"]; ok {
+		t.Fatalf("referral_metadata must be omitted when empty, got %#v", messages[1])
+	}
+}
+
 type chatUsecaseRepoStub struct {
 	domainChatStorage.IChatStorageRepository
-	chat     *domainChatStorage.Chat
-	messages []*domainChatStorage.Message
+	chat                  *domainChatStorage.Chat
+	chats                 []*domainChatStorage.Chat
+	messages              []*domainChatStorage.Message
+	globalMessageCount    int64
+	deviceMessageCounts   map[string]int64
+	oldestMessage         *domainChatStorage.Message
+	oldestMessageErr      error
+	oldestMessageCalled   bool
+	oldestMessageDeviceID string
+	oldestMessageChatJID  string
+}
+
+func (r *chatUsecaseRepoStub) GetOldestMessageByDevice(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	r.oldestMessageCalled = true
+	r.oldestMessageDeviceID = deviceID
+	r.oldestMessageChatJID = chatJID
+	return r.oldestMessage, r.oldestMessageErr
 }
 
 func (r *chatUsecaseRepoStub) GetChatByDevice(_, _ string) (*domainChatStorage.Chat, error) {
 	return r.chat, nil
+}
+
+func (r *chatUsecaseRepoStub) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	return r.chats, nil
+}
+
+func (r *chatUsecaseRepoStub) GetFilteredChatCount(*domainChatStorage.ChatFilter) (int64, error) {
+	return int64(len(r.chats)), nil
 }
 
 func (r *chatUsecaseRepoStub) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
@@ -340,7 +484,17 @@ func (r *chatUsecaseRepoStub) GetMessages(*domainChatStorage.MessageFilter) ([]*
 }
 
 func (r *chatUsecaseRepoStub) GetChatMessageCount(string) (int64, error) {
+	if r.globalMessageCount != 0 {
+		return r.globalMessageCount, nil
+	}
 	return int64(len(r.messages)), nil
+}
+
+func (r *chatUsecaseRepoStub) GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error) {
+	if r.deviceMessageCounts == nil {
+		return int64(len(r.messages)), nil
+	}
+	return r.deviceMessageCounts[deviceID+"\x00"+chatJID], nil
 }
 
 func (r *chatUsecaseRepoStub) CreateReaction(context.Context, *events.Message) error {
@@ -373,5 +527,90 @@ func TestChatDisplayName(t *testing.T) {
 				t.Fatalf("chatDisplayName(%q, %q) = %q, want %q", tc.jid, tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRequestChatHistoryValidation pins the request-body validation (bad
+// chat_jid, out-of-range count) that RequestChatHistory delegates to
+// validations.ValidateRequestChatHistory before touching storage or the
+// network.
+func TestRequestChatHistoryValidation(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	repo := &chatUsecaseRepoStub{}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "",
+		Count:   50,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty chat_jid, got nil")
+	}
+	if repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be skipped when validation fails")
+	}
+
+	_, err = service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "628123456789@s.whatsapp.net",
+		Count:   501,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for count above cap, got nil")
+	}
+}
+
+// TestRequestChatHistoryRequiresClient mirrors the other chat mutation
+// usecases (PinChat/ArchiveChat): without a WhatsApp client in context, the
+// call must fail with ErrWaCLI instead of attempting anything else.
+func TestRequestChatHistoryRequiresClient(t *testing.T) {
+	deviceID := "628999999999@s.whatsapp.net"
+	repo := &chatUsecaseRepoStub{}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: "628123456789@s.whatsapp.net",
+		Count:   50,
+	})
+	if err != pkgError.ErrWaCLI {
+		t.Fatalf("expected ErrWaCLI, got %v", err)
+	}
+	if repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be skipped without a client")
+	}
+}
+
+// TestRequestChatHistoryNoStoredMessages pins the anchor-resolution rule: the
+// phone needs an oldest known message ID/timestamp to know where to start
+// looking for older history, so a chat with nothing stored yet must fail
+// validation instead of sending an unanchored request.
+func TestRequestChatHistoryNoStoredMessages(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	deviceID := accountJID.String()
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	chatJID := "628123456789@s.whatsapp.net"
+	repo := &chatUsecaseRepoStub{oldestMessage: nil}
+	service := NewChatService(repo)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, client, nil))
+
+	_, err := service.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+		ChatJID: chatJID,
+		Count:   50,
+	})
+	if err == nil {
+		t.Fatal("expected error when chat has no stored messages, got nil")
+	}
+	if _, ok := err.(pkgError.ValidationError); !ok {
+		t.Fatalf("expected a ValidationError, got %T: %v", err, err)
+	}
+	if !repo.oldestMessageCalled {
+		t.Fatal("expected anchor lookup to be attempted")
+	}
+	if repo.oldestMessageDeviceID != deviceID || repo.oldestMessageChatJID != chatJID {
+		t.Fatalf("anchor lookup used device=%q chat=%q, want device=%q chat=%q",
+			repo.oldestMessageDeviceID, repo.oldestMessageChatJID, deviceID, chatJID)
 	}
 }

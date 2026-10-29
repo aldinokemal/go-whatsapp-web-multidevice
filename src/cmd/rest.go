@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/uiasset"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -24,7 +26,6 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/basicauth"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
-	"github.com/gofiber/fiber/v3/middleware/static"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -39,8 +40,31 @@ var restCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(restCmd)
+	rootCmd.PersistentFlags().BoolVar(
+		&config.AppAllowUnauthenticated,
+		"allow-unauthenticated",
+		config.AppAllowUnauthenticated,
+		"expose the API without Basic Auth on a non-loopback bind (INSECURE). Use only behind a reverse proxy that authenticates clients",
+	)
+	rootCmd.PersistentFlags().StringSliceVar(
+		&config.AppTrustedOrigins,
+		"trusted-origins",
+		config.AppTrustedOrigins,
+		"extra browser origins allowed to perform state-changing requests, alongside the request host and APP_CORS_ALLOWED_ORIGINS",
+	)
+	rootCmd.PersistentFlags().BoolVar(
+		&config.ChatwootWebhookAllowUnsigned,
+		"chatwoot-webhook-allow-unsigned",
+		config.ChatwootWebhookAllowUnsigned,
+		"accept Chatwoot webhooks when no webhook secret is configured (INSECURE)",
+	)
 }
 func restServer(_ *cobra.Command, _ []string) {
+	// registerMcpOAuth depends on these values being loaded after flag parsing.
+	loadMcpOAuthEnvConfig()
+	loadHTTPHardeningConfig()
+	ensureWebhookSigningSecret()
+	enforceAuthenticationPolicy()
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
@@ -58,7 +82,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// fetch media under /statics and authenticate with the headers below.
 	app.Use(newCORSMiddleware())
 
-	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
+	registerStoredStatic(app)
 
 	app.Use(middleware.Recovery())
 	app.Use(middleware.RequestTimeout(middleware.DefaultRequestTimeout))
@@ -79,24 +103,49 @@ func restServer(_ *cobra.Command, _ []string) {
 		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
 	})
 
-	// Chatwoot webhook - registered BEFORE basic auth middleware
-	// This allows Chatwoot to send webhooks without authentication. The handler
-	// is stateless and shared with the authenticated sync routes registered below.
+	// Chatwoot webhook - registered BEFORE basic auth middleware so Chatwoot can
+	// reach it. The handler rejects an empty effective secret unless
+	// CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is set. It is shared with the
+	// authenticated sync routes registered below.
 	var chatwootHandler *rest.ChatwootHandler
 	if config.ChatwootEnabled {
 		// Auto-provision the inbox, install the per-device client registry, then
 		// start the retry worker (registry before worker — see initChatwootForwarding).
 		initChatwootForwarding(chatStorageRepo)
 
+		if config.ChatwootWebhookAllowUnsigned {
+			logrus.Warn("CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is enabled: Chatwoot webhooks are accepted when the effective secret is empty. Leave this off unless the endpoint is only reachable on a trusted network.")
+		}
 		chatwootHandler = rest.NewChatwootHandler(appUsecase, sendUsecase, messageUsecase, dm, chatStorageRepo)
 		webhookPath := "/chatwoot/webhook"
 		if config.AppBasePath != "" {
 			webhookPath = config.AppBasePath + webhookPath
 		}
+		// Both webhook routes read the body before checking a secret, so refuse
+		// compressed bodies Fiber would expand up to the app BodyLimit.
+		app.Use(webhookPath, middleware.RejectCompressedBody())
+		// In front of both webhook routes: a Chatwoot-signed request is only
+		// remembered as delivered once it has been answered 2xx.
+		app.Use(webhookPath, rest.ChatwootWebhookReplayGuard())
 		app.Post(webhookPath, chatwootHandler.HandleWebhook)
 		// Per-device webhook: each device's Chatwoot inbox is configured to POST
 		// here so agent replies route deterministically to the right device.
 		app.Post(webhookPath+"/:device_id", chatwootHandler.HandleDeviceWebhook)
+	}
+
+	// OAuth discovery/login/token routes and the OAuth-protected MCP route must
+	// be registered before the global Basic Auth middleware. When OAuth is off,
+	// this is a no-op and MCP is mounted in its historical location below.
+	oauthServer, mcpOAuthRegistered, err := registerMcpOAuth(app, dm)
+	if err != nil {
+		logrus.Fatalln("Failed to initialize MCP OAuth: ", err.Error())
+	}
+	if oauthServer != nil {
+		defer func() {
+			if err := oauthServer.Close(); err != nil {
+				logrus.Warnf("MCP OAuth storage close: %v", err)
+			}
+		}()
 	}
 
 	if len(config.AppBasicAuthCredential) > 0 {
@@ -113,6 +162,12 @@ func restServer(_ *cobra.Command, _ []string) {
 		app.Use(newBasicAuthMiddleware(account))
 	}
 
+	// State-changing browser requests must come from a trusted origin. Routes
+	// registered above (health, stored files, Chatwoot webhooks, OAuth) are
+	// unchanged. Non-browser clients that send no Origin or Referer are still
+	// accepted.
+	app.Use(middleware.BrowserOriginGuard())
+
 	// Create base path group or use app directly
 	var apiGroup fiber.Router = app
 	if config.AppBasePath != "" {
@@ -124,6 +179,7 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestCall(r, callUsecase)
 		rest.InitRestChat(r, chatUsecase)
 		rest.InitRestSend(r, sendUsecase)
+		rest.InitRestSchedule(r, scheduleUsecase)
 		rest.InitRestUser(r, userUsecase)
 		rest.InitRestMessage(r, messageUsecase, sendUsecase)
 		rest.InitRestGroup(r, groupUsecase)
@@ -137,12 +193,24 @@ func restServer(_ *cobra.Command, _ []string) {
 	// App info (version, limits) for standalone UIs; no device required
 	rest.InitRestAppInfo(apiGroup)
 
-	// Device-scoped operations (header-based)
-	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
-	registerDeviceScopedRoutes(headerDeviceGroup)
+	// MCP endpoint — same usecase instances as REST, so both surfaces share
+	// one whatsmeow session. With OAuth disabled it keeps the existing global
+	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
+	if config.McpEnabled && !mcpOAuthRegistered {
+		uimcp.Register(apiGroup, dm, uimcp.Deps{
+			App:      appUsecase,
+			Send:     sendUsecase,
+			Schedule: scheduleUsecase,
+			Chat:     chatUsecase,
+			User:     userUsecase,
+			Message:  messageUsecase,
+			Group:    groupUsecase,
+		})
+	}
 
 	// Chatwoot sync + per-device config routes - require authentication (the
-	// webhooks are registered earlier without auth).
+	// webhooks are registered earlier without auth). Registered before
+	// headerDeviceGroup so they are not intercepted by DeviceMiddleware.
 	if config.ChatwootEnabled {
 		apiGroup.Post("/chatwoot/sync", chatwootHandler.SyncHistory)
 		apiGroup.Get("/chatwoot/sync/status", chatwootHandler.SyncStatus)
@@ -158,6 +226,13 @@ func restServer(_ *cobra.Command, _ []string) {
 	uiCtx, uiCancel := context.WithCancel(context.Background())
 	defer uiCancel()
 	registerUIRoute(apiGroup, uiCtx)
+
+	// Device-scoped operations (header-based). This must stay the LAST
+	// registration on apiGroup: Group("") registers a root "use" route that
+	// matches every path, so DeviceMiddleware would also run for anything
+	// mounted after it. TestDeviceGroupIsRegisteredLast pins the order.
+	headerDeviceGroup := apiGroup.Group("", middleware.DeviceMiddleware(dm))
+	registerDeviceScopedRoutes(headerDeviceGroup)
 
 	go websocket.RunHub()
 
@@ -189,6 +264,9 @@ func restServer(_ *cobra.Command, _ []string) {
 		}
 	case sig := <-sigCh:
 		logrus.Infof("Received %s — shutting down", sig)
+		if scheduleStop != nil {
+			scheduleStop()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
@@ -261,10 +339,19 @@ func newCORSMiddleware() fiber.Handler {
 	if len(config.AppCORSAllowedOrigins) > 0 {
 		origins = config.AppCORSAllowedOrigins
 	}
+	oauthAuthorizePath := ""
+	if config.McpOAuthEnabled {
+		if issuer, err := url.Parse(strings.TrimSpace(config.McpOAuthIssuerURL)); err == nil {
+			oauthAuthorizePath = strings.TrimRight(issuer.Path, "/") + "/oauth/authorize"
+		}
+	}
 	return cors.New(cors.Config{
 		AllowOrigins: origins,
 		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", middleware.DeviceIDHeader},
+		Next: func(c fiber.Ctx) bool {
+			return oauthAuthorizePath != "" && c.Path() == oauthAuthorizePath
+		},
 	})
 }
 
