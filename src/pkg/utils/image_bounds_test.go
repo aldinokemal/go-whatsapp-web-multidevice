@@ -43,7 +43,7 @@ func (s *seekCountReader) Seek(offset int64, whence int) (int64, error) {
 
 func TestValidateImageDimensions(t *testing.T) {
 	require.NoError(t, utils.ValidateImageDimensions(8000, 5000))
-	require.NoError(t, utils.ValidateImageDimensions(utils.MaxImageEdge, 4882))
+	require.NoError(t, utils.ValidateImageDimensions(utils.MaxImageEdge, 1220))
 	require.ErrorIs(t, utils.ValidateImageDimensions(utils.MaxImageEdge+1, 1), utils.ErrImageTooLarge)
 	require.ErrorIs(t, utils.ValidateImageDimensions(1, utils.MaxImageEdge+1), utils.ErrImageTooLarge)
 	require.ErrorIs(t, utils.ValidateImageDimensions(8000, 5001), utils.ErrImageTooLarge)
@@ -87,6 +87,28 @@ func TestDecodeImageWithinBudgetRejectsJPEGOverDecoderMemoryBudget(t *testing.T)
 	// fixture then fails in the decoder for lack of scan data.
 	photo := jpegHeader(0xc2, 8000, 5000, 0x22, 0x11, 0x11)
 	_, _, err = utils.DecodeImageWithinBudget(bytes.NewReader(photo))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, utils.ErrImageTooLarge)
+}
+
+func TestDecodeImageWithinBudgetGivesJPEGItsOwnPixelCap(t *testing.T) {
+	// A 48 MP baseline 4:2:0 phone photo is past MaxImagePixels but needs about
+	// 70 MiB to decode, so it passes the header checks.
+	phone := jpegHeader(0xc0, 8064, 6048, 0x22, 0x11, 0x11)
+	_, _, err := utils.DecodeImageWithinBudget(bytes.NewReader(phone))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, utils.ErrImageTooLarge)
+	require.NoError(t, utils.ValidateGroupPhotoFormat(multipartImage(t, "phone.jpg", "image/jpeg", phone)))
+
+	// A 96 MP grayscale JPEG decodes in about 92 MiB, but rotating or cropping
+	// it would copy 384 MB, so the JPEG pixel cap refuses it.
+	_, _, err = utils.DecodeImageWithinBudget(bytes.NewReader(jpegHeader(0xc0, 16000, 6000, 0x11)))
+	require.ErrorIs(t, err, utils.ErrImageTooLarge)
+
+	// Other formats keep the pixel cap; a long screenshot fits the edge cap.
+	_, _, err = utils.DecodeImageWithinBudget(bytes.NewReader(pngWithIHDR(8064, 6048)))
+	require.ErrorIs(t, err, utils.ErrImageTooLarge)
+	_, _, err = utils.DecodeImageWithinBudget(bytes.NewReader(pngWithIHDR(1080, 16000)))
 	require.Error(t, err)
 	require.NotErrorIs(t, err, utils.ErrImageTooLarge)
 }

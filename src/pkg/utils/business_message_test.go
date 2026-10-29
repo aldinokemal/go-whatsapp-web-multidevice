@@ -545,3 +545,24 @@ func TestFormatInteractiveMessageSummaryCutsAtRuneBoundary(t *testing.T) {
 		t.Fatalf("cut split a rune: len %d, valid %v", len(got), utf8.ValidString(got))
 	}
 }
+
+func TestFormatInteractiveMessageSummaryFullBodyDropsButtons(t *testing.T) {
+	body := strings.Repeat("B", interactiveSummaryMaxBytes)
+	button := &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+		Name:             proto.String("cta_url"),
+		ButtonParamsJSON: proto.String(`{"display_text":"` + strings.Repeat("L", 4096) + `","url":"https://acme.example/track"}`),
+	}
+	buttons := make([]*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton, 1000)
+	for i := range buttons {
+		buttons[i] = button
+	}
+	got := FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)},
+		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+			Buttons: buttons,
+		}},
+	})
+	if got != body {
+		t.Fatalf("summary after a full body = len %d, want the body alone (len %d)", len(got), len(body))
+	}
+}

@@ -16,21 +16,26 @@ import (
 
 const (
 	// MaxImageEdge is the longest side accepted before a full raster decode.
-	// 8192 refuses multi-gigapixel headers. 48 MP and larger phone photos
-	// exceed MaxImagePixels and long screenshots exceed this edge; original
-	// mode SendImage still sends those, without a thumbnail.
-	MaxImageEdge = 8192
-	// MaxImagePixels is the decoded pixel budget, about 40 megapixels.
-	// Width and height are also rejected when their product would overflow.
+	// 32768 admits long screenshots and panoramas and still bounds imaging's
+	// per-axis resize weight tables.
+	MaxImageEdge = 32768
+	// MaxImagePixels is the decoded pixel budget for every format but JPEG,
+	// about 40 megapixels. Width and height are also rejected when their
+	// product would overflow. Original mode SendImage still sends an image
+	// past these budgets, without a thumbnail.
 	MaxImagePixels = 40_000_000
 	// ThumbnailMaxWidth is the target width for a normal send thumbnail.
 	ThumbnailMaxWidth = 100
 	// ThumbnailMaxHeight stops a very narrow source from being stretched into
 	// a tall thumbnail when the width is fixed and the height is derived.
 	ThumbnailMaxHeight = 512
-	// maxJPEGDecodeBytes bounds what image/jpeg allocates for one decode. The
-	// pixel budget alone admits a 40 MP progressive CMYK JPEG that needs about
-	// 900 MiB; this admits a 40 MP progressive 4:2:0 photo.
+	// maxJPEGPixels replaces MaxImagePixels for JPEG, so 48, 50 and 64 MP
+	// phone photos decode. The NRGBA copy made to rotate or crop the largest
+	// one still fits in maxJPEGDecodeBytes.
+	maxJPEGPixels = 80_000_000
+	// maxJPEGDecodeBytes bounds what image/jpeg allocates for one decode. It
+	// admits a 40 MP progressive or an 80 MP baseline 4:2:0 photo, and refuses
+	// a 40 MP progressive CMYK JPEG, which needs about 900 MiB.
 	maxJPEGDecodeBytes = 320 << 20
 )
 
@@ -41,6 +46,12 @@ var ErrImageTooLarge = errors.New("image exceeds dimension or pixel budget")
 // ValidateImageDimensions rejects non-positive sizes, edges above MaxImageEdge,
 // pixel counts above MaxImagePixels, and sizes whose product overflows.
 func ValidateImageDimensions(width, height int) error {
+	return validateImageDimensions("", width, height)
+}
+
+// validateImageDimensions is ValidateImageDimensions for a decoded format. A
+// JPEG is held to maxJPEGPixels instead of MaxImagePixels.
+func validateImageDimensions(format string, width, height int) error {
 	if width <= 0 || height <= 0 {
 		return fmt.Errorf("%w: non-positive dimensions %dx%d", ErrImageTooLarge, width, height)
 	}
@@ -52,8 +63,12 @@ func ValidateImageDimensions(width, height int) error {
 	if w > MaxImageEdge || h > MaxImageEdge {
 		return fmt.Errorf("%w: dimensions %dx%d exceed maximum edge %d", ErrImageTooLarge, width, height, MaxImageEdge)
 	}
-	if w*h > MaxImagePixels {
-		return fmt.Errorf("%w: dimensions %dx%d exceed maximum pixel count %d", ErrImageTooLarge, width, height, MaxImagePixels)
+	limit := int64(MaxImagePixels)
+	if format == "jpeg" {
+		limit = maxJPEGPixels
+	}
+	if w*h > limit {
+		return fmt.Errorf("%w: dimensions %dx%d exceed maximum pixel count %d", ErrImageTooLarge, width, height, limit)
 	}
 	return nil
 }
@@ -142,7 +157,7 @@ func DecodeImageWithinBudget(r io.Reader, opts ...imaging.DecodeOption) (image.I
 	if err != nil {
 		return nil, "", err
 	}
-	if err := ValidateImageDimensions(cfg.Width, cfg.Height); err != nil {
+	if err := validateImageDimensions(format, cfg.Width, cfg.Height); err != nil {
 		return nil, format, err
 	}
 	if format == "jpeg" {
@@ -165,14 +180,14 @@ func DecodeImageWithinBudget(r io.Reader, opts ...imaging.DecodeOption) (image.I
 		return nil, format, err
 	}
 	decoded := img.Bounds()
-	if err := ValidateImageDimensions(decoded.Dx(), decoded.Dy()); err != nil {
+	if err := validateImageDimensions(format, decoded.Dx(), decoded.Dy()); err != nil {
 		return nil, format, err
 	}
 	return img, format, nil
 }
 
 // DecodeImageFileWithinBudget opens path and decodes it only after the header
-// dimensions pass ValidateImageDimensions.
+// passes the DecodeImageWithinBudget checks.
 func DecodeImageFileWithinBudget(path string, opts ...imaging.DecodeOption) (image.Image, error) {
 	file, err := os.Open(path)
 	if err != nil {

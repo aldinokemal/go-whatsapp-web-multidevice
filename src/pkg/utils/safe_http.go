@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -349,10 +350,12 @@ func IsBlockedFetchIP(ip net.IP) bool {
 	}
 }
 
-// dialUntrusted resolves the dial address, refuses non-public results, and
-// connects to the checked IP. Re-checking here covers DNS rebinding between
-// the request check and the connection. Operator-trusted hosts are dialed as
-// given.
+// dialUntrusted lets net.Dialer resolve the dial address and race its IPs with
+// the usual IPv6/IPv4 fallback, while rejectBlockedConnect refuses every
+// non-public IP it is about to connect to. Checking each connect covers DNS
+// rebinding between the request check and the connection. Operator-trusted
+// hosts are dialed as given. Test lookup and dial hooks resolve, check, and
+// then dial the checked IP.
 func dialUntrusted(ctx context.Context, network, address string) (net.Conn, error) {
 	hooks := snapshotUntrustedFetchHooks()
 	host, port, err := net.SplitHostPort(address)
@@ -365,6 +368,10 @@ func dialUntrusted(ctx context.Context, network, address string) (net.Conn, erro
 			return hooks.dial(ctx, network, address)
 		}
 		var dialer net.Dialer
+		return dialer.DialContext(ctx, network, address)
+	}
+	if hooks.lookup == nil && hooks.dial == nil {
+		dialer := net.Dialer{Timeout: 10 * time.Second, Control: rejectBlockedConnect}
 		return dialer.DialContext(ctx, network, address)
 	}
 	ips, err := resolveUntrustedHost(ctx, host, hooks)
@@ -391,4 +398,17 @@ func dialUntrusted(ctx context.Context, network, address string) (net.Conn, erro
 		last = fmt.Errorf("no route to %s", address)
 	}
 	return nil, last
+}
+
+// rejectBlockedConnect is the net.Dialer Control for untrusted fetches. It
+// receives each resolved IP and port just before the connect.
+func rejectBlockedConnect(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	if IsBlockedFetchIP(net.ParseIP(host)) {
+		return fmt.Errorf("%w %s", errNonPublicAddress, host)
+	}
+	return nil
 }

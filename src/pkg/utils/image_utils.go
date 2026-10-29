@@ -171,7 +171,7 @@ func ValidateGroupPhotoFormat(file *multipart.FileHeader) error {
 	if err != nil {
 		return fmt.Errorf("invalid image file: %w", err)
 	}
-	if err := ValidateImageDimensions(cfg.Width, cfg.Height); err != nil {
+	if err := validateImageDimensions(format, cfg.Width, cfg.Height); err != nil {
 		return fmt.Errorf("invalid image file: %w", err)
 	}
 

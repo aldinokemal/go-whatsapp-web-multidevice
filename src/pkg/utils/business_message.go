@@ -447,6 +447,9 @@ func writeInteractiveSummary(b *strings.Builder, im *waE2E.InteractiveMessage, d
 		writePart(footer.GetText())
 	}
 	for _, button := range im.GetNativeFlowMessage().GetButtons() {
+		if b.Len() >= interactiveSummaryMaxBytes {
+			break
+		}
 		writePart(formatNativeFlowButton(button))
 	}
 
@@ -484,8 +487,10 @@ func interactiveSummaryHasContent(im *waE2E.InteractiveMessage, depth int) bool 
 	if im.GetBody().GetText() != "" || im.GetFooter().GetText() != "" {
 		return true
 	}
+	// formatNativeFlowButton renders every non-nil button, so checking for one
+	// avoids parsing its params here.
 	for _, button := range im.GetNativeFlowMessage().GetButtons() {
-		if formatNativeFlowButton(button) != "" {
+		if button != nil {
 			return true
 		}
 	}
