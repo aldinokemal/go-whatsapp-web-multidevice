@@ -181,15 +181,10 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, webhookConfig)
 }
 
-// resolveWebhookConfig returns the device-specific webhook config for an exact
-// JID, or nil to use the global one. Device events call this with the companion
-// AD JID before a logout clears the slot, so the lookup cannot wait for the
-// shared payload path.
+// resolveWebhookConfig returns the device-specific webhook config, or nil to use the global one.
 func resolveWebhookConfig(deviceJID string) *domainChatStorage.DeviceWebhookConfig {
 	webhookConfig, err := getWebhookConfigForDevice(deviceJID)
 	if err != nil {
-		// A config lookup failure is not a delivery failure: fall back to the global
-		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
 		return nil
 	}
@@ -1627,6 +1622,13 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		return nil
 	}
 
+	if isAlbumHeaderPayload(eventName, data) {
+		// The album header only announces how many items follow; each photo or
+		// video arrives as its own message, so there is nothing to post.
+		logrus.Debugf("Chatwoot: Skipping album header %v", data["id"])
+		return nil
+	}
+
 	switch eventName {
 	case "message.ack":
 		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, resolved.ConfigID, data)
@@ -1722,6 +1724,16 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 	return nil
+}
+
+// isAlbumHeaderPayload reports whether a message event is the AlbumMessage that
+// precedes the items of a media album (see buildAlbumFields).
+func isAlbumHeaderPayload(eventName string, data map[string]any) bool {
+	if eventName != EventTypeMessage {
+		return false
+	}
+	_, ok := data["album"]
+	return ok
 }
 
 func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {

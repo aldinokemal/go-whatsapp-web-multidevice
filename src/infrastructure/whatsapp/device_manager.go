@@ -26,13 +26,14 @@ import (
 
 // DeviceManager keeps a registry of active device instances.
 type DeviceManager struct {
-	mu       sync.RWMutex
-	devices  map[string]*DeviceInstance
-	store    *sqlstore.Container
-	keys     *sqlstore.Container
-	storage  domainChatStorage.IChatStorageRepository
-	initted  bool
-	initOnce sync.Once
+	mu        sync.RWMutex
+	devices   map[string]*DeviceInstance
+	transient *DeviceInstance
+	store     *sqlstore.Container
+	keys      *sqlstore.Container
+	storage   domainChatStorage.IChatStorageRepository
+	initted   bool
+	initOnce  sync.Once
 }
 
 func NewDeviceManager(store *sqlstore.Container, keys *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceManager {
@@ -51,6 +52,7 @@ func (m *DeviceManager) AddDevice(instance *DeviceInstance) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.attachClientLocked(instance, instance.GetClient())
 	m.devices[instance.ID()] = instance
 
 	// Persist registry entry if available
@@ -253,6 +255,7 @@ func (m *DeviceManager) RemoveDevice(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.devices, id)
+	newsletterLiveUpdates.stopDevice(id)
 
 	if m.storage != nil && strings.TrimSpace(id) != "" {
 		_ = m.storage.DeleteDeviceRecord(id)
@@ -478,6 +481,7 @@ func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) err
 	// storage). Always delete (don't rely on cli.Logout having done it): an orphan row
 	// would otherwise get matched back on restart. Idempotent when the row is already gone.
 	jid := storeIdentity(inst)
+	newsletterLiveUpdates.stopDevice(deviceID)
 
 	var firstErr error
 	firstErr = errors.Join(firstErr, m.deleteStoreRowsForJID(ctx, jid))
@@ -738,76 +742,71 @@ func (m *DeviceManager) loadFromRegistry(records []*domainChatStorage.DeviceReco
 			seenIdentities[identity] = true
 		}
 
-		// Check if a device with this identity already exists in memory (from InitWaCLI)
-		m.mu.RLock()
-		var existingByJID *DeviceInstance
-		for id, inst := range m.devices {
-			if id != rec.DeviceID && slotIdentityMatches(inst, rec.JID, rec.ADJID) {
-				existingByJID = inst
-				break
-			}
-		}
-		m.mu.RUnlock()
-
-		// If device with matching identity exists, remove it and use the registry device
-		if existingByJID != nil {
-			m.mu.Lock()
-			delete(m.devices, existingByJID.ID())
-			m.mu.Unlock()
-			logrus.Infof("[DEVICE_MANAGER] replacing in-memory device %s with registry device %s", existingByJID.ID(), rec.DeviceID)
-		}
-
-		// Create device instance
 		storageDeviceID := rec.DeviceID
 		if rec.JID != "" {
 			storageDeviceID = rec.JID
 		}
 		instance := NewDeviceInstance(rec.DeviceID, nil, newDeviceChatStorage(storageDeviceID, m.storage))
-		instance.SetState(domainDevice.DeviceStateDisconnected)
 		instance.displayName = rec.DisplayName
 		instance.jid = rec.JID
 		instance.adJID = rec.ADJID
 
-		// If we had an existing device with client, transfer the client
-		if existingByJID != nil {
-			if client := existingByJID.GetClient(); client != nil {
-				instance.SetClient(client)
-				instance.UpdateStateFromClient()
+		// Publish the destination and retire the source under one registry lock.
+		m.mu.Lock()
+		existing := m.devices[rec.DeviceID]
+		if existing == nil {
+			for id, inst := range m.devices {
+				if slotIdentityMatches(inst, rec.JID, rec.ADJID) {
+					existing = inst
+					delete(m.devices, id)
+					break
+				}
 			}
 		}
-
-		m.AddDevice(instance)
+		if existing == nil && slotIdentityMatches(m.transient, rec.JID, rec.ADJID) {
+			existing = m.transient
+		}
+		if existing != nil {
+			m.attachClientLocked(instance, existing.GetClient())
+			existing.ResetClient()
+		} else {
+			m.attachClientLocked(instance, nil)
+		}
+		m.devices[rec.DeviceID] = instance
+		m.mu.Unlock()
+		m.persistInstanceRecord(instance)
 	}
 }
 
 // EnsureDefault registers the current global client as the default device if present.
 // It checks both by device ID and by JID to avoid creating duplicates.
-func (m *DeviceManager) EnsureDefault(client *DeviceInstance) {
-	if client == nil || client.ID() == "" {
+func (m *DeviceManager) EnsureDefault(instance *DeviceInstance) {
+	if instance == nil {
 		return
 	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if device exists by ID
-	if _, ok := m.devices[client.ID()]; ok {
+	if instance.ID() == "" {
+		m.transient = instance
+		m.attachClientLocked(instance, instance.GetClient())
 		return
 	}
-
-	// Check if any existing device refers to the same companion session
-	clientJID := client.JID()
-	if clientJID != "" {
-		for _, inst := range m.devices {
-			if slotIdentityMatches(inst, clientJID, client.ADJID()) {
-				// Update existing device with the new client
-				inst.SetClient(client.GetClient())
+	if current, ok := m.devices[instance.ID()]; ok {
+		m.attachClientLocked(current, current.GetClient())
+		return
+	}
+	if jid := instance.JID(); jid != "" {
+		for _, current := range m.devices {
+			if slotIdentityMatches(current, jid, instance.ADJID()) {
+				m.attachClientLocked(current, instance.GetClient())
+				instance.ResetClient()
 				return
 			}
 		}
 	}
-
-	m.devices[client.ID()] = client
+	m.attachClientLocked(instance, instance.GetClient())
+	m.devices[instance.ID()] = instance
 }
 
 // EnsureClient returns a device instance with an initialized WhatsApp client.
@@ -857,27 +856,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
-	// Events outlive ctx, which is usually a login request's context and is
-	// cancelled once that request responds.
-	client.AddEventHandler(func(rawEvt any) {
-		// A client replaced by a newer login must no longer drive the slot.
-		if inst.GetClient() != client {
-			return
-		}
-		handler(context.Background(), inst, rawEvt)
-	})
-
-	inst.SetOnLoggedOut(func(deviceID string) {
-		// On remote logout (device unlinked from the phone) keep the slot so it can
-		// be re-paired under the same id, matching the explicit logout semantics.
-		// Use a fresh context: the original request ctx may already be cancelled.
-		if err := m.keepSlotLogout(context.Background(), deviceID); err != nil {
-			logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
-		}
-	})
-
-	inst.SetClient(client)
-	inst.UpdateStateFromClient()
+	client.AddEventHandler(m.eventHandler(client))
+	m.mu.Lock()
+	m.attachClientLocked(inst, client)
+	m.mu.Unlock()
 
 	return inst, nil
 }

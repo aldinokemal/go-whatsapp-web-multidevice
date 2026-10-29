@@ -10,6 +10,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waVnameCert"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -42,6 +43,71 @@ func TestBuildEventPayloadIncludesIsFromMe(t *testing.T) {
 		t.Fatalf("expected is_from_me in payload")
 	} else if isFromMe, ok := value.(bool); !ok || !isFromMe {
 		t.Fatalf("expected is_from_me=true, got %v", value)
+	}
+}
+
+func TestBuildEventPayloadBusinessFields(t *testing.T) {
+	businessName := "Acme Store"
+	newEvent := func(isFromMe bool, verified *types.VerifiedName) *events.Message {
+		return &events.Message{
+			Info: types.MessageInfo{
+				MessageSource: types.MessageSource{
+					Chat:     types.NewJID("123", types.DefaultUserServer),
+					Sender:   types.NewJID("123", types.DefaultUserServer),
+					IsFromMe: isFromMe,
+				},
+				ID:           "MSG123",
+				Timestamp:    time.Date(2026, time.February, 8, 10, 0, 0, 0, time.UTC),
+				VerifiedName: verified,
+			},
+			Message: &waE2E.Message{Conversation: protoString("hello")},
+		}
+	}
+	withName := &types.VerifiedName{
+		Details: &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
+	}
+	official := &types.VerifiedName{
+		Details:       &waVnameCert.VerifiedNameCertificate_Details{VerifiedName: &businessName},
+		VerifiedLevel: "high",
+	}
+
+	tests := []struct {
+		name         string
+		evt          *events.Message
+		wantBusiness bool
+		wantName     string
+		wantLevel    string
+	}{
+		{name: "regular sender", evt: newEvent(false, nil)},
+		{name: "business sender", evt: newEvent(false, withName), wantBusiness: true, wantName: businessName},
+		{name: "business sender without details", evt: newEvent(false, &types.VerifiedName{}), wantBusiness: true},
+		{name: "officially verified business", evt: newEvent(false, official), wantBusiness: true, wantName: businessName, wantLevel: "high"},
+		{name: "own message", evt: newEvent(true, withName)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, payload, err := buildEventPayload(context.Background(), nil, tt.evt)
+			assert.NoError(t, err)
+
+			isBusiness, ok := payload["is_business"]
+			assert.Equal(t, tt.wantBusiness, ok)
+			if tt.wantBusiness {
+				assert.Equal(t, true, isBusiness)
+			}
+
+			name, ok := payload["verified_name"]
+			assert.Equal(t, tt.wantName != "", ok)
+			if tt.wantName != "" {
+				assert.Equal(t, tt.wantName, name)
+			}
+
+			level, ok := payload["verified_level"]
+			assert.Equal(t, tt.wantLevel != "", ok)
+			if tt.wantLevel != "" {
+				assert.Equal(t, tt.wantLevel, level)
+			}
+		})
 	}
 }
 
@@ -574,4 +640,98 @@ func TestBuildEventPayloadIncludesSenderDisplayName(t *testing.T) {
 			assert.Equal(t, tt.wantName, payload["sender_display_name"])
 		})
 	}
+}
+
+func albumEventForTest(id string, message *waE2E.Message) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   types.NewJID("123", types.DefaultUserServer),
+				Sender: types.NewJID("456", types.DefaultUserServer),
+			},
+			ID:        types.MessageID(id),
+			Timestamp: time.Date(2026, time.October, 7, 10, 0, 0, 0, time.UTC),
+		},
+		Message: message,
+	}
+}
+
+func TestBuildEventPayloadAlbumHeaderIncludesExpectedCounts(t *testing.T) {
+	images, videos := uint32(3), uint32(1)
+	evt := albumEventForTest("ALBUM1", &waE2E.Message{
+		AlbumMessage: &waE2E.AlbumMessage{ExpectedImageCount: &images, ExpectedVideoCount: &videos},
+	})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.Equal(t, EventTypeMessage, eventType)
+	assert.Equal(t, map[string]any{"expected_image_count": images, "expected_video_count": videos}, payload["album"])
+	assert.False(t, payloadHasNoRenderableContent(payload))
+	assert.True(t, hasRecognizedMessageType(evt.Message))
+	_, hasAlbumID := payload["album_id"]
+	assert.False(t, hasAlbumID)
+}
+
+func TestBuildEventPayloadAlbumItemIncludesAlbumID(t *testing.T) {
+	previous := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = previous })
+
+	albumType := waE2E.MessageAssociation_MEDIA_ALBUM
+	evt := albumEventForTest("ITEM1", &waE2E.Message{
+		ImageMessage: &waE2E.ImageMessage{},
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  &albumType,
+				ParentMessageKey: &waCommon.MessageKey{ID: protoString("ALBUM1")},
+			},
+		},
+	})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.Equal(t, EventTypeMessage, eventType)
+	assert.Equal(t, "ALBUM1", payload["album_id"])
+	assert.Contains(t, payload, "image")
+}
+
+func TestBuildEventPayloadIgnoresNonAlbumAssociations(t *testing.T) {
+	previous := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = previous })
+
+	otherType := waE2E.MessageAssociation_MOTION_PHOTO
+	evt := albumEventForTest("ITEM2", &waE2E.Message{
+		ImageMessage: &waE2E.ImageMessage{},
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  &otherType,
+				ParentMessageKey: &waCommon.MessageKey{ID: protoString("PARENT")},
+			},
+		},
+	})
+
+	_, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	_, hasAlbumID := payload["album_id"]
+	assert.False(t, hasAlbumID)
+}
+
+func TestAlbumHeaderIsNotForwardedToChatwootAsUnsupported(t *testing.T) {
+	images := uint32(2)
+	evt := albumEventForTest("ALBUM2", &waE2E.Message{AlbumMessage: &waE2E.AlbumMessage{ExpectedImageCount: &images}})
+
+	eventType, payload, err := buildEventPayload(context.Background(), nil, evt)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	assert.True(t, isAlbumHeaderPayload(eventType, payload))
+	assert.False(t, isAlbumHeaderPayload(EventTypeMessage, map[string]any{"album_id": "ALBUM2", "image": "x.jpg"}))
+	assert.False(t, isAlbumHeaderPayload(EventTypeMessageReaction, payload))
 }
