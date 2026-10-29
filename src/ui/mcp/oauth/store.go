@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 )
 
@@ -70,11 +71,15 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family_live ON oauth_tokens(family_id, revoked_at, expires_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_expires_at ON oauth_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client_id ON oauth_tokens(client_id);
 `
 
 func openStore(uri string) (*store, error) {
+	if err := whatsapp.SecureSQLiteFile(uri); err != nil {
+		return nil, fmt.Errorf("prepare oauth storage: %w", err)
+	}
 	db, err := sql.Open(sqlite.DriverName, sqlite.FormatChatStorageURI(uri, true, true))
 	if err != nil {
 		return nil, fmt.Errorf("open oauth storage: %w", err)
@@ -291,7 +296,7 @@ WHERE code_hash = ?`, hashSecret(req.Code)).Scan(
 	if usedAt.Valid || now.Unix() >= expiresAt || clientID != req.ClientID || redirectURI != req.RedirectURI {
 		return TokenPair{}, ErrInvalidGrant
 	}
-	if resource != req.Resource {
+	if req.Resource != "" && resource != req.Resource {
 		return TokenPair{}, ErrInvalidTarget
 	}
 	if !verifyPKCES256(req.CodeVerifier, codeChallenge) {
@@ -336,10 +341,11 @@ func (s *store) rotateRefreshToken(
 		return TokenPair{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
-		return TokenPair{}, err
-	}
 
+	// Load the presented refresh token before cleanupExpiredTx. Cleanup removes
+	// expired rows, and a consumed ancestor is the only record that ties a
+	// replay to its family. Deleting that row first turns the replay into a
+	// miss and leaves the replacement usable.
 	var (
 		familyID  string
 		clientID  string
@@ -367,11 +373,12 @@ WHERE token_hash = ? AND token_type = 'refresh'`, hashSecret(req.RefreshToken)).
 	if err != nil {
 		return TokenPair{}, err
 	}
+	// Reuse of a revoked or consumed token revokes the whole family, including
+	// when that ancestor is already past expires_at. An expired refresh token
+	// that was never consumed is not an ancestor and is rejected below without
+	// revoking any family.
 	if revokedAt.Valid {
-		if _, err := tx.ExecContext(ctx, `
-UPDATE oauth_tokens
-SET revoked_at = ?
-WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
+		if err := revokeRefreshFamilyTx(ctx, tx, familyID, now); err != nil {
 			return TokenPair{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -382,7 +389,7 @@ WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
 	if now.Unix() >= expiresAt || clientID != req.ClientID {
 		return TokenPair{}, ErrInvalidGrant
 	}
-	if resource != req.Resource {
+	if req.Resource != "" && resource != req.Resource {
 		return TokenPair{}, ErrInvalidTarget
 	}
 
@@ -403,17 +410,53 @@ WHERE token_hash = ? AND token_type = 'refresh' AND revoked_at IS NULL`,
 	if err != nil {
 		return TokenPair{}, err
 	}
+	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
+		return TokenPair{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return TokenPair{}, err
 	}
 	return pair, nil
 }
 
+func revokeRefreshFamilyTx(ctx context.Context, tx *sql.Tx, familyID string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE oauth_tokens
+SET revoked_at = ?
+WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// cleanupExpiredTx drops expired authorization codes and tokens. A consumed
+// refresh-token hash is kept while the family still has a live descendant so a
+// later replay can revoke that family, but for no more than one refresh-token
+// lifetime after it expires. Expired refresh tokens that were never consumed
+// are not ancestors and are deleted with the other expired rows.
 func cleanupExpiredTx(ctx context.Context, tx *sql.Tx, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE expires_at <= ?`, now.Unix()); err != nil {
 		return fmt.Errorf("delete expired authorization codes: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_tokens WHERE expires_at <= ?`, now.Unix()); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM oauth_tokens
+WHERE token_hash IN (
+    SELECT expired.token_hash
+    FROM oauth_tokens AS expired
+    WHERE expired.expires_at <= ?
+      AND NOT (
+          expired.token_type = 'refresh'
+          AND expired.revoked_at IS NOT NULL
+          AND expired.expires_at > ?
+          AND EXISTS (
+              SELECT 1
+              FROM oauth_tokens AS live
+              WHERE live.family_id = expired.family_id
+                AND live.revoked_at IS NULL
+                AND live.expires_at > ?
+          )
+      )
+)`, now.Unix(), now.Add(-refreshTokenTTL).Unix(), now.Unix()); err != nil {
 		return fmt.Errorf("delete expired oauth tokens: %w", err)
 	}
 	return nil
