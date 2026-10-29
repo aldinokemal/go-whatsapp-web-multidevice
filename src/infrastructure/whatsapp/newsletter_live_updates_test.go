@@ -3,13 +3,20 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 type fakeLiveUpdatesClient struct {
@@ -233,4 +240,95 @@ func TestLiveUpdatesResubscribeAfterStop(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.stopDevice("device-a")
 	assert.Len(t, manager.list("device-a"), 1)
+}
+
+func TestLiveUpdatesConnectedRenewsReconciledStartupSlot(t *testing.T) {
+	ctx := context.Background()
+	container := newTestSQLStore(t)
+	adA := types.NewADJID("6281777000099", types.WhatsAppDomain, 28)
+	adB := types.NewADJID(adA.User, types.WhatsAppDomain, 32)
+	require.NoError(t, newTestStoreDevice(container, adA, "").Save(ctx))
+	storage := &registryStubStorage{records: []*domainChatStorage.DeviceRecord{
+		{DeviceID: "slot-a", JID: adA.ToNonAD().String(), ADJID: adA.String()},
+		{DeviceID: "slot-b", JID: adB.ToNonAD().String(), ADJID: adB.String()},
+	}}
+	globalStateMu.Lock()
+	oldManager, oldClient, oldDB, oldKeys := deviceManager, cli, db, keysDB
+	deviceManager = nil
+	globalStateMu.Unlock()
+	oldNewsletter := newsletterLiveUpdates
+	newsletterLiveUpdates = newNewsletterLiveUpdatesManager()
+	oldOS, oldPlatform := store.DeviceProps.Os, store.DeviceProps.PlatformType
+	oldChatwoot := config.ChatwootEnabled
+	config.ChatwootEnabled = false
+	t.Cleanup(func() {
+		newsletterLiveUpdates.stopDevice("slot-a")
+		newsletterLiveUpdates.stopDevice("slot-b")
+		newsletterLiveUpdates = oldNewsletter
+		config.ChatwootEnabled = oldChatwoot
+		store.DeviceProps.Os, store.DeviceProps.PlatformType = oldOS, oldPlatform
+		globalStateMu.Lock()
+		deviceManager, cli, db, keysDB = oldManager, oldClient, oldDB, oldKeys
+		globalStateMu.Unlock()
+	})
+	client := InitWaCLI(ctx, container, nil, storage)
+	dispatch := registeredNewsletterEventHandler(t, client)
+	require.NoError(t, newTestStoreDevice(container, adB, "").Save(ctx))
+	manager := GetDeviceManager()
+	startup, ok := manager.GetDevice(adA.String())
+	require.True(t, ok)
+	require.NoError(t, manager.LoadExistingDevices(ctx))
+	current, ok := manager.GetDevice("slot-a")
+	require.True(t, ok)
+	require.NotSame(t, startup, current)
+	require.Same(t, client, current.GetClient())
+	sibling, err := manager.EnsureClient(ctx, "slot-b")
+	require.NoError(t, err)
+	siblingDispatch := registeredNewsletterEventHandler(t, sibling.GetClient())
+	fakeA, fakeB := newFakeLiveUpdatesClient(time.Hour), newFakeLiveUpdatesClient(time.Hour)
+	for slot, fake := range map[string]*fakeLiveUpdatesClient{"slot-a": fakeA, "slot-b": fakeB} {
+		_, err := newsletterLiveUpdates.subscribe(ctx, slot, testNewsletterJID, sourceOf(fake))
+		require.NoError(t, err)
+		waitCall(t, fake)
+	}
+	dispatch(&events.Connected{})
+	waitCall(t, fakeA)
+	assert.Equal(t, 2, fakeA.callCount())
+	assert.Equal(t, 1, fakeB.callCount())
+
+	dispatch(&events.PushNameSetting{})
+	select {
+	case <-fakeA.called:
+		t.Fatal("pushname update must not renew subscriptions")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	siblingDispatch(&events.Connected{})
+	waitCall(t, fakeB)
+	assert.Equal(t, 2, fakeB.callCount())
+	assert.Equal(t, 2, fakeA.callCount())
+
+	current.SetClient(whatsmeow.NewClient(newTestStoreDevice(container, adA, ""), nil))
+	dispatch(&events.Connected{})
+	select {
+	case <-fakeA.called:
+		t.Fatal("obsolete client must not renew replacement client's subscriptions")
+	case <-fakeB.called:
+		t.Fatal("obsolete client must not renew sibling subscriptions")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// whatsmeow does not expose dispatch. Read the registered callback to verify the
+// production registration, without opening a connection or recreating its closure.
+func registeredNewsletterEventHandler(t *testing.T, client *whatsmeow.Client) func(any) {
+	t.Helper()
+	handlers := reflect.ValueOf(client).Elem().FieldByName("eventHandlers")
+	require.True(t, handlers.IsValid())
+	require.Equal(t, 1, handlers.Len(), "client must register exactly one event handler")
+	field := handlers.Index(0).FieldByName("fn")
+	require.True(t, field.IsValid())
+	require.Equal(t, reflect.TypeOf((whatsmeow.EventHandlerWithSuccessStatus)(nil)), field.Type())
+	callback := *(*whatsmeow.EventHandlerWithSuccessStatus)(unsafe.Pointer(field.UnsafeAddr()))
+	return func(event any) { require.True(t, callback(event)) }
 }
