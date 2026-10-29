@@ -203,7 +203,7 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 // break, so a formula prefix there gets an apostrophe after the separator.
 func spreadsheetSafeCell(value string) string {
 	trimmed := strings.TrimLeft(value, " \t\r\n")
-	safe := value[:len(value)-len(trimmed)] + formulaAfterSeparator.ReplaceAllString(trimmed, "${1}'${2}${3}")
+	safe := formulaAfterSeparator.ReplaceAllString(value, "${1}'${2}${3}")
 	first, _ := utf8.DecodeRuneInString(trimmed)
 	switch first {
 	case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':

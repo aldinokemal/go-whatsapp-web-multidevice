@@ -54,7 +54,7 @@ func ensureWebhookSigningSecret() {
 }
 
 func enforceAuthenticationPolicy() {
-	if len(config.AppBasicAuthCredential) > 0 {
+	if basicAuthComplete(config.AppBasicAuthCredential) {
 		return
 	}
 	if config.AppAllowUnauthenticated {
@@ -62,10 +62,23 @@ func enforceAuthenticationPolicy() {
 		return
 	}
 	if isLoopbackHost(config.AppHost) {
-		logrus.Warn("APP_BASIC_AUTH is empty and the listener is loopback (" + config.AppHost + "). The API is unauthenticated for local development. Do not publish this listener. A non-loopback bind requires APP_BASIC_AUTH or APP_ALLOW_UNAUTHENTICATED=true.")
+		logrus.Warn("APP_BASIC_AUTH is empty or has an entry with an empty username or password, and the listener is loopback (" + config.AppHost + "). The API is unauthenticated for local development. Do not publish this listener. A non-loopback bind requires APP_BASIC_AUTH or APP_ALLOW_UNAUTHENTICATED=true.")
 		return
 	}
-	logrus.Fatalf("APP_BASIC_AUTH is empty and APP_HOST %q is not a loopback address. Refusing to expose device administration, send, logout, and webhook routes. Set APP_BASIC_AUTH, bind 127.0.0.1, or set APP_ALLOW_UNAUTHENTICATED=true when a reverse proxy performs authentication.", config.AppHost)
+	logrus.Fatalf("APP_BASIC_AUTH is empty or has an entry with an empty username or password, and APP_HOST %q is not a loopback address. Refusing to expose device administration, send, logout, and webhook routes. Set APP_BASIC_AUTH, bind 127.0.0.1, or set APP_ALLOW_UNAUTHENTICATED=true when a reverse proxy performs authentication.", config.AppHost)
+}
+
+// basicAuthComplete reports whether APP_BASIC_AUTH protects the API: it has
+// at least one entry, and every entry has a username and a password. An entry
+// such as "admin:" would admit anyone who knows the username.
+func basicAuthComplete(credentials []string) bool {
+	for _, credential := range credentials {
+		user, password, ok := strings.Cut(credential, ":")
+		if !ok || user == "" || password == "" {
+			return false
+		}
+	}
+	return len(credentials) > 0
 }
 
 // unauthenticatedBindAllowed reports whether an empty credential list may

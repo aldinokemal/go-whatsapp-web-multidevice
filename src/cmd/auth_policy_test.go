@@ -2,6 +2,25 @@ package cmd
 
 import "testing"
 
+func TestBasicAuthComplete(t *testing.T) {
+	for _, tt := range []struct {
+		credentials []string
+		want        bool
+	}{
+		{nil, false},
+		{[]string{"admin:secret"}, true},
+		{[]string{"admin:secret", "guest:pass"}, true},
+		{[]string{"admin:"}, false},
+		{[]string{":secret"}, false},
+		{[]string{"admin"}, false},
+		{[]string{"admin:secret", "guest:"}, false},
+	} {
+		if got := basicAuthComplete(tt.credentials); got != tt.want {
+			t.Errorf("basicAuthComplete(%q) = %v, want %v", tt.credentials, got, tt.want)
+		}
+	}
+}
+
 func TestUnauthenticatedBindAllowed(t *testing.T) {
 	cases := []struct {
 		name           string
