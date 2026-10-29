@@ -209,6 +209,9 @@ Fields commonly found inside the `payload` object:
 | `from_name` | string   | Legacy message-event push name of the sender. It remains available for compatibility and is not replaced by `sender_display_name`. |
 | `timestamp` | string   | RFC3339 formatted timestamp (e.g., `2023-10-15T10:30:00Z`)                    |
 | `is_from_me` | boolean | Whether the message was sent by the current user                              |
+| `is_business` | boolean | `true` when an incoming message carries the sender's verified-name certificate. Omitted otherwise. A missing field does not establish whether the sender is a business. `GET /user/info` can provide additional upstream account metadata, but does not guarantee a definitive business classification. |
+| `verified_name` | string | Business name from the upstream verified-name certificate. Present only with `is_business` and when the name is non-empty. |
+| `verified_level` | string | Raw verification level reported with the certificate, as sent by WhatsApp. GOWA does not interpret this value or guarantee that it identifies an official badge. Present only with `is_business` and when WhatsApp sends it. |
 
 ### Sender Display Name Resolution
 
