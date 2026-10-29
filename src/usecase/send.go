@@ -239,8 +239,8 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 // whatsmeow handles the trusted-contact (tctoken) lifecycle internally; a 463
 // "reach-out timelock" rejection is a WhatsApp server-side restriction that the
 // client cannot retry around, so it is surfaced as-is via normalizeSendError.
-func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg)
+func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
+	ts, err := client.SendMessage(ctx, recipient, msg, extra...)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
