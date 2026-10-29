@@ -539,3 +539,32 @@ func TestChatwootWebhookEmptyReplyText(t *testing.T) {
 		})
 	}
 }
+
+// TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice: the documented
+// single-device setup leaves CHATWOOT_DEVICE_ID empty. A reply to a new
+// conversation (no link yet) is sent from the only device.
+func TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice(t *testing.T) {
+	withChatwootWebhookSecret(t, "legacy-secret")
+	prevDevice := config.ChatwootDeviceID
+	config.ChatwootDeviceID = ""
+	t.Cleanup(func() { config.ChatwootDeviceID = prevDevice })
+	chatwoot.InitClientRegistry(nil)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	manager := whatsapp.NewDeviceManager(nil, nil, nil)
+	manager.AddDevice(whatsapp.NewDeviceInstance("only-device", nil, nil))
+	stub := &chatwootReplySendStub{}
+	handler := &ChatwootHandler{SendUsecase: stub, DeviceManager: manager, ChatStorageRepo: &deviceWebhookTestRepo{}}
+	app := fiber.New()
+	app.Post("/chatwoot/webhook", handler.HandleWebhook)
+
+	body := `{"event":"message_created","message_type":"outgoing","content":"hello","account":{"id":1},` +
+		`"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628123456789"}}}}`
+	req := webhookAuthRequest{body: body, headers: map[string]string{"X-Chatwoot-Webhook-Secret": "legacy-secret"}}
+	if got := postChatwootWebhook(t, app, req); got != fiber.StatusOK {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if len(stub.texts) != 1 || stub.texts[0] != "hello" {
+		t.Fatalf("SendText messages = %q, want [\"hello\"]", stub.texts)
+	}
+}
