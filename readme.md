@@ -426,7 +426,7 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are seven consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are seven consolidated tools and a separate calendar-event tool; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
@@ -441,6 +441,9 @@ operation:
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
 `occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
+
+`whatsapp_send_event` sends calendar events with `phone`, `name`, and `start_time` (unix seconds).
+Optional fields are `description`, `end_time`, `location_name`, `extra_guests_allowed`, and `duration`.
 
 #### Device selection
 
@@ -698,6 +701,7 @@ You may also fork or modify the source code.
 | ✅       | Send Link                              | POST   | /send/link                          |
 | ✅       | Send Location                          | POST   | /send/location                      |
 | ✅       | Send Poll / Vote                       | POST   | /send/poll                          |
+| ✅       | Send Calendar Event                    | POST   | /send/event                         |
 | ✅       | Send Presence                          | POST   | /send/presence                      |
 | ✅       | Send Chat Presence (Typing Indicator)  | POST   | /send/chat-presence                 |
 | ✅       | List Scheduled Sends                   | GET    | /send/schedules                     |

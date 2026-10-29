@@ -816,6 +816,12 @@ func (s *scheduledSendService) SendPoll(ctx context.Context, req domainSend.Poll
 	}
 	return s.scheduler.Create(ctx, "poll", req.Phone, req.Question, req.ScheduleOptions, req, nil)
 }
+func (s *scheduledSendService) SendEvent(ctx context.Context, req domainSend.EventRequest) (domainSend.GenericResponse, error) {
+	if req.IsScheduled() {
+		return domainSend.GenericResponse{}, pkgError.ValidationError("events cannot be scheduled")
+	}
+	return s.base.SendEvent(ctx, req)
+}
 func (s *scheduledSendService) SendPresence(ctx context.Context, req domainSend.PresenceRequest) (domainSend.GenericResponse, error) {
 	return s.base.SendPresence(ctx, req)
 }
