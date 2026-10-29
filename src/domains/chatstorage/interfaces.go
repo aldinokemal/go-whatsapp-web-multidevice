@@ -97,6 +97,15 @@ type IChatStorageRepository interface {
 	ListExpiredScheduledSends(now time.Time) ([]*ScheduledSend, error)
 	// ListScheduledSendIDs returns every job that may still need its media.
 	ListScheduledSendIDs() ([]string, error)
+	// SetScheduledSendPendingAttempt atomically records the identity and poll
+	// secret before dispatch. It reports false when the lease is no longer held.
+	SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte) (bool, error)
+	// ClearScheduledSendPendingMessageID forgets the message id of a paused
+	// job's occurrence and its poll secret when moving to another occurrence.
+	ClearScheduledSendPendingMessageID(deviceID, id string) error
+	// RetryScheduledSend returns a claimed job to the queue. attempts 0 means
+	// nothing of the occurrence that follows has been sent (a new occurrence,
+	// or one that never got to send): its pending message id is cleared.
 	RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error
 	CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error
 	FailScheduledSend(id, leaseToken, lastError string) error

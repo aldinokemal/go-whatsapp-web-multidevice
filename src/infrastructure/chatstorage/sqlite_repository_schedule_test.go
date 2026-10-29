@@ -308,3 +308,23 @@ func TestSQLiteRepositoryListScheduledSendsOrdersUpcomingThenHistory(t *testing.
 func timePointer(value time.Time) *time.Time {
 	return &value
 }
+
+func TestSQLiteRepositoryClearScheduledSendPendingMessageID(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, status := range []string{"paused", "active", "running"} {
+		job := newScheduledSendFixture(status, "device-a", status, now)
+		job.PendingMessageID = "3EB0PENDING"
+		require.NoError(t, repo.CreateScheduledSend(job))
+		require.NoError(t, repo.ClearScheduledSendPendingMessageID("device-a", status))
+	}
+	require.NoError(t, repo.ClearScheduledSendPendingMessageID("device-b", "paused"))
+
+	// Only a paused job gives its id up: an active or running one may be
+	// between two attempts of the occurrence the id belongs to.
+	for status, want := range map[string]string{"paused": "", "active": "3EB0PENDING", "running": "3EB0PENDING"} {
+		stored, err := repo.GetScheduledSend("device-a", status)
+		require.NoError(t, err)
+		require.Equal(t, want, stored.PendingMessageID, status)
+	}
+}

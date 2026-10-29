@@ -235,12 +235,22 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
+// sendRequestExtras returns the options a send carries in its context. A
+// caller may pin the WhatsApp message id (the Chatwoot bridge derives it from
+// the Chatwoot message); otherwise whatsmeow generates a random one.
+func sendRequestExtras(ctx context.Context) []whatsmeow.SendRequestExtra {
+	if messageID := whatsapp.SendMessageIDFromContext(ctx); messageID != "" {
+		return []whatsmeow.SendRequestExtra{{ID: messageID}}
+	}
+	return nil
+}
+
 // wrapSendMessage sends the message and stores it asynchronously on success.
 // whatsmeow handles the trusted-contact (tctoken) lifecycle internally; a 463
 // "reach-out timelock" rejection is a WhatsApp server-side restriction that the
 // client cannot retry around, so it is surfaced as-is via normalizeSendError.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg)
+	ts, err := client.SendMessage(ctx, recipient, msg, sendRequestExtras(ctx)...)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
@@ -1585,6 +1595,16 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	return response, nil
 }
 
+// buildPollCreation uses whatsmeow's builder and preserves the scheduled
+// occurrence's secret, which its durable secret store associates with the ID.
+func buildPollCreation(ctx context.Context, client *whatsmeow.Client, request domainSend.PollRequest) *waE2E.Message {
+	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	if secret := whatsapp.PollSecretFromContext(ctx); len(secret) > 0 {
+		msg.MessageContextInfo.MessageSecret = secret
+	}
+	return msg
+}
+
 func (service serviceSend) SendPoll(ctx context.Context, request domainSend.PollRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendPoll(ctx, request)
 	if err != nil {
@@ -1603,7 +1623,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	content := "📊 " + request.Question
 
-	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	msg := buildPollCreation(ctx, client, request)
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.PollCreationMessage.ContextInfo == nil {
