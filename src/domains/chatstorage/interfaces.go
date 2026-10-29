@@ -64,7 +64,11 @@ type IChatStorageRepository interface {
 	// configID, when non-zero, further restricts the match to links written under
 	// that device config: separate Chatwoot servers can collide on
 	// (conversation_id, account_id), so per-device (forced-route) callers must
-	// scope by their own config.
+	// scope by their own config. configID 0 does not mean "any server". Each
+	// chatwoot_device_configs row is one server (URL + account + inbox). If the
+	// matching links span more than one non-zero config, the lookup returns nil
+	// so the shared webhook cannot pick the newest row from the wrong server.
+	// Legacy config-id 0 rows are used only when they are the only matches.
 	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*ChatwootMessageLink, error)
 	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
 	CountChatwootMessageLinksByConfig(configID int64) (int, error)
