@@ -859,6 +859,9 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	m.attachClientLocked(inst, client)
 	m.mu.Unlock()
 
+	// Beta voice calls must hook the client before it connects.
+	AttachCaller(deviceID, client)
+
 	return inst, nil
 }
 

@@ -31,8 +31,9 @@ enabled; both transports share the same device manager and usecases.
 - Chatwoot routing, live sync, and history: [Chatwoot infrastructure](src/infrastructure/chatwoot/AGENTS.md).
   Setup or routing-mode changes: [configuration](docs/chatwoot.md).
   Direct Postgres changes: [scoped guide](src/infrastructure/chatwoot/pgimport/AGENTS.md).
-- Embedded browser UI: `src/views/components/` and `src/views/index.html`. These are
-  plain Vue 3 modules loaded from CDN, with Fomantic UI and `[[`, `]]` delimiters.
+- Browser dashboard: the separately released `gowa-ui` project. `src/infrastructure/uiasset/`
+  downloads it at runtime and serves it at `/`. The only in-repo browser UI is the
+  beta-call console that `src/ui/rest/beta_call_console.go` injects into that HTML.
 - Startup and configuration: `src/cmd/root.go`, `src/cmd/rest.go`,
   `src/cmd/helpers.go`, `src/config/settings.go`, and `src/.env.example`. Configuration
   and service wiring use package globals; flags override env/Viper and `.env` defaults.

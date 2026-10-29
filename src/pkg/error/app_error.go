@@ -92,4 +92,5 @@ var (
 	ErrSessionSaved          = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
 	ErrDeviceNotFound        = notFoundError("device not found")
 	ErrScheduledSendNotFound = notFoundError("scheduled send not found")
+	ErrCallNotFound          = notFoundError("call not found")
 )
