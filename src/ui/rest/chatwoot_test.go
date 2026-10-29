@@ -544,7 +544,7 @@ func TestChatwootWebhookEmptyReplyText(t *testing.T) {
 // single-device setup leaves CHATWOOT_DEVICE_ID empty. A reply to a new
 // conversation (no link yet) is sent from the only device.
 func TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice(t *testing.T) {
-	withChatwootWebhookSecret(t, "")
+	withChatwootWebhookSecret(t, "legacy-secret")
 	prevDevice := config.ChatwootDeviceID
 	config.ChatwootDeviceID = ""
 	t.Cleanup(func() { config.ChatwootDeviceID = prevDevice })
@@ -560,7 +560,8 @@ func TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice(t *testing.T) {
 
 	body := `{"event":"message_created","message_type":"outgoing","content":"hello","account":{"id":1},` +
 		`"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628123456789"}}}}`
-	if got := postChatwootWebhook(t, app, webhookAuthRequest{body: body}); got != fiber.StatusOK {
+	req := webhookAuthRequest{body: body, headers: map[string]string{"X-Chatwoot-Webhook-Secret": "legacy-secret"}}
+	if got := postChatwootWebhook(t, app, req); got != fiber.StatusOK {
 		t.Fatalf("status = %d, want 200", got)
 	}
 	if len(stub.texts) != 1 || stub.texts[0] != "hello" {
