@@ -50,7 +50,7 @@ func ensureWebhookSigningSecret() {
 	if !replaced {
 		return
 	}
-	logrus.Warn("WHATSAPP_WEBHOOK_SECRET is unset or still the published default \"secret\". Generated a random per-process signing key. It will change on restart, so set WHATSAPP_WEBHOOK_SECRET to a stable secret before receivers rely on signatures. Events stay signed; the published default is not used.")
+	logrus.Warn("WHATSAPP_WEBHOOK_SECRET is unset or still a published value (\"secret\" or \"super-secret-key\"). Generated a random per-process signing key. It will change on restart, so set WHATSAPP_WEBHOOK_SECRET to a stable secret before receivers rely on signatures. Events stay signed; the published value is not used.")
 }
 
 func enforceAuthenticationPolicy() {

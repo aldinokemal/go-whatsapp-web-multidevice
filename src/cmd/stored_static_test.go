@@ -20,15 +20,18 @@ func TestStoredDocumentsAreAttachmentsAndUIStillServesHTML(t *testing.T) {
 	prevUI := config.AppUIEnabled
 	prevUpdate := config.AppUIAutoUpdate
 	prevBase := config.AppBasePath
+	prevCache := config.PathUICache
 	storedStaticRoot = root
 	config.AppUIEnabled = true
 	config.AppUIAutoUpdate = false
 	config.AppBasePath = ""
+	config.PathUICache = t.TempDir()
 	t.Cleanup(func() {
 		storedStaticRoot = prevRoot
 		config.AppUIEnabled = prevUI
 		config.AppUIAutoUpdate = prevUpdate
 		config.AppBasePath = prevBase
+		config.PathUICache = prevCache
 	})
 
 	htmlBody := []byte("<!DOCTYPE html><html><script>alert(1)</script></html>")

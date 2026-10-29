@@ -11,11 +11,15 @@ import (
 // from a forged body, so it is never used as an HMAC key.
 const PublishedWhatsappWebhookSecret = "secret"
 
-// WebhookSecretUnusable reports whether secret is empty or the published
-// default. Callers must not sign webhook bodies with those values.
+// PublishedExampleWebhookSecret is the example key older .env.example files
+// shipped. It is public for the same reason and is never used as an HMAC key.
+const PublishedExampleWebhookSecret = "super-secret-key"
+
+// WebhookSecretUnusable reports whether secret is empty or a published
+// value. Callers must not sign webhook bodies with those values.
 func WebhookSecretUnusable(secret string) bool {
 	switch strings.TrimSpace(secret) {
-	case "", PublishedWhatsappWebhookSecret:
+	case "", PublishedWhatsappWebhookSecret, PublishedExampleWebhookSecret:
 		return true
 	default:
 		return false

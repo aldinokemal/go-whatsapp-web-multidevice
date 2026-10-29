@@ -104,14 +104,14 @@ func canonicalRequestPath(path, base string) string {
 // does not set the field.
 func inviteLinkReset(c fiber.Ctx) bool {
 	reset := false
-	c.RequestCtx().QueryArgs().VisitAll(func(key, value []byte) {
+	for key, value := range c.RequestCtx().QueryArgs().All() {
 		if !queryKeyIsReset(string(key)) {
-			return
+			continue
 		}
 		if schemaBoolTrue(string(value)) {
 			reset = true
 		}
-	})
+	}
 	return reset
 }
 

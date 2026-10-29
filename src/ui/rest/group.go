@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 
@@ -193,16 +194,18 @@ func (controller *Group) ExportParticipants(c fiber.Ctx) error {
 }
 
 // spreadsheetSafeCell prefixes cells that spreadsheet applications would
-// treat as formulas. Leading ASCII space, tab, CR, and LF are skipped when
-// deciding, and the original cell is prefixed so the apostrophe is the first
-// character a spreadsheet sees.
+// treat as formulas, including the full-width ＝ ＋ － ＠ that some locales
+// accept. Leading ASCII space, tab, CR, and LF are skipped when deciding, and
+// the original cell is prefixed so the apostrophe is the first character a
+// spreadsheet sees.
 func spreadsheetSafeCell(value string) string {
 	trimmed := strings.TrimLeft(value, " \t\r\n")
 	if trimmed == "" {
 		return value
 	}
-	switch trimmed[0] {
-	case '=', '+', '-', '@':
+	first, _ := utf8.DecodeRuneInString(trimmed)
+	switch first {
+	case '=', '+', '-', '@', '\uFF1D', '\uFF0B', '\uFF0D', '\uFF20':
 		return "'" + value
 	default:
 		return value

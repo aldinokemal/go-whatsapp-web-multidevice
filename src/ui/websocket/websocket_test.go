@@ -131,7 +131,9 @@ func TestHubDoesNotBlockWhenClientStopsReading(t *testing.T) {
 
 	stalled := newBlockingConn()
 	healthy := &recordingConn{}
-	subs := []*subscriber{newSubscriber(stalled), newSubscriber(healthy)}
+	// The healthy queue holds both broadcasts, so only the stalled client can
+	// be dropped as slow.
+	subs := []*subscriber{newSubscriber(stalled), {conn: healthy, send: make(chan []byte, 2), done: make(chan struct{})}}
 	// Runs before the cleanup above: the writers read writeTimeout, so they
 	// must exit before it is restored.
 	t.Cleanup(func() {
@@ -165,11 +167,11 @@ func TestHubDoesNotBlockWhenClientStopsReading(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(time.Second)
-	for healthy.count() < 1 && time.Now().Before(deadline) {
+	for healthy.count() < 2 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if healthy.count() < 1 {
-		t.Fatal("healthy client received no broadcast while another client was stalled")
+	if healthy.count() < 2 {
+		t.Fatalf("healthy client received %d of 2 broadcasts while another client was stalled", healthy.count())
 	}
 }
 
@@ -177,7 +179,7 @@ func TestWebsocketRejectsUntrustedOrigin(t *testing.T) {
 	app := fiber.New()
 	RegisterRoutes(app, nil)
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() {

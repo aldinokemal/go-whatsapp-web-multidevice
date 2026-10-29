@@ -462,7 +462,7 @@ func initFlags() {
 		&config.WhatsappWebhookSecret,
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
-		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+		`secure webhook request --webhook-secret <string> | example: --webhook-secret="your-private-key"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookInsecureSkipVerify,
