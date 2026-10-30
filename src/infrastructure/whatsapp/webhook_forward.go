@@ -105,8 +105,8 @@ func getCachedGroupName(deviceID, groupJID string) (string, bool) {
 		if time.Now().Before(cached.expiresAt) {
 			return cached.name, true
 		}
-		// Entry expired, delete it
-		groupNameCache.Delete(key)
+		// Do not delete a newer subject written by a concurrent event.
+		groupNameCache.CompareAndDelete(key, cached)
 	}
 	return "", false
 }
@@ -140,7 +140,20 @@ func beginGroupNameCacheFetch(deviceID, groupJID string) func(string) {
 	}
 	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
 	pending := groupNameCacheEntry{fetchToken: new(int)}
-	groupNameCache.Store(key, pending)
+	// Reserve only if no newer event subject was written since the cache read.
+	for {
+		entry, loaded := groupNameCache.LoadOrStore(key, pending)
+		if !loaded {
+			break
+		}
+		current := entry.(groupNameCacheEntry)
+		if time.Now().Before(current.expiresAt) || current.fetchToken != nil {
+			return func(string) {}
+		}
+		if groupNameCache.CompareAndSwap(key, current, pending) {
+			break
+		}
+	}
 	return func(name string) {
 		if name == "" {
 			groupNameCache.CompareAndDelete(key, pending)
@@ -1854,53 +1867,57 @@ func isEventWhitelisted(eventName string) bool {
 	return false
 }
 
-// getGroupName fetches the group name from WhatsApp using the group JID.
-// Uses a per-device TTL cache to avoid repeated API calls for the same group.
-func getGroupName(ctx context.Context, groupJID string) string {
+// ResolveGroupSubject resolves a real group subject for the client identified by
+// ctx. No placeholder is returned on missing identity or a failed lookup.
+func ResolveGroupSubject(ctx context.Context, jid types.JID) string {
+	if ctx == nil || jid.IsEmpty() || jid.Server != types.GroupServer {
+		return ""
+	}
+	// An unscoped context must not resolve through ClientFromContext's
+	// legacy process-global fallback. Require an explicit device identity.
 	instance, ok := DeviceFromContext(ctx)
 	if !ok || instance == nil {
 		return ""
 	}
 	client := instance.GetClient()
-	if client == nil || groupNameCacheDeviceID(client) == "" {
+	deviceID := groupNameCacheDeviceID(client)
+	if deviceID == "" {
 		return ""
 	}
-
-	// Check this device's cache first. The name is only ever served to the
-	// device that fetched it.
-	deviceID := groupNameCacheDeviceID(client)
+	groupJID := jid.ToNonAD().String()
 	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
-		logrus.Debugf("Chatwoot: Using cached group name for %s: %s", groupJID, name)
 		return name
 	}
 
-	jid, err := types.ParseJID(groupJID)
-	if err != nil {
-		logrus.Warnf("Chatwoot: Failed to parse group JID %s: %v", groupJID, err)
-		return ""
-	}
-
-	// Use a fresh context with timeout since the original context may be canceled
-	// (this function is called from a goroutine)
-	freshCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A webhook's original context may already be canceled. Preserve its
+	// device identity while giving the network lookup a bounded fresh deadline.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	cacheResult := beginGroupNameCacheFetch(deviceID, groupJID)
 	defer cacheResult("")
-
-	logrus.Debugf("Chatwoot: Fetching group info for %s", groupJID)
-	groupInfo, err := fetchGroupInfoFn(freshCtx, client, jid)
-	if err != nil {
-		logrus.Warnf("Chatwoot: Failed to get group info for %s: %v", groupJID, err)
+	info, err := fetchGroupInfoFn(fetchCtx, client, jid)
+	if err != nil || info == nil || strings.TrimSpace(info.Name) == "" {
+		if err != nil {
+			logrus.Warnf("Failed to resolve group subject for %s: %v", groupJID, err)
+		}
 		return ""
 	}
-
-	if groupInfo != nil && groupInfo.Name != "" {
-		logrus.Infof("Chatwoot: Got group name: %s", groupInfo.Name)
-		// Cache the result
-		cacheResult(groupInfo.Name)
-		return groupInfo.Name
+	cacheResult(info.Name)
+	// If a newer subject arrived while the fetch was in flight, prefer it.
+	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
+		return name
 	}
+	return info.Name
+}
 
-	logrus.Debug("Chatwoot: GroupInfo is nil or Name is empty")
-	return ""
+// getGroupName keeps the Chatwoot path scoped to an explicit device context.
+func getGroupName(ctx context.Context, groupJID string) string {
+	if instance, ok := DeviceFromContext(ctx); !ok || instance == nil {
+		return ""
+	}
+	jid, err := types.ParseJID(groupJID)
+	if err != nil {
+		return ""
+	}
+	return ResolveGroupSubject(ctx, jid)
 }

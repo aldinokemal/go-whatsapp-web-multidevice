@@ -16,6 +16,8 @@ type IChatStorageRepository interface {
 	// CreateIncomingCallRecord persists an incoming call as a synthetic message (media_type "call") for chat history.
 	CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error
 	StoreChat(chat *Chat) error
+	// UpdateGroupSubject renames an existing group for one device without changing chat metadata.
+	UpdateGroupSubject(deviceID, groupJID, subject string) error
 	// GetChat matches a JID on any device. Not for user-facing flows: use
 	// GetChatByDevice.
 	GetChat(jid string) (*Chat, error)

@@ -3,8 +3,11 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -41,6 +44,10 @@ func TestGroupNameLookupNeverFallsBackToTheGlobalAccount(t *testing.T) {
 	} {
 		if got := getGroupName(ctx, group); got != "" {
 			t.Fatalf("unresolved device received group name %q", got)
+		}
+		jid, _ := types.ParseJID(group)
+		if got := ResolveGroupSubject(ctx, jid); got != "" {
+			t.Fatalf("resolver used unscoped global account: %q", got)
 		}
 	}
 }
@@ -194,5 +201,94 @@ func TestGroupNameCacheSkipsAnUnidentifiedClient(t *testing.T) {
 	}
 	if _, ok := groupNameCache.Load(groupNameCacheKey{groupJID: group}); ok {
 		t.Fatal("an entry was stored without a device")
+	}
+}
+
+type groupSubjectRepo struct {
+	domainChatStorage.IChatStorageRepository
+	updates []string
+	err     error
+}
+
+func (r *groupSubjectRepo) UpdateGroupSubject(deviceID, groupJID, subject string) error {
+	r.updates = append(r.updates, deviceID+"|"+groupJID+"|"+subject)
+	return r.err
+}
+
+func TestResolveGroupSubjectDeviceIsolationAndFailure(t *testing.T) {
+	group := types.NewJID("120363000000000076", types.GroupServer)
+	clientA, ctxA := groupNameTestDevice(t, "15550000051")
+	clientB, ctxB := groupNameTestDevice(t, "15550000052")
+	name := "A's subject"
+	calls := stubGroupInfo(t, map[*whatsmeow.Client]*string{clientA: &name})
+	t.Cleanup(func() {
+		invalidateCachedGroupName(groupNameCacheDeviceID(clientA), group.String())
+		invalidateCachedGroupName(groupNameCacheDeviceID(clientB), group.String())
+	})
+	if got := ResolveGroupSubject(ctxA, group); got != name {
+		t.Fatalf("device A subject = %q", got)
+	}
+	if got := ResolveGroupSubject(ctxB, group); got != "" || calls[clientB.Store.ID.User] != 1 {
+		t.Fatalf("failed device B lookup = %q, calls = %d", got, calls[clientB.Store.ID.User])
+	}
+	if got := ResolveGroupSubject(ctxA, group); got != name || calls[clientA.Store.ID.User] != 1 {
+		t.Fatalf("cached subject = %q after %d lookups", got, calls[clientA.Store.ID.User])
+	}
+	if got := ResolveGroupSubject(ContextWithDevice(context.Background(), NewDeviceInstance("logged-out", nil, nil)), group); got != "" {
+		t.Fatalf("unidentified client subject = %q", got)
+	}
+}
+
+func TestGroupSubjectEventUpdatesOnlyNamedDeviceAndBeatsInflightFetch(t *testing.T) {
+	group := types.NewJID("120363000000000077", types.GroupServer)
+	client, ctx := groupNameTestDevice(t, "15550000053")
+	other, _ := groupNameTestDevice(t, "15550000054")
+	id := groupNameCacheDeviceID(client)
+	otherID := groupNameCacheDeviceID(other)
+	repo := &groupSubjectRepo{err: fmt.Errorf("storage failed")}
+	instance := NewDeviceInstance("slot", client, repo)
+	ctx = ContextWithDevice(ctx, instance)
+	originalLog := log
+	log = waLog.Noop
+	t.Cleanup(func() { log = originalLog })
+	setCachedGroupName(otherID, group.String(), "Other device")
+	oldFetch := fetchGroupInfoFn
+	started, release := make(chan struct{}), make(chan struct{})
+	fetchGroupInfoFn = func(_ context.Context, _ *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		close(started)
+		<-release
+		return &types.GroupInfo{JID: jid, GroupName: types.GroupName{Name: "Stale"}}, nil
+	}
+	t.Cleanup(func() {
+		fetchGroupInfoFn = oldFetch
+		invalidateCachedGroupName(id, group.String())
+		invalidateCachedGroupName(otherID, group.String())
+	})
+	result := make(chan string, 1)
+	go func() { result <- ResolveGroupSubject(ctx, group) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("fetch did not start")
+	}
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{Name: "New subject"}}, id, client)
+	close(release)
+	if got := <-result; got != "New subject" {
+		t.Fatalf("stale fetch returned %q", got)
+	}
+	if got := ResolveGroupSubject(ctx, group); got != "New subject" {
+		t.Fatalf("cached event subject = %q", got)
+	}
+	if got, _ := getCachedGroupName(otherID, group.String()); got != "Other device" {
+		t.Fatalf("other device subject changed to %q", got)
+	}
+	if len(repo.updates) != 1 || repo.updates[0] != id+"|"+group.String()+"|New subject" {
+		t.Fatalf("repository calls = %v", repo.updates)
+	}
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{}}, id, client)
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{Name: "  "}}, id, client)
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Join: []types.JID{group}}, id, client)
+	if len(repo.updates) != 1 {
+		t.Fatalf("subjectless event updated repository: %v", repo.updates)
 	}
 }

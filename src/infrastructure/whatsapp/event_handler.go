@@ -401,9 +401,22 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 		return
 	}
 
-	// A new subject makes this device's cached group name stale.
-	if evt.Name != nil {
-		invalidateCachedGroupName(groupNameCacheDeviceID(client), evt.JID.ToNonAD().String())
+	// A subject change is authoritative only when a nonempty name is present.
+	// Never create a chat for a group-info event: repository update is scoped to
+	// an existing row and preserves its other metadata.
+	if evt.Name != nil && strings.TrimSpace(evt.Name.Name) != "" {
+		storageID := groupNameCacheDeviceID(client)
+		groupJID := evt.JID.ToNonAD().String()
+		if storageID != "" {
+			setCachedGroupName(storageID, groupJID, evt.Name.Name)
+			if instance, ok := DeviceFromContext(ctx); ok && instance != nil {
+				if repo := instance.GetChatStorage(); repo != nil {
+					if err := repo.UpdateGroupSubject(storageID, groupJID, evt.Name.Name); err != nil {
+						log.Warnf("Failed to update group subject for %s: %v", groupJID, err)
+					}
+				}
+			}
+		}
 	}
 
 	// Log group events for debugging
