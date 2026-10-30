@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 func TestShouldForwardReceipt(t *testing.T) {
@@ -51,7 +53,9 @@ func TestShouldForwardReceipt(t *testing.T) {
 		{"own linked device read-self", receipt(withDevice(own, 12), true, types.ReceiptTypeReadSelf), true},
 		{"own linked device read-self via LID", receipt(withDevice(ownLID, 12), true, types.ReceiptTypeReadSelf), true},
 		{"own linked device delivered", receipt(withDevice(own, 12), true, types.ReceiptTypeDelivered), false},
-		{"own linked device played-self", receipt(withDevice(own, 12), true, types.ReceiptTypePlayedSelf), false},
+		{"own linked device played-self", receipt(withDevice(own, 12), true, types.ReceiptTypePlayedSelf), true},
+		{"own linked device played", receipt(withDevice(own, 12), true, types.ReceiptTypePlayed), true},
+		{"contact linked device played", receipt(withDevice(contact, 3), false, types.ReceiptTypePlayed), false},
 	}
 
 	for _, tt := range tests {
@@ -123,5 +127,55 @@ func TestShouldForwardReceipt_AllDevicesWhenEnabled(t *testing.T) {
 	}
 	if !shouldForwardReceipt(receiptFromDevice(5)) {
 		t.Error("receipt from a linked device should be forwarded when all-device forwarding is enabled")
+	}
+}
+
+func TestHandleReceiptForwardsOwnLinkedDeviceSelfReceipts(t *testing.T) {
+	own := types.NewJID("628111111111", types.DefaultUserServer)
+	ownCompanion := own
+	ownCompanion.Device = 12
+	contact := types.NewJID("628123456789", types.DefaultUserServer)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &own}}
+
+	originalLog := log
+	log = waLog.Noop
+	defer func() { log = originalLog }()
+
+	originalWebhooks := config.WhatsappWebhook
+	originalEvents := config.WhatsappWebhookEvents
+	config.WhatsappWebhook = []string{"https://test.com"}
+	config.WhatsappWebhookEvents = nil
+	defer func() {
+		config.WhatsappWebhook = originalWebhooks
+		config.WhatsappWebhookEvents = originalEvents
+	}()
+
+	forwarded := make(chan map[string]any, 1)
+	originalSubmit := submitWebhookFn
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *chatstorage.DeviceWebhookConfig) error {
+		forwarded <- payload
+		return nil
+	}
+	defer func() { submitWebhookFn = originalSubmit }()
+
+	for _, receiptType := range []types.ReceiptType{types.ReceiptTypeReadSelf, types.ReceiptTypePlayedSelf} {
+		t.Run(string(receiptType), func(t *testing.T) {
+			handleReceipt(context.Background(), &events.Receipt{
+				MessageSource: types.MessageSource{Chat: contact, Sender: ownCompanion, IsFromMe: true},
+				MessageIDs:    []types.MessageID{"3A1"},
+				Timestamp:     time.Date(2026, time.October, 3, 10, 0, 0, 0, time.UTC),
+				Type:          receiptType,
+			}, own.String(), client)
+
+			select {
+			case body := <-forwarded:
+				assert.Equal(t, "message.ack", body["event"])
+				payload, _ := body["payload"].(map[string]any)
+				assert.Equal(t, string(receiptType), payload["receipt_type"])
+				assert.Equal(t, own.String(), payload["from"])
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s receipt from an own linked device was not forwarded", receiptType)
+			}
+		})
 	}
 }
