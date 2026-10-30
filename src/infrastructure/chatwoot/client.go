@@ -359,7 +359,7 @@ func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
 		return errors.New("chatwoot: stopped after 10 redirects")
 	}
 	if len(via) > 0 && (!strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname()) || via[0].URL.Scheme != req.URL.Scheme) {
-		req.Header.Del("api_access_token")
+		req.Header.Del(apiTokenHeader)
 	}
 	if len(config.ChatwootAllowedHosts) == 0 {
 		return nil

@@ -242,7 +242,7 @@ func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
 
 	tokens := make(chan string, 1)
 	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		tokens <- r.Header.Get("api_access_token")
+		tokens <- r.Header.Get(apiTokenHeader)
 	}))
 	defer target.Close()
 	// The same listener under another host name.
@@ -268,14 +268,14 @@ func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req.Header.Set("api_access_token", "secret-token")
+			req.Header.Set(apiTokenHeader, "secret-token")
 			resp, err := tt.client().Do(req)
 			if err != nil {
 				t.Fatalf("redirect: %v", err)
 			}
 			resp.Body.Close()
 			if got := <-tokens; got != "" {
-				t.Fatalf("redirect target received api_access_token %q", got)
+				t.Fatalf("redirect target received the API token %q", got)
 			}
 		})
 	}
