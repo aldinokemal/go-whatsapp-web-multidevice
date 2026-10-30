@@ -52,6 +52,9 @@ type SyncOptions struct {
 	// RecoverExpiredMedia re-requests media that expired on WhatsApp's servers
 	// from the phone. Nil imports such media as unavailable.
 	RecoverExpiredMedia ExpiredMediaRecoverer
+	// IgnoreJids is the device's own ignore list (per-device config
+	// ignore_jids), skipped in addition to the global CHATWOOT_IGNORE_JIDS.
+	IgnoreJids []string
 }
 
 // ExpiredMediaRecoverer recovers the media of a stored message after
