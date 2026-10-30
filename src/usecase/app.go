@@ -108,6 +108,7 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 			response.Code = evt.Code
 			response.Duration = evt.Timeout / time.Second / 2
 			if evt.Event == "code" {
+				whatsapp.ForwardLoginQRCode(qrCtx, instance, evt.Code, evt.Timeout)
 				qrPath := fmt.Sprintf("%s/scan-qr-%s.png", config.PathQrCode, fiberUtils.UUIDv4())
 				if err := qrcode.WriteFile(evt.Code, qrcode.Medium, 512, qrPath); err != nil {
 					logrus.Errorf("[LOGIN][%s] Error when write qr code to file: %v", deviceID, err)
@@ -124,6 +125,8 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 				case <-qrCtx.Done():
 					logrus.Warnf("[LOGIN][%s] QR context canceled while sending QR path", deviceID)
 					return
+				default:
+					// Login only waits for the first image; later codes must not stall the loop.
 				}
 			} else if evt.Event == whatsmeow.QRChannelEventPasskeyRequest || evt.Event == whatsmeow.QRChannelEventPasskeyResponse {
 				// Passkey events are broadcast by the global event handler and served via /app/passkey endpoints.

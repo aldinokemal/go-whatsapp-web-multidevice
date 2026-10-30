@@ -204,8 +204,10 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
   | `message.deleted`    | Messages deleted for the user                 |
   | `presence`           | Contact online/offline changes after presence subscription |
   | `chat_presence`      | Typing and recording indicators from contacts |
+  | `app_state`          | Chat archived, pinned, muted, cleared, deleted or saved |
+  | `contact.update`     | Contact push name, picture, about or business name |
   | `group.participants` | Group member join/leave/promote/demote events |
-  | `group.info`         | Group name (subject) changed                  |
+  | `group.info`         | Group name, description, settings or picture changed |
   | `group.joined`       | You were added to a group                     |
   | `label.edit`         | WhatsApp label metadata changed               |
   | `label.association`  | Label applied to or removed from a chat       |
@@ -214,9 +216,15 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
   | `newsletter.message` | Live counter updates from an active `/newsletter/live-updates` subscription |
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
+  | `call.accept`        | Call accepted                                 |
+  | `call.terminate`     | Call ended                                    |
   | `device.logged_out`  | The device was logged out, with the reason    |
   | `device.temporary_ban` | WhatsApp temporarily banned the account     |
   | `device.reachout_timelock` | WhatsApp restricted starting new chats  |
+  | `group.left`         | You left or were removed from a group         |
+  | `history.sync`       | Chat history sent to the device after pairing |
+  | `connection`         | Device paired                                 |
+  | `qr`                 | Login QR code generated                       |
 
   If this setting is empty, all events are forwarded.
 - **Webhook JID filtering**
