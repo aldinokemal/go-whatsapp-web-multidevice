@@ -9,6 +9,7 @@
 </div>
 
 [![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 **If you're using this tool to generate income, consider supporting its development by becoming a Patreon member!**
 
@@ -27,6 +28,18 @@ Download:
 - [Release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest)
 - [Docker Hub](https://hub.docker.com/r/aldinokemal2104/go-whatsapp-web-multidevice/tags)
 - [GitHub Container Registry](https://github.com/aldinokemal/go-whatsapp-web-multidevice/pkgs/container/go-whatsapp-web-multidevice)
+
+## Documentation
+
+Read the detailed [GOWA documentation](https://github.com/aldinokemal/gowa-docs) for setup,
+authentication, device management, webhooks, examples, and the API reference.
+The documentation tracks merged `main`, including changes after v9.7.0. Check the
+release notes and `GET /app/info` when using a pinned binary or container tag.
+
+- [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` is immediate-only and REST-only; recipient compatibility varies.
+- [Webhook payloads](./docs/webhook-payload.md) describes event schemas and signing.
+- [Chatwoot](./docs/chatwoot.md), [MCP OAuth](./docs/mcp-oauth.md), [Neon](./docs/neon.md), and [media storage](./docs/media-storage.md) provide integration and operations guides.
+- [OpenAPI](./docs/openapi.yaml) defines the machine-readable REST contract, including `/send/interactive`.
 
 ## n8n Community Node
 
@@ -51,7 +64,7 @@ Download:
     - `X-Device-Id` header, or
     - `device_id` query parameter.
     - If only one device is registered, it is used as the default.
-  - **WebSocket device scoping**: Connect to `/ws?device_id=<id>` to scope the WebSocket connection to a specific device.
+  - **WebSocket device selection**: Connect to `/ws?device_id=<id>` for the device middleware. The current WebSocket hub broadcasts dashboard events to all authenticated subscribers. This parameter does not isolate events between accounts; use per-device webhooks for application integrations.
   - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
     (for example, [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
     `GET /app/info` exposes the version and media size limits. Because browsers cannot set headers on WebSocket
@@ -94,11 +107,21 @@ Download:
   - Use the special keyword `@everyone` to automatically mention all group participants.
 - Post WhatsApp status updates.
 - Mark incoming audio messages and voice notes as played.
-- **Scheduled sends** — Send any message later, once or on a daily, weekly, or monthly repeat.
+- **Scheduled sends** — Schedule supported send types once or on a daily, weekly, or monthly repeat.
   - Add `scheduled_at` (RFC3339) and `timezone` (IANA) to a send request; `recurrence`, `weekdays`, `day_of_month`,
     `end_at`, and `occurrence_limit` control repeats.
   - Schedules survive restarts and wait for an offline device; list, pause, resume, or cancel them at
     `/send/schedules`.
+  - A failed occurrence is retried under the same WhatsApp message id, so a send whose acknowledgment was lost is not
+    retried under a fresh identity. Poll retries also reuse the persisted secret. New-protocol occurrences
+    interrupted by a restart resume the same way; legacy attempts with unknown outcomes are skipped or failed.
+    This does not guarantee exactly-once delivery.
+- **Newsletter channels** — Follow or unfollow channels, fetch metadata by JID or invite, query the channel directory, and download channel media.
+  - Read messages with `/newsletter/messages`, refresh counters with `/newsletter/message-updates`, and manage renewable live counter subscriptions with `/newsletter/live-updates`.
+  - Live subscriptions are in memory. Subscribe again after a server restart; counter events arrive as `newsletter.message` webhooks.
+- **Server metrics** — Authenticated `GET /app/metrics` reports process, memory, disk, device counts, and storage metadata without a device header. It returns JSON, not Prometheus text.
+- **Contact presence** — `POST /user/presence/subscribe` subscribes to a contact's online/offline updates, delivered through the `presence` webhook event. Sending your own presence remains under `/send/presence`.
+- **Avatar errors** — `GET /user/avatar` distinguishes `404 AVATAR_NOT_SET` from `403 AVATAR_HIDDEN`. Use the error code before invalidating a cached image.
 - **Send stickers** — Automatically convert images to WebP sticker format.
   - Supports JPG, JPEG, PNG, WebP, and GIF formats.
   - Automatically resizes images to 512×512 pixels.
@@ -157,10 +180,12 @@ Download:
     device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
     device URL keeps its own secret and event filter.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
-  header, generated with the default key `secret`.
+  header. Set a private key with `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`. The old published
+  default `secret` is not used. If no secret is configured, the process generates a random key and
+  logs a warning; that key changes on restart, so receivers should not rely on it.
 
-  Change the key with:
-  - `--webhook-secret="secret"`
+  Generate a stable key once, for example with `openssl rand -hex 32`, and set it with:
+  - `--webhook-secret="<generated key>"`
 - **Webhook payload documentation** — For detailed schemas, security implementation, and integration examples,
   see [Webhook Payload Documentation](./docs/webhook-payload.md).
 - **Webhook event filtering** — Filter which events are forwarded to your webhook with:
@@ -177,16 +202,21 @@ Download:
   | `message.edited`     | Edited messages                               |
   | `message.ack`        | Delivery and read receipts                    |
   | `message.deleted`    | Messages deleted for the user                 |
+  | `presence`           | Contact online/offline changes after presence subscription |
   | `chat_presence`      | Typing and recording indicators from contacts |
   | `group.participants` | Group member join/leave/promote/demote events |
+  | `group.info`         | Group name (subject) changed                  |
   | `group.joined`       | You were added to a group                     |
   | `label.edit`         | WhatsApp label metadata changed               |
   | `label.association`  | Label applied to or removed from a chat       |
   | `newsletter.joined`  | You subscribed to a newsletter/channel        |
   | `newsletter.left`    | You unsubscribed from a newsletter            |
-  | `newsletter.message` | New message(s) posted in a newsletter         |
+  | `newsletter.message` | Live counter updates from an active `/newsletter/live-updates` subscription |
   | `newsletter.mute`    | Newsletter mute setting changed               |
   | `call.offer`         | Incoming call received                        |
+  | `device.logged_out`  | The device was logged out, with the reason    |
+  | `device.temporary_ban` | WhatsApp temporarily banned the account     |
+  | `device.reachout_timelock` | WhatsApp restricted starting new chats  |
 
   If this setting is empty, all events are forwarded.
 - **Webhook JID filtering**
@@ -212,9 +242,9 @@ Download:
 
   **Security Warning**: This option disables TLS certificate verification and should only be used in:
   - Development or testing environments.
-  - Cloudflare tunnels, which provide their own security layer.
   - Internal networks with self-signed certificates.
 
+  A Cloudflare tunnel does not make an unverified outbound TLS connection safe.
   **For production environments**, use a valid TLS certificate (for example, from Let's Encrypt) instead of
   disabling verification.
 
@@ -222,11 +252,15 @@ Download:
 
 To store WhatsApp sessions and keys in managed PostgreSQL, follow the [Neon setup guide](./docs/neon.md).
 
-Configuration is loaded in this order of priority:
+Configuration is initialized from flags, then most environment settings are applied.
+A set environment value can therefore override the matching flag. The `.env` file
+only fills variables not already set in the process environment.
 
-1. Command-line flags (highest priority)
-2. Environment variables
-3. `.env` file (lowest priority)
+Explicit flags win for MCP OAuth settings, `--allow-unauthenticated`,
+`--trusted-origins`, `--chatwoot-webhook-allow-unsigned`, and
+`--webhook-all-device-receipts`. Configure each option in one place to avoid
+conflicting values. For example, `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`
+overrides `--webhook-insecure-skip-verify=false`.
 
 ### Environment Variables
 
@@ -244,10 +278,12 @@ To use environment variables:
 | `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
 | `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
 | `APP_OS`                                | OS name (device name in WhatsApp)                             | `GOWA`                                       | `APP_OS=MyApp`                                |
-| `APP_BASIC_AUTH`                        | Basic authentication credentials                              | -                                            | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_BASIC_AUTH`                        | Basic authentication credentials. Required for a non-loopback bind, with a username and password in every entry; loopback stays open for local dev | -                             | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
+| `APP_ALLOW_UNAUTHENTICATED`             | Expose the API with no Basic Auth on a non-loopback bind (insecure; for reverse proxies) | `false`                       | `APP_ALLOW_UNAUTHENTICATED=true`              |
+| `APP_TRUSTED_ORIGINS`                   | Extra browser origins for state-changing requests (request host and specific CORS origins are included). A reverse proxy that rewrites `Host` needs `proxy_set_header Host $host`, or `APP_TRUSTED_PROXIES` with `X-Forwarded-Host`, or the public origin listed here. App and extension origins such as `capacitor://localhost` are matched as written. `null` is never trusted: gowa-ui opened from a `file://` URL cannot make changes or open `/ws`, so serve it from gowa (the default) or from an http(s) origin listed here | -          | `APP_TRUSTED_ORIGINS=https://ui.example.com`  |
 | `APP_BASE_PATH`                         | Base path for subpath deployment                              | -                                            | `APP_BASE_PATH=/gowa`                         |
 | `APP_TRUSTED_PROXIES`                   | Trusted proxy IP ranges for reverse proxy                     | -                                            | `APP_TRUSTED_PROXIES=0.0.0.0/0`               |
-| `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty)                  | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
+| `APP_CORS_ALLOWED_ORIGINS`              | Allowed CORS origins (any origin when empty). A wildcard (`*`, the default) does not authorize state-changing requests or `/ws`; a dashboard on a separate origin must be listed in `APP_TRUSTED_ORIGINS` or here as a specific origin | -                                            | `APP_CORS_ALLOWED_ORIGINS=https://ui.example.com` |
 | `APP_UI_ENABLED`                        | Serve the downloaded gowa-ui dashboard                        | `true`                                       | `APP_UI_ENABLED=false`                        |
 | `APP_UI_AUTO_UPDATE`                    | Download and periodically refresh the latest dashboard        | `true`                                       | `APP_UI_AUTO_UPDATE=false`                    |
 | `APP_UI_REPO`                           | GitHub repository containing gowa-ui releases                 | `aldinokemal/gowa-ui`                        | `APP_UI_REPO=my-org/gowa-ui`                  |
@@ -260,8 +296,8 @@ To use environment variables:
 | `MCP_OAUTH_ISSUER_URL`                  | Public HTTPS OAuth issuer URL                                 | -                                            | `MCP_OAUTH_ISSUER_URL=https://gowa.example.com` |
 | `MCP_OAUTH_RESOURCE_URL`                | Optional canonical public MCP URL                             | Derived from issuer and base path            | `MCP_OAUTH_RESOURCE_URL=https://gowa.example.com/mcp` |
 | `MCP_OAUTH_DB_URI`                      | SQLite URI for OAuth clients, codes, and token hashes         | `file:storages/oauth.db`                     | `MCP_OAUTH_DB_URI=file:storages/oauth.db`     |
-| `DB_URI`                                | Database connection URI                                       | `file:storages/whatsapp.db`                  | `DB_URI=postgres://user:pass@host/db`         |
-| `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
+| `DB_URI`                                | Database connection URI. A Postgres URI without `sslmode` (or `PGSSLMODE`) uses `verify-full` for remote hosts and `disable` for loopback targets (`localhost`, `127.0.0.1`, `::1`) or unix sockets; set `sslmode=require` to keep unverified TLS. | `file:storages/whatsapp.db` | `DB_URI=postgres://user:pass@host/db` |
+| `DB_KEYS_URI`                           | Optional database URI for encryption/session key cache. Leave blank to use `DB_URI`; avoid in-memory storage in production because restarts can lose WhatsApp session state. A Postgres URI gets the same `sslmode` default as `DB_URI`. | - | `DB_KEYS_URI=file:storages/whatsapp-keys.db?_foreign_keys=on` |
 | `CHAT_STORAGE_MAX_OPEN_CONNS`           | Maximum concurrent SQLite connections for chat storage        | `5`                                          | `CHAT_STORAGE_MAX_OPEN_CONNS=10`              |
 | `WHATSAPP_AUTO_REPLY`                   | Auto-reply message                                            | -                                            | `WHATSAPP_AUTO_REPLY="Auto reply message"`    |
 | `WHATSAPP_AUTO_MARK_READ`               | Auto-mark incoming messages as read                           | `false`                                      | `WHATSAPP_AUTO_MARK_READ=true`                |
@@ -269,10 +305,11 @@ To use environment variables:
 | `WHATSAPP_IGNORE_STATUS_MEDIA`          | Ignore downloading status media (status@broadcast)            | `false`                                      | `WHATSAPP_IGNORE_STATUS_MEDIA=true`           |
 | `WHATSAPP_AUTO_REJECT_CALL`             | Auto-reject incoming WhatsApp calls                           | `false`                                      | `WHATSAPP_AUTO_REJECT_CALL=true`              |
 | `WHATSAPP_WEBHOOK`                      | Webhook URL(s) for events (comma-separated)                   | -                                            | `WHATSAPP_WEBHOOK=https://webhook.site/xxx`   |
-| `WHATSAPP_WEBHOOK_SECRET`               | Webhook secret for validation                                 | `secret`                                     | `WHATSAPP_WEBHOOK_SECRET=super-secret-key`    |
+| `WHATSAPP_WEBHOOK_SECRET`               | Webhook HMAC secret; generate one with `openssl rand -hex 32`. Empty or a published value (`secret`, `super-secret-key`, `your-private-key`) is replaced by a random per-process key | -            | `WHATSAPP_WEBHOOK_SECRET=<generated key>`    |
 | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY` | Skip TLS verification for webhooks (insecure)                 | `false`                                      | `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`  |
 | `WHATSAPP_WEBHOOK_EVENTS`               | Whitelist of events to forward (comma-separated, empty = all) | -                                            | `WHATSAPP_WEBHOOK_EVENTS=message,message.ack` |
 | `WHATSAPP_WEBHOOK_IGNORE_JIDS`          | JIDs/wildcards to skip when forwarding (comma-separated)      | -                                            | `WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us`          |
+| `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS`  | Forward all linked-device receipts; consumers must handle duplicates and out-of-order updates   | `false`                                      | `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS=true`   |
 | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
@@ -295,7 +332,8 @@ To use environment variables:
 | `CHATWOOT_AUTO_CREATE`                  | Auto-create or reuse the Chatwoot API inbox at startup        | `false`                                      | `CHATWOOT_AUTO_CREATE=true`                   |
 | `CHATWOOT_INBOX_NAME`                   | Inbox name used when auto-create is enabled                   | `WhatsApp`                                   | `CHATWOOT_INBOX_NAME=WhatsApp Support`        |
 | `CHATWOOT_WEBHOOK_URL`                  | Public GOWA Chatwoot reply webhook URL                        | -                                            | `CHATWOOT_WEBHOOK_URL=https://api.example.com/chatwoot/webhook` |
-| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature) | -                                     | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_SECRET`               | Secret for incoming Chatwoot webhooks (verifies Chatwoot's signature). Empty rejects calls | -               | `CHATWOOT_WEBHOOK_SECRET=channel-webhook-secret` |
+| `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED`       | Accept Chatwoot webhooks when no secret is configured (insecure) | `false`                                  | `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true`        |
 | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE`  | Maximum age of a signed Chatwoot webhook's timestamp           | `5m`                                         | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE=2m`     |
 | `CHATWOOT_REOPEN_CONVERSATION`          | Reopen resolved Chatwoot conversations for returning contacts  | `true`                                       | `CHATWOOT_REOPEN_CONVERSATION=false`          |
 | `CHATWOOT_CONVERSATION_PENDING`         | Create new Chatwoot conversations as pending                  | `false`                                      | `CHATWOOT_CONVERSATION_PENDING=true`          |
@@ -415,7 +453,7 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are six consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are seven consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
@@ -426,6 +464,7 @@ operation:
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
+| `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
 `occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
@@ -644,6 +683,9 @@ You may also fork or modify the source code.
 
 | Status   | Operation                              | Method | URL                                 |
 |----------|----------------------------------------|--------|-------------------------------------|
+| ✅       | Server Metrics                         | GET    | /app/metrics                        |
+| ✅       | Subscribe Contact Presence             | POST   | /user/presence/subscribe             |
+| Experimental | Send Buttons, Location Request, Carousel | POST | /send/interactive                   |
 | ✅       | Health Check                           | GET    | /health                             |
 | ✅       | List Devices                           | GET    | /devices                            |
 | ✅       | Add Device                             | POST   | /devices                            |
@@ -724,8 +766,15 @@ You may also fork or modify the source code.
 | ✅       | Set Group Announcement Mode            | POST   | /group/announce                     |
 | ✅       | Set Group Topic                        | POST   | /group/topic                        |
 | ✅       | Get Group Invite Link                  | GET    | /group/invite-link                  |
+| ✅       | Follow Newsletter                      | POST   | /newsletter/follow                  |
 | ✅       | Unfollow Newsletter                    | POST   | /newsletter/unfollow                |
+| ✅       | Get Newsletter Info (JID or invite)    | GET    | /newsletter/info                    |
+| ✅       | Search Newsletter Directory            | GET    | /newsletter/directory               |
 | ✅       | Get Newsletter Messages                | GET    | /newsletter/messages                |
+| ✅       | Get Newsletter Message Updates         | GET    | /newsletter/message-updates         |
+| ✅       | List Newsletter Live Updates           | GET    | /newsletter/live-updates            |
+| ✅       | Subscribe Newsletter Live Updates      | POST   | /newsletter/live-updates            |
+| ✅       | Unsubscribe Newsletter Live Updates    | DELETE | /newsletter/live-updates            |
 | ✅       | Download Newsletter Message Media      | GET    | /newsletter/messages/{server_id}/download |
 | ✅       | Get Chat List                          | GET    | /chats                              |
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |

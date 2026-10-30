@@ -61,7 +61,7 @@ func newMcpTestApp(withAuth bool) *fiber.App {
 	return app
 }
 
-func TestMcpEndpointListsSixTools(t *testing.T) {
+func TestMcpEndpointListsSevenTools(t *testing.T) {
 	app := newMcpTestApp(false)
 
 	rec, initRes := mcpRPC(t, app, initializeRPC, false)
@@ -74,13 +74,13 @@ func TestMcpEndpointListsSixTools(t *testing.T) {
 	require.True(t, ok, "tools/list result: %v", listRes)
 	tools, ok := result["tools"].([]any)
 	require.True(t, ok)
-	require.Len(t, tools, 6)
+	require.Len(t, tools, 7)
 
 	names := map[string]bool{}
 	for _, tl := range tools {
 		names[tl.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"whatsapp_send", "whatsapp_schedule", "whatsapp_message", "whatsapp_chat", "whatsapp_group", "whatsapp_app"} {
+	for _, want := range []string{"whatsapp_send", "whatsapp_schedule", "whatsapp_message", "whatsapp_chat", "whatsapp_group", "whatsapp_app", "whatsapp_newsletter"} {
 		assert.True(t, names[want], "missing tool %s", want)
 	}
 }

@@ -14,6 +14,14 @@ For a contract change, update the domain interface and WhatsApp wrapper together
   context. `status@broadcast` must display as `Status`.
 - `scheduled_sends` is keyed by the registry slot alias (`instance.ID()`), not the
   storage JID, because the worker resolves clients with `DeviceManager.GetDevice`.
+- `scheduled_sends.pending_message_id` is the WhatsApp id of the occurrence being
+  attempted: set under the lease before the first attempt, kept across retries,
+  cleared when the occurrence completes or is given up (`RetryScheduledSend` with
+  attempts 0, or a paused job resumed at a later slot). A job whose lease lapsed
+  goes back to the queue with the id kept, so the same occurrence is resent under it.
+- Poll occurrences persist `pending_poll_secret` atomically with the id; clear both
+  when moving to a new occurrence. `legacy_attempt_unknown` marks pre-protocol
+  running/retried rows for conservative skip/fail recovery, including paused retries.
 - Parameterize values in SQL; dynamic clauses use fixed fragments plus arguments.
 - `message_edits` retains append-only history while the current message updates.
 

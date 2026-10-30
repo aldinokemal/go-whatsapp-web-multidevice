@@ -26,6 +26,15 @@ func (s *registryStubStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceRe
 	return s.records, nil
 }
 
+func (s *registryStubStorage) GetDeviceWebhookConfig(_ context.Context, id string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	for _, rec := range s.records {
+		if rec.DeviceID == id {
+			return webhookConfigFromRecord(rec), nil
+		}
+	}
+	return nil, nil
+}
+
 // countStoreRows returns how many device rows in the container share the NonAD number.
 func countStoreRows(t *testing.T, ctx context.Context, m *DeviceManager, nonAD string) int {
 	t.Helper()

@@ -39,7 +39,7 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_AUTO_CREATE` | No | `false` | Startup provisioning mode. When `true`, the app lists inboxes, reuses an API-channel inbox named `CHATWOOT_INBOX_NAME`, or creates one using `CHATWOOT_WEBHOOK_URL`; then it fills `CHATWOOT_INBOX_ID` in memory. |
 | `CHATWOOT_INBOX_NAME` | No | `WhatsApp` | Inbox name used only by auto-provisioning. The app reuses a same-name `Channel::Api` inbox, but ignores same-name non-API inboxes because they cannot receive API-channel reply webhooks. |
 | `CHATWOOT_WEBHOOK_URL` | Reply webhook | - | Public URL Chatwoot should call for agent replies: `https://your-gowa.example.com/chatwoot/webhook`. Used when creating an API inbox automatically, and useful as the value to place in an existing API channel's `webhook_url`. Keep the secret out of this URL when Chatwoot signs its webhooks; see [Webhook Secret](#webhook-secret). |
-| `CHATWOOT_WEBHOOK_SECRET` | Recommended | - | Secret that authenticates incoming Chatwoot webhook calls. If empty, webhooks are accepted without this check. If set, the request must carry Chatwoot's own signature (`X-Chatwoot-Signature` + `X-Chatwoot-Timestamp`, recommended) or present the secret through `X-Chatwoot-Webhook-Secret`, `X-Gowa-Chatwoot-Secret`, `?secret=...`, or an `X-Hub-Signature-256` HMAC signature. |
+| `CHATWOOT_WEBHOOK_SECRET` | Recommended | - | Secret that authenticates incoming Chatwoot webhook calls. An empty effective secret rejects the call. Set `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true` only on a trusted network to restore unsigned delivery. When a secret is set, the request must carry Chatwoot's own signature (`X-Chatwoot-Signature` + `X-Chatwoot-Timestamp`, recommended) or present the secret through `X-Chatwoot-Webhook-Secret`, `X-Gowa-Chatwoot-Secret`, `?secret=...`, or an `X-Hub-Signature-256` HMAC signature. |
 | `CHATWOOT_WEBHOOK_SIGNATURE_TOLERANCE` | No | `5m` | Maximum age (and clock difference) of the `X-Chatwoot-Timestamp` accepted with Chatwoot's signature. Older or further-ahead requests are rejected, which limits replay of a captured request. |
 | `CHATWOOT_REOPEN_CONVERSATION` | No | `true` | When a contact has a resolved conversation and messages again, reopen/reuse that conversation instead of starting a new thread. Keeps REST and direct-DB behavior aligned. |
 | `CHATWOOT_CONVERSATION_PENDING` | No | `false` | Create new conversations with status `pending` instead of `open`, so they land in the unassigned queue. Applies to REST and direct-DB paths. |
@@ -202,11 +202,11 @@ Notes:
 - If `CHATWOOT_INBOX_ID` is already set, it takes precedence and auto-create is skipped (your explicit value wins).
 - If `CHATWOOT_WEBHOOK_URL` is empty, the inbox is still created but **agent replies won't reach WhatsApp** until you set the webhook — a warning is logged.
 - Provisioning failures are non-fatal; the app keeps running and you can fall back to manual setup.
-- Chatwoot generates the webhook secret of a new inbox, so it cannot be known before the inbox exists. After the first start, copy the secret from the created inbox into `CHATWOOT_WEBHOOK_SECRET` and restart. Until then the webhook endpoint is unauthenticated. See [Webhook Secret](#webhook-secret).
+- Chatwoot generates the webhook secret of a new inbox, so it cannot be known before the inbox exists. After the first start, copy the secret from the created inbox into `CHATWOOT_WEBHOOK_SECRET` and restart. Until then webhook calls are rejected. See [Webhook Secret](#webhook-secret).
 
 ## Webhook Secret
 
-`CHATWOOT_WEBHOOK_SECRET` protects GOWA's public `/chatwoot/webhook` endpoint, which sits outside basic auth so Chatwoot can reach it. When it is empty, GOWA accepts Chatwoot webhooks without this check. When it is set, a request is accepted only if it proves knowledge of the secret in one of these ways:
+`CHATWOOT_WEBHOOK_SECRET` protects GOWA's public `/chatwoot/webhook` endpoint, which sits outside basic auth so Chatwoot can reach it. When the effective secret is empty, GOWA rejects the call. Set `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true` only when the endpoint is reachable solely on a trusted network. When a secret is set, a request is accepted only if it proves knowledge of the secret in one of these ways:
 
 | Method | What Chatwoot (or a proxy) sends | Notes |
 |--------|----------------------------------|-------|
@@ -235,12 +235,12 @@ With [per-device configs](#per-device--multi-inbox-routing), each inbox is a dif
 The secret that applies is the secret of the device the webhook is routed to, on both endpoints:
 
 - The device has its own `webhook_secret`: the request must prove that secret. The global secret is not accepted for it, and neither is another device's secret.
-- The device has no `webhook_secret`: the global `CHATWOOT_WEBHOOK_SECRET` applies; when that is empty too, the device accepts unauthenticated webhooks.
+- The device has no `webhook_secret`: the global `CHATWOOT_WEBHOOK_SECRET` applies; when that is empty too, the call is rejected unless `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true`.
 - No device resolves (unknown inbox, or an event GOWA ignores such as `conversation_updated`): the global secret applies. Nothing is sent for such a request either way.
 
 This holds for the shared `/chatwoot/webhook` endpoint as well, which picks the device from the payload: nothing is sent, revoked, marked as read, or written before the request has been verified against the routed device's secret. A request signed with a device's secret is accepted there for that device's inbox, so several inboxes with different secrets can share the one URL. Events GOWA ignores are still checked against the global secret only, so prefer the per-device URL when devices have their own secrets and a global secret is also set.
 
-When `CHATWOOT_WEBHOOK_SECRET` is empty and at least one device has its own secret, an agent reply that resolves to no device is answered `401`, the same as a wrong secret, so the response does not show which account/inbox pairs are mapped to a protected device. Without any device secret such a request is acknowledged with `200` and dropped, as before.
+When `CHATWOOT_WEBHOOK_SECRET` is empty and at least one device has its own secret, an agent reply that resolves to no device is answered `401`, the same as a wrong secret, so the response does not show which account/inbox pairs are mapped to a protected device. Without any device secret the call is also rejected, unless `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED=true`, in which case it is acknowledged with `200` and dropped.
 
 ### Replayed requests
 
@@ -614,6 +614,12 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
 
+Agent replies are quoted the other way: when an agent uses **Reply** in Chatwoot, the WhatsApp message quotes the original. The text and every attachment carry the quote, including the audio-to-file fallback; the caption stays on the first attachment only.
+
+- A message mirrored from WhatsApp (`in_reply_to_external_id` is `WAID:<id>`) is quoted only when it is in the sending device's local message store and belongs to the same chat. An `@lid` chat matches its phone JID when the sending device knows the mapping.
+- An earlier agent message has no `source_id` in Chatwoot, so only its numeric `in_reply_to` arrives. It is resolved through the link GOWA stored when it delivered that message, in the same device, conversation, account, inbox and config; the link and the WhatsApp message it points to, in the sending device's local message store, must belong to the same chat too. A message sent with several attachments is quoted by its first file. The numeric id is not used when a `WAID:` reference is present.
+- A quote that cannot be resolved is not an error: the reply is sent without it, as before, and no failure note is added.
+
 ### Ignoring chats
 
 `CHATWOOT_IGNORE_JIDS` lets you exclude chats from Chatwoot entirely, on top of the always-ignored system JIDs (`status@broadcast`, `0@s.whatsapp.net`). It accepts a comma-separated list of exact JIDs or the wildcards `@g.us` (all groups), `@s.whatsapp.net` (all DMs), or `@lid`:
@@ -622,6 +628,8 @@ Inbound replies and reactions are threaded onto the message they reference (agai
 # Ignore all groups and one specific contact
 CHATWOOT_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 ```
+
+An exact entry matches a chat under either of its addresses, so `111222333@lid` still excludes that contact after its LID resolves to a phone number, for live forwarding and history import alike. Wildcards match only the address a message is delivered under. Live forwarding checks the chat and the sender, so `@lid` excludes a chat whose LID has not resolved to a phone number and also a group message whose sender's LID has not resolved, although the chat is `@g.us`. History import checks only the stored chat address.
 
 ## Supported Features
 
@@ -651,6 +659,7 @@ Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTT
 | Audio | ✅ | Sent as voice note (PTT) |
 | Video | ✅ | - |
 | Files | ✅ | Any file type supported |
+| Quoted replies | ✅ | Quotes the original message when it can be resolved (see [Replies & reactions](#replies--reactions)) |
 
 ### Group Support
 
