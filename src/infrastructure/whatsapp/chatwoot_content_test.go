@@ -516,6 +516,36 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		}
 	})
 
+	t.Run("poll creation keeps WhatsApp formatting", func(t *testing.T) {
+		poll := &webhookPollPayload{
+			Type:     "creation",
+			Question: "*Best* day?",
+			Options:  []webhookPollOptionPayload{{Name: "_Saturday_"}, {Name: "Sunday*"}},
+		}
+		want := "📊 Poll: " + utils.WhatsAppToChatwootMarkdown("*Best* day?") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("_Saturday_") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("Sunday*")
+		if want == "📊 Poll: *Best* day?\n• _Saturday_\n• Sunday*" {
+			t.Fatal("test input must exercise a conversion")
+		}
+		raw, err := json.Marshal(map[string]any{"poll": poll})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed map[string]any
+		if err := json.Unmarshal(raw, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string]map[string]any{
+			"live":   {"poll": poll},
+			"replay": replayed,
+		} {
+			if content, _ := buildChatwootMessageContent(data, false, ""); content != want {
+				t.Fatalf("%s: got %q, want %q", name, content, want)
+			}
+		}
+	})
+
 	t.Run("poll vote keeps its body", func(t *testing.T) {
 		content, _ := buildChatwootMessageContent(map[string]any{
 			"body": "Poll vote: Saturday",

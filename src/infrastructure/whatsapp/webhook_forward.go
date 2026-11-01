@@ -867,17 +867,20 @@ func chatwootPollFromPayload(data map[string]any) *webhookPollPayload {
 	return nil
 }
 
+// formatChatwootPoll renders a poll creation for Chatwoot. Question and options
+// go through WhatsAppToChatwootMarkdown one by one, like a message body, so
+// WhatsApp emphasis survives without pairing markers across lines.
 func formatChatwootPoll(poll *webhookPollPayload) string {
 	var sb strings.Builder
 	sb.WriteString("📊 Poll")
 	if poll.Question != "" {
 		sb.WriteString(": ")
-		sb.WriteString(poll.Question)
+		sb.WriteString(utils.WhatsAppToChatwootMarkdown(poll.Question))
 	}
 	for _, opt := range poll.Options {
 		if opt.Name != "" {
 			sb.WriteString("\n• ")
-			sb.WriteString(opt.Name)
+			sb.WriteString(utils.WhatsAppToChatwootMarkdown(opt.Name))
 		}
 	}
 	return sb.String()
