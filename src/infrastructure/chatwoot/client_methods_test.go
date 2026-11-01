@@ -1308,6 +1308,30 @@ func TestMimeTypeForExt(t *testing.T) {
 	}
 }
 
+// TestFallbackMimeType checks the table itself: mimeTypeForExt consults the
+// host MIME database first, so on a host that knows these extensions its test
+// would pass even with a broken table.
+func TestFallbackMimeType(t *testing.T) {
+	tests := map[string]string{
+		".ogg":    "audio/ogg",
+		".OGA":    "audio/ogg",
+		".opus":   "audio/ogg",
+		".mp3":    "audio/mpeg",
+		".mp4":    "video/mp4",
+		".m4v":    "video/mp4",
+		".m4a":    "audio/mp4",
+		".aac":    "audio/aac",
+		".amr":    "audio/amr",
+		".xyz123": "application/octet-stream",
+		"":        "application/octet-stream",
+	}
+	for ext, want := range tests {
+		if got := fallbackMimeType(ext); got != want {
+			t.Errorf("fallbackMimeType(%q) = %q, want %q", ext, got, want)
+		}
+	}
+}
+
 func TestCreateMessage_AttachmentMissingFileFailsBeforeRequest(t *testing.T) {
 	// A missing local attachment must fail the send before Chatwoot receives a
 	// partial message without the file the operator expected to deliver.

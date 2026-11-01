@@ -135,6 +135,24 @@ func TestSanitizeFilenameComponentCapsLength(t *testing.T) {
 	}
 }
 
+func TestMediaStorageNameKeepsResolvedExtension(t *testing.T) {
+	tests := []struct {
+		displayName, extension, want string
+	}{
+		{"report.pdf", ".pdf", "report.pdf"},
+		{"Report.PDF", ".pdf", "Report.PDF"},
+		{".pdf", ".pdf", "pdf.pdf"},                // leading dot stripped by sanitizing
+		{"clip.mp4(1)", ".mp4", "clip.mp4_1_.mp4"}, // unsafe suffix mangled by sanitizing
+		{"../../etc/passwd", ".bin", "passwd.bin"}, // traversal stripped, extension restored
+		{"notes", "", "notes"},                     // nothing to restore
+	}
+	for _, tt := range tests {
+		if got := mediaStorageName(tt.displayName, tt.extension); got != tt.want {
+			t.Errorf("mediaStorageName(%q, %q) = %q, want %q", tt.displayName, tt.extension, got, tt.want)
+		}
+	}
+}
+
 func TestMediaDisplayName(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -1012,6 +1012,12 @@ func mimeTypeForExt(ext string) string {
 	if t := mime.TypeByExtension(ext); t != "" {
 		return t
 	}
+	return fallbackMimeType(ext)
+}
+
+// fallbackMimeType is the table mimeTypeForExt uses when the host has no MIME
+// database entry for ext.
+func fallbackMimeType(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".ogg", ".oga":
 		return "audio/ogg"

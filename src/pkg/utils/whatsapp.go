@@ -932,6 +932,19 @@ func mediaDisplayName(originalFilename, mediaKind, caption, extension string) st
 	return displayName
 }
 
+// mediaStorageName is the sanitized on-disk form of displayName. Sanitizing can
+// mangle a sender's suffix (".pdf" alone loses its leading dot, "clip.mp4(1)"
+// becomes "clip.mp4_1_"), and downstream MIME detection reads the path's
+// extension, so the resolved extension is appended whenever the sanitized
+// name no longer ends with it.
+func mediaStorageName(displayName, extension string) string {
+	name := sanitizeFilenameComponent(displayName)
+	if extension != "" && !strings.EqualFold(filepath.Ext(name), extension) {
+		name += extension
+	}
+	return name
+}
+
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
@@ -983,7 +996,7 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	// resolve to the same display name (e.g. two uncaptioned images
 	// downloaded in the same second); the display name rides along after it
 	// purely for human readability.
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s-%s", storageLocation, time.Now().Unix(), uuid.NewString(), sanitizeFilenameComponent(displayName))
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s-%s", storageLocation, time.Now().Unix(), uuid.NewString(), mediaStorageName(displayName, extension))
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
