@@ -1663,6 +1663,9 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	switch eventName {
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
+		if id, _ := data["id"].(string); id != "" {
+			msgOpts.SourceID = "WAID:" + id
+		}
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
 			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
 		}
