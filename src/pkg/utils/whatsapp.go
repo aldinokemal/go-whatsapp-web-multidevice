@@ -888,6 +888,25 @@ type ExtractedMedia struct {
 // filename) before they touch the filesystem.
 var reUnsafeFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
+// reStorageExtension is the shape of an extension safe to put on disk as is:
+// a short alphanumeric suffix.
+var reStorageExtension = regexp.MustCompile(`^\.[a-zA-Z0-9]{1,10}$`)
+
+// storageExtension is determineMediaExtension limited to reStorageExtension.
+// A sender's filename can carry anything after its last dot ("clip.mp4(1)",
+// "a." followed by 150 characters), so such a suffix is replaced by the
+// extension resolved from the MIME type, or dropped when that is not safe
+// either.
+func storageExtension(originalFilename, mimeType string) string {
+	if ext := determineMediaExtension(originalFilename, mimeType); reStorageExtension.MatchString(ext) {
+		return ext
+	}
+	if ext := determineMediaExtension("", mimeType); reStorageExtension.MatchString(ext) {
+		return ext
+	}
+	return ""
+}
+
 // sanitizeFilenameComponent makes a WhatsApp-supplied name safe to embed in a
 // locally-generated file path: filepath.Base strips any directory component
 // (defending against path traversal from a malicious sender-controlled
@@ -935,14 +954,19 @@ func mediaDisplayName(originalFilename, mediaKind, caption, extension string) st
 // mediaStorageName is the sanitized on-disk form of displayName. Sanitizing can
 // mangle a sender's suffix (".pdf" alone loses its leading dot, "clip.mp4(1)"
 // becomes "clip.mp4_1_"), and downstream MIME detection reads the path's
-// extension, so the resolved extension is appended whenever the sanitized
-// name no longer ends with it.
+// extension, so extension (from storageExtension, at most 11 bytes) is
+// appended whenever the sanitized name no longer ends with it, keeping the
+// name within sanitizeFilenameComponent's 100-byte limit.
 func mediaStorageName(displayName, extension string) string {
 	name := sanitizeFilenameComponent(displayName)
-	if extension != "" && !strings.EqualFold(filepath.Ext(name), extension) {
-		name += extension
+	if extension == "" || strings.EqualFold(filepath.Ext(name), extension) {
+		return name
 	}
-	return name
+	const maxLen = 100
+	if len(name)+len(extension) > maxLen {
+		name = name[:maxLen-len(extension)]
+	}
+	return name + extension
 }
 
 // ExtractMedia is a helper function to extract media from whatsapp
@@ -988,7 +1012,7 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		mediaKind = "document"
 	}
 
-	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
+	extension := storageExtension(originalFilename, extractedMedia.MimeType)
 
 	displayName := mediaDisplayName(originalFilename, mediaKind, extractedMedia.Caption, extension)
 

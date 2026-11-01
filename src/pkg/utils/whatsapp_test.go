@@ -153,6 +153,33 @@ func TestMediaStorageNameKeepsResolvedExtension(t *testing.T) {
 	}
 }
 
+func TestMediaStorageNameStaysWithinLimit(t *testing.T) {
+	got := mediaStorageName("a."+strings.Repeat("x", 150), ".pdf")
+	if len(got) > 100 {
+		t.Fatalf("len = %d, want <= 100 (%q)", len(got), got)
+	}
+	if !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("expected .pdf suffix, got %q", got)
+	}
+}
+
+func TestStorageExtension(t *testing.T) {
+	tests := []struct {
+		name, originalFilename, mimeType, want string
+	}{
+		{"sender extension", "report.PDF", "application/pdf", ".PDF"},
+		{"no sender name", "", "application/pdf", ".pdf"},
+		{"unsafe sender suffix falls back to MIME", "report.pdf(1)", "application/pdf", ".pdf"},
+		{"overlong sender suffix falls back to MIME", "a." + strings.Repeat("x", 150), "application/pdf", ".pdf"},
+		{"nothing safe", "a.b c", "application/x-what ever", ""},
+	}
+	for _, tt := range tests {
+		if got := storageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
+			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
+		}
+	}
+}
+
 func TestMediaDisplayName(t *testing.T) {
 	tests := []struct {
 		name             string
