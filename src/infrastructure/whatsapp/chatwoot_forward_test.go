@@ -460,10 +460,10 @@ func (r *replyAttrsTestRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMess
 	return r.links[deviceID+"|"+waMessageID], nil
 }
 
-func TestBuildChatwootReplyAttributes(t *testing.T) {
+func TestResolveChatwootReplyTarget(t *testing.T) {
 	repo := &replyAttrsTestRepo{
 		links: map[string]*domainChatStorage.ChatwootMessageLink{
-			"device-1|wamid-linked":         {ChatwootMessageID: 77},
+			"device-1|wamid-linked":         {ChatwootMessageID: 77, ChatwootConversationID: 10},
 			"device-1|wamid-zero-link":      {ChatwootMessageID: 0},
 			"device-1|wamid-other-config":   {ChatwootMessageID: 78, ChatwootConfigID: 9},
 			"device-1|wamid-other-account":  {ChatwootMessageID: 79, ChatwootAccountID: 2},
@@ -472,82 +472,92 @@ func TestBuildChatwootReplyAttributes(t *testing.T) {
 	}
 	legacy := &chatwoot.Client{AccountID: 1}
 
-	t.Run("linked reply sets native in_reply_to", func(t *testing.T) {
-		attrs, linked := buildChatwootReplyAttributes(legacy, 0, "device-1", repo, "wamid-linked")
-		if !linked {
-			t.Fatal("expected linked=true")
+	usable := []struct {
+		id       string
+		configID int64
+		wantID   int
+	}{
+		{"wamid-linked", 0, 77},
+		{"wamid-current-config", 5, 80},
+	}
+	for _, tc := range usable {
+		target := resolveChatwootReplyTarget(legacy, tc.configID, "device-1", repo, tc.id, "")
+		if target.link == nil || target.link.ChatwootMessageID != tc.wantID {
+			t.Fatalf("%s: expected link %d, got %+v", tc.id, tc.wantID, target.link)
 		}
-		if attrs["in_reply_to"] != 77 {
-			t.Fatalf("expected in_reply_to=77, got %v", attrs["in_reply_to"])
-		}
-		if attrs["in_reply_to_external_id"] != "WAID:wamid-linked" {
-			t.Fatalf("unexpected external id %v", attrs["in_reply_to_external_id"])
-		}
-	})
+	}
 
-	t.Run("unlinked reply keeps only external id", func(t *testing.T) {
-		attrs, linked := buildChatwootReplyAttributes(legacy, 0, "device-1", repo, "wamid-unknown")
-		if linked {
-			t.Fatal("expected linked=false")
+	// No link, a zero id, a link written for another Chatwoot destination
+	// (its message id belongs to that server/account), no repository or no
+	// device: nothing to thread natively.
+	unusable := []struct {
+		name     string
+		repo     domainChatStorage.IChatStorageRepository
+		device   string
+		id       string
+		configID int64
+	}{
+		{"unknown", repo, "device-1", "wamid-unknown", 0},
+		{"zero chatwoot id", repo, "device-1", "wamid-zero-link", 0},
+		{"per-device client, other config", repo, "device-1", "wamid-other-config", 5},
+		{"legacy client, other account", repo, "device-1", "wamid-other-account", 0},
+		{"legacy client, per-device link", repo, "device-1", "wamid-current-config", 0},
+		{"nil repo", nil, "device-1", "wamid-linked", 0},
+		{"empty device", repo, "", "wamid-linked", 0},
+	}
+	for _, tc := range unusable {
+		target := resolveChatwootReplyTarget(legacy, tc.configID, tc.device, tc.repo, tc.id, "Hello\nthere")
+		if target.link != nil {
+			t.Fatalf("%s: expected no link, got %+v", tc.name, target.link)
 		}
-		if _, ok := attrs["in_reply_to"]; ok {
-			t.Fatal("in_reply_to should not be set without a link")
+		if target.excerpt != "> Hello there" {
+			t.Fatalf("%s: excerpt = %q", tc.name, target.excerpt)
 		}
-		if attrs["in_reply_to_external_id"] != "WAID:wamid-unknown" {
-			t.Fatalf("unexpected external id %v", attrs["in_reply_to_external_id"])
-		}
-	})
+	}
 
-	t.Run("link with zero chatwoot id is not linked", func(t *testing.T) {
-		if _, linked := buildChatwootReplyAttributes(legacy, 0, "device-1", repo, "wamid-zero-link"); linked {
-			t.Fatal("expected linked=false for zero chatwoot message id")
-		}
-	})
+	if target := resolveChatwootReplyTarget(legacy, 0, "device-1", repo, "wamid-linked", "  "); target.excerpt != "" {
+		t.Fatalf("blank quoted body must not produce an excerpt, got %q", target.excerpt)
+	}
+}
 
-	// A link written for another Chatwoot destination must not supply
-	// in_reply_to: its message id belongs to that server/account.
-	t.Run("link from another destination is not linked", func(t *testing.T) {
-		cases := []struct {
-			id       string
-			configID int64
-		}{
-			{"wamid-other-config", 5},   // per-device client, link of another config
-			{"wamid-other-account", 0},  // legacy client, link of another account
-			{"wamid-current-config", 0}, // legacy client, per-device link
-		}
-		for _, tc := range cases {
-			attrs, linked := buildChatwootReplyAttributes(legacy, tc.configID, "device-1", repo, tc.id)
-			if linked {
-				t.Fatalf("%s: expected linked=false", tc.id)
-			}
-			if _, ok := attrs["in_reply_to"]; ok {
-				t.Fatalf("%s: in_reply_to must not be set from a foreign link", tc.id)
-			}
-		}
-	})
+func TestChatwootReplyTargetApply(t *testing.T) {
+	link := &domainChatStorage.ChatwootMessageLink{ChatwootMessageID: 77, ChatwootConversationID: 10}
+	newOpts := func() chatwoot.MessageOptions {
+		return chatwoot.MessageOptions{ContentAttributes: map[string]any{"in_reply_to_external_id": "WAID:x"}}
+	}
 
-	t.Run("link of the current config is linked", func(t *testing.T) {
-		attrs, linked := buildChatwootReplyAttributes(legacy, 5, "device-1", repo, "wamid-current-config")
-		if !linked || attrs["in_reply_to"] != 80 {
-			t.Fatalf("expected in_reply_to=80 linked, got %v linked=%v", attrs["in_reply_to"], linked)
+	tests := []struct {
+		name           string
+		target         *chatwootReplyTarget
+		conversationID int
+		content        string
+		wantContent    string
+		wantInReplyTo  any // nil: must not be set
+	}{
+		{"link in this conversation", &chatwootReplyTarget{link: link, excerpt: "> hi"}, 10, "ok", "ok", 77},
+		// A returning contact can get a new conversation
+		// (CHATWOOT_REOPEN_CONVERSATION=false); Chatwoot rejects in_reply_to
+		// across conversations, so fall back to the excerpt.
+		{"link in another conversation", &chatwootReplyTarget{link: link, excerpt: "> hi"}, 11, "ok", "> hi\n\nok", nil},
+		{"reaction link in another conversation", &chatwootReplyTarget{link: link}, 11, "Alice reacted 👍", "Alice reacted 👍", nil},
+		{"no link, excerpt only", &chatwootReplyTarget{excerpt: "> hi"}, 10, "ok", "> hi\n\nok", nil},
+		{"no link, empty content", &chatwootReplyTarget{excerpt: "> hi"}, 10, "", "> hi", nil},
+		{"nil target", nil, 10, "ok", "ok", nil},
+	}
+	for _, tt := range tests {
+		opts := newOpts()
+		got := tt.target.apply(tt.conversationID, tt.content, &opts)
+		if got != tt.wantContent {
+			t.Fatalf("%s: content = %q, want %q", tt.name, got, tt.wantContent)
 		}
-	})
-
-	t.Run("nil repo keeps only external id", func(t *testing.T) {
-		attrs, linked := buildChatwootReplyAttributes(legacy, 0, "device-1", nil, "wamid-linked")
-		if linked {
-			t.Fatal("expected linked=false with nil repo")
+		inReplyTo, set := opts.ContentAttributes["in_reply_to"]
+		if tt.wantInReplyTo == nil && set {
+			t.Fatalf("%s: in_reply_to must not be set, got %v", tt.name, inReplyTo)
 		}
-		if attrs["in_reply_to_external_id"] != "WAID:wamid-linked" {
-			t.Fatalf("unexpected external id %v", attrs["in_reply_to_external_id"])
+		if tt.wantInReplyTo != nil && inReplyTo != tt.wantInReplyTo {
+			t.Fatalf("%s: in_reply_to = %v, want %v", tt.name, inReplyTo, tt.wantInReplyTo)
 		}
-	})
-
-	t.Run("empty device id keeps only external id", func(t *testing.T) {
-		if _, linked := buildChatwootReplyAttributes(legacy, 0, "", repo, "wamid-linked"); linked {
-			t.Fatal("expected linked=false with empty device id")
-		}
-	})
+	}
 }
 
 func TestOneLineExcerpt(t *testing.T) {

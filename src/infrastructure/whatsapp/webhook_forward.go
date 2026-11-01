@@ -847,30 +847,61 @@ func oneLineExcerpt(s string, maxRunes int) string {
 	return s
 }
 
-// buildChatwootReplyAttributes threads a WhatsApp reply or reaction onto the
-// message it references. It always sets in_reply_to_external_id, which
-// resolves in Chatwoot only when the referenced message carries a WAID
-// source_id (messages mirrored from WhatsApp). Agent replies sent from
-// Chatwoot have no source_id, so when a stored link maps the WhatsApp id to a
-// Chatwoot message id, the native in_reply_to is set as well, but only from a
-// link written for the current Chatwoot destination (chatwootLinkMatchesClient):
-// a link from another server/account carries a message id that means nothing
-// here. Returns the attributes and whether a link resolved.
-func buildChatwootReplyAttributes(cw *chatwoot.Client, configID int64, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, repliedToID string) (map[string]any, bool) {
-	attrs := map[string]any{"in_reply_to_external_id": "WAID:" + repliedToID}
+// chatwootReplyTarget threads a WhatsApp reply or reaction onto the message it
+// references. in_reply_to_external_id (WAID:<id>) is always set and resolves
+// only for messages that carry that source_id, i.e. messages mirrored from
+// WhatsApp. Agent replies sent from Chatwoot have none, so the stored link is
+// kept to set the native in_reply_to once the target conversation is known
+// (see apply).
+type chatwootReplyTarget struct {
+	link    *domainChatStorage.ChatwootMessageLink // nil when no usable link
+	excerpt string                                 // "> ..." quote; empty for reactions
+}
+
+// resolveChatwootReplyTarget looks up the link for repliedToID. A link is used
+// only when it was written for the current Chatwoot destination
+// (chatwootLinkMatchesClient): Chatwoot message ids repeat across servers and
+// accounts. quotedBody, when set, becomes the inline excerpt shown if the link
+// cannot be used.
+func resolveChatwootReplyTarget(cw *chatwoot.Client, configID int64, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, repliedToID, quotedBody string) *chatwootReplyTarget {
+	target := &chatwootReplyTarget{}
+	if strings.TrimSpace(quotedBody) != "" {
+		target.excerpt = "> " + oneLineExcerpt(quotedBody, quotedExcerptMaxRunes)
+	}
 	if linkRepo == nil || deviceID == "" {
-		return attrs, false
+		return target
 	}
 	link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, repliedToID)
 	if err != nil {
 		logrus.Warnf("Chatwoot: Failed to resolve quoted message link for %s: %v", repliedToID, err)
-		return attrs, false
+		return target
 	}
-	if link == nil || link.ChatwootMessageID == 0 || !chatwootLinkMatchesClient(link, cw, configID) {
-		return attrs, false
+	if link != nil && link.ChatwootMessageID != 0 && chatwootLinkMatchesClient(link, cw, configID) {
+		target.link = link
 	}
-	attrs["in_reply_to"] = link.ChatwootMessageID
-	return attrs, true
+	return target
+}
+
+// apply sets the native in_reply_to when the linked message is in
+// conversationID: Chatwoot rejects a reference to another conversation, which
+// happens when a returning contact gets a new conversation
+// (CHATWOOT_REOPEN_CONVERSATION=false). Otherwise the excerpt, if any, is
+// prepended to content. opts.ContentAttributes must already be set.
+func (r *chatwootReplyTarget) apply(conversationID int, content string, opts *chatwoot.MessageOptions) string {
+	if r == nil {
+		return content
+	}
+	if r.link != nil && r.link.ChatwootConversationID == conversationID {
+		opts.ContentAttributes["in_reply_to"] = r.link.ChatwootMessageID
+		return content
+	}
+	if r.excerpt == "" {
+		return content
+	}
+	if content == "" {
+		return r.excerpt
+	}
+	return r.excerpt + "\n\n" + content
 }
 
 func chatwootMessageTypeFromPayload(data map[string]any) string {
@@ -1006,7 +1037,7 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions) (*chatwootSyncResult, error) {
+func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget) (*chatwootSyncResult, error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
 	mu.Lock()
@@ -1024,6 +1055,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 		return nil, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
 	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
+	content = reply.apply(conversation.ID, content, &opts)
 
 	logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(content), len(attachments))
 	messageType := "incoming"
@@ -1697,13 +1729,14 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		content     string
 		attachments []string
 		msgOpts     chatwoot.MessageOptions
+		reply       *chatwootReplyTarget // resolved against the conversation in syncMessageToChatwoot
 	)
 	switch eventName {
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
-			attrs, _ := buildChatwootReplyAttributes(cw, resolved.ConfigID, deviceID, linkRepo, rid)
-			msgOpts.ContentAttributes = attrs
+			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, "")
 		}
 	case "message.edited", "message.revoked", "message.deleted":
 		var threadID string
@@ -1721,21 +1754,9 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 			msgOpts.SourceID = "WAID:" + id
 		}
 		if rid, _ := data["replied_to_id"].(string); rid != "" {
-			attrs, linked := buildChatwootReplyAttributes(cw, resolved.ConfigID, deviceID, linkRepo, rid)
-			msgOpts.ContentAttributes = attrs
-			// Without a resolved link the quote may not render in Chatwoot
-			// (in_reply_to_external_id only matches WAID-stamped messages), so
-			// quote the replied-to text inline as well.
-			if !linked {
-				if quoted, _ := data["quoted_body"].(string); strings.TrimSpace(quoted) != "" {
-					quote := "> " + oneLineExcerpt(quoted, quotedExcerptMaxRunes)
-					if content == "" {
-						content = quote
-					} else {
-						content = quote + "\n\n" + content
-					}
-				}
-			}
+			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			quoted, _ := data["quoted_body"].(string)
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, quoted)
 		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
@@ -1755,7 +1776,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 
-	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
+	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts, reply)
 	if err != nil {
 		return err
 	}
