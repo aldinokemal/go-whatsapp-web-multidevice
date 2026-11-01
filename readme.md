@@ -8,12 +8,24 @@
 
 </div>
 
-[![Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange.svg)](https://www.patreon.com/c/aldinokemal)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-on%20GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/aldinokemal)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-**If you're using this tool to generate income, consider supporting its development by becoming a Patreon member!**
+## Support GOWA
 
-Your support helps ensure the project stays maintained and receives regular updates!
+**Does GOWA save you development time or power your business? Help sustain the project through GitHub Sponsors.**
+
+Sponsorship helps make time for:
+
+- Investigating bugs and keeping up with WhatsApp and whatsmeow changes.
+- Improving regression tests, documentation, and integration examples.
+- Reviewing contributions and preparing releases.
+
+Monthly sponsorship helps make ongoing maintenance more sustainable. Individuals and teams are welcome.
+
+**[Sponsor GOWA on GitHub →](https://github.com/sponsors/aldinokemal)**
+
+Not ready to sponsor? Reproducible bug reports, documentation improvements, and sharing GOWA also help.
 
 ---
 
