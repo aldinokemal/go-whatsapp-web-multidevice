@@ -1067,6 +1067,8 @@ func TestCreateMessage_WithAttachmentUploadsMultipart(t *testing.T) {
 	// With attachments, the request becomes multipart/form-data. We assert
 	// the text fields ride along, the file part carries the right filename
 	// and Content-Type, and the returned id is decoded from the response.
+	// Uses .oga extension (the primary test case); .ogg is covered by
+	// TestMimeTypeForExt below.
 	tmp := filepath.Join(t.TempDir(), "voice.oga")
 	if err := os.WriteFile(tmp, []byte("OGGDATA"), 0o600); err != nil {
 		t.Fatalf("write temp file: %v", err)
@@ -1134,12 +1136,108 @@ func TestCreateMessage_WithAttachmentUploadsMultipart(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	id, err := c.CreateMessage(5, "caption", "incoming", []string{tmp}, MessageOptions{})
+	id, err := c.CreateMessage(5, "caption", "incoming", []MessageAttachment{{Path: tmp}}, MessageOptions{})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 	if id != 4242 {
 		t.Fatalf("id = %d, want 4242", id)
+	}
+}
+
+func TestCreateMessage_AttachmentFileNameOverridesLocalBasename(t *testing.T) {
+	// A caller-supplied FileName (e.g. the WhatsApp message's original
+	// filename, threaded through from chat storage) must be shown to
+	// Chatwoot instead of the local disk path's basename - which is often a
+	// random temp/generated name with no meaning to the operator.
+	tmp := filepath.Join(t.TempDir(), "chatwoot-sync-38210497.oga")
+	if err := os.WriteFile(tmp, []byte("OGGDATA"), 0o600); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	var gotFileName string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart: %v", err)
+			}
+			if part.FormName() == "attachments[]" {
+				gotFileName = part.FileName()
+			}
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{"id": 1})
+	}))
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	att := []MessageAttachment{{Path: tmp, FileName: "voice-note.oga"}}
+	if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if gotFileName != "voice-note.oga" {
+		t.Errorf("filename = %q, want %q (the display name, not the local temp basename)", gotFileName, "voice-note.oga")
+	}
+	att[0].FileName = "voice-note"
+	if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if gotFileName != "voice-note.oga" {
+		t.Errorf("filename = %q, want resolved extension", gotFileName)
+	}
+}
+
+func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
+	// A WhatsApp-supplied filename is attacker-controlled input landing in a
+	// hand-built Content-Disposition header. An embedded quote must not let
+	// the value escape the quoted filename parameter and corrupt the
+	// multipart request (or smuggle extra header parameters).
+	tmp := filepath.Join(t.TempDir(), "a.oga")
+	if err := os.WriteFile(tmp, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	var gotFileName string
+	var partCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart: %v", err)
+			}
+			partCount++
+			if part.FormName() == "attachments[]" {
+				gotFileName = part.FileName()
+			}
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{"id": 1})
+	}))
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	malicious := `evil".pdf"; filename="injected`
+	att := []MessageAttachment{{Path: tmp, FileName: malicious}}
+	if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	// The request must still parse as exactly one well-formed multipart part
+	// (proving the quote didn't break the header), and the parsed filename
+	// must decode back to the original string, quote included.
+	if partCount == 0 {
+		t.Fatal("no multipart parts parsed - malformed Content-Disposition header")
+	}
+	if gotFileName != malicious {
+		t.Errorf("filename = %q, want %q (round-tripped through escaping)", gotFileName, malicious)
 	}
 }
 
@@ -1178,12 +1276,35 @@ func TestCreateMessage_AttachmentUnknownExtensionUsesOctetStream(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	id, err := c.CreateMessage(5, "x", "incoming", []string{tmp}, MessageOptions{})
+	id, err := c.CreateMessage(5, "x", "incoming", []MessageAttachment{{Path: tmp}}, MessageOptions{})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 	if id != 1 {
 		t.Fatalf("id = %d, want 1", id)
+	}
+}
+
+func TestMimeTypeForExt(t *testing.T) {
+	// These cases assert the fallback table covers extensions absent from
+	// Go's built-in mime table. On systems with /etc/mime.types the OS
+	// lookup returns first, so we verify the result is an audio/* type
+	// (not the application/octet-stream that would appear without the
+	// table on Alpine containers without mailcap).
+	audioExts := []string{".ogg", ".oga", ".opus", ".mp3", ".m4a", ".aac"}
+	for _, ext := range audioExts {
+		got := mimeTypeForExt(ext)
+		if !strings.HasPrefix(got, "audio/") {
+			t.Errorf("mimeTypeForExt(%q) = %q, want audio/* (bug: would be application/octet-stream on Alpine without mailcap)", ext, got)
+		}
+	}
+	// .mp4 should resolve to video/*
+	if got := mimeTypeForExt(".mp4"); !strings.HasPrefix(got, "video/") {
+		t.Errorf("mimeTypeForExt(%q) = %q, want video/*", ".mp4", got)
+	}
+	// Unknown extension → octet-stream fallback
+	if got := mimeTypeForExt(".xyz123"); got != "application/octet-stream" {
+		t.Errorf("mimeTypeForExt(%q) = %q, want application/octet-stream", ".xyz123", got)
 	}
 }
 
@@ -1200,7 +1321,7 @@ func TestCreateMessage_AttachmentMissingFileFailsBeforeRequest(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	_, err := c.CreateMessage(5, "text only", "incoming", []string{missing}, MessageOptions{})
+	_, err := c.CreateMessage(5, "text only", "incoming", []MessageAttachment{{Path: missing}}, MessageOptions{})
 	if err == nil {
 		t.Fatal("CreateMessage error = nil, want missing attachment error")
 	}
@@ -1220,7 +1341,7 @@ func TestCreateMessage_AttachmentNon200(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	id, err := c.CreateMessage(5, "x", "incoming", []string{tmp}, MessageOptions{})
+	id, err := c.CreateMessage(5, "x", "incoming", []MessageAttachment{{Path: tmp}}, MessageOptions{})
 	if id != 0 {
 		t.Fatalf("id = %d, want 0", id)
 	}
@@ -1246,7 +1367,7 @@ func TestCreateMessage_AttachmentMissingIDReturnsZero(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	id, err := c.CreateMessage(5, "x", "incoming", []string{tmp}, MessageOptions{})
+	id, err := c.CreateMessage(5, "x", "incoming", []MessageAttachment{{Path: tmp}}, MessageOptions{})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}

@@ -883,6 +883,55 @@ type ExtractedMedia struct {
 	Caption   string `json:"caption"`
 }
 
+// reUnsafeFilenameChars matches anything outside a conservative filename
+// allowlist. Applied to sender-controlled names (e.g. a document's original
+// filename) before they touch the filesystem.
+var reUnsafeFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+// sanitizeFilenameComponent makes a WhatsApp-supplied name safe to embed in a
+// locally-generated file path: filepath.Base strips any directory component
+// (defending against path traversal from a malicious sender-controlled
+// filename), the allowlist replace removes anything else that could confuse
+// a filesystem, and the length cap keeps the final path within OS limits.
+func sanitizeFilenameComponent(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		name = "file"
+	}
+	name = reUnsafeFilenameChars.ReplaceAllString(name, "_")
+	name = strings.TrimLeft(name, ".")
+	if name == "" {
+		name = "file"
+	}
+	const maxLen = 100
+	if len(name) > maxLen {
+		ext := filepath.Ext(name)
+		if len(ext) >= maxLen {
+			ext = ""
+		}
+		name = name[:maxLen-len(ext)] + ext
+	}
+	return name
+}
+
+// mediaDisplayName picks the human-readable filename for a downloaded media
+// file: the sender's own document filename when present, otherwise a generated
+// type+caption name. It guarantees the result carries the resolved extension so
+// downstream Content-Type detection (filepath.Ext) classifies the file
+// correctly instead of defaulting to application/octet-stream — this is why a
+// document whose sender-supplied name has no extension (e.g. "report") still
+// gets the MIME-resolved suffix appended.
+func mediaDisplayName(originalFilename, mediaKind, caption, extension string) string {
+	displayName := originalFilename
+	if displayName == "" {
+		displayName = GenerateMediaFilename(mediaKind, strings.TrimPrefix(extension, "."), caption)
+	}
+	if extension != "" && filepath.Ext(displayName) == "" {
+		displayName += extension
+	}
+	return displayName
+}
+
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
@@ -902,27 +951,39 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	}
 
 	var originalFilename string
+	mediaKind := "media"
 
 	switch media := mediaFile.(type) {
 	case *waE2E.ImageMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		mediaKind = "image"
 	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		mediaKind = "audio"
 	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		mediaKind = "video"
 	case *waE2E.StickerMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		mediaKind = "sticker"
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
 		originalFilename = media.GetFileName()
+		mediaKind = "document"
 	}
 
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
+	displayName := mediaDisplayName(originalFilename, mediaKind, extractedMedia.Caption, extension)
+
+	// The timestamp+uuid prefix keeps the path unique even when two messages
+	// resolve to the same display name (e.g. two uncaptioned images
+	// downloaded in the same second); the display name rides along after it
+	// purely for human readability.
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s-%s", storageLocation, time.Now().Unix(), uuid.NewString(), sanitizeFilenameComponent(displayName))
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
