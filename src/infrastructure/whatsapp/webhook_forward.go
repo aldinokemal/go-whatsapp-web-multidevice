@@ -830,6 +830,9 @@ func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	}
 
 	if reaction == "" {
+		if removed, _ := data["removed_reaction"].(string); removed != "" {
+			return fmt.Sprintf("%s removed %s", actor, removed)
+		}
 		return fmt.Sprintf("%s removed a reaction", actor)
 	}
 	return fmt.Sprintf("%s reacted %s", actor, reaction)

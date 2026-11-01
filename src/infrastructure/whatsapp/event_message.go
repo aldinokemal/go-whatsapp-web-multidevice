@@ -157,6 +157,11 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	// Check for reaction message
 	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		payload["reaction"] = reactionMessage.GetText()
+		if reactionMessage.GetText() == "" {
+			if removed := removedReactionEmojiFromContext(ctx); removed != "" {
+				payload["removed_reaction"] = removed
+			}
+		}
 		if key := reactionMessage.GetKey(); key != nil {
 			payload["reacted_message_id"] = key.GetID()
 		}

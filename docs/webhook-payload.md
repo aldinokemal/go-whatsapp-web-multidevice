@@ -297,6 +297,10 @@ resolution order.
 }
 ```
 
+For a removal, `reaction` is an empty string. The optional `removed_reaction`
+contains the removed emoji when it was available in local chat storage. It is
+omitted when the original reaction is unknown.
+
 ### Poll Messages
 
 Poll creations, votes, edits, and added options keep the normal `message` event name. The structured `poll` object lets
