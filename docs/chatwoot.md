@@ -614,6 +614,9 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
 
+- A message sent by an agent from Chatwoot has no `WAID:` source-id. When GOWA stored a link for it (written when the agent reply was delivered), a WhatsApp reply or reaction to it also sets Chatwoot's native `in_reply_to`. Only links written for the current Chatwoot destination are used (same config, or for the legacy env client the same account).
+- When no link resolves, a reply also starts with the quoted text as a one-line `> excerpt` (80 characters at most), so the context is visible even if Chatwoot cannot attach the reply.
+
 Agent replies are quoted the other way: when an agent uses **Reply** in Chatwoot, the WhatsApp message quotes the original. The text and every attachment carry the quote, including the audio-to-file fallback; the caption stays on the first attachment only.
 
 - A message mirrored from WhatsApp (`in_reply_to_external_id` is `WAID:<id>`) is quoted only when it is in the sending device's local message store and belongs to the same chat. An `@lid` chat matches its phone JID when the sending device knows the mapping.

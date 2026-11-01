@@ -835,6 +835,44 @@ func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	return fmt.Sprintf("%s reacted %s", actor, reaction)
 }
 
+const quotedExcerptMaxRunes = 80
+
+// oneLineExcerpt collapses whitespace/newlines into single spaces and truncates
+// to maxRunes (appending an ellipsis), so quoted excerpts stay on one line.
+func oneLineExcerpt(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if runes := []rune(s); len(runes) > maxRunes {
+		s = string(runes[:maxRunes]) + "…"
+	}
+	return s
+}
+
+// buildChatwootReplyAttributes threads a WhatsApp reply or reaction onto the
+// message it references. It always sets in_reply_to_external_id, which
+// resolves in Chatwoot only when the referenced message carries a WAID
+// source_id (messages mirrored from WhatsApp). Agent replies sent from
+// Chatwoot have no source_id, so when a stored link maps the WhatsApp id to a
+// Chatwoot message id, the native in_reply_to is set as well, but only from a
+// link written for the current Chatwoot destination (chatwootLinkMatchesClient):
+// a link from another server/account carries a message id that means nothing
+// here. Returns the attributes and whether a link resolved.
+func buildChatwootReplyAttributes(cw *chatwoot.Client, configID int64, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, repliedToID string) (map[string]any, bool) {
+	attrs := map[string]any{"in_reply_to_external_id": "WAID:" + repliedToID}
+	if linkRepo == nil || deviceID == "" {
+		return attrs, false
+	}
+	link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, repliedToID)
+	if err != nil {
+		logrus.Warnf("Chatwoot: Failed to resolve quoted message link for %s: %v", repliedToID, err)
+		return attrs, false
+	}
+	if link == nil || link.ChatwootMessageID == 0 || !chatwootLinkMatchesClient(link, cw, configID) {
+		return attrs, false
+	}
+	attrs["in_reply_to"] = link.ChatwootMessageID
+	return attrs, true
+}
+
 func chatwootMessageTypeFromPayload(data map[string]any) string {
 	if isFromMe, ok := data["is_from_me"].(bool); ok && isFromMe {
 		return "outgoing"
@@ -1664,7 +1702,8 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
-			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			attrs, _ := buildChatwootReplyAttributes(cw, resolved.ConfigID, deviceID, linkRepo, rid)
+			msgOpts.ContentAttributes = attrs
 		}
 	case "message.edited", "message.revoked", "message.deleted":
 		var threadID string
@@ -1682,7 +1721,21 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 			msgOpts.SourceID = "WAID:" + id
 		}
 		if rid, _ := data["replied_to_id"].(string); rid != "" {
-			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			attrs, linked := buildChatwootReplyAttributes(cw, resolved.ConfigID, deviceID, linkRepo, rid)
+			msgOpts.ContentAttributes = attrs
+			// Without a resolved link the quote may not render in Chatwoot
+			// (in_reply_to_external_id only matches WAID-stamped messages), so
+			// quote the replied-to text inline as well.
+			if !linked {
+				if quoted, _ := data["quoted_body"].(string); strings.TrimSpace(quoted) != "" {
+					quote := "> " + oneLineExcerpt(quoted, quotedExcerptMaxRunes)
+					if content == "" {
+						content = quote
+					} else {
+						content = quote + "\n\n" + content
+					}
+				}
+			}
 		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
