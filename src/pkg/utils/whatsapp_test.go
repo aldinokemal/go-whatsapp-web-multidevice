@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"mime"
 	"strings"
 	"testing"
 
@@ -176,6 +177,34 @@ func TestStorageExtension(t *testing.T) {
 	for _, tt := range tests {
 		if got := storageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
 			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
+		}
+	}
+}
+
+func TestStorageExtensionChecksEveryMIMEExtension(t *testing.T) {
+	// A test-only type, so the result does not depend on the host MIME database.
+	// mime.AddExtensionType is process-wide and cannot be undone; no other code
+	// uses this type or these extensions.
+	const mimeType = "application/x-gowa-test-archive"
+	for _, ext := range []string{".gowa.tst", ".gtst"} {
+		if err := mime.AddExtensionType(ext, mimeType); err != nil {
+			t.Fatalf("AddExtensionType(%q): %v", ext, err)
+		}
+	}
+	if exts, _ := mime.ExtensionsByType(mimeType); len(exts) != 2 || exts[0] != ".gowa.tst" {
+		t.Fatalf("precondition: want the compound extension listed first, got %v", exts)
+	}
+
+	tests := []struct {
+		name, originalFilename, mimeType string
+	}{
+		{"no sender name", "", mimeType},
+		{"MIME parameters", "", mimeType + "; charset=binary"},
+		{"unsafe sender suffix", "archive.bad ext", mimeType},
+	}
+	for _, tt := range tests {
+		if got := storageExtension(tt.originalFilename, tt.mimeType); got != ".gtst" {
+			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, ".gtst")
 		}
 	}
 }

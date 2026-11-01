@@ -892,17 +892,31 @@ var reUnsafeFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 // a short alphanumeric suffix.
 var reStorageExtension = regexp.MustCompile(`^\.[a-zA-Z0-9]{1,10}$`)
 
-// storageExtension is determineMediaExtension limited to reStorageExtension.
-// A sender's filename can carry anything after its last dot ("clip.mp4(1)",
-// "a." followed by 150 characters), so such a suffix is replaced by the
-// extension resolved from the MIME type, or dropped when that is not safe
-// either.
+// storageExtension returns the first extension matching reStorageExtension
+// among, in order: what determineMediaExtension resolves from the sender's
+// filename, what it resolves from the MIME type alone, and every other
+// extension the MIME database lists for that type. A sender's filename can
+// carry anything after its last dot ("clip.mp4(1)", "a." followed by 150
+// characters), and the MIME database can list a compound extension such as
+// ".tar.gz" first while ".tgz" is registered too. Returns "" when none is safe.
 func storageExtension(originalFilename, mimeType string) string {
 	if ext := determineMediaExtension(originalFilename, mimeType); reStorageExtension.MatchString(ext) {
 		return ext
 	}
 	if ext := determineMediaExtension("", mimeType); reStorageExtension.MatchString(ext) {
 		return ext
+	}
+	if idx := strings.Index(mimeType, ";"); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+	exts, err := mime.ExtensionsByType(mimeType)
+	if err != nil {
+		return ""
+	}
+	for _, ext := range exts {
+		if reStorageExtension.MatchString(ext) {
+			return ext
+		}
 	}
 	return ""
 }
