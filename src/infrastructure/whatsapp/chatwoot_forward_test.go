@@ -6,9 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 )
 
@@ -447,6 +449,136 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := buildReactionChatwootContent(tc.payload, tc.fromName); got != tc.expected {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
+			}
+		})
+	}
+}
+
+type replyAttrsTestRepo struct {
+	domainChatStorage.IChatStorageRepository
+	links map[string]*domainChatStorage.ChatwootMessageLink
+}
+
+func (r *replyAttrsTestRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	return r.links[deviceID+"|"+waMessageID], nil
+}
+
+func TestResolveChatwootReplyTarget(t *testing.T) {
+	repo := &replyAttrsTestRepo{
+		links: map[string]*domainChatStorage.ChatwootMessageLink{
+			"device-1|wamid-linked":         {ChatwootMessageID: 77, ChatwootConversationID: 10},
+			"device-1|wamid-zero-link":      {ChatwootMessageID: 0},
+			"device-1|wamid-other-config":   {ChatwootMessageID: 78, ChatwootConfigID: 9},
+			"device-1|wamid-other-account":  {ChatwootMessageID: 79, ChatwootAccountID: 2},
+			"device-1|wamid-current-config": {ChatwootMessageID: 80, ChatwootConfigID: 5},
+		},
+	}
+	legacy := &chatwoot.Client{AccountID: 1}
+
+	usable := []struct {
+		id       string
+		configID int64
+		wantID   int
+	}{
+		{"wamid-linked", 0, 77},
+		{"wamid-current-config", 5, 80},
+	}
+	for _, tc := range usable {
+		target := resolveChatwootReplyTarget(legacy, tc.configID, "device-1", repo, tc.id, "")
+		if target.link == nil || target.link.ChatwootMessageID != tc.wantID {
+			t.Fatalf("%s: expected link %d, got %+v", tc.id, tc.wantID, target.link)
+		}
+	}
+
+	// No link, a zero id, a link written for another Chatwoot destination
+	// (its message id belongs to that server/account), no repository or no
+	// device: nothing to thread natively.
+	unusable := []struct {
+		name     string
+		repo     domainChatStorage.IChatStorageRepository
+		device   string
+		id       string
+		configID int64
+	}{
+		{"unknown", repo, "device-1", "wamid-unknown", 0},
+		{"zero chatwoot id", repo, "device-1", "wamid-zero-link", 0},
+		{"per-device client, other config", repo, "device-1", "wamid-other-config", 5},
+		{"legacy client, other account", repo, "device-1", "wamid-other-account", 0},
+		{"legacy client, per-device link", repo, "device-1", "wamid-current-config", 0},
+		{"nil repo", nil, "device-1", "wamid-linked", 0},
+		{"empty device", repo, "", "wamid-linked", 0},
+	}
+	for _, tc := range unusable {
+		target := resolveChatwootReplyTarget(legacy, tc.configID, tc.device, tc.repo, tc.id, "Hello\nthere")
+		if target.link != nil {
+			t.Fatalf("%s: expected no link, got %+v", tc.name, target.link)
+		}
+		if target.excerpt != "> Hello there" {
+			t.Fatalf("%s: excerpt = %q", tc.name, target.excerpt)
+		}
+	}
+
+	if target := resolveChatwootReplyTarget(legacy, 0, "device-1", repo, "wamid-linked", "  "); target.excerpt != "" {
+		t.Fatalf("blank quoted body must not produce an excerpt, got %q", target.excerpt)
+	}
+}
+
+func TestChatwootReplyTargetApply(t *testing.T) {
+	link := &domainChatStorage.ChatwootMessageLink{ChatwootMessageID: 77, ChatwootConversationID: 10}
+	newOpts := func() chatwoot.MessageOptions {
+		return chatwoot.MessageOptions{ContentAttributes: map[string]any{"in_reply_to_external_id": "WAID:x"}}
+	}
+
+	tests := []struct {
+		name           string
+		target         *chatwootReplyTarget
+		conversationID int
+		content        string
+		wantContent    string
+		wantInReplyTo  any // nil: must not be set
+	}{
+		{"link in this conversation", &chatwootReplyTarget{link: link, excerpt: "> hi"}, 10, "ok", "ok", 77},
+		// A returning contact can get a new conversation
+		// (CHATWOOT_REOPEN_CONVERSATION=false); Chatwoot rejects in_reply_to
+		// across conversations, so fall back to the excerpt.
+		{"link in another conversation", &chatwootReplyTarget{link: link, excerpt: "> hi"}, 11, "ok", "> hi\n\nok", nil},
+		{"reaction link in another conversation", &chatwootReplyTarget{link: link}, 11, "Alice reacted 👍", "Alice reacted 👍", nil},
+		{"no link, excerpt only", &chatwootReplyTarget{excerpt: "> hi"}, 10, "ok", "> hi\n\nok", nil},
+		{"no link, empty content", &chatwootReplyTarget{excerpt: "> hi"}, 10, "", "> hi", nil},
+		{"nil target", nil, 10, "ok", "ok", nil},
+	}
+	for _, tt := range tests {
+		opts := newOpts()
+		got := tt.target.apply(tt.conversationID, tt.content, &opts)
+		if got != tt.wantContent {
+			t.Fatalf("%s: content = %q, want %q", tt.name, got, tt.wantContent)
+		}
+		inReplyTo, set := opts.ContentAttributes["in_reply_to"]
+		if tt.wantInReplyTo == nil && set {
+			t.Fatalf("%s: in_reply_to must not be set, got %v", tt.name, inReplyTo)
+		}
+		if tt.wantInReplyTo != nil && inReplyTo != tt.wantInReplyTo {
+			t.Fatalf("%s: in_reply_to = %v, want %v", tt.name, inReplyTo, tt.wantInReplyTo)
+		}
+	}
+}
+
+func TestOneLineExcerpt(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{name: "collapses newlines and spaces", in: "  olá,\n  como   vai? ", max: 80, want: "olá, como vai?"},
+		{name: "truncates with ellipsis", in: strings.Repeat("b", 90), max: 80, want: strings.Repeat("b", 80) + "…"},
+		{name: "short string unchanged", in: "oi", max: 80, want: "oi"},
+		{name: "empty string", in: "", max: 80, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := oneLineExcerpt(tt.in, tt.max); got != tt.want {
+				t.Fatalf("oneLineExcerpt(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
