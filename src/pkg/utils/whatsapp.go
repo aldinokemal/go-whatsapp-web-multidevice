@@ -162,6 +162,16 @@ func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 	return resolveKnownDocumentMIME(ext)
 }
 
+// knownMediaExtensionByMIME pins the extension of common WhatsApp media types
+// that the lookups below get wrong: without a MIME database (the Alpine image)
+// the subtype fallback turns audio/mpeg into ".mpeg" and audio/mp4 into ".mp4",
+// and with one ExtensionsByType's sorted first match is ".m2a" or ".m4v".
+var knownMediaExtensionByMIME = map[string]string{
+	"audio/mpeg": ".mp3",
+	"audio/mp4":  ".m4a",
+	"video/mp4":  ".mp4",
+}
+
 func determineMediaExtension(originalFilename, mimeType string) string {
 	if originalFilename != "" {
 		if ext := filepath.Ext(originalFilename); ext != "" {
@@ -174,6 +184,10 @@ func determineMediaExtension(originalFilename, mimeType string) string {
 	}
 
 	if ext, ok := resolveKnownDocumentExtension(mimeType); ok {
+		return ext
+	}
+
+	if ext, ok := knownMediaExtensionByMIME[strings.ToLower(mimeType)]; ok {
 		return ext
 	}
 
@@ -1040,6 +1054,20 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
+}
+
+// reStoredMediaPrefix matches the "<unix>-<uuid>-" prefix ExtractMedia puts
+// before the display name in a stored media file's name.
+var reStoredMediaPrefix = regexp.MustCompile(`^\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-`)
+
+// StoredMediaDisplayName returns the display name of a file ExtractMedia
+// stored, without its unique prefix, or "" when path is not such a file.
+func StoredMediaDisplayName(path string) string {
+	name := filepath.Base(path)
+	if loc := reStoredMediaPrefix.FindStringIndex(name); loc != nil {
+		return name[loc[1]:]
+	}
+	return ""
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix

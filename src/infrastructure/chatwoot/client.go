@@ -1019,9 +1019,7 @@ func mimeTypeForExt(ext string) string {
 // database entry for ext.
 func fallbackMimeType(ext string) string {
 	switch strings.ToLower(ext) {
-	case ".ogg", ".oga":
-		return "audio/ogg"
-	case ".opus":
+	case ".ogg", ".oga", ".opus":
 		return "audio/ogg"
 	case ".mp3":
 		return "audio/mpeg"

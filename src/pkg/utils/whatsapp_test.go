@@ -173,10 +173,26 @@ func TestStorageExtension(t *testing.T) {
 		{"unsafe sender suffix falls back to MIME", "report.pdf(1)", "application/pdf", ".pdf"},
 		{"overlong sender suffix falls back to MIME", "a." + strings.Repeat("x", 150), "application/pdf", ".pdf"},
 		{"nothing safe", "a.b c", "application/x-what ever", ""},
+		{"mp3 audio without a MIME database entry", "", "audio/mpeg", ".mp3"},
+		{"m4a audio is not video", "", "audio/mp4; codecs=mp4a.40.2", ".m4a"},
 	}
 	for _, tt := range tests {
 		if got := storageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
 			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
+		}
+	}
+}
+
+func TestStoredMediaDisplayName(t *testing.T) {
+	tests := map[string]string{
+		"statics/media/1730000000-5f2b1c7e-8d3a-4b6e-9f10-2c4d6e8a0b1c-Invoice_Final.pdf": "Invoice_Final.pdf",
+		// Files stored before display names were added have no name to show.
+		"statics/media/1730000000-5f2b1c7e-8d3a-4b6e-9f10-2c4d6e8a0b1c.pdf": "",
+		"/tmp/chatwoot-sync-38210497.oga":                                   "",
+	}
+	for path, want := range tests {
+		if got := StoredMediaDisplayName(path); got != want {
+			t.Errorf("StoredMediaDisplayName(%q) = %q, want %q", path, got, want)
 		}
 	}
 }
