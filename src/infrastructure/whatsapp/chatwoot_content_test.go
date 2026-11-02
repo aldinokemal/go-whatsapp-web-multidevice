@@ -556,6 +556,35 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		}
 	})
 
+	t.Run("poll edit renders the new options", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:     "edit",
+				Question: "Best day?",
+				Options:  []webhookPollOptionPayload{{Name: "Monday"}, {Name: "Sunday"}},
+			},
+		}, false, "")
+		if content != "📊 Poll edited: Best day?\n• Monday\n• Sunday" {
+			t.Fatalf("unexpected poll edit content: %q", content)
+		}
+	})
+
+	t.Run("undecrypted poll edit keeps its body", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:             "edit",
+				Question:         "Best day?",
+				Options:          []webhookPollOptionPayload{{Name: "Saturday"}},
+				ResolutionStatus: pollResolutionDecryptFailed,
+			},
+		}, false, "")
+		if content != "Poll edited: Best day?" {
+			t.Fatalf("expected the edit body unchanged, got %q", content)
+		}
+	})
+
 	t.Run("group with attachment but empty content prepends sender (media)", func(t *testing.T) {
 		// A group media message with no text still credits the sender via the
 		// "<sender>: (media)" form so the inbox shows attribution.

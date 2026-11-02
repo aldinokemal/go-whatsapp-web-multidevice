@@ -698,10 +698,12 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
 
-	// A poll creation is rendered with its options: the webhook body
+	// A poll creation or edit is rendered with its options: the webhook body
 	// ("Poll: <question>") leaves them out, so the agent could not see the
-	// choices. Votes, edits and added options keep their body below.
-	if poll := chatwootPollFromPayload(data); poll != nil && poll.Type == "creation" {
+	// choices. An edit that failed to decrypt lists the stored, pre-edit
+	// options, so it keeps its body below like votes and added options.
+	if poll := chatwootPollFromPayload(data); poll != nil &&
+		(poll.Type == "creation" || (poll.Type == "edit" && poll.ResolutionStatus == "")) {
 		content = formatChatwootPoll(poll)
 	} else if interactive, ok := data["interactive"].(string); ok && interactive != "" {
 		// Interactive messages carry the same summary as body, but it has always
@@ -867,12 +869,15 @@ func chatwootPollFromPayload(data map[string]any) *webhookPollPayload {
 	return nil
 }
 
-// formatChatwootPoll renders a poll creation for Chatwoot. Question and options
-// go through WhatsAppToChatwootMarkdown one by one, like a message body, so
-// WhatsApp emphasis survives without pairing markers across lines.
+// formatChatwootPoll renders a poll creation or edit for Chatwoot. Question and
+// options go through WhatsAppToChatwootMarkdown one by one, like a message body,
+// so WhatsApp emphasis survives without pairing markers across lines.
 func formatChatwootPoll(poll *webhookPollPayload) string {
 	var sb strings.Builder
 	sb.WriteString("📊 Poll")
+	if poll.Type == "edit" {
+		sb.WriteString(" edited")
+	}
 	if poll.Question != "" {
 		sb.WriteString(": ")
 		sb.WriteString(utils.WhatsAppToChatwootMarkdown(poll.Question))
