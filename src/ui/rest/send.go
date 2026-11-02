@@ -14,6 +14,7 @@ type Send struct {
 func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	rest := Send{Service: service}
 	app.Post("/send/message", rest.SendText)
+	app.Post("/send/interactive", rest.SendInteractive)
 	app.Post("/send/image", rest.SendImage)
 	app.Post("/send/file", rest.SendFile)
 	app.Post("/send/video", rest.SendVideo)
@@ -26,6 +27,16 @@ func InitRestSend(app fiber.Router, service domainSend.ISendUsecase) Send {
 	app.Post("/send/presence", rest.SendPresence)
 	app.Post("/send/chat-presence", rest.SendChatPresence)
 	return rest
+}
+
+// SendInteractive binds an immediate interactive request and returns the send result.
+func (controller *Send) SendInteractive(c fiber.Ctx) error {
+	var request domainSend.InteractiveRequest
+	utils.PanicIfNeeded(c.Bind().Body(&request))
+	utils.SanitizePhone(&request.Phone)
+	response, err := controller.Service.SendInteractive(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: response.Status, Results: response})
 }
 
 func (controller *Send) SendText(c fiber.Ctx) error {

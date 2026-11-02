@@ -31,8 +31,8 @@ func ProcessGroupPhoto(file *multipart.FileHeader) (*bytes.Buffer, error) {
 	}
 	defer src.Close()
 
-	// Decode the image
-	img, format, err := image.Decode(src)
+	// Header dimensions are checked before the raster is allocated.
+	img, format, err := DecodeImageWithinBudget(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image: %w", err)
 	}
@@ -166,9 +166,12 @@ func ValidateGroupPhotoFormat(file *multipart.FileHeader) error {
 		return fmt.Errorf("failed to reset file position: %w", err)
 	}
 
-	// Detect image format from header
-	_, format, err := image.DecodeConfig(src)
+	// Detect image format from header and reject oversized rasters before use.
+	cfg, format, err := image.DecodeConfig(src)
 	if err != nil {
+		return fmt.Errorf("invalid image file: %w", err)
+	}
+	if err := validateImageDimensions(format, cfg.Width, cfg.Height); err != nil {
 		return fmt.Errorf("invalid image file: %w", err)
 	}
 

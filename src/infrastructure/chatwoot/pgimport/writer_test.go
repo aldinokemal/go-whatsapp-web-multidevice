@@ -84,13 +84,12 @@ func TestInsertMessage_SenderResolution(t *testing.T) {
 				agentUserID:   tc.agentUserID,
 			}
 
-			// Idempotency probe must hit messages with (inbox_id, source_id).
-			// Returning ErrNoRows forces the writer to attempt the INSERT.
+			// Idempotency probe must hit messages with (inbox_id, source_id)
+			// in this contact's conversations. Returning ErrNoRows forces the
+			// writer to attempt the INSERT.
 			mock.ExpectBegin()
-			mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, conversation_id FROM messages
-			WHERE inbox_id = $1 AND source_id = $2
-			LIMIT 1`)).
-				WithArgs(2, "WAID:"+tc.msg.ID).
+			mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
+				WithArgs(2, "WAID:"+tc.msg.ID, 1, contactID).
 				WillReturnError(noRowsError())
 
 			// The INSERT carries 12 args. Pin the WhatsApp timestamp because

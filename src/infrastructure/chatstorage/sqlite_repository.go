@@ -1091,33 +1091,124 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, c
 	return link, err
 }
 
-func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
-	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
-	// single-account mode). The `? = 1` guard keeps this a single query: when the
-	// flag is 0 the OR branch is never satisfied and the match is exact-account.
-	// The same trick scopes by config id when one is given (per-device callers):
-	// configID 0 leaves the match account-wide.
+// GetChatwootMessageLinkForReply applies the whole scope before LIMIT 1, so a
+// link from another config, account, inbox or conversation is never picked.
+// Several links (one per attachment) resolve to the first one delivered.
+func (r *SQLiteRepository) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	// Account 0 marks a legacy row: it never matches as an account id.
+	if filter.ChatwootAccountID <= 0 {
+		return nil, nil
+	}
+	legacyZero := 0
+	if filter.AllowLegacyAccountZero && filter.ChatwootConfigID == 0 {
+		legacyZero = 1
+	}
 	query := `
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
-		WHERE chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
-			AND (? = 0 OR chatwoot_config_id = ?)
-		ORDER BY updated_at DESC, created_at DESC
+		WHERE device_id = ? AND chatwoot_message_id = ? AND chatwoot_conversation_id = ?
+			AND chatwoot_inbox_id = ? AND chatwoot_config_id = ?
+			AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
+		ORDER BY chatwoot_account_id = 0, created_at, wa_message_id
 		LIMIT 1
 	`
 
-	legacyZero := 0
-	if allowLegacyZero {
-		legacyZero = 1
-	}
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, conversationID, accountID, legacyZero, configID, configID))
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query,
+		filter.DeviceID, filter.ChatwootMessageID, filter.ChatwootConversationID,
+		filter.ChatwootInboxID, filter.ChatwootConfigID, filter.ChatwootAccountID, legacyZero))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return link, err
+}
+
+// chatwootLinkLookupBeforeSelect runs inside the conversation-link transaction
+// after the configuration count and before the final select. Production leaves
+// it nil. Tests use it to insert another configuration on the same connection
+// so the recount below observes it.
+var chatwootLinkLookupBeforeSelect func(tx *sql.Tx)
+
+func (r *SQLiteRepository) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	// Count and select share one transaction, so they cannot observe two
+	// different pool connections. A second configuration committed on another
+	// connection waits, and one inserted on this connection is counted again
+	// before the select.
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	return r.latestChatwootMessageLinkTx(tx, conversationID, accountID, allowLegacyZero, configID)
+}
+
+func (r *SQLiteRepository) latestChatwootMessageLinkTx(tx *sql.Tx, conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
+	// The legacy-zero wildcard is gated on allowLegacyZero (true only in legacy
+	// single-account mode). The `? = 1` guard keeps this a single query: when the
+	// flag is 0 the OR branch is never satisfied and the match is exact-account.
+	// A non-zero configID pins one chatwoot_device_configs row. That row is the
+	// server identity (URL + account + inbox): numeric account and conversation
+	// ids are reused across Chatwoot servers. configID 0 is the shared webhook,
+	// which has no server of its own — it may return a row only when every
+	// non-zero config id in the match set is the same one. Legacy config-id 0
+	// rows do not count as a second server, and they lose to a real config.
+	legacyZero := 0
+	if allowLegacyZero {
+		legacyZero = 1
+	}
+	where := `chatwoot_conversation_id = ? AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))`
+	args := []any{conversationID, accountID, legacyZero}
+	if configID != 0 {
+		where += ` AND chatwoot_config_id = ?`
+		args = append(args, configID)
+	} else {
+		configs, err := countDistinctChatwootConfigs(tx, where, args)
+		if err != nil {
+			return nil, err
+		}
+		// A test hook inserts on this same transaction. Recount so a second
+		// configuration that is now visible suppresses the row.
+		if chatwootLinkLookupBeforeSelect != nil {
+			chatwootLinkLookupBeforeSelect(tx)
+			configs, err = countDistinctChatwootConfigs(tx, where, args)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if configs > 1 {
+			return nil, nil
+		}
+		if configs == 1 {
+			where += ` AND chatwoot_config_id != 0`
+		}
+	}
+
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+		FROM chatwoot_message_links
+		WHERE ` + where + `
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 1
+	`
+	link, err := r.scanChatwootMessageLink(tx.QueryRow(query, args...))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
+func countDistinctChatwootConfigs(tx *sql.Tx, where string, args []any) (int, error) {
+	var configs int
+	err := tx.QueryRow(`
+		SELECT COUNT(DISTINCT chatwoot_config_id) FROM chatwoot_message_links
+		WHERE `+where+` AND chatwoot_config_id != 0
+	`, args...).Scan(&configs)
+	return configs, err
 }
 
 // BackfillChatwootMessageLinkAccount stamps accountID onto links whose account id
@@ -1658,12 +1749,14 @@ func (r *SQLiteRepository) CreateScheduledSend(job *domainChatStorage.ScheduledS
 			id, device_id, message_type, payload_json, assets_json, phone, summary,
 			scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 			end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+			pending_message_id, pending_poll_secret, legacy_attempt_unknown
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.DeviceID, job.MessageType, job.PayloadJSON, job.AssetsJSON, job.Phone, job.Summary,
 		job.ScheduledAt, job.NextRunAt, job.Timezone, job.Recurrence, job.WeekdaysJSON, job.DayOfMonth,
 		job.EndAt, job.OccurrenceLimit, job.OccurrenceCount, job.Attempts, job.Status, job.LeaseToken,
-		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt)
+		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt,
+		job.PendingMessageID, job.PendingPollSecret, job.LegacyAttemptUnknown)
 	return err
 }
 
@@ -1762,21 +1855,16 @@ func (r *SQLiteRepository) ClaimNextScheduledSend(now, leaseUntil time.Time, lea
 	return job, err
 }
 
-func (r *SQLiteRepository) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
-	rows, err := r.db.Query(`SELECT `+scheduledSendColumns+` FROM scheduled_sends WHERE status = 'running' AND lease_until <= ?`, now)
-	if err != nil {
-		return nil, err
+// ClaimExpiredScheduledSend fences the previous worker before exposing recovery state.
+func (r *SQLiteRepository) ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	row := r.db.QueryRow(`UPDATE scheduled_sends SET lease_token = ?, lease_until = ?, updated_at = ?
+		WHERE id = (SELECT id FROM scheduled_sends WHERE status = 'running' AND lease_until <= ? ORDER BY lease_until, id LIMIT 1)
+		RETURNING `+scheduledSendColumns, leaseToken, leaseUntil, now, now)
+	job, err := scanScheduledSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	defer rows.Close()
-	result := make([]*domainChatStorage.ScheduledSend, 0)
-	for rows.Next() {
-		job, err := scanScheduledSend(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, job)
-	}
-	return result, rows.Err()
+	return job, err
 }
 
 func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
@@ -1796,18 +1884,39 @@ func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
 	return ids, rows.Err()
 }
 
+func (r *SQLiteRepository) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error) {
+	result, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = ?, pending_poll_secret = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ? AND lease_until > ? AND (pending_message_id = '' OR (pending_message_id = ? AND pending_poll_secret IS ?))`, messageID, pollSecret, now, id, leaseToken, now, messageID, pollSecret)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected > 0, err
+}
+
+func (r *SQLiteRepository) ClearScheduledSendPendingMessageID(deviceID, id string) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, updated_at = ? WHERE device_id = ? AND id = ? AND status = 'paused'`, time.Now().UTC(), deviceID, id)
+	return err
+}
+
 func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
+	// With no attempt on record, what runs next has not been sent under any
+	// id yet (a new occurrence after a skipped one, or one that only waited
+	// for its device): it must not inherit the id of an earlier occurrence.
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ?,
+		pending_message_id = CASE WHEN ? > 0 THEN pending_message_id ELSE '' END,
+		pending_poll_secret = CASE WHEN ? > 0 THEN pending_poll_secret ELSE NULL END,
+		legacy_attempt_unknown = CASE WHEN ? > 0 THEN legacy_attempt_unknown ELSE FALSE END
+		WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), attempts, attempts, attempts, id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) FailScheduledSend(id, leaseToken, lastError string) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', last_error = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, last_error = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
@@ -1828,7 +1937,8 @@ func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id string, from []st
 const scheduledSendColumns = `id, device_id, message_type, payload_json, assets_json, phone, summary,
 	scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 	end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at`
+	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+	pending_message_id, pending_poll_secret, legacy_attempt_unknown`
 
 func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStorage.ScheduledSend, error) {
 	job := &domainChatStorage.ScheduledSend{}
@@ -1838,6 +1948,7 @@ func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStor
 		&job.ScheduledAt, &job.NextRunAt, &job.Timezone, &job.Recurrence, &job.WeekdaysJSON, &job.DayOfMonth,
 		&endAt, &job.OccurrenceLimit, &job.OccurrenceCount, &job.Attempts, &job.Status, &job.LeaseToken,
 		&leaseUntil, &lastRunAt, &job.LastMessageID, &job.LastError, &job.CreatedAt, &job.UpdatedAt,
+		&job.PendingMessageID, &job.PendingPollSecret, &job.LegacyAttemptUnknown,
 	); err != nil {
 		return nil, err
 	}
@@ -2076,13 +2187,13 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
 // Returns (nil, nil) if no device-specific webhook configuration is set.
-func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+func (r *SQLiteRepository) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
 	var config domainChatStorage.DeviceWebhookConfig
 	var webhookURL *string
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
 		FROM devices WHERE device_id = ? LIMIT 1
 	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
@@ -2204,7 +2315,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	sender := normalizedSender.ToNonAD().String()
 
 	if revokedMessageID := extractRevokedMessageID(evt.Message); revokedMessageID != "" {
-		return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+		return r.revokeMessageByAuthor(ctx, deviceID, chatJID, sender, evt, revokedMessageID)
 	}
 
 	// PushName belongs to the sender. For messages sent from this account, using
@@ -2314,6 +2425,69 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	return r.StoreMessage(message)
 }
 
+// revokeMessageByAuthor deletes a stored message only when the revoke event
+// was sent by its author, by a group admin, or by this account. A peer who
+// names another message id must not remove that row. The decision is recorded
+// for Chatwoot forwarding, which runs after the row is gone and would otherwise
+// be unable to tell the two apart.
+func (r *SQLiteRepository) revokeMessageByAuthor(ctx context.Context, deviceID, chatJID, sender string, evt *events.Message, revokedMessageID string) error {
+	existing, err := r.getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, revokedMessageID)
+	if err != nil {
+		return fmt.Errorf("failed to load message %s for revoke: %w", revokedMessageID, err)
+	}
+	eventID := ""
+	rawSender := ""
+	fromMe := false
+	if evt != nil {
+		eventID = evt.Info.ID
+		rawSender = evt.Info.Sender.ToNonAD().String()
+		fromMe = evt.Info.IsFromMe
+	}
+	// This account may revoke anything it sends, including a message it never
+	// stored (a poll) or an admin delete made from the phone. A peer needs the
+	// stored row to establish authorship or the admin delete of that author.
+	authorized := fromMe
+	if !authorized && existing != nil {
+		authorized = whatsapp.MessageAuthorMatches(existing.Sender, existing.IsFromMe, sender, rawSender, fromMe) ||
+			groupAdminRevoke(ctx, evt, existing.Sender)
+	}
+	if existing == nil && !authorized {
+		// The row may already have been deleted by an authorized revoke whose
+		// Chatwoot forward has not run. Do not replace that decision with false.
+		whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, false)
+		whatsapp.NoteMessageEventAuthorization(deviceID, eventID, false)
+		return nil
+	}
+	whatsapp.NoteMessageRevokeAuthorization(deviceID, chatJID, revokedMessageID, authorized)
+	whatsapp.NoteMessageEventAuthorization(deviceID, eventID, authorized)
+	if !authorized {
+		logrus.Warnf("Ignoring revoke of message %s by %s: sender is not the author", revokedMessageID, sender)
+		return nil
+	}
+	return r.DeleteMessageByDevice(deviceID, revokedMessageID, chatJID)
+}
+
+// isGroupAdmin asks WhatsApp whether a user currently administers a group.
+// Tests replace it to answer without a connection.
+var isGroupAdmin = whatsapp.IsGroupAdmin
+
+// groupAdminRevoke reports a group admin deleting another member's message.
+// WhatsApp marks it edit="8" and names the author as the key participant. The
+// sender sets both, so the revoker's admin role is checked with WhatsApp.
+func groupAdminRevoke(ctx context.Context, evt *events.Message, storedSender string) bool {
+	if evt == nil || evt.Info.Chat.Server != types.GroupServer || evt.Info.Edit != types.EditAttributeAdminRevoke {
+		return false
+	}
+	author, err := types.ParseJID(utils.UnwrapMessage(evt.Message).GetProtocolMessage().GetKey().GetParticipant())
+	if err != nil {
+		return false
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	normalizedAuthor := whatsapp.NormalizeJIDFromLID(ctx, author, client).ToNonAD().String()
+	return whatsapp.MessageAuthorMatches(storedSender, false, normalizedAuthor, author.ToNonAD().String(), false) &&
+		isGroupAdmin(ctx, client, evt.Info.Chat, evt.Info.Sender, evt.Info.SenderAlt)
+}
+
 func extractRevokedMessageID(msg *waE2E.Message) string {
 	if msg == nil {
 		return ""
@@ -2329,7 +2503,7 @@ func extractEditedMessage(msg *waE2E.Message) *waE2E.Message {
 	if msg == nil {
 		return nil
 	}
-	protocolMessage := msg.GetProtocolMessage()
+	protocolMessage := utils.UnwrapMessage(msg).GetProtocolMessage()
 	if protocolMessage == nil || protocolMessage.GetType() != waE2E.ProtocolMessage_MESSAGE_EDIT {
 		return nil
 	}
@@ -2341,7 +2515,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		return nil
 	}
 
-	protocolMessage := evt.Message.GetProtocolMessage()
+	protocolMessage := utils.UnwrapMessage(evt.Message).GetProtocolMessage()
 	if protocolMessage == nil {
 		return nil
 	}
@@ -2360,6 +2534,13 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 	}
 
 	messageExists := existingMessage != nil
+	if !messageExists && !evt.Info.IsFromMe {
+		// Without the original row a peer's authorship cannot be checked, and a
+		// stub naming the editor as sender would authorize the editor's revoke.
+		logrus.Warnf("Ignoring edit of message %s by %s: original message is not stored", originalMessageID, sender)
+		whatsapp.NoteMessageEventAuthorization(deviceID, evt.Info.ID, false)
+		return nil
+	}
 	currentMessage := existingMessage
 	previousContent := ""
 
@@ -2389,6 +2570,12 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 	}
 
 	currentMessage.ContextMetadata = utils.ExtractContextMetadata(editedMessage)
+
+	if messageExists && !whatsapp.MessageAuthorMatches(existingMessage.Sender, existingMessage.IsFromMe, sender, evt.Info.Sender.ToNonAD().String(), evt.Info.IsFromMe) {
+		logrus.Warnf("Ignoring edit of message %s by %s: sender is not the author", originalMessageID, sender)
+		whatsapp.NoteMessageEventAuthorization(deviceID, evt.Info.ID, false)
+		return nil
+	}
 
 	edit := &domainChatStorage.MessageEdit{
 		OriginalMessageID: originalMessageID,
@@ -2435,7 +2622,11 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 		return fmt.Errorf("failed to store edit history for %s: %w", originalMessageID, err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	whatsapp.NoteMessageEventAuthorization(deviceID, evt.Info.ID, true)
+	return nil
 }
 
 func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID string) (*domainChatStorage.Message, error) {
@@ -3170,5 +3361,18 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 50: Per-device secret for Chatwoot's signed webhooks (each API channel has its own)
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
+
+		// Migration 51: Reuse the identity of a scheduled occurrence on retries.
+		`ALTER TABLE scheduled_sends ADD COLUMN pending_message_id VARCHAR(255) NOT NULL DEFAULT ''`,
+
+		// Migration 52: Track attempts made before occurrence IDs were persisted.
+		`ALTER TABLE scheduled_sends ADD COLUMN legacy_attempt_unknown BOOLEAN NOT NULL DEFAULT FALSE`,
+
+		// Migration 53: An old running or retried occurrence may already have
+		// reached WhatsApp under an unknown ID. It must be skipped, not replayed.
+		`UPDATE scheduled_sends SET legacy_attempt_unknown = TRUE WHERE status = 'running' OR attempts > 0`,
+
+		// Migration 54: Poll retries must reuse the secret as well as the ID.
+		`ALTER TABLE scheduled_sends ADD COLUMN pending_poll_secret BLOB`,
 	}
 }

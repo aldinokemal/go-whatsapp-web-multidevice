@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -17,13 +18,14 @@ import (
 )
 
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
-	// Log message metadata
+	// Log message metadata. Message ID, sender name, JID and body are escaped so
+	// a newline in sender-controlled fields cannot forge a second log line.
 	metaParts := buildMessageMetaParts(evt)
-	log.Infof("Received message %s from %s (%s): %+v",
-		evt.Info.ID,
-		evt.Info.SourceString(),
-		strings.Join(metaParts, ", "),
-		evt.Message,
+	log.Infof("Received message %s from %s (%s): %s",
+		sanitizeLogText(evt.Info.ID),
+		sanitizeLogText(evt.Info.SourceString()),
+		sanitizeLogText(strings.Join(metaParts, ", ")),
+		logMessageBody{evt.Message},
 	)
 
 	// Materialize SecretEncryptedMessage{MESSAGE_EDIT} envelope (sent by recent
@@ -36,7 +38,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 	if isReactionMessage(evt) {
 		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
-			log.Errorf("Failed to store incoming reaction %s: %v", evt.Info.ID, err)
+			log.Errorf("Failed to store incoming reaction %s: %v", sanitizeLogText(evt.Info.ID), err)
 		}
 
 		handleWebhookForward(ctx, evt, client, pollPayload)
@@ -45,7 +47,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
 		// Log storage errors to avoid silent failures that could lead to data loss
-		log.Errorf("Failed to store incoming message %s: %v", evt.Info.ID, err)
+		log.Errorf("Failed to store incoming message %s: %v", sanitizeLogText(evt.Info.ID), err)
 	}
 
 	// Handle image message if present
@@ -63,7 +65,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 
 func buildMessageMetaParts(evt *events.Message) []string {
 	metaParts := []string{
-		fmt.Sprintf("pushname: %s", evt.Info.PushName),
+		fmt.Sprintf("pushname: %s", sanitizeLogText(evt.Info.PushName)),
 		fmt.Sprintf("timestamp: %s", evt.Info.Timestamp),
 	}
 	if evt.Info.Type != "" {
@@ -76,6 +78,47 @@ func buildMessageMetaParts(evt *events.Message) []string {
 		metaParts = append(metaParts, "view once")
 	}
 	return metaParts
+}
+
+// sanitizeLogText escapes control characters (C0, DEL, C1) and the Unicode
+// line and paragraph separators so one log record stays one line.
+func sanitizeLogText(s string) string {
+	if !strings.ContainsFunc(s, isLogControl) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for _, r := range s {
+		switch r {
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02x`, r)
+			} else if isLogControl(r) {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+func isLogControl(r rune) bool {
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+}
+
+// logMessageBody formats a message only when the log level prints it. The
+// protobuf text format escapes control characters but keeps U+2028/U+2029.
+type logMessageBody struct{ msg *waE2E.Message }
+
+func (b logMessageBody) String() string {
+	return sanitizeLogText(fmt.Sprintf("%+v", b.msg))
 }
 
 func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJID types.JID) bool {
@@ -126,9 +169,9 @@ func handleAutoMarkRead(ctx context.Context, evt *events.Message, client *whatsm
 	sender := evt.Info.Sender
 
 	if err := client.MarkRead(ctx, messageIDs, timestamp, chat, sender); err != nil {
-		log.Warnf("Failed to mark message %s as read: %v", evt.Info.ID, err)
+		log.Warnf("Failed to mark message %s as read: %v", sanitizeLogText(evt.Info.ID), err)
 	} else {
-		log.Debugf("Marked message %s as read", evt.Info.ID)
+		log.Debugf("Marked message %s as read", sanitizeLogText(evt.Info.ID))
 	}
 }
 
@@ -153,7 +196,7 @@ func materializeSecretEditMessage(ctx context.Context, evt *events.Message, clie
 		if k := sem.GetTargetMessageKey(); k != nil {
 			targetID = k.GetID()
 		}
-		log.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s (target=%s): %v", evt.Info.ID, targetID, err)
+		log.Warnf("Failed to decrypt SecretEncryptedMessage(MESSAGE_EDIT) for %s (target=%s): %v", sanitizeLogText(evt.Info.ID), sanitizeLogText(targetID), err)
 		return evt
 	}
 	if decrypted == nil {

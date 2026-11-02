@@ -233,10 +233,75 @@ func TestSQLiteRepositoryConversationLookupIsConfigScoped(t *testing.T) {
 	if err != nil || got == nil || got.DeviceID != "dev-b" {
 		t.Fatalf("config-scoped lookup (20) = %+v err=%v, want dev-b", got, err)
 	}
-	// configID 0 keeps the account-wide behavior (shared/legacy endpoint).
+	// configID 0 is the shared webhook. Two configs means two servers that
+	// reused account 1 / conversation 1; the newest row must not win.
 	got, err = repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 0)
-	if err != nil || got == nil {
-		t.Fatalf("unscoped lookup: %v (%v)", err, got)
+	if err != nil {
+		t.Fatalf("ambiguous lookup: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("ambiguous servers must not resolve, got %+v", got)
+	}
+}
+
+func TestSQLiteRepositoryConversationLookupUnscopedUsesSingleConfig(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	for _, l := range []*domainChatStorage.ChatwootMessageLink{
+		{DeviceID: "dev-a", WhatsAppMessageID: "old", WhatsAppChatJID: "111@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "incoming"},
+		{DeviceID: "dev-a", WhatsAppMessageID: "new", WhatsAppChatJID: "111@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "incoming"},
+		// A legacy zero-config row for the same conversation must not count as
+		// a second server, and must not beat the real config.
+		{DeviceID: "dev-stale", WhatsAppMessageID: "stale", WhatsAppChatJID: "999@s.whatsapp.net", ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 0, Direction: "incoming"},
+	} {
+		if err := repo.UpsertChatwootMessageLink(l); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+	// The zero-config row is the newest. It must not beat the single real config.
+	if _, err := repo.db.Exec(`UPDATE chatwoot_message_links SET updated_at = ? WHERE wa_message_id = ?`, time.Now().Add(2*time.Hour), "stale"); err != nil {
+		t.Fatalf("touch stale: %v", err)
+	}
+	if _, err := repo.db.Exec(`UPDATE chatwoot_message_links SET updated_at = ? WHERE wa_message_id = ?`, time.Now().Add(time.Hour), "new"); err != nil {
+		t.Fatalf("touch new: %v", err)
+	}
+
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 0)
+	if err != nil || got == nil || got.WhatsAppMessageID != "new" || got.DeviceID != "dev-a" {
+		t.Fatalf("single-config lookup = %+v err=%v, want dev-a/new", got, err)
+	}
+}
+
+func TestConversationLookupRecountsSecondConfigOnSameConnection(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	if err := repo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
+		DeviceID: "dev-a", WhatsAppMessageID: "a1", WhatsAppChatJID: "111@s.whatsapp.net",
+		ChatwootConversationID: 1, ChatwootAccountID: 1, ChatwootConfigID: 10, Direction: "incoming",
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	prev := chatwootLinkLookupBeforeSelect
+	chatwootLinkLookupBeforeSelect = func(tx *sql.Tx) {
+		now := time.Now()
+		if _, err := tx.Exec(`
+			INSERT INTO chatwoot_message_links (
+				device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+				chatwoot_conversation_id, chatwoot_inbox_id,
+				chatwoot_contact_inbox_source_id, source_id, direction,
+				is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, "dev-b", "b1", "222@s.whatsapp.net", 2, 1, 1, "", "", "incoming", false, now, now.Add(time.Hour), 20, 1); err != nil {
+			t.Errorf("insert second config: %v", err)
+		}
+	}
+	t.Cleanup(func() { chatwootLinkLookupBeforeSelect = prev })
+
+	got, err := repo.GetLatestChatwootMessageLinkByConversation(1, 1, false, 0)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("second configuration visible in the transaction must return no row, got %+v", got)
 	}
 }
 

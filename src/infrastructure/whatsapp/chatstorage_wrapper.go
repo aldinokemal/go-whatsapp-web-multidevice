@@ -175,6 +175,13 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, 
 	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
+func (r *deviceChatStorage) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	if filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkForReply(filter)
+}
+
 func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
 	return r.base.GetLatestChatwootMessageLinkByConversation(conversationID, accountID, allowLegacyZero, configID)
 }
@@ -272,12 +279,20 @@ func (r *deviceChatStorage) ClaimNextScheduledSend(now, leaseUntil time.Time, le
 	return r.base.ClaimNextScheduledSend(now, leaseUntil, leaseToken)
 }
 
-func (r *deviceChatStorage) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
-	return r.base.ListExpiredScheduledSends(now)
+func (r *deviceChatStorage) ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	return r.base.ClaimExpiredScheduledSend(now, leaseUntil, leaseToken)
 }
 
 func (r *deviceChatStorage) ListScheduledSendIDs() ([]string, error) {
 	return r.base.ListScheduledSendIDs()
+}
+
+func (r *deviceChatStorage) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error) {
+	return r.base.SetScheduledSendPendingAttempt(id, leaseToken, messageID, pollSecret, now)
+}
+
+func (r *deviceChatStorage) ClearScheduledSendPendingMessageID(deviceID, id string) error {
+	return r.base.ClearScheduledSendPendingMessageID(deviceID, id)
 }
 
 func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
@@ -434,6 +449,6 @@ func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *doma
 }
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
-func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
-	return r.base.GetDeviceWebhookConfig(deviceID)
+func (r *deviceChatStorage) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	return r.base.GetDeviceWebhookConfig(ctx, deviceID)
 }

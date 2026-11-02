@@ -238,7 +238,7 @@ func TestChatwootWebhookKeepsOlderSchemes(t *testing.T) {
 	}
 }
 
-func TestChatwootWebhookWithoutSecretAcceptsEverything(t *testing.T) {
+func TestChatwootWebhookWithoutSecretRejectsRequests(t *testing.T) {
 	withChatwootWebhookSecret(t, "")
 	app := fiber.New()
 	app.Post("/chatwoot/webhook", (&ChatwootHandler{}).HandleWebhook)
@@ -248,9 +248,22 @@ func TestChatwootWebhookWithoutSecretAcceptsEverything(t *testing.T) {
 		"no headers":        nil,
 		"unverifiable sign": {chatwootTimestampHeader: "1", chatwootSignatureHeader: "sha256=00"},
 	} {
-		if got := postChatwootWebhook(t, app, webhookAuthRequest{body: body, headers: headers}); got != fiber.StatusOK {
-			t.Fatalf("%s: status = %d, want 200 when no secret is configured", name, got)
+		if got := postChatwootWebhook(t, app, webhookAuthRequest{body: body, headers: headers}); got != fiber.StatusUnauthorized {
+			t.Fatalf("%s: status = %d, want 401 when no secret is configured", name, got)
 		}
+	}
+}
+
+func TestChatwootWebhookAllowUnsignedAcceptsEmptySecret(t *testing.T) {
+	withChatwootWebhookSecret(t, "")
+	prev := config.ChatwootWebhookAllowUnsigned
+	config.ChatwootWebhookAllowUnsigned = true
+	t.Cleanup(func() { config.ChatwootWebhookAllowUnsigned = prev })
+
+	app := fiber.New()
+	app.Post("/chatwoot/webhook", (&ChatwootHandler{}).HandleWebhook)
+	if got := postChatwootWebhook(t, app, webhookAuthRequest{body: `{"event":"conversation_updated"}`}); got != fiber.StatusOK {
+		t.Fatalf("status = %d, want 200 when unsigned webhooks are explicitly enabled", got)
 	}
 }
 

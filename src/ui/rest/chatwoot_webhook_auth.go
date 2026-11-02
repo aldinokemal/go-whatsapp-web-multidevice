@@ -27,6 +27,7 @@ const (
 
 var (
 	errChatwootSignatureMissing   = errors.New("signature or timestamp header missing")
+	errChatwootSecretRequired     = errors.New("webhook secret is not configured")
 	errChatwootSignatureTimestamp = errors.New("timestamp is not a unix time")
 	errChatwootSignatureExpired   = errors.New("timestamp outside the tolerance window")
 	errChatwootSignatureMalformed = errors.New("signature is not sha256=<hex>")
@@ -77,9 +78,13 @@ func verifyChatwootSignature(secret, timestamp, signature string, body []byte, n
 // point is to tell the operator once, not to add a line per webhook.
 var chatwootQuerySecretWarning sync.Once
 
+// chatwootUnsignedWarning logs the explicit open-webhook opt-in once.
+var chatwootUnsignedWarning sync.Once
+
 // chatwootWebhookAuthorizedWith authenticates an incoming Chatwoot webhook
-// with the given secret. An empty secret accepts every request (the check is
-// opt-in). Otherwise the request must satisfy one of:
+// with the given secret. An empty secret rejects the request unless
+// CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is set. Otherwise the request must satisfy
+// one of:
 //
 //  1. Chatwoot's own signature: X-Chatwoot-Timestamp + X-Chatwoot-Signature.
 //  2. The secret itself in X-Chatwoot-Webhook-Secret or X-Gowa-Chatwoot-Secret.
@@ -120,7 +125,13 @@ type chatwootVerifiedSecretKey struct{}
 func chatwootWebhookVerify(c fiber.Ctx, secret string) (bool, error) {
 	secret = strings.TrimSpace(secret)
 	if secret == "" {
-		return true, nil
+		if config.ChatwootWebhookAllowUnsigned {
+			chatwootUnsignedWarning.Do(func() {
+				logrus.Warn("Chatwoot Webhook: CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is enabled; a request with an empty effective secret is accepted")
+			})
+			return true, nil
+		}
+		return false, errChatwootSecretRequired
 	}
 	if verified, ok := c.Locals(chatwootVerifiedSecretKey{}).(string); ok && chatwootSecretMatches(secret, verified) {
 		return true, nil
@@ -244,10 +255,11 @@ func (h *ChatwootHandler) anyChatwootDeviceWebhookSecret() (bool, error) {
 // the global secret is refused for a device that has its own, and one device's
 // secret cannot deliver through another device.
 //
-// When nothing resolves and there is no global secret, no secret applies and
-// the request is acknowledged as before (nothing is acted on for it) - unless
-// some device has its own secret. Then it is answered like a wrong secret, so
-// the status does not tell a caller which account/inbox pairs are protected.
+// When nothing resolves and there is no global secret, the request is rejected
+// unless CHATWOOT_WEBHOOK_ALLOW_UNSIGNED is set. If some device has its own
+// secret, an unroutable request is answered like a wrong secret even in that
+// mode, so the status does not tell a caller which account/inbox pairs are
+// protected.
 //
 // A Chatwoot-signed request that was already accepted inside the tolerance
 // window is authentic but handled: it is acknowledged (200) and not acted on.
