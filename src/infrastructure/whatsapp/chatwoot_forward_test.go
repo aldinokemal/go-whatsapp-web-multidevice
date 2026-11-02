@@ -2,7 +2,10 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -446,5 +449,68 @@ func TestBuildReactionChatwootContent(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
 			}
 		})
+	}
+}
+
+func TestSyncPayloadToChatwoot_ReactionEchoStampsSourceID(t *testing.T) {
+	var capturedBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var response any
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/accounts/1/contacts/search":
+			response = map[string]any{"payload": []map[string]any{{"id": 7, "name": "Alice", "phone_number": r.URL.Query().Get("q")}}}
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/accounts/1/contacts/7/conversations":
+			response = map[string]any{"payload": []map[string]any{{"id": 42, "inbox_id": 1, "status": "open"}}}
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/accounts/1/conversations/42/messages":
+			if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+				t.Errorf("decode message body: %v", err)
+			}
+			response = map[string]any{"id": 999}
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	cw := &chatwoot.Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 1, HTTPClient: server.Client()}
+	orig := getChatwootClientFn
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{Client: cw}, nil
+	}
+	t.Cleanup(func() { getChatwootClientFn = orig })
+
+	payload := map[string]any{"payload": map[string]any{
+		"id":                 "REACTION-ID-1",
+		"reacted_message_id": "ORIGINAL-ID-1",
+		"reaction":           "👍",
+		"from":               "628123456789@s.whatsapp.net",
+		"chat_id":            "628123456789@s.whatsapp.net",
+		"from_name":          "Alice",
+		"is_from_me":         true,
+	}}
+	if err := syncPayloadToChatwoot(context.Background(), payload, "message.reaction", "", nil); err != nil {
+		t.Fatalf("syncPayloadToChatwoot: %v", err)
+	}
+	if capturedBody == nil {
+		t.Fatal("message-create endpoint was never called")
+	}
+	if got := capturedBody["source_id"]; got != "WAID:REACTION-ID-1" {
+		t.Errorf("source_id = %v, want WAID:REACTION-ID-1", got)
+	}
+	if got := capturedBody["message_type"]; got != "outgoing" {
+		t.Errorf("message_type = %v, want outgoing", got)
+	}
+	if got := capturedBody["private"]; got != false {
+		t.Errorf("private = %v, want false", got)
+	}
+	attributes, _ := capturedBody["content_attributes"].(map[string]any)
+	if got := attributes["in_reply_to_external_id"]; got != "WAID:ORIGINAL-ID-1" {
+		t.Errorf("in_reply_to_external_id = %v, want WAID:ORIGINAL-ID-1", got)
 	}
 }
