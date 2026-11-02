@@ -67,20 +67,27 @@ var (
 	WhatsappWebhookAllDeviceReceipts           = false // Forward receipts from all linked devices, not only the primary device
 	WhatsappWebhookDeviceMergeGlobal           = false // Per-device webhook adds to the global WHATSAPP_WEBHOOK targets instead of replacing them
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
-	WhatsappLogLevel                           = "ERROR"
-	WhatsappSettingMaxImageSize       int64    = 20000000  // 20MB
-	WhatsappSettingMaxFileSize        int64    = 50000000  // 50MB
-	WhatsappSettingMaxVideoSize       int64    = 100000000 // 100MB
-	WhatsappSettingMaxDownloadSize    int64    = 500000000 // 500MB
-	WhatsappTypeUser                           = "@s.whatsapp.net"
-	WhatsappTypeGroup                          = "@g.us"
-	WhatsappTypeLid                            = "@lid"
-	WhatsappTypeNewsletter                     = "@newsletter"
-	WhatsappAccountValidation                  = true
-	WhatsappPresenceOnConnect                  = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
-	WhatsappPresencePulseEnabled               = true          // Periodically pulse presence available, then unavailable
-	WhatsappPresencePulseInterval              = 24 * time.Hour
-	WhatsappPresencePulseDuration              = 5 * time.Minute
+
+	// WhatsappBetaCallEnabled wires the beta meowcaller VoIP stack, which adds
+	// real-time call-out and call-in on top of the signalling-only RejectCall
+	// endpoint. Off by default: the stack hooks unexported whatsmeow node
+	// handlers and is only validated against a live call.
+	WhatsappBetaCallEnabled = false
+
+	WhatsappLogLevel                     = "ERROR"
+	WhatsappSettingMaxImageSize    int64 = 20000000  // 20MB
+	WhatsappSettingMaxFileSize     int64 = 50000000  // 50MB
+	WhatsappSettingMaxVideoSize    int64 = 100000000 // 100MB
+	WhatsappSettingMaxDownloadSize int64 = 500000000 // 500MB
+	WhatsappTypeUser                     = "@s.whatsapp.net"
+	WhatsappTypeGroup                    = "@g.us"
+	WhatsappTypeLid                      = "@lid"
+	WhatsappTypeNewsletter               = "@newsletter"
+	WhatsappAccountValidation            = true
+	WhatsappPresenceOnConnect            = "unavailable" // Presence to send on connect: "available", "unavailable", or "none"
+	WhatsappPresencePulseEnabled         = true          // Periodically pulse presence available, then unavailable
+	WhatsappPresencePulseInterval        = 24 * time.Hour
+	WhatsappPresencePulseDuration        = 5 * time.Minute
 
 	// WhatsappProxy is forwarded to whatsmeow's *Client.SetProxyAddress before
 	// Connect. Accepts SOCKS5/HTTP/HTTPS schemes, e.g.
