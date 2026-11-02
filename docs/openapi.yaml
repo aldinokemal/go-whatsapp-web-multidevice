@@ -30,7 +30,12 @@ tags:
   - name: message
     description: Message manipulation (revoke/react/update).
   - name: call
-    description: Call management (reject incoming calls)
+    description: |
+      Call management. `POST /call/reject` works on any deployment. The beta
+      voice routes (`/call/start`, `/call/answer`, `/call/hangup`, `/call/audio`)
+      are only registered when `WHATSAPP_BETA_CALL_ENABLED=true`; otherwise they
+      are absent and answer 404. The beta routes build on an unofficial call
+      protocol, so their behavior can change without an API version bump.
   - name: chat
     description: Chat conversations and messaging
   - name: group
@@ -2912,6 +2917,227 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/start:
+    post:
+      operationId: startCall
+      tags:
+        - call
+      summary: Place an outbound voice call (beta)
+      description: |
+        Places a 1:1 WhatsApp voice call and returns its call id. Only registered
+        when `WHATSAPP_BETA_CALL_ENABLED=true`. Built on an unofficial protocol:
+        a success response means the call was placed, not that the peer answered
+        or that audio was delivered.
+
+        `audio_file_path` is optional. When set, that `.mp3` or `.wav` file is
+        streamed to the peer once the call is answered; without it the call
+        still opens and the relay stays idle. `record_path` is optional and saves
+        the peer's audio to a `.wav` file. Both paths resolve relative to the
+        server's storage directory (`config.PathStorages`), not the process
+        working directory, and files outside it are rejected.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallStartRequest'
+      responses:
+        '200':
+          description: Call placed; the peer has not necessarily answered yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallStartResponse'
+        '400':
+          description: >-
+            Bad Request: missing `target`, or beta voice calls reported as
+            disabled by the usecase.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: >-
+            Beta voice routes are not registered (`WHATSAPP_BETA_CALL_ENABLED`
+            is false), or the requested device is unknown (`DEVICE_NOT_FOUND`).
+        '500':
+          description: >-
+            Internal Server Error: placing the call failed, the device is not
+            logged in, or the media paths are unusable (unsupported audio
+            extension, missing file, non-`.wav` `record_path`, or a path
+            outside the server storage directory).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/answer:
+    post:
+      operationId: answerCall
+      tags:
+        - call
+      summary: Answer a ringing incoming call (beta)
+      description: |
+        Accepts a ringing inbound call. Only registered when
+        `WHATSAPP_BETA_CALL_ENABLED=true`. The call must still be ringing.
+
+        Get `call_id` from the `call.incoming` webhook event, which the beta
+        stack emits in addition to `call.offer`; `payload.call_id` is the same
+        value on both.
+
+        `record_path` is optional and saves the peer's audio to a `.wav` file
+        relative to the server's storage directory (`config.PathStorages`).
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallAnswerRequest'
+      responses:
+        '200':
+          description: Call answered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing `call_id`, or beta voice calls reported as disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: >-
+            Beta voice routes are not registered, the requested device is
+            unknown (`DEVICE_NOT_FOUND`), or the call is unknown or already
+            ended (`NOT_FOUND` with message `call not found`).
+        '500':
+          description: >-
+            Internal Server Error: the device is not logged in, the call stack
+            is unavailable, or `record_path` is unusable (not `.wav`, or outside
+            the server storage directory).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/hangup:
+    post:
+      operationId: hangupCall
+      tags:
+        - call
+      summary: End an active call (beta)
+      description: |
+        Ends an active or ringing call. Only registered when
+        `WHATSAPP_BETA_CALL_ENABLED=true`. Use the `call_id` returned by
+        `POST /call/start` or `payload.call_id` from the `call.incoming` /
+        `call.offer` webhook.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallIDRequest'
+      responses:
+        '200':
+          description: Call ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericResponse'
+        '400':
+          description: Bad Request (missing `call_id`, or beta voice calls disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '404':
+          description: >-
+            Beta voice routes are not registered, the requested device is
+            unknown (`DEVICE_NOT_FOUND`), or the call is unknown or already
+            ended (`NOT_FOUND` with message `call not found`).
+        '500':
+          description: >-
+            Internal Server Error: the device is not logged in, or the call
+            stack is unavailable for it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /call/audio:
+    get:
+      operationId: callAudioStream
+      tags:
+        - call
+      x-websocket: true
+      summary: Live call audio stream (beta, WebSocket)
+      description: |
+        Bridges a live call to a browser over a WebSocket. Only registered when
+        `WHATSAPP_BETA_CALL_ENABLED=true`.
+
+        **This path is a WebSocket upgrade, not a JSON endpoint.** Send a normal
+        GET with the standard upgrade headers; a request without them answers
+        `426 Upgrade Required`.
+
+        Wire format: binary frames carry **s16le, 16 kHz, mono PCM** in both
+        directions. Browser microphone frames written to the socket are played
+        to the peer. The peer's audio arrives as binary frames. Text frames
+        carry a plain error message when the call cannot be attached, and the
+        literal `call ended` when the call finishes, after which the server
+        closes the socket. Non-binary frames sent by the client are ignored and
+        audio frames are dropped instead of buffered when playback falls behind.
+
+        Device selection: browsers cannot set headers on a WebSocket handshake,
+        so pass `device_id` in the query string (or let it resolve to the only
+        registered device). When basic auth is enabled, also pass
+        `authorization=<base64(user:pass)>`.
+      parameters:
+        - name: call_id
+          in: query
+          required: true
+          description: Call id returned by `POST /call/start` or from the `call.incoming` / `call.offer` webhook
+          schema:
+            type: string
+          example: 'ABC123DEF456'
+        - name: device_id
+          in: query
+          required: false
+          description: Device id, since a WebSocket handshake cannot carry `X-Device-Id`
+          schema:
+            type: string
+          example: 'my-device-id'
+        - name: authorization
+          in: query
+          required: false
+          description: '`base64(user:pass)` when basic auth is enabled; only meaningful over TLS'
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket upgrade accepted. Binary frames are s16le 16 kHz mono PCM.
+        '200':
+          description: >-
+            Stream open on the upgraded connection; binary PCM frames flow both
+            ways until the call ends. Listed alongside 101 because tooling does
+            not always treat an upgrade as a success response.
+        '400':
+          description: >-
+            Device id required (`DEVICE_ID_REQUIRED`) when several devices are
+            registered and no `device_id` query param is present.
+        '404':
+          description: >-
+            Beta voice routes are not registered (`WHATSAPP_BETA_CALL_ENABLED`
+            is false), or the requested device is unknown (`DEVICE_NOT_FOUND`).
+        '426':
+          description: The request was not a WebSocket upgrade
 
   /chats:
     get:
@@ -5918,6 +6144,75 @@ components:
             userHandle:
               type: string
               nullable: true
+    CallStartRequest:
+      type: object
+      description: Beta outbound 1:1 voice call.
+      required: [target]
+      properties:
+        target:
+          type: string
+          description: Phone number with country code, or a full WhatsApp JID.
+          example: '6289685028129'
+        audio_file_path:
+          type: string
+          description: |
+            Optional `.mp3` or `.wav` file streamed to the peer once the call is
+            answered. Must be relative to the server storage directory; absolute
+            paths are rejected.
+          example: 'audio/greeting.mp3'
+        record_path:
+          type: string
+          description: |
+            Optional `.wav` file that receives the peer's audio. Must be relative
+            to the server storage directory; absolute paths are rejected.
+          example: 'recordings/call-2026-11-02.wav'
+    CallStartResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Call started successfully
+        results:
+          type: object
+          properties:
+            call_id:
+              type: string
+              description: Call id; use it with `/call/hangup` and `/call/audio`
+              example: 'ABC123DEF456'
+            target:
+              type: string
+              description: The trimmed target that was dialed
+              example: '6289685028129'
+    CallIDRequest:
+      type: object
+      description: Beta call-id-only request (hangup).
+      required: [call_id]
+      properties:
+        call_id:
+          type: string
+          description: Call id from `/call/start`, `call.incoming`, or `call.offer`
+          example: 'ABC123DEF456'
+    CallAnswerRequest:
+      type: object
+      description: Beta inbound call acceptance.
+      required: [call_id]
+      properties:
+        call_id:
+          type: string
+          description: Call id from the `call.incoming` webhook event
+          example: 'ABC123DEF456'
+        record_path:
+          type: string
+          description: |
+            Optional `.wav` file that receives the peer's audio. Must be relative
+            to the server storage directory; absolute paths are rejected.
+          example: 'recordings/inbound-2026-11-02.wav'
     GenericResponse:
       type: object
       properties:
