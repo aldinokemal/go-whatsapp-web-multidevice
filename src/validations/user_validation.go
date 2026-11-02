@@ -2,6 +2,7 @@ package validations
 
 import (
 	"context"
+	"strings"
 
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -19,6 +20,18 @@ func ValidateUserInfo(ctx context.Context, request domainUser.InfoRequest) error
 
 	return nil
 }
+
+func ValidateSubscribePresence(ctx context.Context, request domainUser.SubscribePresenceRequest) error {
+	request.Phone = strings.TrimSpace(request.Phone)
+	err := validation.ValidateStructWithContext(ctx, &request,
+		validation.Field(&request.Phone, validation.Required),
+	)
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+	return nil
+}
+
 func ValidateUserAvatar(ctx context.Context, request domainUser.AvatarRequest) error {
 	err := validation.ValidateStructWithContext(ctx, &request,
 		validation.Field(&request.Phone, validation.Required),

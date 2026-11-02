@@ -138,11 +138,6 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 		// messages collapse into one conversation). With no client in context
 		// getGroupName returns "", so Name falls back to "Group: <extracted phone>".
 		groupJID := "120363999000111@g.us"
-		// Seed the cache with an empty name so the fallback is deterministic even
-		// if another test in this package has set a global WhatsApp client. A
-		// cached "" still flows to the "Group: <phone>" fallback. This is a fresh
-		// entry (TTL in the future), so no timing dependency is introduced.
-		setCachedGroupName(groupJID, "")
 		info, err := extractChatwootContactInfo(ctx, map[string]any{
 			"from":      "628111@s.whatsapp.net",
 			"chat_id":   groupJID,
@@ -170,7 +165,6 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 
 	t.Run("group fallback prefix even when from_name empty", func(t *testing.T) {
 		groupJID := "120363222333444@g.us"
-		setCachedGroupName(groupJID, "")
 		info, err := extractChatwootContactInfo(ctx, map[string]any{
 			"from":    "628111@s.whatsapp.net",
 			"chat_id": groupJID,
@@ -1003,19 +997,20 @@ func TestIsEventWhitelisted(t *testing.T) {
 // expiry timing. setCachedGroupName stores with a future TTL, so a subsequent load
 // returns (name, true); an unknown key returns ("", false).
 func TestGroupNameCache(t *testing.T) {
+	const groupNameCacheTestDevice = "15550000001@s.whatsapp.net"
 	t.Run("store then load returns cached name", func(t *testing.T) {
 		// Use a JID unlikely to collide with other tests so a leftover entry from a
 		// prior run can't mask a regression.
 		jid := "cachetest-store@g.us"
-		setCachedGroupName(jid, "My Group")
-		name, ok := getCachedGroupName(jid)
+		setCachedGroupName(groupNameCacheTestDevice, jid, "My Group")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, jid)
 		if !ok || name != "My Group" {
 			t.Fatalf("expected ('My Group', true), got (%q, %v)", name, ok)
 		}
 	})
 
 	t.Run("unknown key returns empty and false", func(t *testing.T) {
-		name, ok := getCachedGroupName("cachetest-missing@g.us")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, "cachetest-missing@g.us")
 		if ok || name != "" {
 			t.Fatalf("expected ('', false) for unknown key, got (%q, %v)", name, ok)
 		}
@@ -1025,8 +1020,8 @@ func TestGroupNameCache(t *testing.T) {
 		// Storing an empty name is meaningful (it records "we tried and got nothing")
 		// — load must still return ok=true so callers don't re-fetch.
 		jid := "cachetest-empty@g.us"
-		setCachedGroupName(jid, "")
-		name, ok := getCachedGroupName(jid)
+		setCachedGroupName(groupNameCacheTestDevice, jid, "")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, jid)
 		if !ok || name != "" {
 			t.Fatalf("expected ('', true) for empty cached name, got (%q, %v)", name, ok)
 		}
