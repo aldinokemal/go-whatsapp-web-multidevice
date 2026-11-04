@@ -384,6 +384,49 @@ func TestExtractMediaInfoIncludesDirectPath(t *testing.T) {
 	}
 }
 
+func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+		filename  string
+		wantMime  string
+	}{
+		{name: "Image", mediaType: "image", filename: "image_20260101_120000_caption.jpg", wantMime: "image/jpeg"},
+		{name: "Video", mediaType: "video", filename: "video_20260101_120000.mp4", wantMime: "video/mp4"},
+		{name: "VideoNote", mediaType: "video_note", filename: "video_note_20260101_120000.mp4", wantMime: "video/mp4"},
+		{name: "Audio", mediaType: "audio", filename: "audio_20260101_120000.ogg", wantMime: "audio/mpeg"},
+		{name: "PTT", mediaType: "ptt", filename: "audio_20260101_120000.ogg", wantMime: "audio/ogg; codecs=opus"},
+		{name: "Sticker", mediaType: "sticker", filename: "", wantMime: "image/webp"},
+		{name: "Document", mediaType: "document", filename: "report.pdf", wantMime: "application/pdf"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := BuildDownloadableMessage(tt.mediaType, "https://mmg.whatsapp.net/ignored", "/v/t62/media.enc", tt.filename, []byte("k"), []byte("s"), []byte("e"), 1)
+			if err != nil {
+				t.Fatalf("BuildDownloadableMessage() error = %v", err)
+			}
+			withMime, ok := got.(interface{ GetMimetype() string })
+			if !ok {
+				t.Fatalf("message type %T has no mimetype", got)
+			}
+			if withMime.GetMimetype() != tt.wantMime {
+				t.Fatalf("mimetype = %q, want %q", withMime.GetMimetype(), tt.wantMime)
+			}
+			// ExtractMedia names the file from the original filename (documents
+			// only) and this mime type; an empty mime type left the file without
+			// an extension.
+			originalFilename := ""
+			if tt.mediaType == "document" {
+				originalFilename = tt.filename
+			}
+			if ext := determineMediaExtension(originalFilename, withMime.GetMimetype()); ext == "" {
+				t.Fatalf("determineMediaExtension() = %q, want a file extension", ext)
+			}
+		})
+	}
+}
+
 func TestBuildDownloadableMessageSetsDirectPath(t *testing.T) {
 	mediaKey := []byte("media-key")
 	fileSHA256 := []byte("file-sha")

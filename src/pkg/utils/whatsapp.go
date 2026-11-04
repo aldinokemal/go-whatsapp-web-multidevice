@@ -475,11 +475,17 @@ func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
 }
 
 // defaultForwardMimeType returns a mime type for stored media whose original
-// mime type was not persisted. WhatsApp transcodes media to fixed formats, so
-// per-type defaults are accurate except for documents, which are derived from
-// the stored filename.
+// mime type was not persisted.
 func defaultForwardMimeType(message *domainChatStorage.Message) string {
-	switch message.MediaType {
+	return defaultStoredMediaMimeType(message.MediaType, message.Filename)
+}
+
+// defaultStoredMediaMimeType returns a mime type for stored media whose
+// original mime type was not persisted. WhatsApp transcodes media to fixed
+// formats, so per-type defaults are accurate except for documents, which are
+// derived from the stored filename.
+func defaultStoredMediaMimeType(mediaType, filename string) string {
+	switch mediaType {
 	case "image":
 		return "image/jpeg"
 	case "video", "video_note":
@@ -491,7 +497,7 @@ func defaultForwardMimeType(message *domainChatStorage.Message) string {
 	case "sticker":
 		return "image/webp"
 	case "document":
-		ext := strings.ToLower(filepath.Ext(message.Filename))
+		ext := strings.ToLower(filepath.Ext(filename))
 		if mimeType, ok := knownDocumentMIMEByExtension[ext]; ok {
 			return mimeType
 		}
@@ -662,6 +668,9 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 // from stored chat media metadata.
 func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) (whatsmeow.DownloadableMessage, error) {
 	resolvedDirectPath := ResolveMediaDirectPath(directPath, mediaURL)
+	// The mime type is not persisted in chat storage. Without it, ExtractMedia
+	// cannot derive a file extension for anything but documents.
+	mimeType := proto.String(defaultStoredMediaMimeType(mediaType, filename))
 
 	switch mediaType {
 	case "image":
@@ -672,6 +681,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "video", "video_note":
 		return &waE2E.VideoMessage{
@@ -681,6 +691,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "audio", "ptt":
 		return &waE2E.AudioMessage{
@@ -690,6 +701,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "document":
 		return &waE2E.DocumentMessage{
@@ -699,6 +711,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 			FileName:      proto.String(filename),
 		}, nil
 	case "sticker":
@@ -709,6 +722,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
