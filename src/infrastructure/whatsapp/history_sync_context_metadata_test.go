@@ -48,7 +48,7 @@ func TestProcessHistorySyncPreservesContextMetadata(t *testing.T) {
 		{
 			name:            "direct reply",
 			message:         reply("direct-parent"),
-			contextMetadata: `{"replied_to_id":"direct-parent"}`,
+			contextMetadata: `{"replied_to_id":"direct-parent","replied_to_sender":"` + chatJID + `"}`,
 			content:         "historical reply",
 		},
 		{
@@ -56,7 +56,7 @@ func TestProcessHistorySyncPreservesContextMetadata(t *testing.T) {
 			message: &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{
 				Message: reply("ephemeral-parent"),
 			}},
-			contextMetadata: `{"replied_to_id":"ephemeral-parent"}`,
+			contextMetadata: `{"replied_to_id":"ephemeral-parent","replied_to_sender":"` + chatJID + `"}`,
 			content:         "historical reply",
 		},
 		{
