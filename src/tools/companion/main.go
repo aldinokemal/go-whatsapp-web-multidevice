@@ -105,6 +105,9 @@ func runAccounts(ctx context.Context, runner companion.Runner, accounts []compan
 			exit = 2
 		}
 		if ctx.Err() != nil {
+			// Remaining accounts were not processed, so the run is not a success
+			// even when this account's result was healthy.
+			exit = 2
 			break
 		}
 	}
