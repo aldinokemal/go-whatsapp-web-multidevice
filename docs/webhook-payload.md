@@ -22,8 +22,10 @@ The following events can be received via webhook:
 | `message.deleted`    | Messages deleted for the user                           |
 | `chat_presence`      | Typing and recording indicators from contacts           |
 | `presence`           | Online/offline status of subscribed contacts            |
+| `app_state`          | Chat archived, pinned, muted, cleared, deleted or saved |
+| `contact.update`     | Contact push name, picture, about or business name      |
 | `group.participants` | Group member join/leave/promote/demote events           |
-| `group.info`         | Group name (subject) changed                            |
+| `group.info`         | Group name, description, settings or picture changed    |
 | `group.joined`       | You were added to a group                               |
 | `label.edit`         | WhatsApp label metadata changed                         |
 | `label.association`  | Label applied to or removed from a chat                 |
@@ -32,9 +34,15 @@ The following events can be received via webhook:
 | `newsletter.message` | Live counter updates of a subscribed newsletter         |
 | `newsletter.mute`    | Newsletter mute setting changed                         |
 | `call.offer`         | Incoming call received                                  |
+| `call.accept`        | Call accepted                                           |
+| `call.terminate`     | Call ended                                              |
 | `device.logged_out`  | The device was logged out, with WhatsApp's reason       |
 | `device.temporary_ban` | WhatsApp temporarily banned the account               |
 | `device.reachout_timelock` | WhatsApp restricted the account from starting new chats |
+| `group.left`         | You left or were removed from a group                   |
+| `history.sync`       | Chat history sent to the device after pairing           |
+| `connection`         | Device paired                                           |
+| `qr`                 | Login QR code generated                                 |
 
 ## Event Filtering
 
@@ -62,10 +70,16 @@ WHATSAPP_WEBHOOK_EVENTS=label.edit,label.association
 WHATSAPP_WEBHOOK_EVENTS=newsletter.joined,newsletter.left,newsletter.message,newsletter.mute
 
 # Receive call events
-WHATSAPP_WEBHOOK_EVENTS=call.offer
+WHATSAPP_WEBHOOK_EVENTS=call.offer,call.accept,call.terminate
+
+# Receive presence, chat state and contact changes
+WHATSAPP_WEBHOOK_EVENTS=presence,app_state,contact.update
 
 # Receive device events
 WHATSAPP_WEBHOOK_EVENTS=device.logged_out,device.temporary_ban,device.reachout_timelock
+
+# Receive group changes, history and session events
+WHATSAPP_WEBHOOK_EVENTS=group.info,group.left,history.sync,connection,qr
 
 # Receive all group and newsletter events
 WHATSAPP_WEBHOOK_EVENTS=group.participants,group.info,group.joined,newsletter.joined,newsletter.left,newsletter.message
@@ -126,10 +140,12 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
   `@s.whatsapp.net` wildcard matches the **sender** too, so it also suppresses group messages (whose
   `from` is the participant's `@s.whatsapp.net` JID) — use exact JIDs if you only want to mute specific
   1:1 chats.
-- Note: a few events carry the group JID elsewhere or omit `chat_id` — `call.offer` puts the group in
-  `group_jid` (not `chat_id`), `message.deleted` only includes `chat_id` when the original message is
+- Note: a few events carry the group JID elsewhere or omit `chat_id` — `call.offer`, `call.accept` and
+  `call.terminate` put the group in `group_jid` (not `chat_id`), `message.deleted` only includes `chat_id` when the original message is
   found locally, and `group.participants`/`group.info`/`group.joined` have no `from`. The `@g.us` wildcard still
   covers ordinary group messages and receipts (which is the common case for muting groups).
+- `history.sync` drops the ignored chats and senders from its `conversations` instead of skipping the whole event.
+  `connection` and `qr` carry no chat, so the list never filters them.
 
 ## Security
 
@@ -197,7 +213,7 @@ All webhook payloads follow a consistent top-level structure:
 
 | **Field**    | **Type** | **Description**                                                                                                     |
 |--------------|----------|---------------------------------------------------------------------------------------------------------------------|
-| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `group.participants`, `group.info`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer`, `device.logged_out`, `device.temporary_ban`, `device.reachout_timelock` |
+| `event`      | string   | Event type: `message`, `message.reaction`, `message.revoked`, `message.edited`, `message.ack`, `message.deleted`, `chat_presence`, `presence`, `app_state`, `contact.update`, `group.participants`, `group.info`, `group.joined`, `label.edit`, `label.association`, `newsletter.joined`, `newsletter.left`, `newsletter.message`, `newsletter.mute`, `call.offer`, `call.accept`, `call.terminate`, `device.logged_out`, `device.temporary_ban`, `device.reachout_timelock`, `group.left`, `history.sync`, `connection`, `qr` |
 | `device_id`  | string   | JID of the device that received this event (e.g., `628123456789@s.whatsapp.net`)                                    |
 | `session_id` | string   | ID of the emitting slot. Device events always set this field; auto-created slots may use a WhatsApp JID. Other events may omit it when the JID cannot be mapped to a session. |
 | `payload`    | object   | Event-specific payload data                                                                                         |
@@ -459,6 +475,9 @@ are disabled in privacy settings) are forwarded from any of its devices, so open
 another linked device is reported just like opening it on the phone. For these, `payload.from` is the account's own JID
 (without the device suffix) and `payload.ids` are the IDs of the incoming messages that were read.
 
+Played receipts for voice notes and view-once media (`"played"`, or `"played-self"` when read receipts are disabled)
+are forwarded the same way: from the primary device of a contact, and from any of the current account's own devices.
+
 Set `WHATSAPP_WEBHOOK_ALL_DEVICE_RECEIPTS=true` or `--webhook-all-device-receipts=true` to also forward
 contacts' linked-device receipts, including when their primary phone is offline. The flag overrides the environment
 setting, including an explicit `--webhook-all-device-receipts=false`. This opt-in can produce duplicate or out-of-order
@@ -718,10 +737,134 @@ Triggered when a chat-level label is applied to or removed from a chat.
 | `payload.chat_id`        | string   | Chat JID associated with the label on `label.association`                         |
 | `payload.chat_lid`       | string   | Original LID chat identifier when WhatsApp supplied a LID before normalization    |
 
+## App State Events
+
+App state events are triggered when a chat is archived, pinned, muted, cleared or deleted, or a contact is saved, from
+another device of the same account. They use the `app_state` event type, with `payload.action` telling which change
+happened. The full app state sync that runs right after pairing replays the current state of every chat; those
+replayed entries are not forwarded, only later changes are.
+
+### Chat Archived
+
+`value` is `true` when the chat was archived and `false` when it was unarchived. `pin` works the same way.
+
+```json
+{
+  "event": "app_state",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:05:00Z",
+  "payload": {
+    "action": "archive",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "value": true
+  }
+}
+```
+
+### Chat Muted
+
+```json
+{
+  "event": "app_state",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:05:00Z",
+  "payload": {
+    "action": "mute",
+    "chat_id": "120363402106XXXXX@g.us",
+    "value": true,
+    "until": "2026-01-22T20:05:00Z"
+  }
+}
+```
+
+### Contact Saved
+
+```json
+{
+  "event": "app_state",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:05:00Z",
+  "payload": {
+    "action": "contact",
+    "chat_id": "628987654321@s.whatsapp.net",
+    "contact": {
+      "full_name": "John Doe",
+      "first_name": "John"
+    }
+  }
+}
+```
+
+### App State Event Fields
+
+| **Field**                    | **Type** | **Description**                                                                         |
+|------------------------------|----------|-----------------------------------------------------------------------------------------|
+| `event`                      | string   | Always `"app_state"`                                                                    |
+| `device_id`                  | string   | JID of the device that received this event                                              |
+| `timestamp`                  | string   | RFC3339 formatted timestamp of the change                                               |
+| `payload.action`             | string   | `"archive"`, `"pin"`, `"mute"`, `"clear"`, `"delete_chat"` or `"contact"`               |
+| `payload.chat_id`            | string   | Chat JID the change applies to                                                          |
+| `payload.chat_lid`           | string   | Original LID chat identifier when WhatsApp supplied a LID before normalization          |
+| `payload.value`              | boolean  | New archived, pinned or muted state (`archive`, `pin` and `mute` only)                  |
+| `payload.until`              | string   | RFC3339 time the mute ends (`mute` only); omitted when muted forever or unmuted         |
+| `payload.contact.full_name`  | string   | Full name saved for the contact (`contact` only)                                        |
+| `payload.contact.first_name` | string   | First name saved for the contact (`contact` only)                                       |
+
+## Contact Update Events
+
+Contact update events are triggered when WhatsApp reports a change to a contact's profile. They use the
+`contact.update` event type, with `payload.kind` telling which field changed.
+
+### Push Name Changed
+
+```json
+{
+  "event": "contact.update",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:06:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "kind": "push_name",
+    "push_name": "John"
+  }
+}
+```
+
+### Profile Picture Removed
+
+```json
+{
+  "event": "contact.update",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:06:00Z",
+  "payload": {
+    "from": "628987654321@s.whatsapp.net",
+    "kind": "picture",
+    "picture_removed": true
+  }
+}
+```
+
+### Contact Update Event Fields
+
+| **Field**                 | **Type** | **Description**                                                                   |
+|---------------------------|----------|-----------------------------------------------------------------------------------|
+| `event`                   | string   | Always `"contact.update"`                                                         |
+| `device_id`               | string   | JID of the device that received this event                                        |
+| `timestamp`               | string   | RFC3339 formatted timestamp of the change, or processing time when unknown        |
+| `payload.from`            | string   | JID of the contact (or group, for `picture`)                                      |
+| `payload.from_lid`        | string   | LID of the contact (only when WhatsApp sent a LID)                                |
+| `payload.kind`            | string   | `"push_name"`, `"picture"`, `"about"` or `"business_name"`                        |
+| `payload.push_name`       | string   | New push name (`push_name` only)                                                  |
+| `payload.about`           | string   | New about text (`about` only)                                                     |
+| `payload.business_name`   | string   | New verified business name (`business_name` only)                                 |
+| `payload.picture_removed` | boolean  | `true` when the picture was removed (`picture` only); omitted when it was changed |
+
 ## Group Events
 
 Group events are triggered when group metadata changes. Member join/leave events and admin promotions/demotions use the
-`group.participants` event type. Group name (subject) changes use the `group.info` event type.
+`group.participants` event type. Group name (subject), description, settings and picture changes use the `group.info`
+event type. When the current account leaves a group or is removed from it, `group.left` is sent as well.
 
 ### Group Member Join
 
@@ -837,6 +980,71 @@ Triggered when a group's name (subject) is changed, by any participant or by thi
 | `payload.chat_id`     | string   | Group identifier (e.g., `"120363402106XXXXX@g.us"`)                                       |
 | `payload.name`        | string   | The new group name                                                                        |
 | `payload.name_set_by` | string   | JID of the user who changed the name, resolved from LID to phone number when possible. Omitted when WhatsApp does not say who changed it |
+
+### Group Settings Change
+
+Triggered when a group's description, announce mode, edit lock, disappearing messages timer or picture changes. This
+event also uses the `group.info` event type, and its payload only carries the settings that changed; a setting turned
+off is still sent (`false` or `0`). Name changes keep coming as the [Group Name Change](#group-name-change) event: when
+one update changes the name and other settings, the name comes in that event and the other settings in this one.
+
+```json
+{
+  "event": "group.info",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "sender": "628987654321@s.whatsapp.net",
+    "topic": "Weekly sync on Mondays",
+    "announce": true
+  }
+}
+```
+
+A picture change carries `picture_changed` instead of the settings:
+
+```json
+{
+  "event": "group.info",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "sender": "628987654321@s.whatsapp.net",
+    "picture_changed": true
+  }
+}
+```
+
+| **Field**                   | **Type** | **Description**                                                            |
+|-----------------------------|----------|----------------------------------------------------------------------------|
+| `payload.chat_id`           | string   | Group identifier                                                           |
+| `payload.sender`            | string   | JID of the user who made the change; omitted when WhatsApp does not say    |
+| `payload.topic`             | string   | New group description (`""` when it was removed)                           |
+| `payload.announce`          | boolean  | Whether only admins can send messages                                      |
+| `payload.locked`            | boolean  | Whether only admins can edit the group info                                |
+| `payload.ephemeral_seconds` | integer  | Disappearing messages timer in seconds (`0` when turned off)               |
+| `payload.picture_changed`   | boolean  | `true` when the group picture was changed or removed                       |
+
+### Group Left
+
+Triggered, as `group.left`, when the current account leaves a group or is removed from it. It is sent in addition to
+the `group.participants` event of type `leave`.
+
+```json
+{
+  "event": "group.left",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "chat_id": "120363402106XXXXX@g.us",
+    "sender": "628987654321@s.whatsapp.net"
+  }
+}
+```
+
+`payload.sender` is the user who removed the account, or the account itself when it left; it is omitted when unknown.
 
 ## Newsletter Events
 
@@ -988,20 +1196,59 @@ When `WHATSAPP_AUTO_REJECT_CALL=true`, calls are automatically rejected and the 
 }
 ```
 
+### Call Accept
+
+Triggered when a call is accepted.
+
+```json
+{
+  "event": "call.accept",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-02-05T12:00:05Z",
+  "payload": {
+    "call_id": "ABC123DEF456",
+    "from": "628987654321@s.whatsapp.net"
+  }
+}
+```
+
+### Call Terminate
+
+Triggered when a call ends.
+
+```json
+{
+  "event": "call.terminate",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-02-05T12:03:00Z",
+  "payload": {
+    "call_id": "ABC123DEF456",
+    "from": "628987654321@s.whatsapp.net",
+    "group_jid": "120363402106XXXXX@g.us",
+    "reason": "timeout"
+  }
+}
+```
+
 ### Call Event Fields
+
+`call.accept` and `call.terminate` carry `call_id`, `from`, `from_lid` and `group_jid`; `call.terminate` also carries
+`reason`. The other fields below are only sent on `call.offer`.
 
 | **Field**                 | **Type** | **Description**                                            |
 |---------------------------|----------|------------------------------------------------------------|
-| `event`                   | string   | Always `"call.offer"` for call events                      |
+| `event`                   | string   | `"call.offer"`, `"call.accept"` or `"call.terminate"`      |
 | `device_id`               | string   | JID of the device that received this event                 |
 | `timestamp`               | string   | RFC3339 formatted timestamp when the call was received     |
 | `payload.call_id`         | string   | Unique identifier for the call                             |
 | `payload.from`            | string   | JID of the caller                                          |
+| `payload.from_lid`        | string   | LID of the caller (only when WhatsApp sent a LID)          |
 | `payload.sender_display_name` | string | Dynamic sender label when `payload.from` is non-empty      |
 | `payload.auto_rejected`   | boolean  | Whether the call was auto-rejected                         |
 | `payload.remote_platform` | string   | Platform of the caller (e.g., `"android"`, `"ios"`)        |
 | `payload.remote_version`  | string   | WhatsApp version of the caller                             |
 | `payload.group_jid`       | string   | Group JID if this is a group call (optional)               |
+| `payload.reason`          | string   | Why the call ended (`call.terminate` only, when known)     |
 
 ### Configuration
 
@@ -1221,6 +1468,118 @@ reports the restriction as no longer active.
 | `payload.is_active`          | boolean  | Reach-out timelock: whether the restriction is in force                                                             |
 | `payload.enforcement_type`   | string   | Reach-out timelock: WhatsApp's enforcement type, passed through unchanged; omitted when empty                       |
 | `payload.ends_at`            | string   | Reach-out timelock: RFC3339 time the restriction ends; omitted when WhatsApp gave none                              |
+
+## History Sync Events
+
+After pairing, and later when older messages are requested, WhatsApp sends the chat history to the new device. Each
+batch is forwarded as `history.sync`. Every message in it has exactly the payload of the [`message`](#message-events)
+event; edits, revocations, reactions and other protocol messages are left out, and so are status and broadcast
+chats, as for live messages. Chats and senders matched by `WHATSAPP_WEBHOOK_IGNORE_JIDS` are left out too.
+
+Like the `message` event, history messages follow `WHATSAPP_AUTO_DOWNLOAD_MEDIA`: when it is enabled, their media is
+downloaded while the event is built. The history is only built when at least one webhook takes `history.sync`
+(see [Event Filtering](#event-filtering)), so a device without such a webhook never parses or downloads it.
+
+A large batch is split into several `history.sync` events, each with at most 500 messages and a JSON body under
+900 KB, sent one after the other. A conversation can continue in the next event, repeating `chat_id` and `name`. A single
+message larger than that limit is sent alone in its own event.
+
+The events split from one WhatsApp batch arrive in order, but events from different batches can arrive out of
+order. Use `sync_type` and `progress` to track the overall sync instead of relying on arrival order.
+
+```json
+{
+  "event": "history.sync",
+  "device_id": "628123456789@s.whatsapp.net",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "sync_type": "RECENT",
+    "progress": 42,
+    "conversations": [
+      {
+        "chat_id": "628987654321@s.whatsapp.net",
+        "name": "John Doe",
+        "messages": [
+          {
+            "id": "3EB0C127D7BACC83D6A1",
+            "chat_id": "628987654321@s.whatsapp.net",
+            "from": "628987654321@s.whatsapp.net",
+            "from_name": "John Doe",
+            "sender_display_name": "John Doe",
+            "timestamp": "2026-01-20T09:15:00Z",
+            "is_from_me": false,
+            "body": "Hello"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+| **Field**                            | **Type** | **Description**                                                                     |
+|--------------------------------------|----------|-------------------------------------------------------------------------------------|
+| `event`                              | string   | Always `"history.sync"`                                                             |
+| `payload.sync_type`                  | string   | WhatsApp sync type, e.g. `"INITIAL_BOOTSTRAP"`, `"RECENT"`, `"FULL"`, `"ON_DEMAND"` |
+| `payload.progress`                   | integer  | Sync progress reported by WhatsApp (0-100); omitted when not reported               |
+| `payload.conversations[].chat_id`    | string   | Chat identifier                                                                     |
+| `payload.conversations[].name`       | string   | Chat name as sent by WhatsApp; omitted when empty                                   |
+| `payload.conversations[].messages[]` | object   | Same payload as the `message` event                                                 |
+
+## Connection Events
+
+A `connection` event is sent when a device finishes pairing. It always carries `session_id` when the device belongs
+to a session. Logouts and temporary bans are reported by the [device events](#device-events).
+
+### Pair Success
+
+```json
+{
+  "event": "connection",
+  "device_id": "628123456789@s.whatsapp.net",
+  "session_id": "org_2",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "state": "pair_success",
+    "phone": "628123456789@s.whatsapp.net"
+  }
+}
+```
+
+### Connection Event Fields
+
+| **Field**            | **Type** | **Description**                                                                                     |
+|----------------------|----------|-----------------------------------------------------------------------------------------------------|
+| `event`              | string   | Always `"connection"`                                                                               |
+| `device_id`          | string   | JID of the device that was paired                                                                   |
+| `session_id`         | string   | Session ID registered via `POST /devices`                                                           |
+| `payload.state`      | string   | Always `"pair_success"`                                                                             |
+| `payload.phone`      | string   | JID of the number that was paired                                                                   |
+
+## QR Events
+
+Every QR code generated by the QR login (`GET /app/login`) is forwarded as a `qr` event, including the codes that replace an
+expired one and the codes of a new login after a logout. Before pairing the device has no JID, so `device_id` is
+omitted and `session_id` identifies the session. Per-device webhooks are looked up by that JID, so `qr` events are
+delivered only to the global webhooks (`WHATSAPP_WEBHOOK`), never to a per-device webhook.
+
+```json
+{
+  "event": "qr",
+  "session_id": "org_2",
+  "timestamp": "2026-01-22T12:00:00Z",
+  "payload": {
+    "code": "2@Xk3...,Lq9...,Bf1...,AQ...",
+    "timeout_seconds": 60
+  }
+}
+```
+
+| **Field**                 | **Type** | **Description**                                         |
+|---------------------------|----------|---------------------------------------------------------|
+| `event`                   | string   | Always `"qr"`                                           |
+| `payload.code`            | string   | Raw QR code content, to be rendered as a QR image       |
+| `payload.timeout_seconds` | integer  | Seconds until this code expires and the next one is sent |
 
 ## Media Messages
 

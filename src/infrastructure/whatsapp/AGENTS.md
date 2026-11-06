@@ -15,7 +15,7 @@ This package owns clients, device lifecycle, JIDs, events, presence, and forward
   [the payload contract](../../../docs/webhook-payload.md) for payload changes.
   Keep work bounded and failures observable without blocking the event loop.
   Preserve the `shouldForwardReceipt` guard: contacts' linked-device receipts stay
-  dropped to prevent duplicates; only the account's own read receipts pass from any device.
+  dropped to prevent duplicates; only the account's own read and played receipts pass from any device.
   Device events (`event_device.go`) take the webhook config by stable slot ID with a
   bounded context-aware SQL lookup. They capture the session id before returning,
   since `handleLoggedOut` forwards
