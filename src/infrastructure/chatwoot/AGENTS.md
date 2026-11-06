@@ -21,7 +21,9 @@ Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
   history sync, any catch-up) decides ignoring through `ShouldIgnoreMessage` in
   `ignore.go`, with the chat and sender in both phone-JID and LID form and the list
   from `EffectiveIgnoreJids`. Do not add a second matcher. Read receipts and hard
-  deletes of already linked messages deliberately run before that check.
+  deletes of already linked messages deliberately run before that check. The live
+  forward fills missing forms from the routed device's LID store first
+  (`chatwootRoutedIdentity`); never from the global client or another device.
 - Install the client registry before starting the persistent forward-retry worker
   in `../whatsapp/webhook_forward.go`.
 - Private contacts use normalized phone lookup; groups and unresolved `@lid`
