@@ -698,9 +698,16 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
 
-	// Interactive messages carry the same summary as body, but it has always
-	// been forwarded without the markdown pass below.
-	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+	// A poll creation or edit is rendered with its options: the webhook body
+	// ("Poll: <question>") leaves them out, so the agent could not see the
+	// choices. An edit that failed to decrypt lists the stored, pre-edit
+	// options, so it keeps its body below like votes and added options.
+	if poll := chatwootPollFromPayload(data); poll != nil &&
+		(poll.Type == "creation" || (poll.Type == "edit" && poll.ResolutionStatus == "")) {
+		content = formatChatwootPoll(poll)
+	} else if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+		// Interactive messages carry the same summary as body, but it has always
+		// been forwarded without the markdown pass below.
 		content = interactive
 	} else if body, ok := data["body"].(string); ok && body != "" {
 		// Translate WhatsApp formatting (*bold*, _italic_, ~strike~) into the
@@ -912,6 +919,48 @@ func chatwootMessageTypeFromPayload(data map[string]any) string {
 		return "outgoing"
 	}
 	return "incoming"
+}
+
+// chatwootPollFromPayload reads data["poll"] in both shapes it reaches the
+// forwarder in: *webhookPollPayload live, a JSON map after the retry queue.
+func chatwootPollFromPayload(data map[string]any) *webhookPollPayload {
+	switch v := data["poll"].(type) {
+	case *webhookPollPayload:
+		return v
+	case map[string]any:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		var poll webhookPollPayload
+		if json.Unmarshal(raw, &poll) != nil {
+			return nil
+		}
+		return &poll
+	}
+	return nil
+}
+
+// formatChatwootPoll renders a poll creation or edit for Chatwoot. Question and
+// options go through WhatsAppToChatwootMarkdown one by one, like a message body,
+// so WhatsApp emphasis survives without pairing markers across lines.
+func formatChatwootPoll(poll *webhookPollPayload) string {
+	var sb strings.Builder
+	sb.WriteString("📊 Poll")
+	if poll.Type == "edit" {
+		sb.WriteString(" edited")
+	}
+	if poll.Question != "" {
+		sb.WriteString(": ")
+		sb.WriteString(utils.WhatsAppToChatwootMarkdown(poll.Question))
+	}
+	for _, opt := range poll.Options {
+		if opt.Name != "" {
+			sb.WriteString("\n• ")
+			sb.WriteString(utils.WhatsAppToChatwootMarkdown(opt.Name))
+		}
+	}
+	return sb.String()
 }
 
 func extractStructuredMessageContent(data map[string]any) string {
