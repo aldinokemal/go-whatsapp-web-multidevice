@@ -1909,6 +1909,8 @@ enabled:
 When a user taps a button, picks a list row, answers a template button or submits a native flow, the `message` event
 carries an `interactive_reply` object next to the [`selection`](#list--button-reply) object. It adds the native-flow
 `name` and raw `response_json`. When no text `body` is present, `body` is set to the reply's `title`.
+The existing `selection.kind` values `buttons`, `template`, and `interactive` correspond to `interactive_reply.kind`
+values `button`, `template_button`, and `native_flow`. The `list` value stays the same.
 
 ```json
 {
@@ -1957,6 +1959,7 @@ Order messages keep the existing `order` object, which mirrors the WhatsApp `Ord
     "from": "628123456789@s.whatsapp.net",
     "timestamp": "2023-10-15T12:07:00Z",
     "is_from_me": false,
+    "body": "Order: Jane's Store\nI'd like these, please",
     "order": {
       "orderID": "1234567890",
       "orderTitle": "Jane's Store",
