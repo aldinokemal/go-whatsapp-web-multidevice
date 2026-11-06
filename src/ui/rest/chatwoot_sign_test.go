@@ -43,8 +43,9 @@ func (r *signTestRepo) GetLatestChatwootMessageLinkByConversation(int, int, bool
 // TestAgentReplySignatureFollowsDeviceConfig drives an agent reply through the
 // webhook handlers and checks the text handed to the send usecase: the sending
 // device's sign_msg wins over CHATWOOT_SIGN_MSG, an unset sign_msg inherits
-// it, and a disabled config keeps its setting for replies that still route
-// through a stored conversation link.
+// it. A disabled config sends nothing at all, signed or not: the route gate
+// refuses delivery before the text is composed, also for a reply that still
+// routes through a stored conversation link.
 func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 	prevUnsigned := config.ChatwootWebhookAllowUnsigned
 	config.ChatwootWebhookAllowUnsigned = true
@@ -59,10 +60,13 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 		signMsg *bool
 		enabled bool
 		path    string
-		want    string
+		want    string // "" = nothing may be sent
+		status  int    // 0 = 200
 	}{
 		{name: "device off beats global on", signMsg: &off, enabled: true, path: "/chatwoot/webhook/dev", want: "Hello"},
 		{name: "unset inherits global on", signMsg: nil, enabled: true, path: "/chatwoot/webhook/dev", want: "*Jane*\n\nHello"},
+		{name: "disabled config sends nothing on the device endpoint", signMsg: &off, enabled: false, path: "/chatwoot/webhook/dev"},
+		{name: "disabled config sends nothing through a stored link", signMsg: nil, enabled: false, path: "/chatwoot/webhook", status: fiber.StatusUnauthorized}, // refused at authentication
 	}
 
 	for _, tt := range tests {
@@ -101,8 +105,18 @@ func TestAgentReplySignatureFollowsDeviceConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("app.Test: %v", err)
 			}
-			if resp.StatusCode != fiber.StatusOK {
-				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			wantStatus := tt.status
+			if wantStatus == 0 {
+				wantStatus = fiber.StatusOK
+			}
+			if resp.StatusCode != wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, wantStatus)
+			}
+			if tt.want == "" {
+				if len(sender.sent) != 0 {
+					t.Fatalf("sent text = %q, want nothing sent for a disabled config", sender.sent)
+				}
+				return
 			}
 			if len(sender.sent) != 1 || sender.sent[0] != tt.want {
 				t.Fatalf("sent text = %q, want [%q]", sender.sent, tt.want)
@@ -152,6 +166,11 @@ type failingSignConfigRepo struct {
 }
 
 func (r *failingSignConfigRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	r.lookups++
+	return nil, errors.New("database is locked")
+}
+
+func (r *failingSignConfigRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
 	r.lookups++
 	return nil, errors.New("database is locked")
 }
@@ -209,12 +228,17 @@ func TestAgentReplyConfigFailureRefusesDelivery(t *testing.T) {
 // regression above separately verifies the earlier authentication failure gate.
 func TestSignatureCompositionDoesNotBorrowGlobalOnLookupFailure(t *testing.T) {
 	withSignConfig(t, true, "\n\n")
-	chatwoot.InitClientRegistry(nil)
-	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
 	repo := &failingSignConfigRepo{}
+	chatwoot.InitClientRegistry(repo)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
 	handler := &ChatwootHandler{ChatStorageRepo: repo}
 	payload := chatwoot.WebhookPayload{Content: "Hello", Sender: chatwoot.Contact{Name: "Jane"}}
-	if got := composeOutgoingText(payload, handler.signConfigForDevice("dev")); got != "Hello" {
-		t.Fatalf("composed text = %q, want unsigned text", got)
+	for name, route := range map[string]chatwootWebhookRoute{
+		"route config id": {DeviceID: "dev", ConfigID: 1},
+		"device registry": {DeviceID: "dev"},
+	} {
+		if got := composeOutgoingText(payload, handler.signConfigForDevice(route, "dev")); got != "Hello" {
+			t.Fatalf("%s: composed text = %q, want unsigned text", name, got)
+		}
 	}
 }
