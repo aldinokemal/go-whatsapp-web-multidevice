@@ -832,3 +832,32 @@ func TestExtractContextInfoInteractiveMessage(t *testing.T) {
 		}
 	})
 }
+
+// TestExtractContextInfoOtherMessageTypes pins the remaining message types that
+// carry their own ContextInfo, so replies, mentions, forwarding and ad
+// attribution are not lost when a customer answers a button, list or template,
+// or sends a poll, contact list, group invite or event.
+func TestExtractContextInfoOtherMessageTypes(t *testing.T) {
+	ci := &waE2E.ContextInfo{StanzaID: proto.String("ABC123")}
+	tests := map[string]*waE2E.Message{
+		"buttons response":      {ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{ContextInfo: ci}},
+		"list response":         {ListResponseMessage: &waE2E.ListResponseMessage{ContextInfo: ci}},
+		"template button reply": {TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{ContextInfo: ci}},
+		"interactive response":  {InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{ContextInfo: ci}},
+		"contacts array":        {ContactsArrayMessage: &waE2E.ContactsArrayMessage{ContextInfo: ci}},
+		"buttons":               {ButtonsMessage: &waE2E.ButtonsMessage{ContextInfo: ci}},
+		"list":                  {ListMessage: &waE2E.ListMessage{ContextInfo: ci}},
+		"template":              {TemplateMessage: &waE2E.TemplateMessage{ContextInfo: ci}},
+		"product":               {ProductMessage: &waE2E.ProductMessage{ContextInfo: ci}},
+		"order":                 {OrderMessage: &waE2E.OrderMessage{ContextInfo: ci}},
+		"group invite":          {GroupInviteMessage: &waE2E.GroupInviteMessage{ContextInfo: ci}},
+		"event":                 {EventMessage: &waE2E.EventMessage{ContextInfo: ci}},
+		"poll v3":               {PollCreationMessageV3: &waE2E.PollCreationMessage{ContextInfo: ci}},
+		"poll v4":               {PollCreationMessageV4: &waE2E.FutureProofMessage{Message: &waE2E.Message{PollCreationMessage: &waE2E.PollCreationMessage{ContextInfo: ci}}}},
+	}
+	for name, msg := range tests {
+		if got := ExtractContextInfo(msg).GetStanzaID(); got != "ABC123" {
+			t.Errorf("%s: StanzaID = %q, want %q", name, got, "ABC123")
+		}
+	}
+}
