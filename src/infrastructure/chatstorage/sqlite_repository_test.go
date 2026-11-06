@@ -74,6 +74,11 @@ func TestGetReactionForEvent(t *testing.T) {
 	if err != nil || stored == nil || stored.Emoji != "👍" {
 		t.Fatalf("stored reaction = %+v, error = %v", stored, err)
 	}
+	otherChatEvent := *evt
+	otherChatEvent.Info.Chat = types.NewJID("120363000000002", types.GroupServer)
+	if stored, err = repo.GetReactionForEvent(ctx, &otherChatEvent); err != nil || stored != nil {
+		t.Fatalf("other chat reaction = %+v, error = %v", stored, err)
+	}
 	otherCtx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("device-b", nil, repo))
 	if stored, err = repo.GetReactionForEvent(otherCtx, evt); err != nil || stored != nil {
 		t.Fatalf("other device reaction = %+v, error = %v", stored, err)

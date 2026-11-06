@@ -2708,8 +2708,8 @@ func (r *SQLiteRepository) GetReactionForEvent(ctx context.Context, evt *events.
 		SELECT message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
 			reaction_timestamp, created_at, updated_at
 		FROM message_reactions
-		WHERE message_id = ? AND reactor_jid = ? AND device_id = ?
-	`, target.MessageID, target.ReactorJID, target.DeviceID).Scan(
+		WHERE message_id = ? AND chat_jid = ? AND reactor_jid = ? AND device_id = ?
+	`, target.MessageID, target.ChatJID, target.ReactorJID, target.DeviceID).Scan(
 		&stored.MessageID, &stored.ChatJID, &stored.DeviceID, &stored.ReactorJID,
 		&stored.Emoji, &stored.IsFromMe, &stored.Timestamp, &stored.CreatedAt, &stored.UpdatedAt,
 	)
