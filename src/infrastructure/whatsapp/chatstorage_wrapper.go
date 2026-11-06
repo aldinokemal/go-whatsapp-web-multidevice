@@ -45,6 +45,10 @@ func (r *deviceChatStorage) CreateReaction(ctx context.Context, evt *events.Mess
 	return r.base.CreateReaction(ctx, evt)
 }
 
+func (r *deviceChatStorage) GetReactionForEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	return r.base.GetReactionForEvent(ctx, evt)
+}
+
 func (r *deviceChatStorage) CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error {
 	return r.base.CreateIncomingCallRecord(ctx, evt, autoRejected)
 }
