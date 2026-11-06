@@ -73,6 +73,72 @@ func ExtractMediaMetadata(msg *waE2E.Message) map[string]any {
 	return info
 }
 
+// ExtractInteractiveReply extracts the user's answer to a buttons, list,
+// template button or native flow message. Returns nil when the message is not
+// an interactive reply.
+func ExtractInteractiveReply(msg *waE2E.Message) map[string]any {
+	msg = UnwrapMessage(msg)
+	reply := make(map[string]any)
+
+	switch {
+	case msg.GetButtonsResponseMessage() != nil:
+		buttons := msg.GetButtonsResponseMessage()
+		reply["kind"] = "button"
+		putNonEmptyString(reply, "id", buttons.GetSelectedButtonID())
+		putNonEmptyString(reply, "title", buttons.GetSelectedDisplayText())
+	case msg.GetListResponseMessage() != nil:
+		list := msg.GetListResponseMessage()
+		reply["kind"] = "list"
+		putNonEmptyString(reply, "id", list.GetSingleSelectReply().GetSelectedRowID())
+		putNonEmptyString(reply, "title", list.GetTitle())
+		putNonEmptyString(reply, "description", list.GetDescription())
+	case msg.GetTemplateButtonReplyMessage() != nil:
+		template := msg.GetTemplateButtonReplyMessage()
+		reply["kind"] = "template_button"
+		putNonEmptyString(reply, "id", template.GetSelectedID())
+		putNonEmptyString(reply, "title", template.GetSelectedDisplayText())
+	case msg.GetInteractiveResponseMessage().GetNativeFlowResponseMessage() != nil:
+		interactive := msg.GetInteractiveResponseMessage()
+		nativeFlow := interactive.GetNativeFlowResponseMessage()
+		reply["kind"] = "native_flow"
+		putNonEmptyString(reply, "name", nativeFlow.GetName())
+		putNonEmptyString(reply, "response_json", nativeFlow.GetParamsJSON())
+		putNonEmptyString(reply, "title", interactive.GetBody().GetText())
+	default:
+		return nil
+	}
+
+	return reply
+}
+
+// ExtractOrder extracts the identifying fields and totals of an order message.
+// Returns nil when the message carries no order data.
+func ExtractOrder(msg *waE2E.Message) map[string]any {
+	orderMessage := UnwrapMessage(msg).GetOrderMessage()
+	if orderMessage == nil {
+		return nil
+	}
+
+	order := make(map[string]any)
+	putNonEmptyString(order, "order_id", orderMessage.GetOrderID())
+	putNonEmptyString(order, "title", orderMessage.GetOrderTitle())
+	putNonEmptyString(order, "message", orderMessage.GetMessage())
+	if itemCount := orderMessage.GetItemCount(); itemCount != 0 {
+		order["item_count"] = itemCount
+	}
+	if totalAmount := orderMessage.GetTotalAmount1000(); totalAmount != 0 {
+		order["total_amount_1000"] = totalAmount
+	}
+	putNonEmptyString(order, "currency", orderMessage.GetTotalCurrencyCode())
+	putNonEmptyString(order, "seller_jid", orderMessage.GetSellerJID())
+	putNonEmptyString(order, "token", orderMessage.GetToken())
+
+	if len(order) == 0 {
+		return nil
+	}
+	return order
+}
+
 func putVideoFields(info map[string]any, video *waE2E.VideoMessage) {
 	putMediaFileFields(info, video.GetMimetype(), video.GetFileLength(), video.GetFileSHA256())
 	putNonZeroUint32(info, "width", video.GetWidth())

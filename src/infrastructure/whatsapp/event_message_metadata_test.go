@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -171,4 +172,173 @@ type warnCountingLogger struct {
 
 func (l *warnCountingLogger) Warnf(string, ...any) {
 	l.warns++
+}
+
+func interactiveTestEvent(id string, msg *waE2E.Message) *events.Message {
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   types.NewJID("5541988887777", types.DefaultUserServer),
+				Sender: types.NewJID("5541988887777", types.DefaultUserServer),
+			},
+			ID:        id,
+			Timestamp: time.Date(2026, time.October, 22, 10, 0, 0, 0, time.UTC),
+		},
+		Message: msg,
+	}
+}
+
+func TestBuildEventPayloadAddsInteractiveReply(t *testing.T) {
+	tests := []struct {
+		name      string
+		msg       *waE2E.Message
+		wantReply map[string]any
+		wantBody  string
+	}{
+		{
+			name: "button",
+			msg: &waE2E.Message{ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{
+				SelectedButtonID: proto.String("b1"),
+				Response:         &waE2E.ButtonsResponseMessage_SelectedDisplayText{SelectedDisplayText: "Sim"},
+			}},
+			wantReply: map[string]any{"kind": "button", "id": "b1", "title": "Sim"},
+			wantBody:  "Sim",
+		},
+		{
+			name: "list",
+			msg: &waE2E.Message{ListResponseMessage: &waE2E.ListResponseMessage{
+				Title:             proto.String("Plano"),
+				SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{SelectedRowID: proto.String("r2")},
+			}},
+			wantReply: map[string]any{"kind": "list", "id": "r2", "title": "Plano"},
+			wantBody:  "Plano",
+		},
+		{
+			name: "template button",
+			msg: &waE2E.Message{TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{
+				SelectedID:          proto.String("t1"),
+				SelectedDisplayText: proto.String("Ok"),
+			}},
+			wantReply: map[string]any{"kind": "template_button", "id": "t1", "title": "Ok"},
+			wantBody:  "Ok",
+		},
+		{
+			name: "native flow",
+			msg: &waE2E.Message{InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+				InteractiveResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage_{
+					NativeFlowResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage{
+						Name:       proto.String("flow"),
+						ParamsJSON: proto.String("{}"),
+					},
+				},
+				Body: &waE2E.InteractiveResponseMessage_Body{Text: proto.String("Enviado")},
+			}},
+			wantReply: map[string]any{"kind": "native_flow", "name": "flow", "response_json": "{}", "title": "Enviado"},
+			wantBody:  "Enviado",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventType, payload, err := buildEventPayload(context.Background(), nil, interactiveTestEvent("MSG910", tt.msg))
+			require.NoError(t, err)
+			assert.Equal(t, EventTypeMessage, eventType)
+			assert.Equal(t, tt.wantReply, payload["interactive_reply"])
+			assert.Equal(t, tt.wantBody, payload["body"])
+		})
+	}
+}
+
+func TestBuildEventPayloadAddsOrderFields(t *testing.T) {
+	order := &waE2E.OrderMessage{
+		OrderID:           proto.String("o1"),
+		OrderTitle:        proto.String("Loja"),
+		Message:           proto.String("Quero estes"),
+		ItemCount:         proto.Int32(2),
+		TotalAmount1000:   proto.Int64(150000),
+		TotalCurrencyCode: proto.String("BRL"),
+		Thumbnail:         []byte{1, 2},
+		Status:            waE2E.OrderMessage_INQUIRY.Enum(),
+	}
+
+	_, payload, err := buildEventPayload(context.Background(), nil, interactiveTestEvent("MSG911", &waE2E.Message{OrderMessage: order}))
+	require.NoError(t, err)
+	assert.Equal(t, "Order: Loja\nQuero estes", payload["body"])
+
+	titled, ok := payload["order"].(interface{ GetOrderTitle() string })
+	require.True(t, ok)
+	assert.Equal(t, "Loja", titled.GetOrderTitle())
+
+	upstreamJSON, err := json.Marshal(order)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, json.Unmarshal(upstreamJSON, &upstream))
+
+	gotJSON, err := json.Marshal(payload["order"])
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(gotJSON, &got))
+
+	assert.Contains(t, upstream, "orderTitle")
+	for key, value := range upstream {
+		assert.Equal(t, value, got[key], key)
+	}
+	assert.Equal(t, "o1", got["order_id"])
+	assert.Equal(t, "Loja", got["title"])
+	assert.Equal(t, "Quero estes", got["message"])
+	assert.Equal(t, float64(2), got["item_count"])
+	assert.Equal(t, float64(150000), got["total_amount_1000"])
+	assert.Equal(t, "BRL", got["currency"])
+	assert.Len(t, got, len(upstream)+5)
+}
+
+func TestBuildEventPayloadKeepsOrderBody(t *testing.T) {
+	tests := []struct {
+		name     string
+		order    *waE2E.OrderMessage
+		wantBody string
+	}{
+		{name: "title only", order: &waE2E.OrderMessage{OrderTitle: proto.String("Loja")}, wantBody: "Order: Loja"},
+		{name: "message only", order: &waE2E.OrderMessage{Message: proto.String("Quero estes")}, wantBody: "Quero estes"},
+		{name: "title and message", order: &waE2E.OrderMessage{OrderTitle: proto.String("Loja"), Message: proto.String("Quero estes")}, wantBody: "Order: Loja\nQuero estes"},
+		{name: "neither", order: &waE2E.OrderMessage{OrderID: proto.String("o1")}, wantBody: "Order message"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, payload, err := buildEventPayload(context.Background(), nil, interactiveTestEvent("MSG912", &waE2E.Message{OrderMessage: tt.order}))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBody, payload["body"])
+			assert.Contains(t, payload, "order")
+		})
+	}
+}
+
+func TestAddMessageMetadataFieldsKeepsExistingBody(t *testing.T) {
+	msg := &waE2E.Message{ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{
+		Response: &waE2E.ButtonsResponseMessage_SelectedDisplayText{SelectedDisplayText: "Sim"},
+	}}
+
+	payload := map[string]any{"body": "typed"}
+	addMessageMetadataFields(context.Background(), nil, msg, payload)
+
+	assert.Equal(t, "typed", payload["body"])
+	assert.Equal(t, map[string]any{"kind": "button", "title": "Sim"}, payload["interactive_reply"])
+}
+
+func TestInteractiveRepliesAreRecognized(t *testing.T) {
+	for _, msg := range []*waE2E.Message{
+		{ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{}},
+		{ListResponseMessage: &waE2E.ListResponseMessage{}},
+		{TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{}},
+		{InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+			InteractiveResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage_{
+				NativeFlowResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage{},
+			},
+		}},
+	} {
+		assert.True(t, hasRecognizedMessageType(msg), populatedMessageFields(msg))
+	}
+
+	assert.False(t, payloadHasNoRenderableContent(map[string]any{"interactive_reply": map[string]any{"kind": "button"}}))
 }

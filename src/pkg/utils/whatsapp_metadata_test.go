@@ -255,3 +255,155 @@ func TestExtractMediaMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractInteractiveReply(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want map[string]any
+	}{
+		{
+			name: "button",
+			msg: &waE2E.Message{ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{
+				SelectedButtonID: proto.String("b1"),
+				Response:         &waE2E.ButtonsResponseMessage_SelectedDisplayText{SelectedDisplayText: "Sim"},
+			}},
+			want: map[string]any{"kind": "button", "id": "b1", "title": "Sim"},
+		},
+		{
+			name: "list",
+			msg: &waE2E.Message{ListResponseMessage: &waE2E.ListResponseMessage{
+				Title:             proto.String("Plano"),
+				Description:       proto.String("Mensal"),
+				SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{SelectedRowID: proto.String("r2")},
+			}},
+			want: map[string]any{"kind": "list", "id": "r2", "title": "Plano", "description": "Mensal"},
+		},
+		{
+			name: "template button",
+			msg: &waE2E.Message{TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{
+				SelectedID:          proto.String("t1"),
+				SelectedDisplayText: proto.String("Ok"),
+			}},
+			want: map[string]any{"kind": "template_button", "id": "t1", "title": "Ok"},
+		},
+		{
+			name: "native flow",
+			msg: &waE2E.Message{InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+				InteractiveResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage_{
+					NativeFlowResponseMessage: &waE2E.InteractiveResponseMessage_NativeFlowResponseMessage{
+						Name:       proto.String("flow"),
+						ParamsJSON: proto.String("{}"),
+					},
+				},
+				Body: &waE2E.InteractiveResponseMessage_Body{Text: proto.String("Enviado")},
+			}},
+			want: map[string]any{"kind": "native_flow", "name": "flow", "response_json": "{}", "title": "Enviado"},
+		},
+		{
+			name: "list without description",
+			msg: &waE2E.Message{ListResponseMessage: &waE2E.ListResponseMessage{
+				Title:             proto.String("Plano"),
+				Description:       proto.String(""),
+				SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{SelectedRowID: proto.String("r2")},
+			}},
+			want: map[string]any{"kind": "list", "id": "r2", "title": "Plano"},
+		},
+		{
+			name: "ephemeral button",
+			msg: &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{
+				ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{SelectedButtonID: proto.String("b1")},
+			}}},
+			want: map[string]any{"kind": "button", "id": "b1"},
+		},
+		{
+			name: "interactive response without native flow",
+			msg: &waE2E.Message{InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{
+				Body: &waE2E.InteractiveResponseMessage_Body{Text: proto.String("Enviado")},
+			}},
+			want: nil,
+		},
+		{
+			name: "plain text",
+			msg:  &waE2E.Message{Conversation: proto.String("hi")},
+			want: nil,
+		},
+		{
+			name: "nil message",
+			msg:  nil,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ExtractInteractiveReply(tt.msg))
+		})
+	}
+}
+
+func TestExtractOrder(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *waE2E.Message
+		want map[string]any
+	}{
+		{
+			name: "order totals",
+			msg: &waE2E.Message{OrderMessage: &waE2E.OrderMessage{
+				OrderID:           proto.String("o1"),
+				ItemCount:         proto.Int32(2),
+				TotalAmount1000:   proto.Int64(150000),
+				TotalCurrencyCode: proto.String("BRL"),
+			}},
+			want: map[string]any{"order_id": "o1", "item_count": int32(2), "total_amount_1000": int64(150000), "currency": "BRL"},
+		},
+		{
+			name: "all fields",
+			msg: &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{
+				OrderMessage: &waE2E.OrderMessage{
+					OrderID:           proto.String("o2"),
+					OrderTitle:        proto.String("Loja"),
+					Message:           proto.String("Quero estes"),
+					ItemCount:         proto.Int32(1),
+					TotalAmount1000:   proto.Int64(9990),
+					TotalCurrencyCode: proto.String("BRL"),
+					SellerJID:         proto.String("5541977776666@s.whatsapp.net"),
+					Token:             proto.String("tok"),
+					Thumbnail:         []byte{1, 2},
+				},
+			}}},
+			want: map[string]any{
+				"order_id":          "o2",
+				"title":             "Loja",
+				"message":           "Quero estes",
+				"item_count":        int32(1),
+				"total_amount_1000": int64(9990),
+				"currency":          "BRL",
+				"seller_jid":        "5541977776666@s.whatsapp.net",
+				"token":             "tok",
+			},
+		},
+		{
+			name: "order without contract fields",
+			msg:  &waE2E.Message{OrderMessage: &waE2E.OrderMessage{Thumbnail: []byte{1}}},
+			want: nil,
+		},
+		{
+			name: "plain text",
+			msg:  &waE2E.Message{Conversation: proto.String("hi")},
+			want: nil,
+		},
+		{
+			name: "nil message",
+			msg:  nil,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ExtractOrder(tt.msg))
+		})
+	}
+}
