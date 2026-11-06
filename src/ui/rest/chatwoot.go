@@ -394,39 +394,40 @@ func (h *ChatwootHandler) resolveChatwootForDevice(deviceID string) *chatwoot.Re
 }
 
 // signConfigForDevice returns the config whose sign_msg / sign_delimiter apply
-// to an agent reply sent from deviceID, or nil when the global settings apply.
-// The registry resolves nothing for a disabled config, yet a reply routed
-// through a stored conversation link is still delivered, so the stored row is
-// read directly in that case: a device that switched its signature off must
-// not start signing because forwarding was paused.
+// to an agent reply on route, sent from deviceID, or nil when the global
+// settings apply. It reads the same configuration chatwootRouteEnabled
+// authorized: the route's config id when it has one, else the registry entry
+// for the device. A disabled config never reaches this point, because the
+// route gate refuses to send for it.
 //
 // Authentication rejects unreadable configs with 503 before delivery. If a
 // later signature lookup fails, compose unsigned text rather than borrow the
-// global setting: the device
-// may have switched the signature off, and adding the agent's name to a
-// message is the one outcome that cannot be taken back.
-func (h *ChatwootHandler) signConfigForDevice(deviceID string) *chatwoot.ResolvedConfig {
-	if reg := chatwoot.GetClientRegistry(); reg != nil {
-		rc, err := reg.Resolve(deviceID)
+// global setting: the device may have switched the signature off, and adding
+// the agent's name to a message is the one outcome that cannot be taken back.
+func (h *ChatwootHandler) signConfigForDevice(route chatwootWebhookRoute, deviceID string) *chatwoot.ResolvedConfig {
+	unsigned := func(err error) *chatwoot.ResolvedConfig {
+		logrus.Errorf("Chatwoot: failed to read signature settings for device %s; sending the reply unsigned: %v", deviceID, err)
+		off := false
+		return &chatwoot.ResolvedConfig{ConfigID: route.ConfigID, DeviceID: deviceID, SignMsg: &off}
+	}
+	if route.ConfigID != 0 {
+		cfg, err := h.chatwootConfigByID(route.ConfigID)
 		if err != nil {
-			logrus.Errorf("Chatwoot: failed to resolve client for device %s: %v", deviceID, err)
-		} else if rc != nil {
-			return rc
+			return unsigned(err)
+		}
+		if cfg != nil {
+			return &chatwoot.ResolvedConfig{ConfigID: cfg.ID, DeviceID: cfg.DeviceID, SignMsg: cfg.SignMsg, SignDelimiter: cfg.SignDelimiter}
 		}
 	}
-	if h.ChatStorageRepo == nil {
+	reg := chatwoot.GetClientRegistry()
+	if reg == nil {
 		return nil
 	}
-	cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(deviceID)
+	rc, err := reg.Resolve(deviceID)
 	if err != nil {
-		logrus.Errorf("Chatwoot: failed to read signature settings for device %s; sending the reply unsigned: %v", deviceID, err)
-		unsigned := false
-		return &chatwoot.ResolvedConfig{DeviceID: deviceID, SignMsg: &unsigned}
+		return unsigned(err)
 	}
-	if cfg == nil {
-		return nil
-	}
-	return &chatwoot.ResolvedConfig{ConfigID: cfg.ID, DeviceID: cfg.DeviceID, SignMsg: cfg.SignMsg, SignDelimiter: cfg.SignDelimiter}
+	return rc
 }
 
 // HandleWebhook is the shared (legacy / single-webhook) Chatwoot endpoint. The
@@ -673,7 +674,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 	// Translate Chatwoot markdown to WhatsApp formatting and apply the optional
 	// agent signature once, so both the attachment caption and the text path use
 	// the same composed body. The signature follows the sending device's config.
-	outgoingText := composeOutgoingText(payload, h.signConfigForDevice(resolvedID))
+	outgoingText := composeOutgoingText(payload, h.signConfigForDevice(route, resolvedID))
 
 	// The message the agent replied to, quoted by the text and by every
 	// attachment; nil sends them without a quote.
