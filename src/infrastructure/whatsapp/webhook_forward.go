@@ -19,6 +19,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -526,6 +527,115 @@ type chatwootSyncResult struct {
 	MessageID      int
 	ConversationID int
 	InboxID        int
+}
+
+// chatwootPayloadIdentity returns the chat and sender of an event payload in
+// every address form it carries. chat_id/from hold the phone JID when a LID
+// was resolved (see buildFromFields), with the original LID kept in
+// chat_lid/from_lid; an unresolved LID stays in chat_id/from.
+func chatwootPayloadIdentity(data map[string]any) chatwoot.MessageIdentity {
+	var id chatwoot.MessageIdentity
+	id.ChatJID, _ = data["chat_id"].(string)
+	id.ChatLID, _ = data["chat_lid"].(string)
+	id.SenderJID, _ = data["from"].(string)
+	id.SenderLID, _ = data["from_lid"].(string)
+	return id
+}
+
+// errChatwootIdentityUnavailable reports that the routed device's LID mapping
+// store could not be consulted while an ignore list was in force.
+var errChatwootIdentityUnavailable = errors.New("chatwoot: routed device's LID mappings are unavailable")
+
+// chatwootRoutedIdentity is chatwootPayloadIdentity with each missing phone or
+// LID form filled in from the LID mapping store of the device routed in ctx.
+// Fresh events already carry both forms (buildFromFields), but a durable retry
+// replays the payload frozen at enqueue time and a DeleteForMe payload is built
+// from the stored message, so either may lack a mapping the device knows now.
+//
+// Forms supplied on the payload are kept as they are; a lookup only fills a
+// form that is absent. Only the device in ctx is consulted, never the global
+// client, so one account's mappings never decide another account's routing.
+// Without a routed device in ctx (legacy callers) the payload identity is used
+// as is. When the ignore list is empty no lookup is made.
+//
+// A lookup error, or a routed device whose store is unavailable, is returned
+// instead of guessed around: the caller must not create Chatwoot content it
+// might have been told to ignore. The error is retryable, so a live event is
+// queued and a queued one is rescheduled. No mapping at all is not an error.
+func chatwootRoutedIdentity(ctx context.Context, data map[string]any, ignore []string) (chatwoot.MessageIdentity, error) {
+	id := chatwootPayloadIdentity(data)
+	if len(ignore) == 0 {
+		return id, nil
+	}
+	var lids store.LIDStore
+	resolve := func(delivered, alias *string) error {
+		var pn, lid string
+		for _, form := range [...]string{*delivered, *alias} {
+			parsed, err := types.ParseJID(form)
+			if form == "" || err != nil {
+				continue
+			}
+			switch parsed.Server {
+			case types.DefaultUserServer:
+				if pn == "" {
+					pn = parsed.ToNonAD().String()
+				}
+			case types.HiddenUserServer:
+				if lid == "" {
+					lid = parsed.ToNonAD().String()
+				}
+			}
+		}
+		if (pn == "") == (lid == "") {
+			// Both forms known, or not a user JID (groups, newsletters).
+			return nil
+		}
+		if lids == nil {
+			instance, ok := DeviceFromContext(ctx)
+			if !ok || instance == nil {
+				return nil
+			}
+			client := instance.GetClient()
+			if client == nil || client.Store == nil || client.Store.LIDs == nil {
+				return errChatwootIdentityUnavailable
+			}
+			lids = client.Store.LIDs
+		}
+		var (
+			found types.JID
+			err   error
+			want  string
+		)
+		if pn != "" {
+			jid, _ := types.ParseJID(pn)
+			found, err = lids.GetLIDForPN(ctx, jid)
+			want = types.HiddenUserServer
+		} else {
+			jid, _ := types.ParseJID(lid)
+			found, err = lids.GetPNForLID(ctx, jid)
+			want = types.DefaultUserServer
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %v", errChatwootIdentityUnavailable, err)
+		}
+		if found.IsEmpty() || found.Server != want {
+			return nil
+		}
+		if *delivered == "" {
+			*delivered = *alias
+		}
+		if *alias == "" || *alias == *delivered {
+			*alias = found.ToNonAD().String()
+		}
+		return nil
+	}
+	if err := resolve(&id.ChatJID, &id.ChatLID); err != nil {
+		return id, err
+	}
+	if err := resolve(&id.SenderJID, &id.SenderLID); err != nil {
+		return id, err
+	}
+	return id, nil
 }
 
 // extractChatwootContactInfo extracts contact identifier and name from message payload.
@@ -1764,6 +1874,31 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		if !config.ChatwootForwardDeletes {
 			return nil
 		}
+	}
+
+	// Ignore lists: the global CHATWOOT_IGNORE_JIDS plus the device config's
+	// ignore_jids, matched against the phone-JID and LID form of both the chat
+	// and the sender. Checked before contact extraction so an ignored chat costs
+	// no group-info or address-book lookup. Read receipts and delete-for-everyone
+	// of an already mirrored message were handled above on purpose: they only
+	// update content Chatwoot already holds (see docs/chatwoot.md, "Ignoring a
+	// chat that is already in Chatwoot"). Everything from here on creates
+	// something new, which an ignored chat or sender must not do.
+	//
+	// A payload may lack an address form the routed device knows by now (a
+	// durable retry frozen at enqueue, a DeleteForMe note built from the stored
+	// message), so missing forms are resolved from that device's LID mappings
+	// first. If they cannot be read, nothing new is created and the event is
+	// retried rather than possibly mirroring an ignored chat.
+	ignore := resolved.EffectiveIgnoreJids()
+	id, err := chatwootRoutedIdentity(ctx, data, ignore)
+	if err != nil {
+		logrus.Warnf("Chatwoot: not forwarding %s for device %s until its identity can be checked against the ignore list: %v", eventName, deviceID, err)
+		return err
+	}
+	if chatwoot.ShouldIgnoreMessage(id, ignore) {
+		logrus.Debugf("Chatwoot: Skipping %s: ignored JID chat=%s from=%s for device %s", eventName, id.ChatJID, id.SenderJID, deviceID)
+		return nil
 	}
 
 	// Extract contact information
