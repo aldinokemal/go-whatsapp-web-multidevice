@@ -162,6 +162,16 @@ func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 	return resolveKnownDocumentMIME(ext)
 }
 
+// knownMediaExtensionByMIME pins the extension of common WhatsApp media types
+// that the lookups below get wrong: without a MIME database (the Alpine image)
+// the subtype fallback turns audio/mpeg into ".mpeg" and audio/mp4 into ".mp4",
+// and with one ExtensionsByType's sorted first match is ".m2a" or ".m4v".
+var knownMediaExtensionByMIME = map[string]string{
+	"audio/mpeg": ".mp3",
+	"audio/mp4":  ".m4a",
+	"video/mp4":  ".mp4",
+}
+
 func determineMediaExtension(originalFilename, mimeType string) string {
 	if originalFilename != "" {
 		if ext := filepath.Ext(originalFilename); ext != "" {
@@ -174,6 +184,10 @@ func determineMediaExtension(originalFilename, mimeType string) string {
 	}
 
 	if ext, ok := resolveKnownDocumentExtension(mimeType); ok {
+		return ext
+	}
+
+	if ext, ok := knownMediaExtensionByMIME[strings.ToLower(mimeType)]; ok {
 		return ext
 	}
 
@@ -910,6 +924,106 @@ type ExtractedMedia struct {
 	Caption   string `json:"caption"`
 }
 
+// reUnsafeFilenameChars matches anything outside a conservative filename
+// allowlist. Applied to sender-controlled names (e.g. a document's original
+// filename) before they touch the filesystem.
+var reUnsafeFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+// reStorageExtension is the shape of an extension safe to put on disk as is:
+// a short alphanumeric suffix.
+var reStorageExtension = regexp.MustCompile(`^\.[a-zA-Z0-9]{1,10}$`)
+
+// storageExtension returns the first extension matching reStorageExtension
+// among, in order: what determineMediaExtension resolves from the sender's
+// filename, what it resolves from the MIME type alone, and every other
+// extension the MIME database lists for that type. A sender's filename can
+// carry anything after its last dot ("clip.mp4(1)", "a." followed by 150
+// characters), and the MIME database can list a compound extension such as
+// ".tar.gz" first while ".tgz" is registered too. Returns "" when none is safe.
+func storageExtension(originalFilename, mimeType string) string {
+	if ext := determineMediaExtension(originalFilename, mimeType); reStorageExtension.MatchString(ext) {
+		return ext
+	}
+	if ext := determineMediaExtension("", mimeType); reStorageExtension.MatchString(ext) {
+		return ext
+	}
+	if idx := strings.Index(mimeType, ";"); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+	exts, err := mime.ExtensionsByType(mimeType)
+	if err != nil {
+		return ""
+	}
+	for _, ext := range exts {
+		if reStorageExtension.MatchString(ext) {
+			return ext
+		}
+	}
+	return ""
+}
+
+// sanitizeFilenameComponent makes a WhatsApp-supplied name safe to embed in a
+// locally-generated file path: filepath.Base strips any directory component
+// (defending against path traversal from a malicious sender-controlled
+// filename), the allowlist replace removes anything else that could confuse
+// a filesystem, and the length cap keeps the final path within OS limits.
+func sanitizeFilenameComponent(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		name = "file"
+	}
+	name = reUnsafeFilenameChars.ReplaceAllString(name, "_")
+	name = strings.TrimLeft(name, ".")
+	if name == "" {
+		name = "file"
+	}
+	const maxLen = 100
+	if len(name) > maxLen {
+		ext := filepath.Ext(name)
+		if len(ext) >= maxLen {
+			ext = ""
+		}
+		name = name[:maxLen-len(ext)] + ext
+	}
+	return name
+}
+
+// mediaDisplayName picks the human-readable filename for a downloaded media
+// file: the sender's own document filename when present, otherwise a generated
+// type+caption name. It guarantees the result carries the resolved extension so
+// downstream Content-Type detection (filepath.Ext) classifies the file
+// correctly instead of defaulting to application/octet-stream — this is why a
+// document whose sender-supplied name has no extension (e.g. "report") still
+// gets the MIME-resolved suffix appended.
+func mediaDisplayName(originalFilename, mediaKind, caption, extension string) string {
+	displayName := originalFilename
+	if displayName == "" {
+		displayName = GenerateMediaFilename(mediaKind, strings.TrimPrefix(extension, "."), caption)
+	}
+	if extension != "" && filepath.Ext(displayName) == "" {
+		displayName += extension
+	}
+	return displayName
+}
+
+// mediaStorageName is the sanitized on-disk form of displayName. Sanitizing can
+// mangle a sender's suffix (".pdf" alone loses its leading dot, "clip.mp4(1)"
+// becomes "clip.mp4_1_"), and downstream MIME detection reads the path's
+// extension, so extension (from storageExtension, at most 11 bytes) is
+// appended whenever the sanitized name no longer ends with it, keeping the
+// name within sanitizeFilenameComponent's 100-byte limit.
+func mediaStorageName(displayName, extension string) string {
+	name := sanitizeFilenameComponent(displayName)
+	if extension == "" || strings.EqualFold(filepath.Ext(name), extension) {
+		return name
+	}
+	const maxLen = 100
+	if len(name)+len(extension) > maxLen {
+		name = name[:maxLen-len(extension)]
+	}
+	return name + extension
+}
+
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
 	if mediaFile == nil {
@@ -929,32 +1043,58 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	}
 
 	var originalFilename string
+	mediaKind := "media"
 
 	switch media := mediaFile.(type) {
 	case *waE2E.ImageMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		mediaKind = "image"
 	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		mediaKind = "audio"
 	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		mediaKind = "video"
 	case *waE2E.StickerMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		mediaKind = "sticker"
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
 		originalFilename = media.GetFileName()
+		mediaKind = "document"
 	}
 
-	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
+	extension := storageExtension(originalFilename, extractedMedia.MimeType)
 
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
+	displayName := mediaDisplayName(originalFilename, mediaKind, extractedMedia.Caption, extension)
+
+	// The timestamp+uuid prefix keeps the path unique even when two messages
+	// resolve to the same display name (e.g. two uncaptioned images
+	// downloaded in the same second); the display name rides along after it
+	// purely for human readability.
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s-%s", storageLocation, time.Now().Unix(), uuid.NewString(), mediaStorageName(displayName, extension))
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
+}
+
+// reStoredMediaPrefix matches the "<unix>-<uuid>-" prefix ExtractMedia puts
+// before the display name in a stored media file's name.
+var reStoredMediaPrefix = regexp.MustCompile(`^\d+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-`)
+
+// StoredMediaDisplayName returns the display name of a file ExtractMedia
+// stored, without its unique prefix, or "" when path is not such a file.
+func StoredMediaDisplayName(path string) string {
+	name := filepath.Base(path)
+	if loc := reStoredMediaPrefix.FindStringIndex(name); loc != nil {
+		return name[loc[1]:]
+	}
+	return ""
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix

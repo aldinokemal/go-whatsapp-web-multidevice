@@ -550,6 +550,9 @@ If the token is missing, revoked, or the table is unreachable, outgoing messages
 
 ## Conversation & Message Behavior
 
+REST media uploads use descriptive filenames and retain resolved extensions.
+Common audio and video types have MIME fallbacks when the host MIME database is absent.
+
 ### Conversation reopen
 
 By default (`CHATWOOT_REOPEN_CONVERSATION=true`), when a contact who already has a **resolved** conversation messages again, their existing conversation is reopened rather than a new one being spawned — so an agent sees the full history in one thread. Both the REST and direct-DB paths behave this way.

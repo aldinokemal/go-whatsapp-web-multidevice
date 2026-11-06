@@ -2,6 +2,8 @@ package utils
 
 import (
 	"bytes"
+	"mime"
+	"strings"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -59,6 +61,214 @@ func TestDetermineMediaExtension(t *testing.T) {
 			got := determineMediaExtension(tt.filename, tt.mimeType)
 			if got != tt.wantSuffix {
 				t.Fatalf("determineMediaExtension() = %q, want %q", got, tt.wantSuffix)
+			}
+		})
+	}
+}
+
+func TestSanitizeFilenameComponent(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "PlainName",
+			input: "invoice.pdf",
+			want:  "invoice.pdf",
+		},
+		{
+			name:  "SpacesAndParens",
+			input: "Invoice Final (copy).pdf",
+			want:  "Invoice_Final_copy_.pdf",
+		},
+		{
+			name:  "PathTraversalUnix",
+			input: "../../etc/passwd",
+			want:  "passwd",
+		},
+		{
+			name: "PathTraversalWindowsSeparator",
+			// Backslash isn't a path separator on this platform, so
+			// filepath.Base leaves it in place; the character allowlist
+			// still neutralizes it (replaced with "_") rather than letting
+			// it ride through into the generated path unescaped.
+			input: `..\..\secrets.txt`,
+			want:  "_.._secrets.txt",
+		},
+		{
+			name:  "DotDotOnly",
+			input: "..",
+			want:  "file",
+		},
+		{
+			name:  "EmptyAfterSanitizing",
+			input: "...",
+			want:  "file",
+		},
+		{
+			name:  "LeadingDotsStripped",
+			input: "...hidden.pdf",
+			want:  "hidden.pdf",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeFilenameComponent(tt.input)
+			if got != tt.want {
+				t.Fatalf("sanitizeFilenameComponent(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeFilenameComponentCapsLength(t *testing.T) {
+	// A name far longer than any real filesystem allows for a single path
+	// component must be truncated, keeping the extension intact.
+	longName := strings.Repeat("a", 300) + ".pdf"
+	got := sanitizeFilenameComponent(longName)
+	if len(got) > 100 {
+		t.Fatalf("sanitizeFilenameComponent() len = %d, want <= 100", len(got))
+	}
+	if !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("sanitizeFilenameComponent() = %q, want suffix .pdf", got)
+	}
+}
+
+func TestMediaStorageNameKeepsResolvedExtension(t *testing.T) {
+	tests := []struct {
+		displayName, extension, want string
+	}{
+		{"report.pdf", ".pdf", "report.pdf"},
+		{"Report.PDF", ".pdf", "Report.PDF"},
+		{".pdf", ".pdf", "pdf.pdf"},                // leading dot stripped by sanitizing
+		{"clip.mp4(1)", ".mp4", "clip.mp4_1_.mp4"}, // unsafe suffix mangled by sanitizing
+		{"../../etc/passwd", ".bin", "passwd.bin"}, // traversal stripped, extension restored
+		{"notes", "", "notes"},                     // nothing to restore
+	}
+	for _, tt := range tests {
+		if got := mediaStorageName(tt.displayName, tt.extension); got != tt.want {
+			t.Errorf("mediaStorageName(%q, %q) = %q, want %q", tt.displayName, tt.extension, got, tt.want)
+		}
+	}
+}
+
+func TestMediaStorageNameStaysWithinLimit(t *testing.T) {
+	got := mediaStorageName("a."+strings.Repeat("x", 150), ".pdf")
+	if len(got) > 100 {
+		t.Fatalf("len = %d, want <= 100 (%q)", len(got), got)
+	}
+	if !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("expected .pdf suffix, got %q", got)
+	}
+}
+
+func TestStorageExtension(t *testing.T) {
+	tests := []struct {
+		name, originalFilename, mimeType, want string
+	}{
+		{"sender extension", "report.PDF", "application/pdf", ".PDF"},
+		{"no sender name", "", "application/pdf", ".pdf"},
+		{"unsafe sender suffix falls back to MIME", "report.pdf(1)", "application/pdf", ".pdf"},
+		{"overlong sender suffix falls back to MIME", "a." + strings.Repeat("x", 150), "application/pdf", ".pdf"},
+		{"nothing safe", "a.b c", "application/x-what ever", ""},
+		{"mp3 audio without a MIME database entry", "", "audio/mpeg", ".mp3"},
+		{"m4a audio is not video", "", "audio/mp4; codecs=mp4a.40.2", ".m4a"},
+	}
+	for _, tt := range tests {
+		if got := storageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
+			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
+		}
+	}
+}
+
+func TestStoredMediaDisplayName(t *testing.T) {
+	tests := map[string]string{
+		"statics/media/1730000000-5f2b1c7e-8d3a-4b6e-9f10-2c4d6e8a0b1c-Invoice_Final.pdf": "Invoice_Final.pdf",
+		// Files stored before display names were added have no name to show.
+		"statics/media/1730000000-5f2b1c7e-8d3a-4b6e-9f10-2c4d6e8a0b1c.pdf": "",
+		"/tmp/chatwoot-sync-38210497.oga":                                   "",
+	}
+	for path, want := range tests {
+		if got := StoredMediaDisplayName(path); got != want {
+			t.Errorf("StoredMediaDisplayName(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestStorageExtensionChecksEveryMIMEExtension(t *testing.T) {
+	// A test-only type, so the result does not depend on the host MIME database.
+	// mime.AddExtensionType is process-wide and cannot be undone; no other code
+	// uses this type or these extensions.
+	const mimeType = "application/x-gowa-test-archive"
+	for _, ext := range []string{".gowa.tst", ".gtst"} {
+		if err := mime.AddExtensionType(ext, mimeType); err != nil {
+			t.Fatalf("AddExtensionType(%q): %v", ext, err)
+		}
+	}
+	if exts, _ := mime.ExtensionsByType(mimeType); len(exts) != 2 || exts[0] != ".gowa.tst" {
+		t.Fatalf("precondition: want the compound extension listed first, got %v", exts)
+	}
+
+	tests := []struct {
+		name, originalFilename, mimeType string
+	}{
+		{"no sender name", "", mimeType},
+		{"MIME parameters", "", mimeType + "; charset=binary"},
+		{"unsafe sender suffix", "archive.bad ext", mimeType},
+	}
+	for _, tt := range tests {
+		if got := storageExtension(tt.originalFilename, tt.mimeType); got != ".gtst" {
+			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, ".gtst")
+		}
+	}
+}
+
+func TestMediaDisplayName(t *testing.T) {
+	tests := []struct {
+		name             string
+		originalFilename string
+		mediaKind        string
+		caption          string
+		extension        string
+		wantSuffix       string
+		wantNotContain   string
+	}{
+		{
+			// The regression this test guards: a document whose sender-supplied
+			// filename has no extension must still end up with the resolved one,
+			// otherwise Chatwoot renders it as application/octet-stream.
+			name:             "ExtensionlessDocumentGetsExtension",
+			originalFilename: "report",
+			mediaKind:        "document",
+			extension:        ".pdf",
+			wantSuffix:       "report.pdf",
+		},
+		{
+			name:             "DocumentWithExtensionNotDoubled",
+			originalFilename: "invoice.pdf",
+			mediaKind:        "document",
+			extension:        ".pdf",
+			wantSuffix:       "invoice.pdf",
+			wantNotContain:   ".pdf.pdf",
+		},
+		{
+			name:       "GeneratedNameStillCarriesExtension",
+			mediaKind:  "image",
+			extension:  ".jpg",
+			wantSuffix: ".jpg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mediaDisplayName(tt.originalFilename, tt.mediaKind, tt.caption, tt.extension)
+			if !strings.HasSuffix(got, tt.wantSuffix) {
+				t.Fatalf("mediaDisplayName() = %q, want suffix %q", got, tt.wantSuffix)
+			}
+			if tt.wantNotContain != "" && strings.Contains(got, tt.wantNotContain) {
+				t.Fatalf("mediaDisplayName() = %q, must not contain %q", got, tt.wantNotContain)
 			}
 		})
 	}

@@ -1114,7 +1114,11 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, opts)
+	messageAttachments := make([]chatwoot.MessageAttachment, 0, len(attachments))
+	for _, path := range attachments {
+		messageAttachments = append(messageAttachments, chatwoot.MessageAttachment{Path: path, FileName: utils.StoredMediaDisplayName(path)})
+	}
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, messageAttachments, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
