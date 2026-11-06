@@ -575,32 +575,55 @@ func (u *PairingUI) Finish(ctx context.Context) error {
 
 type PhoneWorker struct {
 	UI           *PairingUI
+	Review       *ReviewUI
 	NewTransport func(Object, Account) (UITransport, error)
+}
+
+// open validates the begin request and creates the phone transport. A worker
+// serves one session: pairing or review, never both.
+func (w *PhoneWorker) open(r Object) (UITransport, Account, string, error) {
+	if w.UI != nil || w.Review != nil {
+		return nil, Account{}, "", block("invalid_request")
+	}
+	raw, e := jsonObject(r["account"])
+	if e != nil {
+		return nil, Account{}, "", e
+	}
+	a := Account{ID: stringValue(raw["id"]), Phone: stringValue(raw["phone"]), DisplayName: stringValue(raw["display_name"])}
+	if !identifier.MatchString(a.ID) || !phoneNumber.MatchString(a.Phone) || a.DisplayName == "" {
+		return nil, Account{}, "", block("invalid_request")
+	}
+	config, e := jsonObject(r["config"])
+	if e != nil {
+		return nil, Account{}, "", e
+	}
+	t, e := w.NewTransport(config, a)
+	if e != nil {
+		return nil, Account{}, "", e
+	}
+	pkg := stringValue(config["package"])
+	if pkg == "" {
+		pkg = "com.whatsapp.w4b"
+	}
+	return t, a, pkg, nil
 }
 
 func (w *PhoneWorker) Call(ctx context.Context, op string, r Object) (Object, error) {
 	if op == "begin" && w.UI == nil {
-		raw, e := jsonObject(r["account"])
+		t, a, pkg, e := w.open(r)
 		if e != nil {
 			return nil, e
 		}
-		a := Account{ID: stringValue(raw["id"]), Phone: stringValue(raw["phone"]), DisplayName: stringValue(raw["display_name"])}
-		if !identifier.MatchString(a.ID) || !phoneNumber.MatchString(a.Phone) || a.DisplayName == "" {
-			return nil, block("invalid_request")
-		}
-		config, e := jsonObject(r["config"])
-		if e != nil {
-			return nil, e
-		}
-		t, e := w.NewTransport(config, a)
-		if e != nil {
-			return nil, e
-		}
-		w.UI = &PairingUI{Transport: t, Account: a, Package: stringValue(config["package"])}
-		if w.UI.Package == "" {
-			w.UI.Package = "com.whatsapp.w4b"
-		}
+		w.UI = &PairingUI{Transport: t, Account: a, Package: pkg}
 		return w.UI.Begin(ctx)
+	}
+	if op == "review_begin" && w.Review == nil {
+		t, a, pkg, e := w.open(r)
+		if e != nil {
+			return nil, e
+		}
+		w.Review = &ReviewUI{Transport: t, Account: a, Package: pkg}
+		return w.Review.Begin(ctx)
 	}
 	if op == "finish" {
 		if w.UI != nil {
@@ -608,7 +631,18 @@ func (w *PhoneWorker) Call(ctx context.Context, op string, r Object) (Object, er
 				return nil, e
 			}
 		}
+		if w.Review != nil {
+			if e := w.Review.Finish(ctx); e != nil {
+				return nil, e
+			}
+		}
 		return Object{}, nil
+	}
+	if op == "review_request" {
+		if w.Review == nil {
+			return nil, block("invalid_request")
+		}
+		return w.Review.Request(ctx, stringValue(r["screen_sha256"]))
 	}
 	if w.UI == nil {
 		return nil, block("invalid_request")
@@ -626,6 +660,9 @@ func (w *PhoneWorker) Close() error {
 	defer cancel()
 	if w.UI != nil {
 		return w.UI.Finish(ctx)
+	}
+	if w.Review != nil {
+		return w.Review.Finish(ctx)
 	}
 	return nil
 }

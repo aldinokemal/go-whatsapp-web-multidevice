@@ -195,6 +195,15 @@ func (a *ADB) guard(ctx context.Context) error {
 	return nil
 }
 func (a *ADB) Capture(ctx context.Context) (string, error) {
+	return a.capture(ctx, ParseScreen)
+}
+
+// CaptureRaw is Capture without the pairing classifier, which refuses ban,
+// restriction and verification screens. Account reviews must read those.
+func (a *ADB) CaptureRaw(ctx context.Context) (string, error) {
+	return a.capture(ctx, parseRawScreen)
+}
+func (a *ADB) capture(ctx context.Context, parse func(string, string) (*Screen, error)) (string, error) {
 	// Network confirmation can outlast Android's display timeout. Wake without
 	// unlocking, then recheck the actual foreground profile/app and keyguard.
 	if !a.awakened || a.lock == nil {
@@ -236,7 +245,7 @@ func (a *ADB) Capture(ctx context.Context) (string, error) {
 	if e = a.guard(ctx); e != nil {
 		return "", e
 	}
-	s, e := ParseScreen(source, a.config.Package)
+	s, e := parse(source, a.config.Package)
 	if e != nil {
 		return "", e
 	}

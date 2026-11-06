@@ -40,6 +40,7 @@ type reviewWorld struct {
 	xml, after                    string
 	taps, opens                   int
 	healthy, binding, cleanupFail bool
+	untapped                      bool
 }
 type reviewAdapter struct {
 	w     *reviewWorld
@@ -60,9 +61,12 @@ func (a *reviewAdapter) Call(_ context.Context, op string, _ Object) (Object, er
 		if e != nil || intent.Phase != "submission_started" {
 			return nil, fmt.Errorf("tap without durable intent")
 		}
-		a.w.taps++
 		a.w.xml = a.w.after
-		return Object{"xml": a.w.xml}, nil
+		if a.w.untapped {
+			return Object{"xml": a.w.xml, "tapped": false}, nil
+		}
+		a.w.taps++
+		return Object{"xml": a.w.xml, "tapped": true}, nil
 	case "finish":
 		if a.w.cleanupFail {
 			return nil, block("cleanup_failed")
@@ -190,6 +194,17 @@ func TestReviewApprovalVerificationIsNotUnsubmittedAppeal(t *testing.T) {
 	w.xml = screenXML(node("This account can now use WhatsApp", ""), node("VERIFY ACCOUNT", actionable))
 	out, e := r.Review(context.Background(), a, s, true)
 	if e != nil || out["verification_stage"] != "after_approval" || out["review_approved"] != true || out["appeal_confirmed"] != true || w.taps != 0 {
+		t.Fatal(out, e, w.taps)
+	}
+}
+
+func TestReviewUntappedPendingIsNotReportedAsSubmitted(t *testing.T) {
+	s, w, r, a := setupReview(t)
+	// Someone requested the review by hand between the two screen reads, so
+	// the adapter found it pending and did not tap.
+	w.untapped = true
+	out, e := r.Review(context.Background(), a, s, true)
+	if e != nil || out["state"] != "review_pending" || out["submitted_now"] != nil || w.taps != 0 {
 		t.Fatal(out, e, w.taps)
 	}
 }

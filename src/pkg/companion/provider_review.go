@@ -208,7 +208,7 @@ func (r Runner) Review(ctx context.Context, a Account, state *State, apply bool)
 	if e != nil {
 		return nil, e
 	}
-	if status == "review_pending" {
+	if status == "review_pending" && result["tapped"] == true {
 		out["submitted_now"] = true
 	}
 	return out, e

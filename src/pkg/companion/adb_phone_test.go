@@ -12,6 +12,7 @@ type adbWorld struct {
 	on, locked  bool
 	user        string
 	packageName string
+	screen      string
 	commands    []string
 }
 
@@ -46,6 +47,9 @@ func (w *adbWorld) execute(_ context.Context, args []string, data []byte) ([]byt
 	case strings.Contains(cmd, "'resolve-activity'"):
 		return []byte(testPackage + "/Main"), nil
 	case strings.Contains(cmd, "'cat'"):
+		if w.screen != "" {
+			return []byte(w.screen), nil
+		}
 		return []byte(screenXML(node("Chats", `bounds="[0,0][720,1600]"`))), nil
 	}
 	return nil, nil
@@ -202,5 +206,25 @@ func TestADBCaptureWakeNeverBypassesProtectedLockOrProfile(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestADBCaptureRawReadsBanScreenThatPairingRefuses(t *testing.T) {
+	ctx := context.Background()
+	w := &adbWorld{user: "0", packageName: testPackage, screen: screenXML(node("Your account is restricted right now", ""), node("REQUEST REVIEW", actionable))}
+	a := adbSetup(t, w)
+	if e := a.Start(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := a.Capture(ctx); e == nil {
+		t.Fatal("pairing capture accepted a restriction screen")
+	}
+	source, e := a.CaptureRaw(ctx)
+	if e != nil || !strings.Contains(source, "REQUEST REVIEW") {
+		t.Fatal(source, e)
+	}
+	w.packageName = "other.app"
+	if _, e = a.CaptureRaw(ctx); e == nil {
+		t.Fatal("raw capture read another foreground app")
 	}
 }

@@ -134,15 +134,23 @@ the provider can revoke those companions again afterward.
 
 `--mode provider-review` is separate from pairing. Enable `auto_appeal: true` on
 the intended account and use an adapter implementing `review_begin`,
-`review_request`, and `finish`. The private fleet adapter implements this protocol;
-the ordinary `adb-phone` adapter does not yet implement account-review actions.
-Do not enable it with an unsupported adapter.
+`review_request`, and `finish`. The bundled `adb-phone` adapter implements them.
 
 `review_begin` binds the enrolled primary phone, Android user and official app to
-the configured account, returning `identity_verified: true` and private `xml`
-over the existing pipes. `review_request` receives the SHA-256 of that captured
-XML and may click only the unique, enabled **REQUEST REVIEW** button on a
-recognized ban screen. It rechecks the current screen first and returns new XML.
+the configured account, returning `identity_verified: true`, `identity_source`
+and private `xml` over the existing pipes. The adapter has already checked the
+serial, Android user and foreground package. A ban screen often hides the
+profile, so it does not navigate to Settings: `identity_source` is
+`screen_number` when the account's number is visible, otherwise
+`device_binding`. Any other phone number on screen fails with `identity_mismatch`.
+
+`review_request` receives the SHA-256 of the screen returned by `review_begin`
+and refuses any other hash. It reads the current screen again; only when that
+screen still has the unique, enabled **REQUEST REVIEW** button on a recognized
+ban or restriction screen does it tap once, wait, and return the new XML with
+`tapped: true`. Otherwise it returns the current XML with `tapped: false` and
+sends no input. A session taps at most once and never types, navigates or
+pairs. `finish` only turns the display back off if it was off.
 Raw XML, codes and message contents must not enter controller logs.
 
 With `--apply`, an available review is requested immediately, even if pairing's
@@ -155,7 +163,8 @@ appeals are adopted without another click; crashes, unfamiliar outcomes and
 authentication interruptions cannot cause duplicate submissions on restart.
 `verification_required` and `needs_owner` identify a prompt needing immediate
 owner attention, including SMS verification required **before** an appeal.
-An unconfirmed click is never reported as a submitted appeal. Unknown forms and
+An unconfirmed click is never reported as a submitted appeal, and
+`submitted_now` is reported only when this run actually tapped. Unknown forms and
 custom appeal text are not filled automatically. Resolve an interrupted attempt
 by inspecting the official app, rather than deleting its durable intent.
 
