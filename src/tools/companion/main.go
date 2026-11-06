@@ -20,7 +20,7 @@ func run() int {
 	stateDir := flags.String("state-dir", "", "Private recovery state directory (0700)")
 	account := flags.String("account", "", "Configured account identifier")
 	apply := flags.Bool("apply", false, "Enable bounded recovery and phone input (default: inspect only)")
-	mode := flags.String("mode", "recover", "recover, http-backend, or adb-phone")
+	mode := flags.String("mode", "recover", "recover, provider-review, http-backend, or adb-phone")
 	if flags.Parse(os.Args[1:]) != nil {
 		return 2
 	}
@@ -54,7 +54,7 @@ func run() int {
 			return 2
 		}
 		return 0
-	case "recover":
+	case "recover", "provider-review":
 	default:
 		return fail(&companion.Blocked{Reason: "invalid_request"})
 	}
@@ -70,7 +70,14 @@ func run() int {
 		return fail(e)
 	}
 	defer state.Close()
-	results, exit := runAccounts(ctx, companion.Runner{}, c.Accounts, state, *account, *apply)
+	runner := companion.Runner{}
+	var results []companion.Object
+	var exit int
+	if *mode == "provider-review" {
+		results, exit = runReviews(ctx, runner, c.Accounts, state, *account, *apply)
+	} else {
+		results, exit = runAccounts(ctx, runner, c.Accounts, state, *account, *apply)
+	}
 	if len(results) == 0 {
 		return fail(&companion.Blocked{Reason: "invalid_request"})
 	}
@@ -112,4 +119,24 @@ func runAccounts(ctx context.Context, runner companion.Runner, accounts []compan
 		}
 	}
 	return results, exit
+}
+
+func runReviews(ctx context.Context, runner companion.Runner, accounts []companion.Account, state *companion.State, selected string, apply bool) ([]companion.Object, int) {
+	results := []companion.Object{}
+	code := 0
+	for _, a := range accounts {
+		if selected != "" && a.ID != selected {
+			continue
+		}
+		out, err := runner.Review(ctx, a, state, apply)
+		if err != nil {
+			out = companion.Object{"account": a.ID, "state": "blocked", "reason": errorReason(err)}
+			code = 2
+		}
+		results = append(results, out)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return results, code
 }

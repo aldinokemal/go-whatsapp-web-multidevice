@@ -28,7 +28,7 @@ type Screen struct {
 	Words string
 }
 
-func ParseScreen(source, packageName string) (*Screen, error) {
+func parseRawScreen(source, packageName string) (*Screen, error) {
 	if len(source) > 2_000_000 {
 		return nil, block("unknown_screen")
 	}
@@ -67,6 +67,17 @@ func ParseScreen(source, packageName string) (*Screen, error) {
 			stack = stack[:len(stack)-1]
 		}
 	}
+	if !hasPackage || len(stack) != 0 {
+		return nil, block("unknown_screen")
+	}
+	return s, nil
+}
+
+func ParseScreen(source, packageName string) (*Screen, error) {
+	s, err := parseRawScreen(source, packageName)
+	if err != nil {
+		return nil, err
+	}
 	if strings.Contains(s.Words, "your account is restricted") || strings.Contains(s.Words, "temporarily banned") {
 		delay := 21600
 		re := regexp.MustCompile(`\b(\d{1,2}):(\d{2}):(\d{2})\b`)
@@ -83,9 +94,6 @@ func ParseScreen(source, packageName string) (*Screen, error) {
 		if strings.Contains(s.Words, word) {
 			return nil, block("owner_verification")
 		}
-	}
-	if !hasPackage || len(stack) != 0 {
-		return nil, block("unknown_screen")
 	}
 	return s, nil
 }

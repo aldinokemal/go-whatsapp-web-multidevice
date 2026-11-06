@@ -125,9 +125,45 @@ Final multi-host acceptance requires every backend healthy with distinct full
 companion JIDs.
 
 Pairing cannot bypass WhatsApp restrictions, an account ban, or the provider's
-account-review process. These conditions require owner/provider action and must
-not trigger repeated relinking. A successful recovery is a point-in-time result:
+account-review process. These conditions must not trigger repeated relinking.
+The separate opt-in provider-review mode below can request an official review;
+verification still needs owner participation. A successful recovery is a point-in-time result:
 the provider can revoke those companions again afterward.
+
+### Immediate official account reviews
+
+`--mode provider-review` is separate from pairing. Enable `auto_appeal: true` on
+the intended account and use an adapter implementing `review_begin`,
+`review_request`, and `finish`. The private fleet adapter implements this protocol;
+the ordinary `adb-phone` adapter does not yet implement account-review actions.
+Do not enable it with an unsupported adapter.
+
+`review_begin` binds the enrolled primary phone, Android user and official app to
+the configured account, returning `identity_verified: true` and private `xml`
+over the existing pipes. `review_request` receives the SHA-256 of that captured
+XML and may click only the unique, enabled **REQUEST REVIEW** button on a
+recognized ban screen. It rechecks the current screen first and returns new XML.
+Raw XML, codes and message contents must not enter controller logs.
+
+With `--apply`, an available review is requested immediately, even if pairing's
+`not_before` or six-hour restriction cooldown has not elapsed. Without `--apply`,
+this mode examines the phone but never presses the review button. Ordinary
+recovery inspection continues to avoid phone access.
+
+The controller records an attempt durably **before** the click. Pending manual
+appeals are adopted without another click; crashes, unfamiliar outcomes and
+authentication interruptions cannot cause duplicate submissions on restart.
+`verification_required` and `needs_owner` identify a prompt needing immediate
+owner attention, including SMS verification required **before** an appeal.
+An unconfirmed click is never reported as a submitted appeal. Unknown forms and
+custom appeal text are not filled automatically. Resolve an interrupted attempt
+by inspecting the official app, rather than deleting its durable intent.
+
+Review state uses `provider-review` and `provider-review-attempt` keys in the
+existing account-locked state store. A healthy primary/session resolves that ban
+episode. Already-pending reviews are checked at five-minute intervals; this wait
+does not apply before the first appeal. Six hours is not a guaranteed provider
+review duration. Polling/owner notifications are installation-specific.
 
 Codes pass through process pipes and one-character phone input with pauses. The
 controller suppresses adapter stderr and reports only bounded symbolic errors.

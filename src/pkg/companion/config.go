@@ -26,6 +26,7 @@ type PhoneConfig struct {
 }
 type Account struct {
 	ID            string          `json:"id"`
+	AutoAppeal    bool            `json:"auto_appeal,omitempty"`
 	Phone         string          `json:"phone"`
 	DisplayName   string          `json:"display_name"`
 	NotBefore     string          `json:"not_before,omitempty"`
