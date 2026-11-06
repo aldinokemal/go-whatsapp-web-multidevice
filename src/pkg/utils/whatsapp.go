@@ -744,6 +744,33 @@ func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetLiveLocationMessage().GetContextInfo()
 	case msg.GetInteractiveMessage() != nil:
 		return msg.GetInteractiveMessage().GetContextInfo()
+	case msg.GetButtonsResponseMessage() != nil:
+		return msg.GetButtonsResponseMessage().GetContextInfo()
+	case msg.GetListResponseMessage() != nil:
+		return msg.GetListResponseMessage().GetContextInfo()
+	case msg.GetTemplateButtonReplyMessage() != nil:
+		return msg.GetTemplateButtonReplyMessage().GetContextInfo()
+	case msg.GetInteractiveResponseMessage() != nil:
+		return msg.GetInteractiveResponseMessage().GetContextInfo()
+	case msg.GetContactsArrayMessage() != nil:
+		return msg.GetContactsArrayMessage().GetContextInfo()
+	case msg.GetButtonsMessage() != nil:
+		return msg.GetButtonsMessage().GetContextInfo()
+	case msg.GetListMessage() != nil:
+		return msg.GetListMessage().GetContextInfo()
+	case msg.GetTemplateMessage() != nil:
+		return msg.GetTemplateMessage().GetContextInfo()
+	case msg.GetProductMessage() != nil:
+		return msg.GetProductMessage().GetContextInfo()
+	case msg.GetOrderMessage() != nil:
+		return msg.GetOrderMessage().GetContextInfo()
+	case msg.GetGroupInviteMessage() != nil:
+		return msg.GetGroupInviteMessage().GetContextInfo()
+	case msg.GetEventMessage() != nil:
+		return msg.GetEventMessage().GetContextInfo()
+	}
+	if poll, _ := ExtractPollCreationMessage(msg); poll != nil {
+		return poll.GetContextInfo()
 	}
 	return nil
 }
