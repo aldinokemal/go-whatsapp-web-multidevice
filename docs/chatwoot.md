@@ -689,7 +689,7 @@ An entry is compared with both the **chat** a message belongs to and the **sende
 
 WhatsApp addresses the same account in two forms: the phone-number JID (`628123456789@s.whatsapp.net`) and a LID (`251556368777322@lid`). Each entry is compared with both forms of the chat and of the sender whenever both are known, so `251556368777322@lid` matches that contact even when GOWA resolved the LID to a phone number, and the phone-number JID matches a message that arrived under the LID. The `@lid` wildcard therefore matches every chat or sender whose LID is known, not only contacts that could not be resolved to a phone number.
 
-Live forwarding, the forward-retry queue and history sync use the same rule. History sync reads stored messages, which keep one form per chat and sender; the other form comes from the device's LID mapping table and is unknown when the device is not connected or WhatsApp never supplied the mapping. In that case only the stored form is compared.
+Live forwarding, the forward-retry queue and history sync use the same rule. History sync reads stored messages, which keep one form per chat and sender; the other form comes from the device's LID mapping table and is unknown when the device is not connected or WhatsApp never supplied the mapping. In that case only the stored form is compared. Live forwarding, a queued retry and the "message deleted" note likewise look up a missing form in the LID mapping table of the device the event belongs to, so a mapping learned after a message was queued still applies; a form already on the event is kept. If that table cannot be read while an ignore list applies, the event is held in the retry queue instead of being sent.
 
 #### Ignoring a chat that is already in Chatwoot
 
