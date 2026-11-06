@@ -281,6 +281,40 @@ func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
 	}
 }
 
+// TestChatwootRedirectToPlainHTTPDropsToken: a redirect from HTTPS to HTTP on
+// the same host must not send the API token in clear text.
+func TestChatwootRedirectToPlainHTTPDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client := origin.Client()
+	client.CheckRedirect = chatwootCheckRedirect
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(apiTokenHeader, "secret-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	resp.Body.Close()
+	if got := <-tokens; got != "" {
+		t.Fatalf("plain HTTP redirect target received the API token %q", got)
+	}
+}
+
 // TestChatwootAllowlistChecksRequestHostNotDialedAddress: behind
 // HTTP(S)_PROXY the dialed address is the proxy, which is not on the
 // allowlist. The allowlist applies to the request's destination host.

@@ -94,6 +94,7 @@ func (c *Client) resolveInboxIdentifier() (string, error) {
 	}
 	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
 }
+
 // apiTokenHeader carries the Chatwoot API access token. Chatwoot documents it
 // as "api_access_token". Rails exposes a request header to the application as
 // HTTP_<NAME> with hyphens turned into underscores, so "api-access-token"
