@@ -318,7 +318,7 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_message_delete") {
 		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
 	}
-	if viper.IsSet("chatwoot_revoke_on_delete") {
+	if !rootCmd.PersistentFlags().Changed("chatwoot-revoke-on-delete") && viper.IsSet("chatwoot_revoke_on_delete") {
 		config.ChatwootRevokeOnDelete = viper.GetBool("chatwoot_revoke_on_delete")
 	}
 }
