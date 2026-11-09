@@ -221,17 +221,17 @@ func TestQuotedMediaMigrationFromExistingDatabase(t *testing.T) {
 	require.Equal(t, copied, readQuotedMedia(t, repo, "device-a", "550000000002@s.whatsapp.net", "legacy").Copy)
 }
 
-// A quoted_media column created outside the migrations makes migration 50
-// fail, and the schema stays at version 49.
+// A quoted_media column created outside the migrations makes migration 55
+// fail, and the schema stays at version 54.
 func TestQuotedMediaMigrationFailureKeepsTheVersion(t *testing.T) {
 	repo, _ := legacyDatabase(t)
 	_, err := repo.db.Exec(`ALTER TABLE messages ADD COLUMN quoted_media BLOB`)
 	require.NoError(t, err)
 
-	require.ErrorContains(t, repo.InitializeSchema(), "failed to run migration 50")
+	require.ErrorContains(t, repo.InitializeSchema(), "failed to run migration 55")
 	version, err := repo.getSchemaVersion()
 	require.NoError(t, err)
-	require.Equal(t, 49, version)
+	require.Equal(t, 54, version)
 }
 
 // The column stores a copy of the largest size kept byte for byte, and no copy
@@ -579,8 +579,9 @@ func TestQuotedMediaGoesWithItsMessage(t *testing.T) {
 	}{
 		"revoke": {func(r *SQLiteRepository) error {
 			jid := types.NewJID("550000000002", types.DefaultUserServer)
+			author := types.NewJID("550000000003", types.DefaultUserServer)
 			return r.CreateMessage(qmDeviceContext("device-a"), &events.Message{
-				Info: types.MessageInfo{ID: "REVOKE-1", Timestamp: time.Now(), MessageSource: types.MessageSource{Chat: jid, Sender: jid}},
+				Info: types.MessageInfo{ID: "REVOKE-1", Timestamp: time.Now(), MessageSource: types.MessageSource{Chat: jid, Sender: author, IsFromMe: true}},
 				Message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
 					Type: waE2E.ProtocolMessage_REVOKE.Enum(), Key: &waCommon.MessageKey{ID: proto.String("m1")},
 				}},

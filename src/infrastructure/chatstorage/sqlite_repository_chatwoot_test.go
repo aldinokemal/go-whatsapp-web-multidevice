@@ -405,3 +405,131 @@ func TestSQLiteRepositoryChatwootForwardQueueLifecycle(t *testing.T) {
 		t.Fatalf("due after done len = %d, want 0", len(due))
 	}
 }
+
+// replyLink is a link in the synthetic reply scope: Chatwoot message 41 of
+// conversation 7 (account 3, inbox 5, config 11), sent by device-a to peer-a.
+func replyLink(waMessageID string, createdAt time.Time) *domainChatStorage.ChatwootMessageLink {
+	return &domainChatStorage.ChatwootMessageLink{
+		DeviceID: "device-a@s.whatsapp.net", WhatsAppMessageID: waMessageID, WhatsAppChatJID: "peer-a@s.whatsapp.net",
+		ChatwootMessageID: 41, ChatwootConversationID: 7, ChatwootAccountID: 3, ChatwootInboxID: 5, ChatwootConfigID: 11,
+		Direction: "outgoing", CreatedAt: createdAt,
+	}
+}
+
+func replyLinkFilter() domainChatStorage.ChatwootReplyLinkFilter {
+	return domainChatStorage.ChatwootReplyLinkFilter{
+		DeviceID: "device-a@s.whatsapp.net", ChatwootMessageID: 41, ChatwootConversationID: 7,
+		ChatwootAccountID: 3, ChatwootInboxID: 5, ChatwootConfigID: 11,
+	}
+}
+
+// storeReplyLinks returns a fresh repository holding links.
+func storeReplyLinks(t *testing.T, links ...*domainChatStorage.ChatwootMessageLink) *SQLiteRepository {
+	t.Helper()
+	repo := newTestSQLiteRepository(t)
+	for _, link := range links {
+		if err := repo.UpsertChatwootMessageLink(link); err != nil {
+			t.Fatalf("upsert %s: %v", link.WhatsAppMessageID, err)
+		}
+	}
+	return repo
+}
+
+// findReplyLink returns the WhatsApp id of the link found for filter, or "".
+func findReplyLink(t *testing.T, repo *SQLiteRepository, filter domainChatStorage.ChatwootReplyLinkFilter) string {
+	t.Helper()
+	link, err := repo.GetChatwootMessageLinkForReply(filter)
+	if err != nil {
+		t.Fatalf("GetChatwootMessageLinkForReply: %v", err)
+	}
+	if link == nil {
+		return ""
+	}
+	return link.WhatsAppMessageID
+}
+
+// The scope is applied before LIMIT 1. A link that differs in one field is
+// older and sorts first, so it would be returned if that field were left out
+// of the query; on its own it is never returned.
+func TestSQLiteRepositoryReplyLinkLookupScopesBeforeLimit(t *testing.T) {
+	base := time.Date(2026, time.October, 1, 9, 0, 0, 0, time.UTC)
+	cases := map[string]func(*domainChatStorage.ChatwootMessageLink){
+		"device":       func(l *domainChatStorage.ChatwootMessageLink) { l.DeviceID = "device-b@s.whatsapp.net" },
+		"message":      func(l *domainChatStorage.ChatwootMessageLink) { l.ChatwootMessageID = 40 },
+		"conversation": func(l *domainChatStorage.ChatwootMessageLink) { l.ChatwootConversationID = 8 },
+		"account":      func(l *domainChatStorage.ChatwootMessageLink) { l.ChatwootAccountID = 4 },
+		"inbox":        func(l *domainChatStorage.ChatwootMessageLink) { l.ChatwootInboxID = 6 },
+		"config":       func(l *domainChatStorage.ChatwootMessageLink) { l.ChatwootConfigID = 0 },
+	}
+	for field, differ := range cases {
+		t.Run(field, func(t *testing.T) {
+			other := replyLink("WA-A-OTHER", base)
+			differ(other)
+			repo := storeReplyLinks(t, other)
+			if got := findReplyLink(t, repo, replyLinkFilter()); got != "" {
+				t.Fatalf("only a link of another %s: got %q, want none", field, got)
+			}
+			if err := repo.UpsertChatwootMessageLink(replyLink("WA-B-MATCH", base.Add(time.Minute))); err != nil {
+				t.Fatalf("upsert WA-B-MATCH: %v", err)
+			}
+			if got := findReplyLink(t, repo, replyLinkFilter()); got != "WA-B-MATCH" {
+				t.Fatalf("next to a link of another %s: got %q, want WA-B-MATCH", field, got)
+			}
+		})
+	}
+}
+
+// Account 0 (legacy) rows match only when the caller allows them and the
+// config is 0. Config 0 is an equality, never a wildcard, and the exact
+// account comes before an older legacy row.
+func TestSQLiteRepositoryReplyLinkLookupLegacyAccountZero(t *testing.T) {
+	base := time.Date(2026, time.October, 1, 9, 0, 0, 0, time.UTC)
+	link := func(waMessageID string, accountID int, configID int64, minute int) *domainChatStorage.ChatwootMessageLink {
+		l := replyLink(waMessageID, base.Add(time.Duration(minute)*time.Minute))
+		l.ChatwootAccountID, l.ChatwootConfigID = accountID, configID
+		return l
+	}
+	filter := func(accountID int, configID int64, allowLegacy bool) domainChatStorage.ChatwootReplyLinkFilter {
+		f := replyLinkFilter()
+		f.ChatwootAccountID, f.ChatwootConfigID, f.AllowLegacyAccountZero = accountID, configID, allowLegacy
+		return f
+	}
+	cases := []struct {
+		name   string
+		filter domainChatStorage.ChatwootReplyLinkFilter
+		links  []*domainChatStorage.ChatwootMessageLink
+		want   string
+	}{
+		{"legacy row allowed", filter(3, 0, true), []*domainChatStorage.ChatwootMessageLink{link("WA-LEGACY", 0, 0, 0)}, "WA-LEGACY"},
+		{"legacy row not allowed", filter(3, 0, false), []*domainChatStorage.ChatwootMessageLink{link("WA-LEGACY", 0, 0, 0)}, ""},
+		{"account 0 under a config", filter(3, 11, true), []*domainChatStorage.ChatwootMessageLink{link("WA-LEGACY", 0, 11, 0)}, ""},
+		{"legacy row of another account", filter(3, 0, true), []*domainChatStorage.ChatwootMessageLink{link("WA-OTHER", 4, 0, 0)}, ""},
+		{"config 0 is not a wildcard", filter(3, 0, true), []*domainChatStorage.ChatwootMessageLink{link("WA-CURRENT", 3, 11, 0)}, ""},
+		{"no account", filter(0, 0, false), []*domainChatStorage.ChatwootMessageLink{link("WA-LEGACY", 0, 0, 0)}, ""},
+		{"exact account before an older legacy row", filter(3, 0, true),
+			[]*domainChatStorage.ChatwootMessageLink{link("WA-A-LEGACY", 0, 0, 0), link("WA-B-EXACT", 3, 0, 1)}, "WA-B-EXACT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := findReplyLink(t, storeReplyLinks(t, tc.links...), tc.filter); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A message sent with several attachments has one link per file; the lookup
+// returns the first one delivered, whatever the insertion order.
+func TestSQLiteRepositoryReplyLinkLookupPicksTheFirstFile(t *testing.T) {
+	base := time.Date(2026, time.October, 1, 9, 0, 0, 0, time.UTC)
+	first, second := replyLink("WA-Z-FIRST", base), replyLink("WA-A-SECOND", base.Add(time.Second))
+	if got := findReplyLink(t, storeReplyLinks(t, first, second), replyLinkFilter()); got != "WA-Z-FIRST" {
+		t.Fatalf("first stored first: got %q, want WA-Z-FIRST", got)
+	}
+	if got := findReplyLink(t, storeReplyLinks(t, second, first), replyLinkFilter()); got != "WA-Z-FIRST" {
+		t.Fatalf("first stored last: got %q, want WA-Z-FIRST", got)
+	}
+	if got := findReplyLink(t, storeReplyLinks(t, replyLink("WA-B", base), replyLink("WA-A", base)), replyLinkFilter()); got != "WA-A" {
+		t.Fatalf("same created_at: got %q, want the lowest WhatsApp id WA-A", got)
+	}
+}

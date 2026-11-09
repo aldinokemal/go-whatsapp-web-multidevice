@@ -111,7 +111,7 @@ The implementation intentionally uses opaque tokens rather than JWTs:
 - the OAuth `resource` value is bound to the canonical MCP resource at authorization and checked when access tokens are used; token requests may omit `resource`, in which case the resource bound to the code or refresh-token family is used, while a supplied value must match;
 - successful authorization responses include RFC 9207 `iss` for authorization-server mix-up protection.
 
-Expired authorization codes and tokens are removed opportunistically during OAuth writes so their rows do not accumulate indefinitely. SQLite can reuse the freed pages; shrinking the file itself still requires normal SQLite maintenance such as `VACUUM` while GOWA is stopped.
+Expired authorization codes and tokens are removed opportunistically during OAuth writes so their rows do not accumulate indefinitely. A rotated refresh token is kept for at most one more refresh-token lifetime (30 days) after it expires, and only while its family still has a live token, so replaying it still revokes that family. SQLite can reuse the freed pages; shrinking the file itself still requires normal SQLite maintenance such as `VACUUM` while GOWA is stopped.
 
 No OAuth token is accepted as authentication for the normal REST/UI routes. OAuth only extends the MCP authentication surface.
 

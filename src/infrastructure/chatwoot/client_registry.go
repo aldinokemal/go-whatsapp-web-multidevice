@@ -35,9 +35,10 @@ type ResolvedConfig struct {
 // back to the global env inbox — which would mis-deliver across accounts. The
 // env config is only used as a single "legacy" config while the table is empty.
 type ClientRegistry struct {
-	mu    sync.RWMutex
-	cache map[string]*ResolvedConfig
-	repo  domainChatStorage.IChatStorageRepository
+	mu         sync.Mutex
+	cache      map[string]*ResolvedConfig
+	repo       domainChatStorage.IChatStorageRepository
+	generation uint64
 }
 
 func NewClientRegistry(repo domainChatStorage.IChatStorageRepository) *ClientRegistry {
@@ -57,13 +58,32 @@ func (r *ClientRegistry) Resolve(identifier string) (*ResolvedConfig, error) {
 	// a copy the cached key's bytes would silently mutate under the next request.
 	identifier = strings.Clone(strings.TrimSpace(identifier))
 
-	r.mu.RLock()
-	if rc, ok := r.cache[identifier]; ok {
-		r.mu.RUnlock()
-		return rc, nil
-	}
-	r.mu.RUnlock()
+	// Load outside the lock, then cache only if Invalidate has not run since
+	// the load started. A result that lost that race is discarded and the
+	// lookup is repeated so a disabled or replaced destination is not pinned.
+	for attempt := 0; attempt < 2; attempt++ {
+		r.mu.Lock()
+		if rc, ok := r.cache[identifier]; ok {
+			r.mu.Unlock()
+			return rc, nil
+		}
+		gen := r.generation
+		r.mu.Unlock()
 
+		rc, err := r.loadResolved(identifier)
+		if err != nil {
+			return nil, err
+		}
+		if r.remember(identifier, gen, rc) {
+			return rc, nil
+		}
+	}
+	// Invalidation is still racing the load. Return the current row without
+	// caching it; the next Resolve reads again.
+	return r.loadResolved(identifier)
+}
+
+func (r *ClientRegistry) loadResolved(identifier string) (*ResolvedConfig, error) {
 	if r.repo == nil {
 		return nil, nil
 	}
@@ -77,13 +97,11 @@ func (r *ClientRegistry) Resolve(identifier string) (*ResolvedConfig, error) {
 			// Explicitly disabled for this device: do not forward, do not fall back.
 			return nil, nil
 		}
-		rc := &ResolvedConfig{
+		return &ResolvedConfig{
 			ConfigID: cfg.ID,
 			DeviceID: cfg.DeviceID,
 			Client:   NewClientFromConfig(cfg.ChatwootURL, cfg.APIToken, cfg.AccountID, cfg.InboxID),
-		}
-		r.store(identifier, rc)
-		return rc, nil
+		}, nil
 	}
 
 	// No per-device row. Fall back to the env config ONLY while the table is
@@ -93,11 +111,23 @@ func (r *ClientRegistry) Resolve(identifier string) (*ResolvedConfig, error) {
 		return nil, err
 	}
 	if count == 0 {
-		rc := &ResolvedConfig{ConfigID: 0, DeviceID: identifier, Client: NewClient()}
-		r.store(identifier, rc)
-		return rc, nil
+		return &ResolvedConfig{ConfigID: 0, DeviceID: identifier, Client: NewClient()}, nil
 	}
 	return nil, nil
+}
+
+// remember caches rc when gen is still current. A nil rc is not cached.
+// It reports false when Invalidate bumped the generation during the load.
+func (r *ClientRegistry) remember(identifier string, gen uint64, rc *ResolvedConfig) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.generation != gen {
+		return false
+	}
+	if rc != nil {
+		r.cache[identifier] = rc
+	}
+	return true
 }
 
 // ResolveByInbox maps a Chatwoot (account, inbox) to a device config. Used by
@@ -134,17 +164,14 @@ func (r *ClientRegistry) Invalidate(deviceID string) {
 	deviceID = strings.TrimSpace(deviceID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Bump even when the cache is empty so a load already in flight cannot
+	// insert the client it read before this invalidation.
+	r.generation++
 	for key, rc := range r.cache {
 		if key == deviceID || rc == nil || rc.DeviceID == deviceID || rc.ConfigID == 0 {
 			delete(r.cache, key)
 		}
 	}
-}
-
-func (r *ClientRegistry) store(identifier string, rc *ResolvedConfig) {
-	r.mu.Lock()
-	r.cache[identifier] = rc
-	r.mu.Unlock()
 }
 
 // Package-global registry, initialized at boot from the chat storage repo.
