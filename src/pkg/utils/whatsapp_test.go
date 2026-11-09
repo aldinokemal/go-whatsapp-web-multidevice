@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -442,6 +443,14 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 		{"mp3 audio", "audio/mpeg", false, []byte("ID3\x04\x00\x00\x00\x00\x00\x00"), "audio/mpeg"},
 		{"wav audio", "audio/wav", false, []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), "audio/wave"},
 		{"mp4 audio", "audio/mp4", false, []byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '2'}, "audio/mp4"},
+		{"aac adts", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "audio/aac"},
+		{"aac adts with crc", "audio/aac", false, []byte{0xff, 0xf0, 0x50, 0x80, 0x01, 0x7f, 0xfc, 0, 0, 0, 0}, "audio/aac"},
+		{"amr", "audio/amr", false, []byte("#!AMR\n\x3c\x00\x00"), "audio/amr"},
+		{"amr wideband", "audio/amr-wb", false, []byte("#!AMR-WB\n\x3c\x00\x00"), "audio/amr-wb"},
+		{"truncated adts", "audio/aac", false, []byte{0xff, 0xf1, 0x50}, "application/octet-stream"},
+		{"invalid adts layer", "audio/aac", false, []byte{0xff, 0xf7, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
+		{"invalid adts sample rate", "audio/aac", false, []byte{0xff, 0xf1, 0x7c, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
+		{"invalid adts frame length", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x00, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
 		{"unknown audio", "audio/aac", false, []byte{0, 1, 2, 3}, "application/octet-stream"},
 	}
 	for _, tt := range tests {
@@ -812,6 +821,34 @@ func TestBuildForwardMessageFromStorageDocument(t *testing.T) {
 	}
 	if doc.GetMimetype() != "application/pdf" {
 		t.Fatalf("mimetype = %q, want application/pdf", doc.GetMimetype())
+	}
+}
+
+func TestBuildForwardMessageFromStorageReuploadedAudioMIME(t *testing.T) {
+	for _, tt := range []struct {
+		name, mediaType, mimeType, wantMime string
+	}{
+		{"PTT Ogg", "ptt", "audio/ogg", "audio/ogg; codecs=opus"},
+		{"PTT with codec", "ptt", "audio/ogg; codecs=opus", "audio/ogg; codecs=opus"},
+		{"ordinary Ogg", "audio", "audio/ogg", "audio/ogg"},
+		{"other PTT MIME", "ptt", "audio/mpeg", "audio/mpeg"},
+		{"AAC", "audio", "audio/aac", "audio/aac"},
+		{"AMR", "audio", "audio/amr", "audio/amr"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{MediaType: tt.mediaType}, ForwardBuildOptions{
+				Upload: &whatsmeow.UploadResponse{DirectPath: "/reuploaded.enc"}, MimeType: tt.mimeType,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := msg.GetAudioMessage().GetMimetype(); got != tt.wantMime {
+				t.Errorf("re-upload MIME = %q, want %q", got, tt.wantMime)
+			}
+			if got := msg.GetAudioMessage().GetPTT(); got != (tt.mediaType == "ptt") {
+				t.Errorf("PTT = %v, want %v", got, tt.mediaType == "ptt")
+			}
+		})
 	}
 }
 
