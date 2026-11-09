@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -567,6 +568,9 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 	if mimeType == "" {
 		mimeType = defaultForwardMimeType(message)
 	}
+	if message.MediaType == "ptt" && mimeType == "audio/ogg" {
+		mimeType = "audio/ogg; codecs=opus"
+	}
 
 	switch message.MediaType {
 	case "image":
@@ -957,6 +961,12 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 		if extractedMedia.MimeType == "" {
 			detected := http.DetectContentType(data)
 			switch {
+			case bytes.HasPrefix(data, []byte("#!AMR\n")):
+				extractedMedia.MimeType = "audio/amr"
+			case bytes.HasPrefix(data, []byte("#!AMR-WB\n")):
+				extractedMedia.MimeType = "audio/amr-wb"
+			case isADTSAudio(data):
+				extractedMedia.MimeType = "audio/aac"
 			case detected == "application/ogg":
 				extractedMedia.MimeType = "audio/ogg"
 			case detected == "video/mp4":
@@ -986,6 +996,19 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 		return extractedMedia, err
 	}
 	return extractedMedia, nil
+}
+
+// isADTSAudio checks the ADTS syncword, sampling index, and first-frame bounds.
+func isADTSAudio(data []byte) bool {
+	if len(data) < 7 || data[0] != 0xff || data[1]&0xf6 != 0xf0 || (data[2]>>2)&0x0f > 12 {
+		return false
+	}
+	headerSize := 7
+	if data[1]&1 == 0 {
+		headerSize = 9
+	}
+	frameSize := int(data[3]&3)<<11 | int(data[4])<<3 | int(data[5])>>5
+	return frameSize >= headerSize && frameSize <= len(data)
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix
