@@ -34,9 +34,21 @@ type Message struct {
 	FileLength       uint64     `db:"file_length"`
 	ReferralMetadata string     `db:"referral_metadata"`
 	ContextMetadata  string     `db:"context_metadata"`
+	QuotedMedia      []byte     `db:"quoted_media" json:"-"` // written with the row; reads leave it nil, see GetQuotedMedia
+	NewsletterEdit   bool       `db:"-" json:"-"`            // new content under the original ID: replaces the content even after a recorded edit
 	Reactions        []Reaction `db:"-"`
 	CreatedAt        time.Time  `db:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at"`
+}
+
+// QuotedMedia is what a reply quoting a stored media message needs from it,
+// read in one statement: the copy stored with it and the state of its caption.
+type QuotedMedia struct {
+	Copy      []byte // Message.QuotedMedia; nil when none was stored
+	Content   string
+	MediaType string
+	IsFromMe  bool
+	HasEdits  bool // an edit is recorded for the message
 }
 
 // MessageEdit represents a single edit applied to an existing WhatsApp message.

@@ -1,6 +1,7 @@
 package chatstorage
 
 import (
+	"context"
 	"database/sql"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -25,6 +26,32 @@ func (r *SQLiteRepository) GetMessageByIDChatAndDevice(deviceID, chatJID, id str
 		return nil, nil
 	}
 	return message, err
+}
+
+// GetQuotedMedia reads, in one statement, the media copy stored with a message
+// and the state its quoted caption comes from, by the message's full storage
+// identity. The copy stays out of the message projections, so no other read
+// loads it. It returns nil (no error) when the message is missing.
+func (r *SQLiteRepository) GetQuotedMedia(ctx context.Context, deviceID, chatJID, id string) (*domainChatStorage.QuotedMedia, error) {
+	quoted := &domainChatStorage.QuotedMedia{}
+	err := r.db.QueryRowContext(ctx, `
+		SELECT quoted_media, COALESCE(content, ''), COALESCE(media_type, ''), is_from_me,
+			EXISTS (
+				SELECT 1 FROM message_edits
+				WHERE original_message_id = messages.id
+				  AND chat_jid = messages.chat_jid
+				  AND device_id = messages.device_id
+			)
+		FROM messages
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`, id, chatJID, deviceID).Scan(&quoted.Copy, &quoted.Content, &quoted.MediaType, &quoted.IsFromMe, &quoted.HasEdits)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return quoted, nil
 }
 
 // GetOldestMessageByDevice returns the earliest stored message for a chat,
