@@ -40,6 +40,14 @@ func (r *deleteRepo) GetChatwootDeviceConfigByIdentifier(identifier string) (*do
 	return nil, nil
 }
 
+// ListChatwootDeviceConfigs serves the webhook route gate.
+func (r *deleteRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
+	if r.config == nil {
+		return nil, nil
+	}
+	return []*domainChatStorage.ChatwootDeviceConfig{r.config}, nil
+}
+
 // GetChatwootDeviceConfigByInbox finds nothing: two servers share account 3
 // and inbox 5, so only the per-device URL can give the config.
 func (r *deleteRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (*domainChatStorage.ChatwootDeviceConfig, error) {
@@ -108,15 +116,17 @@ func newDeleteEnv(t *testing.T) *deleteEnv {
 
 	prevURL, prevToken := config.ChatwootURL, config.ChatwootAPIToken
 	prevAccount, prevInbox, prevDelete := config.ChatwootAccountID, config.ChatwootInboxID, config.ChatwootMessageDelete
-	prevRevoke := config.ChatwootRevokeOnDelete
+	prevRevoke, prevUnsigned := config.ChatwootRevokeOnDelete, config.ChatwootWebhookAllowUnsigned
 	t.Cleanup(func() {
 		config.ChatwootURL, config.ChatwootAPIToken = prevURL, prevToken
 		config.ChatwootAccountID, config.ChatwootInboxID, config.ChatwootMessageDelete = prevAccount, prevInbox, prevDelete
-		config.ChatwootRevokeOnDelete = prevRevoke
+		config.ChatwootRevokeOnDelete, config.ChatwootWebhookAllowUnsigned = prevRevoke, prevUnsigned
 		chatwoot.InitClientRegistry(nil)
 	})
 	config.ChatwootURL, config.ChatwootAPIToken = server.URL, "tok"
 	config.ChatwootAccountID, config.ChatwootInboxID, config.ChatwootMessageDelete = 3, 5, true
+	// The deletes here are posted unsigned.
+	config.ChatwootWebhookAllowUnsigned = true
 	chatwoot.InitClientRegistry(nil)
 
 	jid := types.NewJID("device-a", types.DefaultUserServer)
@@ -156,27 +166,31 @@ func TestChatwootDeleteRevokesEveryOutgoingLink(t *testing.T) {
 
 // A legacy account-0 link is revoked only while no per-device config exists,
 // as in the conversation lookup. Legacy mode revokes only config-0 links; in
-// per-device mode a link must belong to the route's config, here the one of
-// the conversation link.
+// per-device mode a link must belong to the route's config, here the
+// per-device URL's.
 func TestChatwootDeleteRevokesLegacyLinksOnlyInLegacyMode(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		configs    int
-		linkConfig int64
-		revokes    []string
+		name    string
+		configs int
+		revokes []string
 	}{
 		// Legacy mode keeps a config only from a removed per-device config,
 		// possibly another server's.
-		{"legacy mode, conversation link of a removed config", 0, 2, []string{"WA-0", "WA-3"}},
-		{"per-device mode", 1, 2, []string{"WA-3B"}},
-		// Config-0 links are legacy-only: a config-0 route fails closed.
-		{"per-device mode, config-0 route", 1, 0, nil},
+		{"legacy mode, conversation link of a removed config", 0, []string{"WA-0", "WA-3"}},
+		// Per-device mode revokes only its config's links, never config 0.
+		{"per-device mode", 1, []string{"WA-3B"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newDeleteEnv(t)
 			env.repo.count = tc.configs
 			env.repo.link = &domainChatStorage.ChatwootMessageLink{DeviceID: "slot-a", WhatsAppChatJID: "5500900000001@s.whatsapp.net",
-				ChatwootConversationID: 7, ChatwootAccountID: 3, ChatwootConfigID: tc.linkConfig}
+				ChatwootConversationID: 7, ChatwootAccountID: 3, ChatwootConfigID: 2}
+			if tc.configs > 0 {
+				env.repo.config = &domainChatStorage.ChatwootDeviceConfig{ID: 2, DeviceID: "slot-a", DeviceJID: "device-a@s.whatsapp.net",
+					ChatwootURL: "https://chat.example.com", APIToken: "t", AccountID: 3, InboxID: 5, Enabled: true}
+				chatwoot.InitClientRegistry(env.repo)
+				env.webhook = "/chatwoot/webhook/slot-a"
+			}
 			env.deleted(t, 91)
 			deleteEqual(t, "revokes", env.usecase.ids, tc.revokes)
 		})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 )
@@ -147,6 +148,14 @@ func hydratedTemplateButton(button *waE2E.HydratedTemplateButton) (BusinessButto
 func BuildButtonsPayload(msg *waE2E.Message) *BusinessMessage {
 	bm := msg.GetButtonsMessage()
 	if bm == nil {
+		// Cloud API reply buttons, CTA and single-select arrive as a top-level
+		// InteractiveMessage. Without this branch they reached webhooks only as the
+		// text summary, and a client could not offer the buttons back.
+		if im := msg.GetInteractiveMessage(); im != nil {
+			if out := interactiveAsBusinessMessage(im); len(out.Buttons) > 0 || len(out.Cards) > 0 {
+				return out
+			}
+		}
 		return nil
 	}
 	out := &BusinessMessage{
@@ -178,8 +187,8 @@ func BuildButtonsPayload(msg *waE2E.Message) *BusinessMessage {
 	return out
 }
 
-// interactiveAsBusinessMessage maps an InteractiveMessage wrapped in a
-// template onto the same shape. Carousel cards are mapped recursively.
+// interactiveAsBusinessMessage maps an InteractiveMessage — top-level or wrapped
+// in a template — onto the same shape. Carousel cards are mapped recursively.
 func interactiveAsBusinessMessage(im *waE2E.InteractiveMessage) *BusinessMessage {
 	header := im.GetHeader()
 	out := &BusinessMessage{
@@ -382,56 +391,134 @@ func joinNonEmptyLines(values ...string) string {
 // buttonParamsJSON as a per-button-type JSON blob (undocumented,
 // reverse-engineered from traffic), so only the fields relevant to rendering
 // are decoded and anything unrecognized still shows the button's raw name.
+const (
+	// interactiveSummaryMaxDepth stops nested carousels from walking a compact
+	// message forever. Real carousels are one level deep.
+	interactiveSummaryMaxDepth = 5
+	// interactiveSummaryMaxBytes caps the rendered summary so a wide or deep
+	// carousel cannot multiply a leaf into an unbounded allocation.
+	interactiveSummaryMaxBytes = 16 * 1024
+)
+
 func FormatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
-	var parts []string
+	var b strings.Builder
+	writeInteractiveSummary(&b, im, 0, "")
+	if b.Len() == 0 {
+		return "Interactive message"
+	}
+	return b.String()
+}
+
+// writeInteractiveSummary appends into one builder. Nested card text is written
+// once, with the "Card N: " prefix on its first line, instead of being copied
+// into a new string at every ancestor.
+func writeInteractiveSummary(b *strings.Builder, im *waE2E.InteractiveMessage, depth int, firstPrefix string) {
+	if im == nil || depth >= interactiveSummaryMaxDepth || b.Len() >= interactiveSummaryMaxBytes {
+		return
+	}
+	first := true
+	writePart := func(text string) {
+		if text == "" || b.Len() >= interactiveSummaryMaxBytes {
+			return
+		}
+		if first {
+			first = false
+			appendBoundedSummary(b, firstPrefix)
+			appendBoundedSummary(b, text)
+			return
+		}
+		appendBoundedSummary(b, "\n")
+		appendBoundedSummary(b, text)
+	}
 
 	if header := im.GetHeader(); header != nil {
-		if title := header.GetTitle(); title != "" {
-			parts = append(parts, title)
-		}
-		if subtitle := header.GetSubtitle(); subtitle != "" {
-			parts = append(parts, subtitle)
-		}
+		writePart(header.GetTitle())
+		writePart(header.GetSubtitle())
 		// ExtractMediaCaption only handles top-level Get*Message() cases, not
 		// InteractiveMessage.Header — surface header captions here, since
 		// collectInteractiveMedia forwards the file itself but nothing else
 		// carries the caption text.
-		if caption := interactiveHeaderMediaCaption(header); caption != "" {
-			parts = append(parts, caption)
-		}
+		writePart(interactiveHeaderMediaCaption(header))
 	}
 	if body := im.GetBody(); body != nil {
-		if text := body.GetText(); text != "" {
-			parts = append(parts, text)
-		}
+		writePart(body.GetText())
 	}
 	if footer := im.GetFooter(); footer != nil {
-		if text := footer.GetText(); text != "" {
-			parts = append(parts, text)
-		}
+		writePart(footer.GetText())
 	}
-
 	for _, button := range im.GetNativeFlowMessage().GetButtons() {
-		if line := formatNativeFlowButton(button); line != "" {
-			parts = append(parts, line)
+		if b.Len() >= interactiveSummaryMaxBytes {
+			break
 		}
+		writePart(formatNativeFlowButton(button))
 	}
 
 	// Carousels put their CTA/quick-reply buttons on each card rather than on
 	// the top-level NativeFlowMessage, so the loop above sees none of them —
 	// summarize each card (itself a full InteractiveMessage) separately.
+	carousel := im.GetCarouselMessage()
+	if carousel == nil {
+		return
+	}
+	for i, card := range carousel.GetCards() {
+		if b.Len() >= interactiveSummaryMaxBytes || !interactiveSummaryHasContent(card, depth+1) {
+			continue
+		}
+		cardPrefix := fmt.Sprintf("Card %d: ", i+1)
+		if first {
+			first = false
+			writeInteractiveSummary(b, card, depth+1, firstPrefix+cardPrefix)
+			continue
+		}
+		appendBoundedSummary(b, "\n")
+		writeInteractiveSummary(b, card, depth+1, cardPrefix)
+	}
+}
+
+func interactiveSummaryHasContent(im *waE2E.InteractiveMessage, depth int) bool {
+	if im == nil || depth >= interactiveSummaryMaxDepth {
+		return false
+	}
+	if header := im.GetHeader(); header != nil {
+		if header.GetTitle() != "" || header.GetSubtitle() != "" || interactiveHeaderMediaCaption(header) != "" {
+			return true
+		}
+	}
+	if im.GetBody().GetText() != "" || im.GetFooter().GetText() != "" {
+		return true
+	}
+	// formatNativeFlowButton renders every non-nil button, so checking for one
+	// avoids parsing its params here.
+	for _, button := range im.GetNativeFlowMessage().GetButtons() {
+		if button != nil {
+			return true
+		}
+	}
 	if carousel := im.GetCarouselMessage(); carousel != nil {
-		for i, card := range carousel.GetCards() {
-			if cardSummary := FormatInteractiveMessageSummary(card); cardSummary != "" && cardSummary != "Interactive message" {
-				parts = append(parts, fmt.Sprintf("Card %d: %s", i+1, cardSummary))
+		for _, card := range carousel.GetCards() {
+			if interactiveSummaryHasContent(card, depth+1) {
+				return true
 			}
 		}
 	}
+	return false
+}
 
-	if len(parts) == 0 {
-		return "Interactive message"
+func appendBoundedSummary(b *strings.Builder, text string) {
+	if text == "" || b.Len() >= interactiveSummaryMaxBytes {
+		return
 	}
-	return strings.Join(parts, "\n")
+	remain := interactiveSummaryMaxBytes - b.Len()
+	if len(text) > remain {
+		// Back the cut up to a rune start so a multi-byte rune is not split.
+		// An invalid byte earlier in text does not move the cut.
+		cut := remain
+		for i := 0; i < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(text[cut]); i++ {
+			cut--
+		}
+		text = text[:cut]
+	}
+	b.WriteString(text)
 }
 
 // interactiveHeaderMediaCaption returns the caption on whichever media type

@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,12 +59,14 @@ type ScheduleService struct {
 	manager   *whatsapp.DeviceManager
 	mediaRoot string
 	now       func() time.Time
-	once      sync.Once
-	done      chan struct{}
+	// newMessageID returns a fresh WhatsApp message id for an occurrence.
+	newMessageID func(ctx context.Context) string
+	once         sync.Once
+	done         chan struct{}
 }
 
 func NewScheduleService(repo domainChatStorage.IChatStorageRepository, base domainSend.ISendUsecase, manager *whatsapp.DeviceManager, mediaRoot string) *ScheduleService {
-	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }, done: make(chan struct{})}
+	return &ScheduleService{repo: repo, base: base, manager: manager, mediaRoot: mediaRoot, now: func() time.Time { return time.Now().UTC() }, newMessageID: newScheduledMessageID, done: make(chan struct{})}
 }
 
 func (s *ScheduleService) Create(ctx context.Context, messageType, phone, summary string, options domainSend.ScheduleOptions, request any, assets []scheduledAssetInput) (domainSend.GenericResponse, error) {
@@ -286,6 +290,11 @@ func (s *ScheduleService) Resume(ctx context.Context, id string) error {
 				return nil
 			}
 			next = slot
+			// The missed occurrence may have reached WhatsApp under its
+			// pinned id; the next one must not be sent as its duplicate.
+			if err := s.repo.ClearScheduledSendPendingMessageID(job.DeviceID, job.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return s.changeStatus(job, "resumed", []string{scheduleStatusPaused}, scheduleStatusActive, &next)
@@ -418,17 +427,7 @@ func (s *ScheduleService) garbageCollectAssets() {
 }
 
 func (s *ScheduleService) processDue(ctx context.Context) {
-	expired, err := s.repo.ListExpiredScheduledSends(s.now())
-	if err != nil {
-		logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
-	}
-	// The send may or may not have gone out, so an interrupted occurrence is
-	// never resent.
-	for _, job := range expired {
-		if err := s.skipOccurrence(job, "execution interrupted before completion"); err != nil {
-			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send worker failed to recover interrupted job")
-		}
-	}
+	s.recoverInterrupted()
 	for ctx.Err() == nil {
 		now := s.now()
 		job, err := s.repo.ClaimNextScheduledSend(now, now.Add(2*time.Minute), fiberUtils.UUIDv4())
@@ -441,6 +440,47 @@ func (s *ScheduleService) processDue(ctx context.Context) {
 		}
 		if err := s.processJob(ctx, job); err != nil {
 			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send failed")
+		}
+	}
+}
+
+// recoverInterrupted returns occurrences whose lease lapsed to the queue: the
+// process stopped mid-send, or the send outlived its lease.
+//
+// New-protocol attempts reuse their persisted identity and poll secret. This
+// avoids creating a fresh message identity after an ambiguous outcome; it does
+// not guarantee exactly-once delivery. Only the current lease holder records
+// the result. Legacy unknown attempts retain conservative skip/fail recovery.
+//
+// The slot (next_run_at) and the occurrence count are left alone, so a
+// recurring schedule resumes the interrupted occurrence, not the one after it.
+// A pinned occurrence is charged an attempt: a send that keeps taking the
+// process down runs out of budget like one that keeps failing, and a pinned
+// job in the queue always has attempts on record, which is what keeps its id
+// through RetryScheduledSend.
+func (s *ScheduleService) recoverInterrupted() {
+	const reason = "execution interrupted before completion"
+	for {
+		now := s.now()
+		job, err := s.repo.ClaimExpiredScheduledSend(now, now.Add(2*time.Minute), fiberUtils.UUIDv4())
+		if err != nil {
+			logrus.WithError(err).Warn("scheduled send worker failed to recover interrupted jobs")
+			return
+		}
+		if job == nil {
+			return
+		}
+		attempts := job.Attempts
+		if job.PendingMessageID != "" {
+			attempts++
+		}
+		if job.LegacyAttemptUnknown || attempts >= scheduleMaxAttempts {
+			err = s.skipOccurrence(job, reason)
+		} else {
+			err = s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, attempts, job.NextRunAt)
+		}
+		if err != nil {
+			logrus.WithError(err).WithField("schedule_id", job.ID).Warn("scheduled send worker failed to recover interrupted job")
 		}
 	}
 }
@@ -471,13 +511,76 @@ func (s *ScheduleService) processJob(parent context.Context, job *domainChatStor
 	return s.deliver(ctx, job)
 }
 
+// pinOccurrenceMessageID returns ctx carrying the WhatsApp message id of the
+// occurrence being attempted, choosing and storing one on the first attempt.
+//
+// The identity and poll secret are stored together before dispatch. Every retry
+// reuses them, including after a crash, without claiming exactly-once delivery.
+func (s *ScheduleService) pinOccurrenceMessageID(ctx context.Context, job *domainChatStorage.ScheduledSend) (context.Context, error) {
+	messageID, pollSecret := job.PendingMessageID, job.PendingPollSecret
+	if messageID == "" {
+		messageID = s.newMessageID(ctx)
+		if job.MessageType == "poll" {
+			pollSecret = make([]byte, 32)
+			if _, err := rand.Read(pollSecret); err != nil {
+				return ctx, fmt.Errorf("generate poll secret: %w", err)
+			}
+		}
+	}
+	held, err := s.repo.SetScheduledSendPendingAttempt(job.ID, job.LeaseToken, messageID, pollSecret, s.now())
+	if err != nil {
+		return ctx, fmt.Errorf("store the message id of the occurrence: %w", err)
+	}
+	if !held {
+		return ctx, errScheduleLeaseLost
+	}
+	job.PendingMessageID, job.PendingPollSecret = messageID, pollSecret
+	ctx = whatsapp.ContextWithSendMessageID(ctx, job.PendingMessageID)
+	return whatsapp.ContextWithPollSecret(ctx, job.PendingPollSecret), nil
+}
+
+// errScheduleLeaseLost: the job was taken from this worker (cancelled,
+// paused, or its lease expired) before the occurrence could be sent.
+var errScheduleLeaseLost = errors.New("scheduled send is no longer claimed by this worker")
+
+// newScheduledMessageID returns a fresh WhatsApp message id for an occurrence.
+func newScheduledMessageID(ctx context.Context) string {
+	if client := whatsapp.ClientFromContext(ctx); client != nil {
+		return string(client.GenerateMessageID())
+	}
+	random := make([]byte, 9)
+	_, _ = rand.Read(random)
+	return "3EB0" + strings.ToUpper(hex.EncodeToString(random))
+}
+
 func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.ScheduledSend) error {
+	// Legacy active retries and resumed paused attempts also have an unknown
+	// outcome; they must not acquire a new identity and repeat that occurrence.
+	if job.LegacyAttemptUnknown {
+		return s.skipOccurrence(job, "legacy attempt outcome is unknown")
+	}
+	ctx, err := s.pinOccurrenceMessageID(ctx, job)
+	if errors.Is(err, errScheduleLeaseLost) {
+		// Nothing was sent and the job is no longer ours to reschedule.
+		return err
+	}
+	if err != nil {
+		// Nothing was sent: try again shortly, at no cost to the attempt budget.
+		if retryErr := s.repo.RetryScheduledSend(job.ID, job.LeaseToken, err.Error(), job.Attempts, s.now().Add(30*time.Second)); retryErr != nil {
+			return retryErr
+		}
+		return err
+	}
 	response, err := s.dispatch(ctx, job)
 	if err != nil {
 		var validationErr pkgError.ValidationError
 		if errors.As(err, &validationErr) || errors.Is(err, errScheduledPayload) {
-			_ = s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error())
-			s.cleanupAssets(job)
+			if failErr := s.repo.FailScheduledSend(job.ID, job.LeaseToken, err.Error()); failErr != nil {
+				return failErr
+			}
+			if !s.stillPending(job) {
+				s.cleanupAssets(job)
+			}
 			return err
 		}
 		if job.Attempts+1 >= scheduleMaxAttempts {
@@ -500,10 +603,22 @@ func (s *ScheduleService) deliver(ctx context.Context, job *domainChatStorage.Sc
 	if err := s.repo.CompleteScheduledSend(job.ID, job.LeaseToken, status, response.MessageID, count, timePtr(next)); err != nil {
 		return err
 	}
-	if status == scheduleStatusCompleted {
+	if status == scheduleStatusCompleted && !s.stillPending(job) {
 		s.cleanupAssets(job)
 	}
 	return nil
+}
+
+// stillPending reports whether the job is still to be sent by another worker:
+// this one's lease lapsed, so its terminal transition may not have been recorded.
+// Terminal jobs cannot be resumed; active, running, and paused jobs need media.
+func (s *ScheduleService) stillPending(job *domainChatStorage.ScheduledSend) bool {
+	stored, err := s.repo.GetScheduledSend(job.DeviceID, job.ID)
+	if err != nil {
+		// Unknown: keep the media, the startup cleanup removes it later.
+		return true
+	}
+	return stored != nil && (stored.Status == scheduleStatusActive || stored.Status == scheduleStatusRunning || stored.Status == scheduleStatusPaused)
 }
 
 func (s *ScheduleService) retry(job *domainChatStorage.ScheduledSend, reason string) error {
@@ -524,9 +639,13 @@ func (s *ScheduleService) skipOccurrence(job *domainChatStorage.ScheduledSend, r
 	if next, ok := s.nextRun(job, job.OccurrenceCount); ok {
 		return s.repo.RetryScheduledSend(job.ID, job.LeaseToken, reason, 0, next)
 	}
-	err := s.repo.FailScheduledSend(job.ID, job.LeaseToken, reason)
-	s.cleanupAssets(job)
-	return err
+	if err := s.repo.FailScheduledSend(job.ID, job.LeaseToken, reason); err != nil {
+		return err
+	}
+	if !s.stillPending(job) {
+		s.cleanupAssets(job)
+	}
+	return nil
 }
 
 func (s *ScheduleService) nextRun(job *domainChatStorage.ScheduledSend, count int) (time.Time, bool) {
@@ -745,6 +864,11 @@ func hydrateAsset(asset scheduledAsset, field string) (*hydratedAsset, error) {
 type scheduledSendService struct {
 	base      domainSend.ISendUsecase
 	scheduler *ScheduleService
+}
+
+// SendInteractive bypasses scheduling because interactive requests are immediate-only.
+func (s *scheduledSendService) SendInteractive(ctx context.Context, req domainSend.InteractiveRequest) (domainSend.GenericResponse, error) {
+	return s.base.SendInteractive(ctx, req)
 }
 
 func NewScheduledSendService(base domainSend.ISendUsecase, scheduler *ScheduleService) domainSend.ISendUsecase {

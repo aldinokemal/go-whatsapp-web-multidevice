@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +10,9 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -175,8 +178,39 @@ func TestComposeOutgoingText(t *testing.T) {
 			want:      "*Agent Smith*\n\nhello",
 		},
 		{
+			// Links are flattened in the agent's body; the signature is added
+			// around the converted text.
+			name:      "sign enabled flattens markdown link in body",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "see [**https://x.example/**](https://x.example/) and [docs](https://x.example/a_b?c=1\\&d=2)",
+			sender:    "Bob",
+			want:      "*Bob*\n\nsee https://x.example/ and docs: https://x.example/a_b?c=1&d=2",
+		},
+		{
+			// Chatwoot's own "send with signature" switch with an empty
+			// signature leaves a dangling separator line; it is dropped.
+			name:      "dangling chatwoot signature separator dropped",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "Thanks\n\n--\n\n",
+			sender:    "Bob",
+			want:      "*Bob*\n\nThanks",
+		},
+		{
+			// A message that is only the separator has no body: nothing is
+			// sent as text (an attachment then goes out without a caption),
+			// and no lone agent name either.
+			name:      "only chatwoot signature separator returns empty",
+			signMsg:   true,
+			delimiter: "\n\n",
+			content:   "\n\n--\n\n",
+			sender:    "Bob",
+			want:      "",
+		},
+		{
 			// Plain text with no markdown delimiters is passed through unchanged
-			// (the markdown translator short-circuits when no * ~ are present).
+			// (the markdown translator skips text that holds no Markdown).
 			name:      "plain text no markdown unchanged",
 			signMsg:   false,
 			delimiter: "\n\n",
@@ -385,5 +419,154 @@ func TestChatwootLinkChatJID(t *testing.T) {
 				t.Fatalf("chatwootLinkChatJID(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// chatwootReplySendStub records what an agent reply makes the webhook send.
+// The embedded interface is nil, so any send the tests do not expect panics.
+type chatwootReplySendStub struct {
+	domainSend.ISendUsecase
+	texts    []string
+	captions []string // one entry per attachment sent, in order
+}
+
+func (s *chatwootReplySendStub) SendText(_ context.Context, request domainSend.MessageRequest) (domainSend.GenericResponse, error) {
+	s.texts = append(s.texts, request.Message)
+	return domainSend.GenericResponse{Status: "ok"}, nil
+}
+
+func (s *chatwootReplySendStub) SendImage(_ context.Context, request domainSend.ImageRequest) (domainSend.GenericResponse, error) {
+	s.captions = append(s.captions, "image:"+request.Caption)
+	return domainSend.GenericResponse{Status: "ok"}, nil
+}
+
+func (s *chatwootReplySendStub) SendFile(_ context.Context, request domainSend.FileRequest) (domainSend.GenericResponse, error) {
+	s.captions = append(s.captions, "file:"+request.Caption)
+	return domainSend.GenericResponse{Status: "ok"}, nil
+}
+
+// TestChatwootWebhookEmptyReplyText drives the webhook end to end with a stub
+// send usecase: a reply whose text comes out empty (nothing, or only Chatwoot's
+// "--" signature separator) must not be sent as a text message, and must not
+// become the caption of its attachments, which are still delivered.
+func TestChatwootWebhookEmptyReplyText(t *testing.T) {
+	const attachments = `[{"id":1,"file_type":"image","data_url":"https://chat.example/a.png"},{"id":2,"file_type":"file","data_url":"https://chat.example/b.pdf"}]`
+	tests := []struct {
+		name         string
+		content      string
+		attachments  string
+		wantTexts    []string
+		wantCaptions []string
+	}{
+		{
+			name:    "separator only sends nothing",
+			content: `\n\n--\n\n`,
+		},
+		{
+			name:    "bare separator sends nothing",
+			content: `--`,
+		},
+		{
+			name:    "empty content sends nothing",
+			content: ``,
+		},
+		{
+			// Control: the same route does send a reply that has a body, with
+			// the dangling separator dropped and the agent's name added.
+			name:      "body with dangling separator is sent as text",
+			content:   `Thanks\n\n--\n\n`,
+			wantTexts: []string{"*Bob*\n\nThanks"},
+		},
+		{
+			name:         "separator only with attachments sends them without caption",
+			content:      `\n\n--\n\n`,
+			attachments:  attachments,
+			wantCaptions: []string{"image:", "file:"},
+		},
+		{
+			name:         "empty content with attachments sends them without caption",
+			content:      ``,
+			attachments:  attachments,
+			wantCaptions: []string{"image:", "file:"},
+		},
+		{
+			// Control: a body rides on the first attachment only.
+			name:         "body with attachments captions the first one",
+			content:      `Thanks\n\n--\n\n`,
+			attachments:  attachments,
+			wantCaptions: []string{"image:*Bob*\n\nThanks", "file:"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Signing is on: an empty body must not go out as a lone agent name.
+			withSignConfig(t, true, "\n\n")
+			prevDevice := config.ChatwootDeviceID
+			config.ChatwootDeviceID = "reply-device"
+			t.Cleanup(func() { config.ChatwootDeviceID = prevDevice })
+			chatwoot.InitClientRegistry(nil)
+			t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+			manager := whatsapp.NewDeviceManager(nil, nil, nil)
+			manager.AddDevice(whatsapp.NewDeviceInstance("reply-device", nil, nil))
+			stub := &chatwootReplySendStub{}
+			handler := &ChatwootHandler{SendUsecase: stub, DeviceManager: manager}
+			app := fiber.New()
+			app.Post("/chatwoot/webhook", handler.HandleWebhook)
+
+			body := `{"event":"message_created","message_type":"outgoing","content":"` + tt.content + `",` +
+				`"sender":{"name":"Bob"},"account":{"id":1},` +
+				`"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628123456789"}}}`
+			if tt.attachments != "" {
+				body += `,"attachments":` + tt.attachments
+			}
+			body += `}`
+			withChatwootWebhookSecret(t, "reply-secret")
+			req := httptest.NewRequest(http.MethodPost, "/chatwoot/webhook", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Chatwoot-Webhook-Secret", "reply-secret")
+			resp, err := app.Test(req)
+			if err != nil {
+				t.Fatalf("app.Test: %v", err)
+			}
+			if resp.StatusCode != fiber.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+			if strings.Join(stub.texts, "|") != strings.Join(tt.wantTexts, "|") || len(stub.texts) != len(tt.wantTexts) {
+				t.Errorf("SendText messages = %q, want %q", stub.texts, tt.wantTexts)
+			}
+			if strings.Join(stub.captions, "|") != strings.Join(tt.wantCaptions, "|") || len(stub.captions) != len(tt.wantCaptions) {
+				t.Errorf("attachments sent = %q, want %q", stub.captions, tt.wantCaptions)
+			}
+		})
+	}
+}
+
+// TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice: the documented
+// single-device setup leaves CHATWOOT_DEVICE_ID empty. A reply to a new
+// conversation (no link yet) is sent from the only device.
+func TestChatwootWebhookLegacyWithoutDeviceIDSendsFromOnlyDevice(t *testing.T) {
+	withChatwootWebhookSecret(t, "legacy-secret")
+	prevDevice := config.ChatwootDeviceID
+	config.ChatwootDeviceID = ""
+	t.Cleanup(func() { config.ChatwootDeviceID = prevDevice })
+	chatwoot.InitClientRegistry(nil)
+	t.Cleanup(func() { chatwoot.InitClientRegistry(nil) })
+
+	manager := whatsapp.NewDeviceManager(nil, nil, nil)
+	manager.AddDevice(whatsapp.NewDeviceInstance("only-device", nil, nil))
+	stub := &chatwootReplySendStub{}
+	handler := &ChatwootHandler{SendUsecase: stub, DeviceManager: manager, ChatStorageRepo: &deviceWebhookTestRepo{}}
+	app := fiber.New()
+	app.Post("/chatwoot/webhook", handler.HandleWebhook)
+
+	body := `{"event":"message_created","message_type":"outgoing","content":"hello","account":{"id":1},` +
+		`"conversation":{"id":5,"inbox_id":9,"meta":{"sender":{"phone_number":"+628123456789"}}}}`
+	req := webhookAuthRequest{body: body, headers: map[string]string{"X-Chatwoot-Webhook-Secret": "legacy-secret"}}
+	if got := postChatwootWebhook(t, app, req); got != fiber.StatusOK {
+		t.Fatalf("status = %d, want 200", got)
+	}
+	if len(stub.texts) != 1 || stub.texts[0] != "hello" {
+		t.Fatalf("SendText messages = %q, want [\"hello\"]", stub.texts)
 	}
 }

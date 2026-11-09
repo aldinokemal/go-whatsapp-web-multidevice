@@ -105,16 +105,32 @@ func forwardNewsletterLeaveToWebhook(ctx context.Context, evt *events.Newsletter
 }
 
 func forwardNewsletterLiveUpdateToWebhook(ctx context.Context, evt *events.NewsletterLiveUpdate, deviceID string) error {
+	return forwardPayloadToConfiguredWebhooks(ctx, newsletterLiveUpdateBody(evt, deviceID), "newsletter.message")
+}
+
+func newsletterLiveUpdateBody(evt *events.NewsletterLiveUpdate, deviceID string) map[string]any {
 	messages := make([]map[string]any, 0, len(evt.Messages))
 	for _, msg := range evt.Messages {
+		// Live updates usually carry only counters: the server omits the
+		// message ID, type and timestamp, so leave them out instead of
+		// sending empty strings and a zero time.
 		m := map[string]any{
-			"server_id":  msg.MessageServerID,
-			"message_id": string(msg.MessageID),
-			"type":       msg.Type,
-			"timestamp":  msg.Timestamp.Format(time.RFC3339),
+			"server_id": msg.MessageServerID,
+		}
+		if msg.MessageID != "" {
+			m["message_id"] = string(msg.MessageID)
+		}
+		if msg.Type != "" {
+			m["type"] = msg.Type
+		}
+		if !msg.Timestamp.IsZero() {
+			m["timestamp"] = msg.Timestamp.Format(time.RFC3339)
 		}
 		if msg.ViewsCount > 0 {
 			m["views_count"] = msg.ViewsCount
+		}
+		if msg.ForwardsCount > 0 {
+			m["forwards_count"] = msg.ForwardsCount
 		}
 		if len(msg.ReactionCounts) > 0 {
 			m["reaction_counts"] = msg.ReactionCounts
@@ -135,8 +151,7 @@ func forwardNewsletterLiveUpdateToWebhook(ctx context.Context, evt *events.Newsl
 	if deviceID != "" {
 		body["device_id"] = deviceID
 	}
-
-	return forwardPayloadToConfiguredWebhooks(ctx, body, "newsletter.message")
+	return body
 }
 
 func forwardNewsletterMuteChangeToWebhook(ctx context.Context, evt *events.NewsletterMuteChange, deviceID string) error {

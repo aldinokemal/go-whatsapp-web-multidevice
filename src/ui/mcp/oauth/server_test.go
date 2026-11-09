@@ -189,7 +189,7 @@ func TestAuthorizationCodeFlowBearerAndBasicFallback(t *testing.T) {
 }
 
 func TestTokenExchangeRejectsWrongResourceAndCodeReplay(t *testing.T) {
-	_, app := newOAuthTestServer(t, testIssuer, testResource)
+	srv, app := newOAuthTestServer(t, testIssuer, testResource)
 	clientID := registerTestClient(t, app)
 	code, verifier := authorizeTestClient(t, app, clientID)
 
@@ -205,7 +205,21 @@ func TestTokenExchangeRejectsWrongResourceAndCodeReplay(t *testing.T) {
 	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 	assertOAuthError(t, resp, "invalid_target")
 
-	_ = exchangeTestCode(t, app, clientID, code, verifier, testResource)
+	delete(bad, "resource")
+	resp = postForm(t, app, "/oauth/token", bad)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var tokens tokenResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tokens))
+	assert.NotEmpty(t, tokens.AccessToken)
+	assert.NotEmpty(t, tokens.RefreshToken)
+
+	protected := app.Group("", srv.MCPAuthMiddleware(nil))
+	protected.Post("/oauth-resource-test", func(c fiber.Ctx) error { return c.SendStatus(fiber.StatusNoContent) })
+	bearerReq := httptest.NewRequest("POST", "/oauth-resource-test", nil)
+	bearerReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	resp, err := app.Test(bearerReq)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNoContent, resp.StatusCode)
 
 	replay := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -230,7 +244,6 @@ func TestRefreshRotationDetectsReuseAndRevokesFamily(t *testing.T) {
 		"grant_type":    {"refresh_token"},
 		"client_id":     {clientID},
 		"refresh_token": {initial.RefreshToken},
-		"resource":      {testResource},
 	}
 	resp := postForm(t, app, "/oauth/token", firstRefresh)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)

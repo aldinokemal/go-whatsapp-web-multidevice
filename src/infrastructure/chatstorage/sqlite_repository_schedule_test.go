@@ -1,6 +1,7 @@
 package chatstorage
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -236,7 +237,7 @@ func TestSQLiteRepositorySetScheduledSendStatusGuardsTransitions(t *testing.T) {
 	}
 }
 
-func TestSQLiteRepositoryListExpiredScheduledSends(t *testing.T) {
+func TestSQLiteRepositoryClaimExpiredScheduledSend(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	expired := newScheduledSendFixture("expired", "device-a", "running", now.Add(-time.Hour))
@@ -247,11 +248,14 @@ func TestSQLiteRepositoryListExpiredScheduledSends(t *testing.T) {
 	require.NoError(t, repo.CreateScheduledSend(leased))
 	require.NoError(t, repo.CreateScheduledSend(newScheduledSendFixture("active", "device-a", "active", now.Add(-time.Hour))))
 
-	jobs, err := repo.ListExpiredScheduledSends(now)
+	job, err := repo.ClaimExpiredScheduledSend(now, now.Add(time.Minute), "recovery")
 	require.NoError(t, err)
-	require.Len(t, jobs, 1)
-	require.Equal(t, "expired", jobs[0].ID)
-	require.Equal(t, "lease-a", jobs[0].LeaseToken)
+	require.NotNil(t, job)
+	require.Equal(t, "expired", job.ID)
+	require.Equal(t, "recovery", job.LeaseToken)
+	next, err := repo.ClaimExpiredScheduledSend(now, now.Add(time.Minute), "other")
+	require.NoError(t, err)
+	require.Nil(t, next)
 }
 
 func TestSQLiteRepositoryListScheduledSendIDsReturnsLiveJobs(t *testing.T) {
@@ -307,4 +311,126 @@ func TestSQLiteRepositoryListScheduledSendsOrdersUpcomingThenHistory(t *testing.
 
 func timePointer(value time.Time) *time.Time {
 	return &value
+}
+
+func TestSQLiteRepositoryClearScheduledSendPendingMessageID(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, status := range []string{"paused", "active", "running"} {
+		job := newScheduledSendFixture(status, "device-a", status, now)
+		job.PendingMessageID = "3EB0PENDING"
+		require.NoError(t, repo.CreateScheduledSend(job))
+	}
+	require.NoError(t, repo.ClearScheduledSendPendingMessageID("device-b", "paused"))
+	stored, err := repo.GetScheduledSend("device-a", "paused")
+	require.NoError(t, err)
+	require.Equal(t, "3EB0PENDING", stored.PendingMessageID)
+	for _, status := range []string{"paused", "active", "running"} {
+		require.NoError(t, repo.ClearScheduledSendPendingMessageID("device-a", status))
+	}
+
+	// Only a paused job gives its id up: an active or running one may be
+	// between two attempts of the occurrence the id belongs to.
+	for status, want := range map[string]string{"paused": "", "active": "3EB0PENDING", "running": "3EB0PENDING"} {
+		stored, err := repo.GetScheduledSend("device-a", status)
+		require.NoError(t, err)
+		require.Equal(t, want, stored.PendingMessageID, status)
+	}
+}
+
+func TestSQLiteRepositoryRecoveryCannotEraseConcurrentPin(t *testing.T) {
+	for _, pinnedFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(pinnedFirst), func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			now := time.Now().UTC()
+			job := newScheduledSendFixture("race", "device-a", "running", now.Add(-time.Hour))
+			job.LeaseToken, job.LeaseUntil = "old", timePointer(now.Add(time.Minute))
+			require.NoError(t, repo.CreateScheduledSend(job))
+			if pinnedFirst {
+				held, err := repo.SetScheduledSendPendingAttempt(job.ID, "old", "PINNED", []byte("secret"), now)
+				require.NoError(t, err)
+				require.True(t, held)
+			}
+			recoveryTime := now.Add(2 * time.Minute)
+			recovered, err := repo.ClaimExpiredScheduledSend(recoveryTime, recoveryTime.Add(time.Minute), "recovery")
+			require.NoError(t, err)
+			require.NotNil(t, recovered)
+			held, err := repo.SetScheduledSendPendingAttempt(job.ID, "old", "LATE", []byte("late-secret"), now)
+			require.NoError(t, err)
+			require.False(t, held)
+			attempts := recovered.Attempts
+			if recovered.PendingMessageID != "" {
+				attempts++
+			}
+			require.NoError(t, repo.RetryScheduledSend(job.ID, recovered.LeaseToken, "interrupted", attempts, recovered.NextRunAt))
+			stored, err := repo.GetScheduledSend("device-a", job.ID)
+			require.NoError(t, err)
+			if pinnedFirst {
+				require.Equal(t, "PINNED", stored.PendingMessageID)
+				require.Equal(t, []byte("secret"), stored.PendingPollSecret)
+				require.Equal(t, 1, stored.Attempts)
+			} else {
+				require.Empty(t, stored.PendingMessageID)
+				require.Zero(t, stored.Attempts)
+			}
+			require.Equal(t, job.NextRunAt, stored.NextRunAt)
+		})
+	}
+}
+
+func TestSQLiteRepositoryPendingAttemptRequiresLiveLeaseAndStableIdentity(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	now := time.Now().UTC()
+	job := newScheduledSendFixture("job", "device-a", "running", now)
+	job.LeaseToken, job.LeaseUntil = "lease", timePointer(now.Add(time.Minute))
+	require.NoError(t, repo.CreateScheduledSend(job))
+	held, err := repo.SetScheduledSendPendingAttempt(job.ID, "lease", "PINNED", []byte("secret"), now)
+	require.NoError(t, err)
+	require.True(t, held)
+	held, err = repo.SetScheduledSendPendingAttempt(job.ID, "lease", "OTHER", []byte("secret"), now)
+	require.NoError(t, err)
+	require.False(t, held)
+	held, err = repo.SetScheduledSendPendingAttempt(job.ID, "lease", "PINNED", []byte("other"), now)
+	require.NoError(t, err)
+	require.False(t, held)
+	held, err = repo.SetScheduledSendPendingAttempt(job.ID, "lease", "PINNED", []byte("secret"), now.Add(time.Minute))
+	require.NoError(t, err)
+	require.False(t, held)
+}
+
+func TestSQLiteRepositoryRecoveryCrashCanBeTakenOver(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	now := time.Now().UTC()
+	job := newScheduledSendFixture("job", "device-a", "running", now.Add(-time.Hour))
+	job.LeaseToken, job.LeaseUntil = "sender", timePointer(now)
+	job.PendingMessageID, job.PendingPollSecret = "PINNED", []byte("secret")
+	require.NoError(t, repo.CreateScheduledSend(job))
+	first, err := repo.ClaimExpiredScheduledSend(now, now.Add(time.Minute), "recovery-1")
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	// Recovery dies after claiming, before it records the interrupted attempt.
+	second, err := repo.ClaimExpiredScheduledSend(now.Add(time.Minute), now.Add(2*time.Minute), "recovery-2")
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.Zero(t, second.Attempts)
+	require.Equal(t, "PINNED", second.PendingMessageID)
+	require.Equal(t, []byte("secret"), second.PendingPollSecret)
+
+	require.NoError(t, repo.RetryScheduledSend(first.ID, first.LeaseToken, "stale recovery", 0, now.Add(24*time.Hour)))
+	stored, err := repo.GetScheduledSend("device-a", job.ID)
+	require.NoError(t, err)
+	require.Equal(t, "running", stored.Status)
+	require.Equal(t, second.LeaseToken, stored.LeaseToken)
+	require.Equal(t, "PINNED", stored.PendingMessageID)
+	require.Equal(t, job.NextRunAt, stored.NextRunAt)
+
+	require.NoError(t, repo.RetryScheduledSend(second.ID, second.LeaseToken, "interrupted", second.Attempts+1, second.NextRunAt))
+	stored, err = repo.GetScheduledSend("device-a", job.ID)
+	require.NoError(t, err)
+	require.Equal(t, "active", stored.Status)
+	require.Equal(t, 1, stored.Attempts)
+	require.Equal(t, "PINNED", stored.PendingMessageID)
+	require.Equal(t, []byte("secret"), stored.PendingPollSecret)
+	require.Equal(t, job.NextRunAt, stored.NextRunAt)
 }

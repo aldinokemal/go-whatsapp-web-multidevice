@@ -87,6 +87,45 @@ func (e WaReachoutTimelockError) StatusCode() int {
 	return http.StatusTooManyRequests
 }
 
+// AvatarNotSetError means the contact has no profile picture. It is a
+// confirmed absence, distinct from AvatarHiddenError: clients that cache
+// avatars may delete their copy on this one and must keep it on the other.
+type AvatarNotSetError string
+
+// Error for complying the error interface
+func (e AvatarNotSetError) Error() string {
+	return string(e)
+}
+
+// ErrCode will return the error code based on the error data type
+func (e AvatarNotSetError) ErrCode() string {
+	return "AVATAR_NOT_SET"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (e AvatarNotSetError) StatusCode() int {
+	return http.StatusNotFound
+}
+
+// AvatarHiddenError means the contact's privacy settings hide the picture
+// from this account. It says nothing about whether a picture exists.
+type AvatarHiddenError string
+
+// Error for complying the error interface
+func (e AvatarHiddenError) Error() string {
+	return string(e)
+}
+
+// ErrCode will return the error code based on the error data type
+func (e AvatarHiddenError) ErrCode() string {
+	return "AVATAR_HIDDEN"
+}
+
+// StatusCode will return the HTTP status code based on the error data type
+func (e AvatarHiddenError) StatusCode() int {
+	return http.StatusForbidden
+}
+
 const (
 	ErrUserNotRegistered  = InvalidJID("user is not registered")
 	ErrWaCLI              = WaCliError("your WhatsApp CLI is invalid or empty")

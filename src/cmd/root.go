@@ -86,7 +86,8 @@ func init() {
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
+	// Key names stay visible; secret values and URL userinfo are masked.
+	fmt.Println(utils.RedactSettings(viper.AllSettings()))
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
@@ -196,6 +197,9 @@ func initEnvConfig() {
 		}
 		config.WhatsappWebhookIgnoreJids = jids
 	}
+	if !rootCmd.PersistentFlags().Changed("webhook-all-device-receipts") && viper.IsSet("whatsapp_webhook_all_device_receipts") {
+		config.WhatsappWebhookAllDeviceReceipts = viper.GetBool("whatsapp_webhook_all_device_receipts")
+	}
 	if viper.IsSet("whatsapp_webhook_device_merge_global") {
 		config.WhatsappWebhookDeviceMergeGlobal = viper.GetBool("whatsapp_webhook_device_merge_global")
 	}
@@ -275,6 +279,11 @@ func initEnvConfig() {
 	}
 	if envChatwootWebhookSecret := viper.GetString("chatwoot_webhook_secret"); envChatwootWebhookSecret != "" {
 		config.ChatwootWebhookSecret = envChatwootWebhookSecret
+	}
+	if viper.IsSet("chatwoot_webhook_signature_tolerance") {
+		if tolerance := viper.GetDuration("chatwoot_webhook_signature_tolerance"); tolerance > 0 {
+			config.ChatwootWebhookSignatureTolerance = tolerance
+		}
 	}
 	if envChatwootAllowedHosts := viper.GetString("chatwoot_allowed_hosts"); envChatwootAllowedHosts != "" {
 		config.ChatwootAllowedHosts = splitCommaTrimmed(envChatwootAllowedHosts)
@@ -460,7 +469,7 @@ func initFlags() {
 		&config.WhatsappWebhookSecret,
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
-		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+		`secure webhook request --webhook-secret <string> | example: --webhook-secret="<output of openssl rand -hex 32>"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookInsecureSkipVerify,
@@ -479,6 +488,12 @@ func initFlags() {
 		"webhook-ignore-jids", "",
 		config.WhatsappWebhookIgnoreJids,
 		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookAllDeviceReceipts,
+		"webhook-all-device-receipts", "",
+		config.WhatsappWebhookAllDeviceReceipts,
+		`forward receipts from all linked devices instead of only the primary device --webhook-all-device-receipts <true/false> | example: --webhook-all-device-receipts=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookDeviceMergeGlobal,
@@ -596,6 +611,12 @@ func initFlags() {
 		config.ChatwootWebhookSecret,
 		`shared secret required for incoming Chatwoot webhooks --chatwoot-webhook-secret <string> | example: --chatwoot-webhook-secret="super-secret-key"`,
 	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.ChatwootWebhookSignatureTolerance,
+		"chatwoot-webhook-signature-tolerance", "",
+		config.ChatwootWebhookSignatureTolerance,
+		`maximum age (and clock skew) of the timestamp on Chatwoot's signed webhooks --chatwoot-webhook-signature-tolerance <duration> | example: --chatwoot-webhook-signature-tolerance=5m`,
+	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.ChatwootAllowedHosts,
 		"chatwoot-allowed-hosts", "",
@@ -665,6 +686,9 @@ func initFlags() {
 }
 
 func initChatStorage() (*sql.DB, error) {
+	if err := whatsapp.SecureSQLiteFile(config.ChatStorageURI); err != nil {
+		return nil, fmt.Errorf("prepare chat storage file: %w", err)
+	}
 	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
 	db, err := sql.Open(sqlite.DriverName, connStr)
