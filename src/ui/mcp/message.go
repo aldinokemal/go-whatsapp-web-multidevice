@@ -22,7 +22,7 @@ func InitMcpMessage(messageService domainMessage.IMessageUsecase, resolver devic
 
 func (h *MessageHandler) AddMessageTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_message",
-		mcpg.WithDescription("Operate on an existing WhatsApp message: react, edit, revoke (delete for everyone), delete (for me), mark_read, mark_played, star, unstar, or download_media."),
+		mcpg.WithDescription("Operate on an existing WhatsApp message: react, edit, revoke (delete for everyone), delete (for me), mark_read, mark_played, star, unstar, pin, unpin, or download_media."),
 		mcpg.WithTitleAnnotation("Message Operations"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
@@ -104,6 +104,14 @@ func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToo
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		return mcpg.NewToolResultText(fmt.Sprintf("Message %s star=%t", messageID, isStarred)), nil
+	case "pin", "unpin":
+		resp, err := h.messageService.PinMessage(ctx, domainMessage.PinRequest{
+			MessageID: messageID, Phone: phone, IsPinned: action == "pin", Duration: request.GetInt("duration", 0),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Status), nil
 	case "download_media":
 		resp, err := h.messageService.DownloadMedia(ctx, domainMessage.DownloadMediaRequest{MessageID: messageID, Phone: phone})
 		if err != nil {

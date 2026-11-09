@@ -38,6 +38,21 @@ type MarkAsReadRequest struct {
 // requests WhatsApp's played receipt for an existing voice message.
 type MarkAsPlayedRequest = MarkAsReadRequest
 
+// Allowed pin durations in seconds, matching the options in WhatsApp: 24 hours, 7 days and 30 days.
+const (
+	PinDuration24Hours = 86400
+	PinDuration7Days   = 604800
+	PinDuration30Days  = 2592000
+)
+
+type PinRequest struct {
+	MessageID string `json:"message_id" uri:"message_id"`
+	Phone     string `json:"phone" form:"phone"`
+	// Duration in seconds (pin only); defaults to 7 days like WhatsApp.
+	Duration int  `json:"duration" form:"duration"`
+	IsPinned bool `json:"is_pinned"`
+}
+
 type StarRequest struct {
 	MessageID string `json:"message_id" uri:"message_id"`
 	Phone     string `json:"phone" form:"phone"`
