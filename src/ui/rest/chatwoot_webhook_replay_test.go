@@ -32,7 +32,7 @@ func newReplayGuardApp(t *testing.T, handle fiber.Handler) *fiber.App {
 	app.Use(middleware.Recovery())
 	app.Use("/chatwoot/webhook", ChatwootWebhookReplayGuard())
 	app.Post("/chatwoot/webhook", func(c fiber.Ctx) error {
-		if status := (&ChatwootHandler{}).chatwootWebhookRouteGate(c, chatwootWebhookRoute{Unroutable: true}); status != 0 {
+		if status := (&ChatwootHandler{}).chatwootWebhookRouteGate(c, &chatwootWebhookRoute{Unroutable: true}); status != 0 {
 			return c.SendStatus(status)
 		}
 		return handle(c)

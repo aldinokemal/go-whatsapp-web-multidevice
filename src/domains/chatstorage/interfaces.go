@@ -56,7 +56,10 @@ type IChatStorageRepository interface {
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
-	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
+	// ListChatwootMessageLinksByChatwootID returns every link of a Chatwoot
+	// message, oldest first: a reply with several attachments goes out as one
+	// WhatsApp message per attachment.
+	ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*ChatwootMessageLink, error)
 	// GetChatwootMessageLinkForReply returns the link of a quoted Chatwoot
 	// message within the filter's scope, or nil when there is none.
 	GetChatwootMessageLinkForReply(filter ChatwootReplyLinkFilter) (*ChatwootMessageLink, error)
