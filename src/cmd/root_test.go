@@ -23,10 +23,10 @@ func TestInitAppStopsWhenTheChatStorageSchemaFails(t *testing.T) {
 	db, err := sql.Open(sqlite.DriverName, chatDB)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	// At version 49, with the column that migration 50 adds already there.
+	// At version 54, with the column that migration 55 adds already there.
 	for _, statement := range []string{
 		`CREATE TABLE schema_info (version INTEGER PRIMARY KEY, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
-		`INSERT INTO schema_info (version) VALUES (49)`,
+		`INSERT INTO schema_info (version) VALUES (54)`,
 		`CREATE TABLE messages (id VARCHAR(255), quoted_media BLOB)`,
 	} {
 		_, err := db.Exec(statement)
@@ -74,8 +74,8 @@ func TestInitAppStopsWhenTheChatStorageSchemaFails(t *testing.T) {
 	}()
 
 	require.Equal(t, fatalExit{1}, stopped)
-	require.Contains(t, logs.String(), "failed to initialize chat storage schema: failed to run migration 50")
+	require.Contains(t, logs.String(), "failed to initialize chat storage schema: failed to run migration 55")
 	var version int
 	require.NoError(t, db.QueryRow(`SELECT MAX(version) FROM schema_info`).Scan(&version))
-	require.Equal(t, 49, version)
+	require.Equal(t, 54, version)
 }

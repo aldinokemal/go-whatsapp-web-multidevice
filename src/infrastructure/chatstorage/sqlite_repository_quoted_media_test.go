@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,7 +180,9 @@ func TestQuotedMediaStaysOutOfMessageReads(t *testing.T) {
 	require.NotContains(t, string(encoded), "quoted_media")
 }
 
-func legacyDatabase(t *testing.T) (*SQLiteRepository, []string) {
+// legacyDatabase is a database migrated up to the media copy: main's schema
+// before it, built by main's own migrations.
+func legacyDatabase(t *testing.T) (*SQLiteRepository, []string, int) {
 	t.Helper()
 	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "legacy.db"))
 	require.NoError(t, err)
@@ -187,21 +191,30 @@ func legacyDatabase(t *testing.T) (*SQLiteRepository, []string) {
 	_, err = repo.getSchemaVersion()
 	require.NoError(t, err)
 	migrations := repo.getMigrations()
-	for i, migration := range migrations[:49] {
+	copyMigration := slices.IndexFunc(migrations, func(migration string) bool {
+		return strings.Contains(migration, "messages ADD COLUMN quoted_media")
+	})
+	require.GreaterOrEqual(t, copyMigration, 0)
+	for i, migration := range migrations[:copyMigration] {
 		require.NoError(t, repo.runMigration(migration, i+1))
 	}
-	return repo, migrations
+	return repo, migrations, copyMigration
 }
 
-func quotedMediaColumns(t *testing.T, repo *SQLiteRepository) int {
+func columnCount(t *testing.T, repo *SQLiteRepository, table, column string) int {
 	t.Helper()
 	var columns int
-	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'quoted_media'`).Scan(&columns))
+	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&columns))
 	return columns
 }
 
 func TestQuotedMediaMigrationFromExistingDatabase(t *testing.T) {
-	repo, migrations := legacyDatabase(t)
+	repo, migrations, _ := legacyDatabase(t)
+	// Main's migrations 50 (Chatwoot webhook secret) and 54 (poll retry
+	// secret) come before the copy, so a database main already migrated
+	// gets it.
+	require.Equal(t, 1, columnCount(t, repo, "chatwoot_device_configs", "webhook_secret"))
+	require.Equal(t, 1, columnCount(t, repo, "scheduled_sends", "pending_poll_secret"))
 	_, err := repo.db.Exec(`INSERT INTO messages (id, chat_jid, device_id, sender, content, timestamp, is_from_me, media_type, filename)
 		VALUES ('legacy', '550000000002@s.whatsapp.net', 'device-a', 'sender', 'legacy caption', ?, TRUE, 'image', '')`, time.Now().UTC())
 	require.NoError(t, err)
@@ -212,7 +225,7 @@ func TestQuotedMediaMigrationFromExistingDatabase(t *testing.T) {
 	version, err := repo.getSchemaVersion()
 	require.NoError(t, err)
 	require.Equal(t, len(migrations), version)
-	require.Equal(t, 1, quotedMediaColumns(t, repo))
+	require.Equal(t, 1, columnCount(t, repo, "messages", "quoted_media"))
 	require.Equal(t, &domainChatStorage.QuotedMedia{Content: "legacy caption", MediaType: "image", IsFromMe: true},
 		readQuotedMedia(t, repo, "device-a", "550000000002@s.whatsapp.net", "legacy"))
 
@@ -221,17 +234,17 @@ func TestQuotedMediaMigrationFromExistingDatabase(t *testing.T) {
 	require.Equal(t, copied, readQuotedMedia(t, repo, "device-a", "550000000002@s.whatsapp.net", "legacy").Copy)
 }
 
-// A quoted_media column created outside the migrations makes migration 55
-// fail, and the schema stays at version 54.
+// A quoted_media column created outside the migrations makes the copy's
+// migration fail, and the schema stays at the version before it.
 func TestQuotedMediaMigrationFailureKeepsTheVersion(t *testing.T) {
-	repo, _ := legacyDatabase(t)
+	repo, _, copyMigration := legacyDatabase(t)
 	_, err := repo.db.Exec(`ALTER TABLE messages ADD COLUMN quoted_media BLOB`)
 	require.NoError(t, err)
 
-	require.ErrorContains(t, repo.InitializeSchema(), "failed to run migration 55")
+	require.ErrorContains(t, repo.InitializeSchema(), fmt.Sprintf("failed to run migration %d", copyMigration+1))
 	version, err := repo.getSchemaVersion()
 	require.NoError(t, err)
-	require.Equal(t, 54, version)
+	require.Equal(t, copyMigration, version)
 }
 
 // The column stores a copy of the largest size kept byte for byte, and no copy
