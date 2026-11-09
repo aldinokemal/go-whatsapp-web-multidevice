@@ -431,6 +431,10 @@ func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
 }
 
 func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
+	mp3WithoutID3, err := os.ReadFile("testdata/no-id3.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name     string
 		mimeType string
@@ -441,6 +445,7 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 		{"voice note", "audio/ogg; codecs=opus", true, []byte("OggS\x00\x02voice-note-OpusHead"), "audio/ogg"},
 		{"ogg audio", "audio/ogg", false, []byte("OggS\x00\x02audio-OpusHead"), "audio/ogg"},
 		{"mp3 audio", "audio/mpeg", false, []byte("ID3\x04\x00\x00\x00\x00\x00\x00"), "audio/mpeg"},
+		{"mp3 without id3", "audio/mpeg", false, mp3WithoutID3, "audio/mpeg"},
 		{"wav audio", "audio/wav", false, []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), "audio/wave"},
 		{"mp4 audio", "audio/mp4", false, []byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '2'}, "audio/mp4"},
 		{"aac adts", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "audio/aac"},
@@ -484,6 +489,18 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 			data, err := os.ReadFile(got.MediaPath)
 			if err != nil || !bytes.Equal(data, tt.data) {
 				t.Fatalf("download changed audio bytes: %v", err)
+			}
+			forwarded, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+				MediaType: mediaType, Filename: filename,
+			}, ForwardBuildOptions{
+				MimeType: got.MimeType,
+				Upload:   &whatsmeow.UploadResponse{FileLength: length},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mimeType := forwarded.GetAudioMessage().GetMimetype(); mimeType != tt.wantMime {
+				t.Errorf("reuploaded audio MIME = %q, want %q", mimeType, tt.wantMime)
 			}
 		})
 	}
