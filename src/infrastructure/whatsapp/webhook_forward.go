@@ -698,9 +698,16 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
 
-	// Interactive messages carry the same summary as body, but it has always
-	// been forwarded without the markdown pass below.
-	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+	// A poll creation or edit is rendered with its options: the webhook body
+	// ("Poll: <question>") leaves them out, so the agent could not see the
+	// choices. An edit that failed to decrypt lists the stored, pre-edit
+	// options, so it keeps its body below like votes and added options.
+	if poll := chatwootPollFromPayload(data); poll != nil &&
+		(poll.Type == "creation" || (poll.Type == "edit" && poll.ResolutionStatus == "")) {
+		content = formatChatwootPoll(poll)
+	} else if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+		// Interactive messages carry the same summary as body, but it has always
+		// been forwarded without the markdown pass below.
 		content = interactive
 	} else if body, ok := data["body"].(string); ok && body != "" {
 		// Translate WhatsApp formatting (*bold*, _italic_, ~strike~) into the
@@ -830,9 +837,81 @@ func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	}
 
 	if reaction == "" {
+		if removed, _ := data["removed_reaction"].(string); removed != "" {
+			return fmt.Sprintf("%s removed %s", actor, removed)
+		}
 		return fmt.Sprintf("%s removed a reaction", actor)
 	}
 	return fmt.Sprintf("%s reacted %s", actor, reaction)
+}
+
+const quotedExcerptMaxRunes = 80
+
+// oneLineExcerpt collapses whitespace/newlines into single spaces and truncates
+// to maxRunes (appending an ellipsis), so quoted excerpts stay on one line.
+func oneLineExcerpt(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if runes := []rune(s); len(runes) > maxRunes {
+		s = string(runes[:maxRunes]) + "…"
+	}
+	return s
+}
+
+// chatwootReplyTarget threads a WhatsApp reply or reaction onto the message it
+// references. in_reply_to_external_id (WAID:<id>) is always set and resolves
+// only for messages that carry that source_id, i.e. messages mirrored from
+// WhatsApp. Agent replies sent from Chatwoot have none, so the stored link is
+// kept to set the native in_reply_to once the target conversation is known
+// (see apply).
+type chatwootReplyTarget struct {
+	link    *domainChatStorage.ChatwootMessageLink // nil when no usable link
+	excerpt string                                 // "> ..." quote; empty for reactions
+}
+
+// resolveChatwootReplyTarget looks up the link for repliedToID. A link is used
+// only when it was written for the current Chatwoot destination
+// (chatwootLinkMatchesClient): Chatwoot message ids repeat across servers and
+// accounts. quotedBody, when set, becomes the inline excerpt shown if the link
+// cannot be used.
+func resolveChatwootReplyTarget(cw *chatwoot.Client, configID int64, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, repliedToID, quotedBody string) *chatwootReplyTarget {
+	target := &chatwootReplyTarget{}
+	if strings.TrimSpace(quotedBody) != "" {
+		target.excerpt = "> " + oneLineExcerpt(quotedBody, quotedExcerptMaxRunes)
+	}
+	if linkRepo == nil || deviceID == "" {
+		return target
+	}
+	link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, repliedToID)
+	if err != nil {
+		logrus.Warnf("Chatwoot: Failed to resolve quoted message link for %s: %v", repliedToID, err)
+		return target
+	}
+	if link != nil && link.ChatwootMessageID != 0 && chatwootLinkMatchesClient(link, cw, configID) {
+		target.link = link
+	}
+	return target
+}
+
+// apply sets the native in_reply_to when the linked message is in
+// conversationID: Chatwoot rejects a reference to another conversation, which
+// happens when a returning contact gets a new conversation
+// (CHATWOOT_REOPEN_CONVERSATION=false). Otherwise the excerpt, if any, is
+// prepended to content. opts.ContentAttributes must already be set.
+func (r *chatwootReplyTarget) apply(conversationID int, content string, opts *chatwoot.MessageOptions) string {
+	if r == nil {
+		return content
+	}
+	if r.link != nil && r.link.ChatwootConversationID == conversationID {
+		opts.ContentAttributes["in_reply_to"] = r.link.ChatwootMessageID
+		return content
+	}
+	if r.excerpt == "" {
+		return content
+	}
+	if content == "" {
+		return r.excerpt
+	}
+	return r.excerpt + "\n\n" + content
 }
 
 func chatwootMessageTypeFromPayload(data map[string]any) string {
@@ -840,6 +919,48 @@ func chatwootMessageTypeFromPayload(data map[string]any) string {
 		return "outgoing"
 	}
 	return "incoming"
+}
+
+// chatwootPollFromPayload reads data["poll"] in both shapes it reaches the
+// forwarder in: *webhookPollPayload live, a JSON map after the retry queue.
+func chatwootPollFromPayload(data map[string]any) *webhookPollPayload {
+	switch v := data["poll"].(type) {
+	case *webhookPollPayload:
+		return v
+	case map[string]any:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		var poll webhookPollPayload
+		if json.Unmarshal(raw, &poll) != nil {
+			return nil
+		}
+		return &poll
+	}
+	return nil
+}
+
+// formatChatwootPoll renders a poll creation or edit for Chatwoot. Question and
+// options go through WhatsAppToChatwootMarkdown one by one, like a message body,
+// so WhatsApp emphasis survives without pairing markers across lines.
+func formatChatwootPoll(poll *webhookPollPayload) string {
+	var sb strings.Builder
+	sb.WriteString("📊 Poll")
+	if poll.Type == "edit" {
+		sb.WriteString(" edited")
+	}
+	if poll.Question != "" {
+		sb.WriteString(": ")
+		sb.WriteString(utils.WhatsAppToChatwootMarkdown(poll.Question))
+	}
+	for _, opt := range poll.Options {
+		if opt.Name != "" {
+			sb.WriteString("\n• ")
+			sb.WriteString(utils.WhatsAppToChatwootMarkdown(opt.Name))
+		}
+	}
+	return sb.String()
 }
 
 func extractStructuredMessageContent(data map[string]any) string {
@@ -968,7 +1089,7 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions) (*chatwootSyncResult, error) {
+func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget) (*chatwootSyncResult, error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
 	mu.Lock()
@@ -986,6 +1107,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 		return nil, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
 	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
+	content = reply.apply(conversation.ID, content, &opts)
 
 	logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(content), len(attachments))
 	messageType := "incoming"
@@ -1659,12 +1781,17 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		content     string
 		attachments []string
 		msgOpts     chatwoot.MessageOptions
+		reply       *chatwootReplyTarget // resolved against the conversation in syncMessageToChatwoot
 	)
 	switch eventName {
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
+		if id, _ := data["id"].(string); id != "" {
+			msgOpts.SourceID = "WAID:" + id
+		}
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
 			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, "")
 		}
 	case "message.edited", "message.revoked", "message.deleted":
 		var threadID string
@@ -1683,6 +1810,8 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 		if rid, _ := data["replied_to_id"].(string); rid != "" {
 			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			quoted, _ := data["quoted_body"].(string)
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, quoted)
 		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
@@ -1702,7 +1831,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 
-	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
+	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts, reply)
 	if err != nil {
 		return err
 	}
