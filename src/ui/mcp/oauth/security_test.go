@@ -1,6 +1,8 @@
 package oauth
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -358,4 +360,72 @@ func TestOAuthBodyCapLeavesOtherRoutesAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
 	require.NoError(t, resp.Body.Close())
+}
+
+func TestOAuthPOSTRejectsCompressedBodiesBeforeDecode(t *testing.T) {
+	valid := []byte(`{"client_name":"Gzip","redirect_uris":["https://example.com/callback"],"application_type":"web","token_endpoint_auth_method":"none"}`)
+	oversized := []byte(`{"client_name":"Gzip","redirect_uris":["https://example.com/callback"],"padding":"` + strings.Repeat("a", maxOAuthBodyBytes) + `"}`)
+	require.Greater(t, len(oversized), maxOAuthBodyBytes)
+	oversizedGzip := gzipBytes(t, oversized)
+	validGzip := gzipBytes(t, valid)
+	require.Less(t, len(oversizedGzip), maxOAuthBodyBytes, "compressed body must fit under the raw cap")
+	require.Less(t, len(validGzip), maxOAuthBodyBytes)
+
+	cases := []struct {
+		name          string
+		path          string
+		contentType   string
+		encoding      string
+		extraEncoding string
+		body          []byte
+	}{
+		{name: "identity then gzip header lines", path: "/oauth/register", contentType: "application/json", encoding: "identity", extraEncoding: "gzip", body: valid},
+		{name: "gzip register larger than 16KiB decoded", path: "/oauth/register", contentType: "application/json", encoding: "gzip", body: oversizedGzip},
+		{name: "gzip register that would otherwise succeed", path: "/oauth/register", contentType: "application/json", encoding: "gzip", body: validGzip},
+		{name: "x-gzip register", path: "/oauth/register", contentType: "application/json", encoding: "x-gzip", body: validGzip},
+		{name: "gzip token", path: "/oauth/token", contentType: "application/x-www-form-urlencoded", encoding: "gzip", body: gzipBytes(t, []byte("grant_type=refresh_token&client_id=client&refresh_token=token"))},
+		{name: "deflate register", path: "/oauth/register", contentType: "application/json", encoding: "deflate", body: valid},
+		{name: "br register", path: "/oauth/register", contentType: "application/json", encoding: "br", body: valid},
+		{name: "gzip authorize", path: "/oauth/authorize", contentType: "application/x-www-form-urlencoded", encoding: "gzip", body: gzipBytes(t, []byte("response_type=code&username=user&password=secret"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, app := newOAuthTestServer(t, testIssuer, testResource)
+			req := httptest.NewRequest("POST", tc.path, bytes.NewReader(tc.body))
+			req.Header.Set("Content-Type", tc.contentType)
+			req.Header.Set("Content-Encoding", tc.encoding)
+			if tc.extraEncoding != "" {
+				req.Header.Add("Content-Encoding", tc.extraEncoding)
+			}
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
+			assertOAuthError(t, resp, "invalid_request")
+
+			var clients int
+			require.NoError(t, srv.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM oauth_clients`).Scan(&clients))
+			assert.Zero(t, clients)
+		})
+	}
+
+	t.Run("identity encoding still registers", func(t *testing.T) {
+		_, app := newOAuthTestServer(t, testIssuer, testResource)
+		req := httptest.NewRequest("POST", "/oauth/register", bytes.NewReader(valid))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "identity")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusCreated, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	})
+}
+
+func gzipBytes(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(raw)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
 }

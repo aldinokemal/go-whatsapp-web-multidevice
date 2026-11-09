@@ -2,7 +2,10 @@ package utils
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -447,5 +450,119 @@ func TestNativeFlowAsButtonKeepsSingleSelectRows(t *testing.T) {
 func TestBusinessMessageLinesFallsBackToButtonType(t *testing.T) {
 	if got := businessMessageLines(&BusinessMessage{Buttons: []BusinessButton{{Type: "review_and_pay"}}}); got != "[review_and_pay]" {
 		t.Fatalf("unexpected lines %q", got)
+	}
+}
+
+// Cloud API reply buttons arrive as a top-level InteractiveMessage; the webhook
+// must carry them as buttons, not only as the text summary.
+func TestBuildButtonsPayloadTopLevelInteractive(t *testing.T) {
+	reply := &waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String("Confirma o horário?")},
+		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+			Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+				{Name: proto.String("quick_reply"), ButtonParamsJSON: proto.String(`{"display_text":"Sim","id":"sim"}`)},
+				{Name: proto.String("quick_reply"), ButtonParamsJSON: proto.String(`{"display_text":"Não","id":"nao"}`)},
+			},
+		}},
+	}}
+	buttons := BuildButtonsPayload(reply)
+	if buttons == nil || buttons.Body != "Confirma o horário?" {
+		t.Fatalf("top-level interactive not exposed: %+v", buttons)
+	}
+	want := []BusinessButton{{Type: "quick_reply", Text: "Sim", ID: "sim"}, {Type: "quick_reply", Text: "Não", ID: "nao"}}
+	if !reflect.DeepEqual(buttons.Buttons, want) {
+		t.Fatalf("buttons = %+v, want %+v", buttons.Buttons, want)
+	}
+
+	if got := BuildButtonsPayload(&waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String("só texto")},
+	}}); got != nil {
+		t.Fatalf("interactive without buttons should not produce a payload: %+v", got)
+	}
+}
+
+func nestCarouselSummary(body string, levels int) *waE2E.InteractiveMessage {
+	msg := &waE2E.InteractiveMessage{Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)}}
+	for i := 0; i < levels; i++ {
+		msg = &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_CarouselMessage_{
+				CarouselMessage: &waE2E.InteractiveMessage_CarouselMessage{
+					Cards: []*waE2E.InteractiveMessage{msg},
+				},
+			},
+		}
+	}
+	return msg
+}
+
+func TestFormatInteractiveMessageSummaryBoundsNestedCarousel(t *testing.T) {
+	leaf := strings.Repeat("LeafText", 40)
+	deep := nestCarouselSummary(leaf, 12)
+	start := time.Now()
+	got := FormatInteractiveMessageSummary(deep)
+	if time.Since(start) > time.Second {
+		t.Fatalf("nested summary took %s", time.Since(start))
+	}
+	if strings.Contains(got, "LeafText") {
+		t.Fatalf("depth limit kept the leaf: %q", got)
+	}
+	if len(got) > interactiveSummaryMaxBytes {
+		t.Fatalf("len %d exceeds budget %d", len(got), interactiveSummaryMaxBytes)
+	}
+
+	shallow := nestCarouselSummary("Shoes", 1)
+	got = FormatInteractiveMessageSummary(shallow)
+	if got != "Card 1: Shoes" {
+		t.Fatalf("shallow carousel = %q", got)
+	}
+
+	huge := strings.Repeat("B", interactiveSummaryMaxBytes*3)
+	got = FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String(huge)},
+	})
+	if len(got) > interactiveSummaryMaxBytes {
+		t.Fatalf("output %d exceeds %d", len(got), interactiveSummaryMaxBytes)
+	}
+	if !strings.HasPrefix(got, "BBB") {
+		t.Fatalf("truncated summary lost the body: %q", got)
+	}
+}
+
+func TestFormatInteractiveMessageSummaryCutsAtRuneBoundary(t *testing.T) {
+	summarize := func(body string) string {
+		return FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+			Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)},
+		})
+	}
+
+	got := summarize("\xff" + strings.Repeat("A", 20000))
+	if len(got) != interactiveSummaryMaxBytes || !strings.HasPrefix(got, "\xffAAA") {
+		t.Fatalf("an invalid byte before the cut dropped the text: len %d, prefix %q", len(got), got[:min(len(got), 8)])
+	}
+
+	got = summarize("A" + strings.Repeat("é", interactiveSummaryMaxBytes))
+	if !utf8.ValidString(got) || len(got) != interactiveSummaryMaxBytes-1 {
+		t.Fatalf("cut split a rune: len %d, valid %v", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestFormatInteractiveMessageSummaryFullBodyDropsButtons(t *testing.T) {
+	body := strings.Repeat("B", interactiveSummaryMaxBytes)
+	button := &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+		Name:             proto.String("cta_url"),
+		ButtonParamsJSON: proto.String(`{"display_text":"` + strings.Repeat("L", 4096) + `","url":"https://acme.example/track"}`),
+	}
+	buttons := make([]*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton, 1000)
+	for i := range buttons {
+		buttons[i] = button
+	}
+	got := FormatInteractiveMessageSummary(&waE2E.InteractiveMessage{
+		Body: &waE2E.InteractiveMessage_Body{Text: proto.String(body)},
+		InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+			Buttons: buttons,
+		}},
+	})
+	if got != body {
+		t.Fatalf("summary after a full body = len %d, want the body alone (len %d)", len(got), len(body))
 	}
 }
