@@ -2,6 +2,8 @@ package utils
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -422,6 +424,54 @@ func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
 			}
 			if ext := determineMediaExtension(originalFilename, withMime.GetMimetype()); ext == "" {
 				t.Fatalf("determineMediaExtension() = %q, want a file extension", ext)
+			}
+		})
+	}
+}
+
+func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		mimeType string
+		ptt      bool
+		data     []byte
+		wantMime string
+	}{
+		{"voice note", "audio/ogg; codecs=opus", true, []byte("OggS\x00\x02voice-note-OpusHead"), "audio/ogg"},
+		{"ogg audio", "audio/ogg", false, []byte("OggS\x00\x02audio-OpusHead"), "audio/ogg"},
+		{"mp3 audio", "audio/mpeg", false, []byte("ID3\x04\x00\x00\x00\x00\x00\x00"), "audio/mpeg"},
+		{"wav audio", "audio/wav", false, []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), "audio/wave"},
+		{"mp4 audio", "audio/mp4", false, []byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '2'}, "audio/mp4"},
+		{"unknown audio", "audio/aac", false, []byte{0, 1, 2, 3}, "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+				Mimetype: proto.String(tt.mimeType), PTT: proto.Bool(tt.ptt),
+				DirectPath: proto.String("/audio.enc"), FileLength: proto.Uint64(uint64(len(tt.data))),
+			}}
+			mediaType, filename, mediaURL, directPath, key, hash, encHash, length := ExtractMediaInfo(original)
+			if mediaType != "audio" || filepath.Ext(filename) != ".ogg" {
+				t.Fatalf("stored audio metadata = %q, %q; expected the legacy audio/.ogg representation", mediaType, filename)
+			}
+			rebuilt, err := BuildDownloadableMessage(mediaType, mediaURL, directPath, filename, key, hash, encHash, length)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := storeExtractedMedia(t.TempDir(), rebuilt, tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != tt.wantMime {
+				t.Errorf("download MIME = %q, want %q", got.MimeType, tt.wantMime)
+			}
+			ext := filepath.Ext(got.MediaPath)
+			if ext == "" || ext != determineMediaExtension("", tt.wantMime) {
+				t.Errorf("download extension = %q, want one derived from %q", ext, tt.wantMime)
+			}
+			data, err := os.ReadFile(got.MediaPath)
+			if err != nil || !bytes.Equal(data, tt.data) {
+				t.Fatalf("download changed audio bytes: %v", err)
 			}
 		})
 	}
