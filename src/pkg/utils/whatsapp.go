@@ -967,6 +967,8 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 				extractedMedia.MimeType = "audio/amr-wb"
 			case isADTSAudio(data):
 				extractedMedia.MimeType = "audio/aac"
+			case isMP3Audio(data):
+				extractedMedia.MimeType = "audio/mpeg"
 			case detected == "application/ogg":
 				extractedMedia.MimeType = "audio/ogg"
 			case detected == "video/mp4":
@@ -1009,6 +1011,48 @@ func isADTSAudio(data []byte) bool {
 	}
 	frameSize := int(data[3]&3)<<11 | int(data[4])<<3 | int(data[5])>>5
 	return frameSize >= headerSize && frameSize <= len(data)
+}
+
+func isMP3Audio(data []byte) bool {
+	frameSize := mp3FrameSize(data)
+	if frameSize == 0 {
+		return false
+	}
+	next := data[frameSize:]
+	if len(next) == 0 || (len(next) == 128 && bytes.HasPrefix(next, []byte("TAG"))) {
+		return true
+	}
+	// MPEG version and sample rate stay constant, but bitrate may change for VBR.
+	return mp3FrameSize(next) != 0 && data[1]&0x1e == next[1]&0x1e && data[2]&0x0c == next[2]&0x0c
+}
+
+// mp3FrameSize returns zero for incomplete frames or unsupported MPEG Layer III headers.
+func mp3FrameSize(data []byte) int {
+	if len(data) < 4 || data[0] != 0xff || data[1]&0xe0 != 0xe0 || data[1]&0x06 != 0x02 {
+		return 0
+	}
+	version := (data[1] >> 3) & 3
+	bitrateIndex := data[2] >> 4
+	sampleRateIndex := (data[2] >> 2) & 3
+	if version == 1 || bitrateIndex == 0 || bitrateIndex == 15 || sampleRateIndex == 3 || data[3]&3 == 2 {
+		return 0
+	}
+	bitrates := [...]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+	sampleRate := [...]int{44100, 48000, 32000}[sampleRateIndex]
+	scale := 144000
+	if version != 3 {
+		bitrates = [...]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160}
+		sampleRate /= 2
+		scale = 72000
+		if version == 0 {
+			sampleRate /= 2
+		}
+	}
+	frameSize := scale*bitrates[bitrateIndex]/sampleRate + int((data[2]>>1)&1)
+	if frameSize > len(data) {
+		return 0
+	}
+	return frameSize
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix

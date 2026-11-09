@@ -507,7 +507,7 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 }
 
 func TestAudioDownloadPreservesDeclaredMIME(t *testing.T) {
-	for _, mimeType := range []string{"audio/ogg; codecs=opus", "audio/aac", "audio/amr"} {
+	for _, mimeType := range []string{"audio/ogg; codecs=opus", "audio/aac", "audio/amr", "audio/amr-wb", "audio/mpeg"} {
 		t.Run(mimeType, func(t *testing.T) {
 			data := []byte{0, 1, 2, 3}
 			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{Mimetype: proto.String(mimeType)}, data)
@@ -516,6 +516,57 @@ func TestAudioDownloadPreservesDeclaredMIME(t *testing.T) {
 			}
 			if got.MimeType != mimeType {
 				t.Fatalf("download MIME = %q, want declared MIME %q", got.MimeType, mimeType)
+			}
+		})
+	}
+}
+
+func TestAudioDownloadMP3FrameValidation(t *testing.T) {
+	mp3, err := os.ReadFile("testdata/no-id3.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate := func(offset int, value byte) []byte {
+		data := bytes.Clone(mp3)
+		data[offset] = value
+		return data
+	}
+	// FFprobe reports the first audio packet at offset 192 with a size of 192 bytes.
+	singleFrame := mp3[192:384]
+	id3v1 := make([]byte, 128)
+	copy(id3v1, "TAG")
+	tests := []struct {
+		name     string
+		data     []byte
+		wantMime string
+	}{
+		{"single frame", singleFrame, "audio/mpeg"},
+		{"single frame with id3v1", append(bytes.Clone(singleFrame), id3v1...), "audio/mpeg"},
+		{"truncated header", mp3[:3], "application/octet-stream"},
+		{"truncated first frame", mp3[:191], "application/octet-stream"},
+		{"truncated next header", mp3[:195], "application/octet-stream"},
+		{"truncated next frame", mp3[:383], "application/octet-stream"},
+		{"invalid sync", mutate(0, 0xfe), "application/octet-stream"},
+		{"reserved version", mutate(1, 0xeb), "application/octet-stream"},
+		{"reserved layer", mutate(1, 0xf9), "application/octet-stream"},
+		{"free bitrate", mutate(2, 0x04), "application/octet-stream"},
+		{"reserved bitrate", mutate(2, 0xf4), "application/octet-stream"},
+		{"reserved sample rate", mutate(2, 0x5c), "application/octet-stream"},
+		{"reserved emphasis", mutate(3, 0xc2), "application/octet-stream"},
+		{"invalid next sync", mutate(192, 0), "application/octet-stream"},
+		{"reserved next bitrate", mutate(194, 0xf4), "application/octet-stream"},
+		{"different next version", mutate(193, 0xf3), "application/octet-stream"},
+		{"different next sample rate", mutate(194, 0x50), "application/octet-stream"},
+		{"truncated id3v1", append(bytes.Clone(singleFrame), id3v1[:127]...), "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{}, tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != tt.wantMime {
+				t.Errorf("download MIME = %q, want %q", got.MimeType, tt.wantMime)
 			}
 		})
 	}
