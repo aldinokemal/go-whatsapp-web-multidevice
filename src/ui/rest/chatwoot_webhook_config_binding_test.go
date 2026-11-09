@@ -146,7 +146,7 @@ func (f *webhookBindingFixture) save(t *testing.T, cfg *domainChatStorage.Chatwo
 func (f *webhookBindingFixture) linkCount(t *testing.T) int {
 	t.Helper()
 	var count int
-	if err := f.db.QueryRow("SELECT COUNT(*) FROM chatwoot_message_links").Scan(&count); err != nil {
+	if err := f.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM chatwoot_message_links").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
