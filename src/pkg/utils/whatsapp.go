@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -477,23 +478,24 @@ func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
 // defaultForwardMimeType returns a mime type for stored media whose original
 // mime type was not persisted.
 func defaultForwardMimeType(message *domainChatStorage.Message) string {
+	switch message.MediaType {
+	case "audio":
+		return "audio/mpeg"
+	case "ptt":
+		return "audio/ogg; codecs=opus"
+	}
 	return defaultStoredMediaMimeType(message.MediaType, message.Filename)
 }
 
 // defaultStoredMediaMimeType returns a mime type for stored media whose
-// original mime type was not persisted. WhatsApp transcodes media to fixed
-// formats, so per-type defaults are accurate except for documents, which are
-// derived from the stored filename.
+// original mime type was not persisted. Audio filenames are generated as .ogg
+// regardless of their original format, so audio must be detected after download.
 func defaultStoredMediaMimeType(mediaType, filename string) string {
 	switch mediaType {
 	case "image":
 		return "image/jpeg"
 	case "video", "video_note":
 		return "video/mp4"
-	case "ptt":
-		return "audio/ogg; codecs=opus"
-	case "audio":
-		return "audio/mpeg"
 	case "sticker":
 		return "image/webp"
 	case "document":
@@ -668,8 +670,7 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 // from stored chat media metadata.
 func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) (whatsmeow.DownloadableMessage, error) {
 	resolvedDirectPath := ResolveMediaDirectPath(directPath, mediaURL)
-	// The mime type is not persisted in chat storage. Without it, ExtractMedia
-	// cannot derive a file extension for anything but documents.
+	// Audio MIME is left unknown until ExtractMedia has the decrypted bytes.
 	mimeType := proto.String(defaultStoredMediaMimeType(mediaType, filename))
 
 	switch mediaType {
@@ -953,6 +954,19 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 		extractedMedia.Caption = media.GetCaption()
 	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		if extractedMedia.MimeType == "" {
+			detected := http.DetectContentType(data)
+			switch {
+			case detected == "application/ogg":
+				extractedMedia.MimeType = "audio/ogg"
+			case detected == "video/mp4":
+				extractedMedia.MimeType = "audio/mp4"
+			case strings.HasPrefix(detected, "audio/"):
+				extractedMedia.MimeType = detected
+			default:
+				extractedMedia.MimeType = "application/octet-stream"
+			}
+		}
 	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()

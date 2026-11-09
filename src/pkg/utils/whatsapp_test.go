@@ -396,8 +396,8 @@ func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
 		{name: "Image", mediaType: "image", filename: "image_20260101_120000_caption.jpg", wantMime: "image/jpeg"},
 		{name: "Video", mediaType: "video", filename: "video_20260101_120000.mp4", wantMime: "video/mp4"},
 		{name: "VideoNote", mediaType: "video_note", filename: "video_note_20260101_120000.mp4", wantMime: "video/mp4"},
-		{name: "Audio", mediaType: "audio", filename: "audio_20260101_120000.ogg", wantMime: "audio/mpeg"},
-		{name: "PTT", mediaType: "ptt", filename: "audio_20260101_120000.ogg", wantMime: "audio/ogg; codecs=opus"},
+		{name: "Audio", mediaType: "audio", filename: "audio_20260101_120000.ogg", wantMime: ""},
+		{name: "PTT", mediaType: "ptt", filename: "audio_20260101_120000.ogg", wantMime: ""},
 		{name: "Sticker", mediaType: "sticker", filename: "", wantMime: "image/webp"},
 		{name: "Document", mediaType: "document", filename: "report.pdf", wantMime: "application/pdf"},
 	}
@@ -415,9 +415,9 @@ func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
 			if withMime.GetMimetype() != tt.wantMime {
 				t.Fatalf("mimetype = %q, want %q", withMime.GetMimetype(), tt.wantMime)
 			}
-			// ExtractMedia names the file from the original filename (documents
-			// only) and this mime type; an empty mime type left the file without
-			// an extension.
+			if tt.wantMime == "" {
+				return
+			}
 			originalFilename := ""
 			if tt.mediaType == "document" {
 				originalFilename = tt.filename
@@ -472,6 +472,21 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 			data, err := os.ReadFile(got.MediaPath)
 			if err != nil || !bytes.Equal(data, tt.data) {
 				t.Fatalf("download changed audio bytes: %v", err)
+			}
+		})
+	}
+}
+
+func TestAudioDownloadPreservesDeclaredMIME(t *testing.T) {
+	for _, mimeType := range []string{"audio/ogg; codecs=opus", "audio/aac", "audio/amr"} {
+		t.Run(mimeType, func(t *testing.T) {
+			data := []byte{0, 1, 2, 3}
+			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{Mimetype: proto.String(mimeType)}, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != mimeType {
+				t.Fatalf("download MIME = %q, want declared MIME %q", got.MimeType, mimeType)
 			}
 		})
 	}
