@@ -489,6 +489,10 @@ func (service serviceMessage) updateStoredMessage(
 	return nil
 }
 
+// UpdateMessage implements message.IMessageService. It edits a sent message;
+// with MediaType set, it replaces that image or document's caption instead of
+// sending a text edit, and refuses a MediaType that differs from the stored
+// copy's type.
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
@@ -504,8 +508,35 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
+	// WhatsApp ignores a caption edit of another message type, so only a stored
+	// copy of the requested type is updated. With no stored copy the type cannot
+	// be checked: the edit is sent, and storage gets no row whose type is a guess.
+	uncachedCaptionEdit := false
+	if request.MediaType != "" {
+		stored, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
+		if err != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+		}
+		uncachedCaptionEdit = stored == nil
+		if stored != nil && stored.MediaType != request.MediaType {
+			storedType := stored.MediaType
+			if storedType == "" {
+				storedType = "text"
+			}
+			return response, pkgError.ValidationError(fmt.Sprintf("media_type: message %s is %s, not %s.", request.MessageID, storedType, request.MediaType))
+		}
+	}
+
 	text := request.Message
 	msg := &waE2E.Message{Conversation: proto.String(text)}
+	// WhatsApp applies a caption edit only when it carries the media message's own
+	// type; a Conversation edit of an image or document is accepted and then ignored.
+	switch request.MediaType {
+	case "image":
+		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(text)}}
+	case "document":
+		msg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{Caption: proto.String(text)}}
+	}
 	if link := strings.TrimSpace(request.Link); link != "" {
 		if !containsLinkToken(text, link) {
 			text = buildLinkMessageText(text, link)
@@ -520,8 +551,10 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
-		return response, err
+	if !uncachedCaptionEdit {
+		if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
+			return response, err
+		}
 	}
 
 	response.MessageID = ts.ID
