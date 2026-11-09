@@ -228,7 +228,9 @@ func (h *ChatwootHandler) resolveChatwootWebhookRoute(payload chatwoot.WebhookPa
 		} else if link != nil && strings.TrimSpace(link.DeviceID) != "" && strings.TrimSpace(link.WhatsAppChatJID) != "" {
 			route.DeviceID = strings.TrimSpace(link.DeviceID)
 			route.Destination = strings.TrimSpace(link.WhatsAppChatJID)
-			route.ConfigID = link.ChatwootConfigID
+			if !legacy {
+				route.ConfigID = link.ChatwootConfigID
+			}
 			if link.ChatwootAccountID != 0 {
 				route.AccountID = link.ChatwootAccountID
 			}
@@ -381,7 +383,7 @@ func (h *ChatwootHandler) HandleWebhook(c fiber.Ctx) error {
 			logrus.Warn("Chatwoot Webhook: Rejected request with invalid secret")
 			return c.SendStatus(fiber.StatusUnauthorized)
 		}
-		if status := h.chatwootWebhookRouteGate(c, route); status != 0 && status != fiber.StatusOK {
+		if status := h.chatwootWebhookRouteGate(c, &route); status != 0 && status != fiber.StatusOK {
 			return c.SendStatus(status)
 		}
 	}
@@ -544,7 +546,7 @@ func (h *ChatwootHandler) processChatwootWebhook(c fiber.Ctx, payload chatwoot.W
 	}
 	// Nothing below may act on the request before this: the delivery is
 	// protected by the routed device's secret, whichever endpoint it came in on.
-	if status := h.chatwootWebhookRouteGate(c, route); status != 0 {
+	if status := h.chatwootWebhookRouteGate(c, &route); status != 0 {
 		return c.SendStatus(status)
 	}
 	if route.Unroutable {
@@ -757,7 +759,7 @@ func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chat
 		route.Unroutable = false
 	}
 	// A delete revokes a WhatsApp message: same gate as a send.
-	if status := h.chatwootWebhookRouteGate(c, route); status != 0 {
+	if status := h.chatwootWebhookRouteGate(c, &route); status != 0 {
 		return c.SendStatus(status)
 	}
 	if route.Unroutable {

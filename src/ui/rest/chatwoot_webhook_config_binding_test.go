@@ -38,10 +38,12 @@ type webhookBindingFixture struct {
 	db           *sql.DB
 	repo         domainChatStorage.IChatStorageRepository
 	manager      *whatsapp.DeviceManager
+	handler      *ChatwootHandler
 	old, current *domainChatStorage.ChatwootDeviceConfig
 	send         *bindingSend
 	message      *routeAuthMessage
 	notes        atomic.Int64
+	notePath     atomic.Value
 }
 
 type bindingSend struct{ routeAuthSend }
@@ -68,8 +70,9 @@ func newWebhookBindingFixture(t *testing.T) *webhookBindingFixture {
 		chatwootReplays.reset()
 	})
 	f := &webhookBindingFixture{send: &bindingSend{}, message: &routeAuthMessage{}}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.notes.Add(1)
+		f.notePath.Store(r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":200}`))
 	}))
@@ -125,11 +128,11 @@ func newWebhookBindingFixture(t *testing.T) *webhookBindingFixture {
 		}
 		f.manager.AddDevice(whatsapp.NewDeviceInstance(alias, &whatsmeow.Client{Store: &store.Device{ID: &id}}, f.repo))
 	}
-	handler := &ChatwootHandler{SendUsecase: f.send, MessageUsecase: f.message, DeviceManager: f.manager, ChatStorageRepo: f.repo}
+	f.handler = &ChatwootHandler{SendUsecase: f.send, MessageUsecase: f.message, DeviceManager: f.manager, ChatStorageRepo: f.repo}
 	f.app = fiber.New()
 	f.app.Use("/chatwoot/webhook", ChatwootWebhookReplayGuard())
-	f.app.Post("/chatwoot/webhook", handler.HandleWebhook)
-	f.app.Post("/chatwoot/webhook/:device_id", handler.HandleDeviceWebhook)
+	f.app.Post("/chatwoot/webhook", f.handler.HandleWebhook)
+	f.app.Post("/chatwoot/webhook/:device_id", f.handler.HandleDeviceWebhook)
 	return f
 }
 
@@ -170,7 +173,7 @@ func TestChatwootWebhookBindsConfigToLiveDevice(t *testing.T) {
 		for _, tc := range []struct {
 			name, path, secret, override string
 			disabled, unstamped, stale   bool
-			movedInbox                   bool
+			movedInbox, missing          bool
 			conversation                 int
 			wantDevice                   string
 			wantRevokes                  []string
@@ -179,6 +182,8 @@ func TestChatwootWebhookBindsConfigToLiveDevice(t *testing.T) {
 			{name: "disabled owner's secret cannot authorize historical config", secret: "current-secret", disabled: true, override: "current", conversation: 7, status: 401},
 			{name: "historical config's secret cannot drive the rebound device", secret: "old-secret", disabled: true, override: "current", conversation: 7, status: 401},
 			{name: "live slot wins over stale config JID", secret: "old-secret", disabled: true, stale: true, conversation: 7, status: 401},
+			{name: "unresolved historical JID cannot authorize a foreign config", secret: "current-secret", disabled: true, missing: true, conversation: 7, status: 401},
+			{name: "unresolved historical JID cannot fall back to its old slot", secret: "old-secret", disabled: true, missing: true, conversation: 7, status: 401},
 			{name: "colliding enabled inbox needs an explicit device", secret: "current-secret", conversation: 7, status: 401},
 			{name: "explicit device accepts its own secret", secret: "current-secret", override: "current", conversation: 7, wantDevice: "current", wantRevokes: []string{"current revokes current-1", "current revokes current-2"}, status: 200},
 			{name: "explicit device rejects other server's secret", secret: "old-secret", override: "current", conversation: 7, status: 401},
@@ -217,12 +222,24 @@ func TestChatwootWebhookBindsConfigToLiveDevice(t *testing.T) {
 						f.current.AccountID, f.current.InboxID = 4, 6
 						f.save(t, f.current)
 					}
+					if tc.missing {
+						f.manager.RemoveDevice("current")
+					}
 					before := f.linkCount(t)
 					status := f.post(t, "/chatwoot/webhook"+tc.path, event, tc.secret, tc.override, tc.conversation)
 					var wantSends, wantRevokes []string
 					if event == "message_created" && tc.wantDevice != "" {
 						wantSends = []string{tc.wantDevice + " -> 628999999999"}
 						before++
+						owner := f.current
+						if tc.wantDevice == "old" {
+							owner = f.old
+						}
+						device, _ := f.manager.GetDevice(tc.wantDevice)
+						link, err := f.repo.GetChatwootMessageLinkByWhatsAppID(device.JID(), "WA-1")
+						if err != nil || link == nil || link.ChatwootConfigID != owner.ID || link.ChatwootAccountID != owner.AccountID {
+							t.Errorf("sent message's link = %+v, error = %v; want config %d account %d", link, err, owner.ID, owner.AccountID)
+						}
 					} else if event == "message_updated" {
 						wantRevokes = tc.wantRevokes
 					}
@@ -255,6 +272,13 @@ func TestChatwootWebhookSignedLegacyDeleteKeepsAccountScope(t *testing.T) {
 		}
 	}
 	f.manager.RemoveDevice("old")
+	if err := f.repo.UpsertChatwootMessageLink(&domainChatStorage.ChatwootMessageLink{
+		DeviceID: bindingOldJID, WhatsAppMessageID: "removed-config", WhatsAppChatJID: bindingPeer,
+		ChatwootMessageID: 90, ChatwootConversationID: 9, ChatwootInboxID: 5,
+		ChatwootAccountID: 3, ChatwootConfigID: 77, Direction: "outgoing",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	status := f.post(t, "/chatwoot/webhook", "message_updated", "global-secret", "", 9)
 	want := []string{"current revokes legacy-account", "current revokes legacy-zero"}
 	if !reflect.DeepEqual(f.message.revoked, want) || status != 200 {
@@ -270,7 +294,19 @@ func TestChatwootWebhookSignedUnpairedSlotReportsFailure(t *testing.T) {
 	f.save(t, f.current)
 	before := f.linkCount(t)
 	status := f.post(t, "/chatwoot/webhook/current", "message_created", "current-secret", "", 7)
-	if status != 200 || f.notes.Load() != 1 || len(f.send.taken()) != 0 || len(f.message.revoked) != 0 || f.linkCount(t) != before {
+	if status != 200 || f.notes.Load() != 1 || f.notePath.Load() != "/current/api/v1/accounts/3/conversations/7/messages" || len(f.send.taken()) != 0 || len(f.message.revoked) != 0 || f.linkCount(t) != before {
 		t.Fatalf("unpaired slot: status = %d, failure notes = %d, links = %d", status, f.notes.Load(), f.linkCount(t))
+	}
+}
+
+func TestChatwootWebhookMissingManagerReportsFailureToOwnConfig(t *testing.T) {
+	f := newWebhookBindingFixture(t)
+	f.handler.DeviceManager = nil
+	f.current.Enabled = false
+	f.save(t, f.current)
+	before := f.linkCount(t)
+	status := f.post(t, "/chatwoot/webhook", "message_created", "old-secret", "", 8)
+	if status != 200 || f.notes.Load() != 1 || f.notePath.Load() != "/old/api/v1/accounts/3/conversations/8/messages" || len(f.send.taken()) != 0 || len(f.message.revoked) != 0 || f.linkCount(t) != before {
+		t.Fatalf("missing manager: status = %d, failure notes = %d, links = %d", status, f.notes.Load(), f.linkCount(t))
 	}
 }

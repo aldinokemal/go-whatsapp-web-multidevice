@@ -65,7 +65,9 @@ func (r *routeAuthRepo) GetChatwootDeviceConfigByInbox(accountID, inboxID int) (
 }
 
 func (r *routeAuthRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
-	return r.configs, nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.configs, r.lookupErr
 }
 
 func (r *routeAuthRepo) CountChatwootDeviceConfigs() (int, error) {
@@ -503,6 +505,10 @@ type routeAuthFailingRepo struct {
 }
 
 func (routeAuthFailingRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	return nil, fmt.Errorf("database is locked")
+}
+
+func (routeAuthFailingRepo) ListChatwootDeviceConfigs() ([]*domainChatStorage.ChatwootDeviceConfig, error) {
 	return nil, fmt.Errorf("database is locked")
 }
 
