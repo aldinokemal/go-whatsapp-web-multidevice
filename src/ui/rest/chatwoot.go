@@ -1106,6 +1106,9 @@ func (h *ChatwootHandler) SyncHistory(c fiber.Ctx) error {
 		opts.IncludeGroups = fiber.Query[bool](c, "groups", opts.IncludeGroups)
 	}
 
+	// One recovery per run: it stops asking a phone that does not answer.
+	opts.RecoverExpiredMedia = whatsapp.NewBulkMediaRecovery(h.ChatStorageRepo).Recover
+
 	// Start async sync
 	go func() {
 		ctx := context.Background()

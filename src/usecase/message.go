@@ -709,7 +709,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("failed to create directory: %v", err)
 	}
 
-	downloadableMsg, err := buildStoredDownloadableMessage(message, directPath)
+	downloadableMsg, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
 		return response, err
 	}

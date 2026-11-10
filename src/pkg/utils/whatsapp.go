@@ -734,6 +734,21 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 	}
 }
 
+// BuildStoredDownloadableMessage builds the whatsmeow media message for a
+// stored row, downloading from directPath.
+func BuildStoredDownloadableMessage(message *domainChatStorage.Message, directPath string) (whatsmeow.DownloadableMessage, error) {
+	return BuildDownloadableMessage(
+		message.MediaType,
+		message.URL,
+		directPath,
+		message.Filename,
+		message.MediaKey,
+		message.FileSHA256,
+		message.FileEncSHA256,
+		message.FileLength,
+	)
+}
+
 // ExtractContextInfo returns the ContextInfo from whichever message sub-type
 // is present. Returns nil when the message has no ContextInfo.
 func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {

@@ -2725,6 +2725,8 @@ paths:
         Forward a message that exists in local chat storage to another chat by message ID.
         Text and standard media types (image, video, video note, audio, document, sticker) are supported.
         Media references are reused when possible; stale refs trigger an automatic re-upload fallback.
+        If the source media has expired on WhatsApp's servers, the re-upload first asks the phone for the file,
+        which needs the phone online and can take up to 30 seconds.
       parameters:
         - $ref: '#/components/parameters/DeviceIdHeader'
         - in: path
