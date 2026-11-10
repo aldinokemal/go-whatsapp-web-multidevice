@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -483,6 +484,104 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		}
 		if len(atts) != 0 {
 			t.Fatalf("expected no attachments, got %v", atts)
+		}
+	})
+
+	t.Run("poll creation renders question and options", func(t *testing.T) {
+		poll := &webhookPollPayload{
+			Type:     "creation",
+			Question: "Best day?",
+			Options:  []webhookPollOptionPayload{{Name: "Saturday"}, {Name: "Sunday"}},
+		}
+		// The live payload carries the struct; the retry queue replays it as JSON.
+		raw, err := json.Marshal(map[string]any{"body": "Poll: Best day?", "poll": poll})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed map[string]any
+		if err := json.Unmarshal(raw, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string]map[string]any{
+			"live":   {"body": "Poll: Best day?", "poll": poll},
+			"replay": replayed,
+		} {
+			content, atts := buildChatwootMessageContent(data, true, "Alice")
+			if content != "Alice: 📊 Poll: Best day?\n• Saturday\n• Sunday" {
+				t.Fatalf("%s: unexpected poll content: %q", name, content)
+			}
+			if len(atts) != 0 {
+				t.Fatalf("%s: expected no attachments, got %v", name, atts)
+			}
+		}
+	})
+
+	t.Run("poll creation keeps WhatsApp formatting", func(t *testing.T) {
+		poll := &webhookPollPayload{
+			Type:     "creation",
+			Question: "*Best* day?",
+			Options:  []webhookPollOptionPayload{{Name: "_Saturday_"}, {Name: "Sunday*"}},
+		}
+		want := "📊 Poll: " + utils.WhatsAppToChatwootMarkdown("*Best* day?") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("_Saturday_") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("Sunday*")
+		if want == "📊 Poll: *Best* day?\n• _Saturday_\n• Sunday*" {
+			t.Fatal("test input must exercise a conversion")
+		}
+		raw, err := json.Marshal(map[string]any{"poll": poll})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed map[string]any
+		if err := json.Unmarshal(raw, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string]map[string]any{
+			"live":   {"poll": poll},
+			"replay": replayed,
+		} {
+			if content, _ := buildChatwootMessageContent(data, false, ""); content != want {
+				t.Fatalf("%s: got %q, want %q", name, content, want)
+			}
+		}
+	})
+
+	t.Run("poll vote keeps its body", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll vote: Saturday",
+			"poll": &webhookPollPayload{Type: "vote", Question: "Best day?"},
+		}, false, "")
+		if content != "Poll vote: Saturday" {
+			t.Fatalf("expected the vote body unchanged, got %q", content)
+		}
+	})
+
+	t.Run("poll edit renders the new options", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:     "edit",
+				Question: "Best day?",
+				Options:  []webhookPollOptionPayload{{Name: "Monday"}, {Name: "Sunday"}},
+			},
+		}, false, "")
+		if content != "📊 Poll edited: Best day?\n• Monday\n• Sunday" {
+			t.Fatalf("unexpected poll edit content: %q", content)
+		}
+	})
+
+	t.Run("undecrypted poll edit keeps its body", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:             "edit",
+				Question:         "Best day?",
+				Options:          []webhookPollOptionPayload{{Name: "Saturday"}},
+				ResolutionStatus: pollResolutionDecryptFailed,
+			},
+		}, false, "")
+		if content != "Poll edited: Best day?" {
+			t.Fatalf("expected the edit body unchanged, got %q", content)
 		}
 	})
 

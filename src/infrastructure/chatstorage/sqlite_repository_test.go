@@ -11,6 +11,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -47,6 +48,46 @@ func TestSQLiteRepositoryInitializesMessageReactionsSchema(t *testing.T) {
 	}
 	if tableName != "message_reactions" {
 		t.Fatalf("expected message_reactions table, got %q", tableName)
+	}
+}
+
+func TestGetReactionForEvent(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	device := "device-a@s.whatsapp.net"
+	chat := types.NewJID("628123456789", types.DefaultUserServer)
+	sender := types.NewJID("628111111111", types.DefaultUserServer)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(device, nil, repo))
+	evt := &events.Message{
+		Info: types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: sender}},
+		Message: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+			Key:  &waCommon.MessageKey{ID: proto.String("msg-1")},
+			Text: proto.String(""),
+		}},
+	}
+	if err := repo.StoreReaction(&domainChatStorage.Reaction{
+		MessageID: "msg-1", ChatJID: chat.String(), DeviceID: device,
+		ReactorJID: sender.String(), Emoji: "👍", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.GetReactionForEvent(ctx, evt)
+	if err != nil || stored == nil || stored.Emoji != "👍" {
+		t.Fatalf("stored reaction = %+v, error = %v", stored, err)
+	}
+	otherChatEvent := *evt
+	otherChatEvent.Info.Chat = types.NewJID("120363000000002", types.GroupServer)
+	if stored, err = repo.GetReactionForEvent(ctx, &otherChatEvent); err != nil || stored != nil {
+		t.Fatalf("other chat reaction = %+v, error = %v", stored, err)
+	}
+	otherCtx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("device-b", nil, repo))
+	if stored, err = repo.GetReactionForEvent(otherCtx, evt); err != nil || stored != nil {
+		t.Fatalf("other device reaction = %+v, error = %v", stored, err)
+	}
+	if err := repo.CreateReaction(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err = repo.GetReactionForEvent(ctx, evt); err != nil || stored != nil {
+		t.Fatalf("removed reaction = %+v, error = %v", stored, err)
 	}
 }
 

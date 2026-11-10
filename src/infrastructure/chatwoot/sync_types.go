@@ -1,8 +1,13 @@
 package chatwoot
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"go.mau.fi/whatsmeow"
 )
 
 // SyncState tracks what has been synced to avoid duplicates
@@ -43,7 +48,18 @@ type SyncOptions struct {
 	MaxMessagesPerChat  int           // Limit messages per chat to prevent huge syncs
 	BatchSize           int           // Messages per batch (for rate limiting)
 	DelayBetweenBatches time.Duration // Delay between batches
+
+	// RecoverExpiredMedia re-requests media that expired on WhatsApp's servers
+	// from the phone. Nil imports such media as unavailable.
+	RecoverExpiredMedia ExpiredMediaRecoverer
 }
+
+// ExpiredMediaRecoverer recovers the media of a stored message after
+// downloadErr, an expired-media download error, and stores the file in
+// storageLocation. The whatsapp package implements it and imports this one, so
+// callers pass it in. It waits for the phone, whose answer arrives on the
+// device event loop: a sync must not run on that loop.
+type ExpiredMediaRecoverer func(ctx context.Context, client *whatsmeow.Client, message *domainChatStorage.Message, storageLocation string, downloadErr error) (utils.ExtractedMedia, error)
 
 // SyncRequest is the API request for triggering a sync
 type SyncRequest struct {

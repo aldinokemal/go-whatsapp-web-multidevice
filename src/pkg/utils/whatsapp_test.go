@@ -3,10 +3,13 @@ package utils
 import (
 	"bytes"
 	"mime"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -594,6 +597,191 @@ func TestExtractMediaInfoIncludesDirectPath(t *testing.T) {
 	}
 }
 
+func TestBuildDownloadableMessageSetsMimetype(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+		filename  string
+		wantMime  string
+	}{
+		{name: "Image", mediaType: "image", filename: "image_20260101_120000_caption.jpg", wantMime: "image/jpeg"},
+		{name: "Video", mediaType: "video", filename: "video_20260101_120000.mp4", wantMime: "video/mp4"},
+		{name: "VideoNote", mediaType: "video_note", filename: "video_note_20260101_120000.mp4", wantMime: "video/mp4"},
+		{name: "Audio", mediaType: "audio", filename: "audio_20260101_120000.ogg", wantMime: ""},
+		{name: "PTT", mediaType: "ptt", filename: "audio_20260101_120000.ogg", wantMime: ""},
+		{name: "Sticker", mediaType: "sticker", filename: "", wantMime: "image/webp"},
+		{name: "Document", mediaType: "document", filename: "report.pdf", wantMime: "application/pdf"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := BuildDownloadableMessage(tt.mediaType, "https://mmg.whatsapp.net/ignored", "/v/t62/media.enc", tt.filename, []byte("k"), []byte("s"), []byte("e"), 1)
+			if err != nil {
+				t.Fatalf("BuildDownloadableMessage() error = %v", err)
+			}
+			withMime, ok := got.(interface{ GetMimetype() string })
+			if !ok {
+				t.Fatalf("message type %T has no mimetype", got)
+			}
+			if withMime.GetMimetype() != tt.wantMime {
+				t.Fatalf("mimetype = %q, want %q", withMime.GetMimetype(), tt.wantMime)
+			}
+			if tt.wantMime == "" {
+				return
+			}
+			originalFilename := ""
+			if tt.mediaType == "document" {
+				originalFilename = tt.filename
+			}
+			if ext := determineMediaExtension(originalFilename, withMime.GetMimetype()); ext == "" {
+				t.Fatalf("determineMediaExtension() = %q, want a file extension", ext)
+			}
+		})
+	}
+}
+
+func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
+	mp3WithoutID3, err := os.ReadFile("testdata/no-id3.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		mimeType string
+		ptt      bool
+		data     []byte
+		wantMime string
+	}{
+		{"voice note", "audio/ogg; codecs=opus", true, []byte("OggS\x00\x02voice-note-OpusHead"), "audio/ogg"},
+		{"ogg audio", "audio/ogg", false, []byte("OggS\x00\x02audio-OpusHead"), "audio/ogg"},
+		{"mp3 audio", "audio/mpeg", false, []byte("ID3\x04\x00\x00\x00\x00\x00\x00"), "audio/mpeg"},
+		{"mp3 without id3", "audio/mpeg", false, mp3WithoutID3, "audio/mpeg"},
+		{"wav audio", "audio/wav", false, []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), "audio/wave"},
+		{"mp4 audio", "audio/mp4", false, []byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '2'}, "audio/mp4"},
+		{"aac adts", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "audio/aac"},
+		{"aac mpeg2 adts", "audio/aac", false, []byte{0xff, 0xf9, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "audio/aac"},
+		{"aac adts with crc", "audio/aac", false, []byte{0xff, 0xf0, 0x50, 0x80, 0x01, 0x7f, 0xfc, 0, 0, 0, 0}, "audio/aac"},
+		{"amr", "audio/amr", false, []byte("#!AMR\n\x3c\x00\x00"), "audio/amr"},
+		{"amr wideband", "audio/amr-wb", false, []byte("#!AMR-WB\n\x3c\x00\x00"), "audio/amr-wb"},
+		{"truncated adts", "audio/aac", false, []byte{0xff, 0xf1, 0x50}, "application/octet-stream"},
+		{"truncated adts frame", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0}, "application/octet-stream"},
+		{"missing adts crc", "audio/aac", false, []byte{0xff, 0xf0, 0x50, 0x80, 0x00, 0xff, 0xfc}, "application/octet-stream"},
+		{"invalid adts layer", "audio/aac", false, []byte{0xff, 0xf7, 0x50, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
+		{"invalid adts sample rate", "audio/aac", false, []byte{0xff, 0xf1, 0x7c, 0x80, 0x01, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
+		{"invalid adts frame length", "audio/aac", false, []byte{0xff, 0xf1, 0x50, 0x80, 0x00, 0x3f, 0xfc, 0, 0}, "application/octet-stream"},
+		{"unknown audio", "audio/aac", false, []byte{0, 1, 2, 3}, "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+				Mimetype: proto.String(tt.mimeType), PTT: proto.Bool(tt.ptt),
+				DirectPath: proto.String("/audio.enc"), FileLength: proto.Uint64(uint64(len(tt.data))),
+			}}
+			mediaType, filename, mediaURL, directPath, key, hash, encHash, length := ExtractMediaInfo(original)
+			if mediaType != "audio" || filepath.Ext(filename) != ".ogg" {
+				t.Fatalf("stored audio metadata = %q, %q; expected the legacy audio/.ogg representation", mediaType, filename)
+			}
+			rebuilt, err := BuildDownloadableMessage(mediaType, mediaURL, directPath, filename, key, hash, encHash, length)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := storeExtractedMedia(t.TempDir(), rebuilt, tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != tt.wantMime {
+				t.Errorf("download MIME = %q, want %q", got.MimeType, tt.wantMime)
+			}
+			ext := filepath.Ext(got.MediaPath)
+			if ext == "" || ext != determineMediaExtension("", tt.wantMime) {
+				t.Errorf("download extension = %q, want one derived from %q", ext, tt.wantMime)
+			}
+			data, err := os.ReadFile(got.MediaPath)
+			if err != nil || !bytes.Equal(data, tt.data) {
+				t.Fatalf("download changed audio bytes: %v", err)
+			}
+			forwarded, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
+				MediaType: mediaType, Filename: filename,
+			}, ForwardBuildOptions{
+				MimeType: got.MimeType,
+				Upload:   &whatsmeow.UploadResponse{FileLength: length},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mimeType := forwarded.GetAudioMessage().GetMimetype(); mimeType != tt.wantMime {
+				t.Errorf("reuploaded audio MIME = %q, want %q", mimeType, tt.wantMime)
+			}
+		})
+	}
+}
+
+func TestAudioDownloadPreservesDeclaredMIME(t *testing.T) {
+	for _, mimeType := range []string{"audio/ogg; codecs=opus", "audio/aac", "audio/amr", "audio/amr-wb", "audio/mpeg"} {
+		t.Run(mimeType, func(t *testing.T) {
+			data := []byte{0, 1, 2, 3}
+			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{Mimetype: proto.String(mimeType)}, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != mimeType {
+				t.Fatalf("download MIME = %q, want declared MIME %q", got.MimeType, mimeType)
+			}
+		})
+	}
+}
+
+func TestAudioDownloadMP3FrameValidation(t *testing.T) {
+	mp3, err := os.ReadFile("testdata/no-id3.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate := func(offset int, value byte) []byte {
+		data := bytes.Clone(mp3)
+		data[offset] = value
+		return data
+	}
+	// FFprobe reports the first audio packet at offset 192 with a size of 192 bytes.
+	singleFrame := mp3[192:384]
+	id3v1 := make([]byte, 128)
+	copy(id3v1, "TAG")
+	tests := []struct {
+		name     string
+		data     []byte
+		wantMime string
+	}{
+		{"single frame", singleFrame, "audio/mpeg"},
+		{"single frame with id3v1", append(bytes.Clone(singleFrame), id3v1...), "audio/mpeg"},
+		{"truncated header", mp3[:3], "application/octet-stream"},
+		{"truncated first frame", mp3[:191], "application/octet-stream"},
+		{"truncated next header", mp3[:195], "application/octet-stream"},
+		{"truncated next frame", mp3[:383], "application/octet-stream"},
+		{"invalid sync", mutate(0, 0xfe), "application/octet-stream"},
+		{"reserved version", mutate(1, 0xeb), "application/octet-stream"},
+		{"reserved layer", mutate(1, 0xf9), "application/octet-stream"},
+		{"free bitrate", mutate(2, 0x04), "application/octet-stream"},
+		{"reserved bitrate", mutate(2, 0xf4), "application/octet-stream"},
+		{"reserved sample rate", mutate(2, 0x5c), "application/octet-stream"},
+		{"reserved emphasis", mutate(3, 0xc2), "application/octet-stream"},
+		{"invalid next sync", mutate(192, 0), "application/octet-stream"},
+		{"reserved next bitrate", mutate(194, 0xf4), "application/octet-stream"},
+		{"different next version", mutate(193, 0xf3), "application/octet-stream"},
+		{"different next sample rate", mutate(194, 0x50), "application/octet-stream"},
+		{"truncated id3v1", append(bytes.Clone(singleFrame), id3v1[:127]...), "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{}, tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MimeType != tt.wantMime {
+				t.Errorf("download MIME = %q, want %q", got.MimeType, tt.wantMime)
+			}
+		})
+	}
+}
+
 func TestBuildDownloadableMessageSetsDirectPath(t *testing.T) {
 	mediaKey := []byte("media-key")
 	fileSHA256 := []byte("file-sha")
@@ -917,6 +1105,34 @@ func TestBuildForwardMessageFromStorageDocument(t *testing.T) {
 	}
 }
 
+func TestBuildForwardMessageFromStorageReuploadedAudioMIME(t *testing.T) {
+	for _, tt := range []struct {
+		name, mediaType, mimeType, wantMime string
+	}{
+		{"PTT Ogg", "ptt", "audio/ogg", "audio/ogg; codecs=opus"},
+		{"PTT with codec", "ptt", "audio/ogg; codecs=opus", "audio/ogg; codecs=opus"},
+		{"ordinary Ogg", "audio", "audio/ogg", "audio/ogg"},
+		{"other PTT MIME", "ptt", "audio/mpeg", "audio/mpeg"},
+		{"AAC", "audio", "audio/aac", "audio/aac"},
+		{"AMR", "audio", "audio/amr", "audio/amr"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{MediaType: tt.mediaType}, ForwardBuildOptions{
+				Upload: &whatsmeow.UploadResponse{DirectPath: "/reuploaded.enc"}, MimeType: tt.mimeType,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := msg.GetAudioMessage().GetMimetype(); got != tt.wantMime {
+				t.Errorf("re-upload MIME = %q, want %q", got, tt.wantMime)
+			}
+			if got := msg.GetAudioMessage().GetPTT(); got != (tt.mediaType == "ptt") {
+				t.Errorf("PTT = %v, want %v", got, tt.mediaType == "ptt")
+			}
+		})
+	}
+}
+
 func TestBuildForwardMessageFromStorageUnsupportedType(t *testing.T) {
 	_, err := BuildForwardMessageFromStorage(&domainChatStorage.Message{
 		MediaType: "call",
@@ -1041,4 +1257,33 @@ func TestExtractContextInfoInteractiveMessage(t *testing.T) {
 			t.Fatalf("expected nil ContextInfo, got %+v", ci)
 		}
 	})
+}
+
+// TestExtractContextInfoOtherMessageTypes pins the remaining message types that
+// carry their own ContextInfo, so replies, mentions, forwarding and ad
+// attribution are not lost when a customer answers a button, list or template,
+// or sends a poll, contact list, group invite or event.
+func TestExtractContextInfoOtherMessageTypes(t *testing.T) {
+	ci := &waE2E.ContextInfo{StanzaID: proto.String("ABC123")}
+	tests := map[string]*waE2E.Message{
+		"buttons response":      {ButtonsResponseMessage: &waE2E.ButtonsResponseMessage{ContextInfo: ci}},
+		"list response":         {ListResponseMessage: &waE2E.ListResponseMessage{ContextInfo: ci}},
+		"template button reply": {TemplateButtonReplyMessage: &waE2E.TemplateButtonReplyMessage{ContextInfo: ci}},
+		"interactive response":  {InteractiveResponseMessage: &waE2E.InteractiveResponseMessage{ContextInfo: ci}},
+		"contacts array":        {ContactsArrayMessage: &waE2E.ContactsArrayMessage{ContextInfo: ci}},
+		"buttons":               {ButtonsMessage: &waE2E.ButtonsMessage{ContextInfo: ci}},
+		"list":                  {ListMessage: &waE2E.ListMessage{ContextInfo: ci}},
+		"template":              {TemplateMessage: &waE2E.TemplateMessage{ContextInfo: ci}},
+		"product":               {ProductMessage: &waE2E.ProductMessage{ContextInfo: ci}},
+		"order":                 {OrderMessage: &waE2E.OrderMessage{ContextInfo: ci}},
+		"group invite":          {GroupInviteMessage: &waE2E.GroupInviteMessage{ContextInfo: ci}},
+		"event":                 {EventMessage: &waE2E.EventMessage{ContextInfo: ci}},
+		"poll v3":               {PollCreationMessageV3: &waE2E.PollCreationMessage{ContextInfo: ci}},
+		"poll v4":               {PollCreationMessageV4: &waE2E.FutureProofMessage{Message: &waE2E.Message{PollCreationMessage: &waE2E.PollCreationMessage{ContextInfo: ci}}}},
+	}
+	for name, msg := range tests {
+		if got := ExtractContextInfo(msg).GetStanzaID(); got != "ABC123" {
+			t.Errorf("%s: StanzaID = %q, want %q", name, got, "ABC123")
+		}
+	}
 }

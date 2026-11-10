@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v9.8.0"
+	AppVersion             = "v9.9.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -185,4 +185,10 @@ var (
 	// message when the opposite side reports deletion.
 	ChatwootMessageRead   = false
 	ChatwootMessageDelete = false
+
+	// ChatwootRevokeOnDelete is the Chatwoot-to-WhatsApp half of
+	// ChatwootMessageDelete alone: a message the agent deletes in Chatwoot is
+	// revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in
+	// Chatwoot.
+	ChatwootRevokeOnDelete = false
 )

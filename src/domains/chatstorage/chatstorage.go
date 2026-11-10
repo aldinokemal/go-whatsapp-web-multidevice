@@ -39,6 +39,16 @@ type Message struct {
 	UpdatedAt        time.Time  `db:"updated_at"`
 }
 
+// MessageMedia is the location and integrity metadata of a stored message's
+// media file. It changes when the phone re-uploads expired media.
+type MessageMedia struct {
+	URL           string
+	DirectPath    string
+	FileSHA256    []byte
+	FileEncSHA256 []byte
+	FileLength    uint64
+}
+
 // MessageEdit represents a single edit applied to an existing WhatsApp message.
 type MessageEdit struct {
 	OriginalMessageID string    `db:"original_message_id"`

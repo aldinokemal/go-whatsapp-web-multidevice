@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -489,23 +491,30 @@ func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
 }
 
 // defaultForwardMimeType returns a mime type for stored media whose original
-// mime type was not persisted. WhatsApp transcodes media to fixed formats, so
-// per-type defaults are accurate except for documents, which are derived from
-// the stored filename.
+// mime type was not persisted.
 func defaultForwardMimeType(message *domainChatStorage.Message) string {
 	switch message.MediaType {
+	case "audio":
+		return "audio/mpeg"
+	case "ptt":
+		return "audio/ogg; codecs=opus"
+	}
+	return defaultStoredMediaMimeType(message.MediaType, message.Filename)
+}
+
+// defaultStoredMediaMimeType returns a mime type for stored media whose
+// original mime type was not persisted. Audio filenames are generated as .ogg
+// regardless of their original format, so audio must be detected after download.
+func defaultStoredMediaMimeType(mediaType, filename string) string {
+	switch mediaType {
 	case "image":
 		return "image/jpeg"
 	case "video", "video_note":
 		return "video/mp4"
-	case "ptt":
-		return "audio/ogg; codecs=opus"
-	case "audio":
-		return "audio/mpeg"
 	case "sticker":
 		return "image/webp"
 	case "document":
-		ext := strings.ToLower(filepath.Ext(message.Filename))
+		ext := strings.ToLower(filepath.Ext(filename))
 		if mimeType, ok := knownDocumentMIMEByExtension[ext]; ok {
 			return mimeType
 		}
@@ -572,6 +581,9 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 	mimeType := opts.MimeType
 	if mimeType == "" {
 		mimeType = defaultForwardMimeType(message)
+	}
+	if message.MediaType == "ptt" && mimeType == "audio/ogg" {
+		mimeType = "audio/ogg; codecs=opus"
 	}
 
 	switch message.MediaType {
@@ -676,6 +688,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 // from stored chat media metadata.
 func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) (whatsmeow.DownloadableMessage, error) {
 	resolvedDirectPath := ResolveMediaDirectPath(directPath, mediaURL)
+	// Audio MIME is left unknown until ExtractMedia has the decrypted bytes.
+	mimeType := proto.String(defaultStoredMediaMimeType(mediaType, filename))
 
 	switch mediaType {
 	case "image":
@@ -686,6 +700,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "video", "video_note":
 		return &waE2E.VideoMessage{
@@ -695,6 +710,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "audio", "ptt":
 		return &waE2E.AudioMessage{
@@ -704,6 +720,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "document":
 		return &waE2E.DocumentMessage{
@@ -713,6 +730,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 			FileName:      proto.String(filename),
 		}, nil
 	case "sticker":
@@ -723,10 +741,26 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
 	}
+}
+
+// BuildStoredDownloadableMessage builds the whatsmeow media message for a
+// stored row, downloading from directPath.
+func BuildStoredDownloadableMessage(message *domainChatStorage.Message, directPath string) (whatsmeow.DownloadableMessage, error) {
+	return BuildDownloadableMessage(
+		message.MediaType,
+		message.URL,
+		directPath,
+		message.Filename,
+		message.MediaKey,
+		message.FileSHA256,
+		message.FileEncSHA256,
+		message.FileLength,
+	)
 }
 
 // ExtractContextInfo returns the ContextInfo from whichever message sub-type
@@ -758,6 +792,33 @@ func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetLiveLocationMessage().GetContextInfo()
 	case msg.GetInteractiveMessage() != nil:
 		return msg.GetInteractiveMessage().GetContextInfo()
+	case msg.GetButtonsResponseMessage() != nil:
+		return msg.GetButtonsResponseMessage().GetContextInfo()
+	case msg.GetListResponseMessage() != nil:
+		return msg.GetListResponseMessage().GetContextInfo()
+	case msg.GetTemplateButtonReplyMessage() != nil:
+		return msg.GetTemplateButtonReplyMessage().GetContextInfo()
+	case msg.GetInteractiveResponseMessage() != nil:
+		return msg.GetInteractiveResponseMessage().GetContextInfo()
+	case msg.GetContactsArrayMessage() != nil:
+		return msg.GetContactsArrayMessage().GetContextInfo()
+	case msg.GetButtonsMessage() != nil:
+		return msg.GetButtonsMessage().GetContextInfo()
+	case msg.GetListMessage() != nil:
+		return msg.GetListMessage().GetContextInfo()
+	case msg.GetTemplateMessage() != nil:
+		return msg.GetTemplateMessage().GetContextInfo()
+	case msg.GetProductMessage() != nil:
+		return msg.GetProductMessage().GetContextInfo()
+	case msg.GetOrderMessage() != nil:
+		return msg.GetOrderMessage().GetContextInfo()
+	case msg.GetGroupInviteMessage() != nil:
+		return msg.GetGroupInviteMessage().GetContextInfo()
+	case msg.GetEventMessage() != nil:
+		return msg.GetEventMessage().GetContextInfo()
+	}
+	if poll, _ := ExtractPollCreationMessage(msg); poll != nil {
+		return poll.GetContextInfo()
 	}
 	return nil
 }
@@ -1008,7 +1069,10 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	if err != nil {
 		return extractedMedia, err
 	}
+	return storeExtractedMedia(storageLocation, mediaFile, data)
+}
 
+func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
 	// Validate file size before writing to disk
 	maxFileSize := config.WhatsappSettingMaxDownloadSize
 	if int64(len(data)) > maxFileSize {
@@ -1026,6 +1090,27 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		mediaKind = "audio"
+		if extractedMedia.MimeType == "" {
+			detected := http.DetectContentType(data)
+			switch {
+			case bytes.HasPrefix(data, []byte("#!AMR\n")):
+				extractedMedia.MimeType = "audio/amr"
+			case bytes.HasPrefix(data, []byte("#!AMR-WB\n")):
+				extractedMedia.MimeType = "audio/amr-wb"
+			case isADTSAudio(data):
+				extractedMedia.MimeType = "audio/aac"
+			case isMP3Audio(data):
+				extractedMedia.MimeType = "audio/mpeg"
+			case detected == "application/ogg":
+				extractedMedia.MimeType = "audio/ogg"
+			case detected == "video/mp4":
+				extractedMedia.MimeType = "audio/mp4"
+			case strings.HasPrefix(detected, "audio/"):
+				extractedMedia.MimeType = detected
+			default:
+				extractedMedia.MimeType = "application/octet-stream"
+			}
+		}
 	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
@@ -1068,6 +1153,61 @@ func StoredMediaDisplayName(path string) string {
 		return name[loc[1]:]
 	}
 	return ""
+}
+
+// isADTSAudio checks the ADTS syncword, sampling index, and first-frame bounds.
+func isADTSAudio(data []byte) bool {
+	if len(data) < 7 || data[0] != 0xff || data[1]&0xf6 != 0xf0 || (data[2]>>2)&0x0f > 12 {
+		return false
+	}
+	headerSize := 7
+	if data[1]&1 == 0 {
+		headerSize = 9
+	}
+	frameSize := int(data[3]&3)<<11 | int(data[4])<<3 | int(data[5])>>5
+	return frameSize >= headerSize && frameSize <= len(data)
+}
+
+func isMP3Audio(data []byte) bool {
+	frameSize := mp3FrameSize(data)
+	if frameSize == 0 {
+		return false
+	}
+	next := data[frameSize:]
+	if len(next) == 0 || (len(next) == 128 && bytes.HasPrefix(next, []byte("TAG"))) {
+		return true
+	}
+	// MPEG version and sample rate stay constant, but bitrate may change for VBR.
+	return mp3FrameSize(next) != 0 && data[1]&0x1e == next[1]&0x1e && data[2]&0x0c == next[2]&0x0c
+}
+
+// mp3FrameSize returns zero for incomplete frames or unsupported MPEG Layer III headers.
+func mp3FrameSize(data []byte) int {
+	if len(data) < 4 || data[0] != 0xff || data[1]&0xe0 != 0xe0 || data[1]&0x06 != 0x02 {
+		return 0
+	}
+	version := (data[1] >> 3) & 3
+	bitrateIndex := data[2] >> 4
+	sampleRateIndex := (data[2] >> 2) & 3
+	if version == 1 || bitrateIndex == 0 || bitrateIndex == 15 || sampleRateIndex == 3 || data[3]&3 == 2 {
+		return 0
+	}
+	bitrates := [...]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+	sampleRate := [...]int{44100, 48000, 32000}[sampleRateIndex]
+	scale := 144000
+	if version != 3 {
+		bitrates = [...]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160}
+		sampleRate /= 2
+		scale = 72000
+		if version == 0 {
+			sampleRate /= 2
+		}
+	}
+	frameSize := scale*bitrates[bitrateIndex]/sampleRate + int((data[2]>>1)&1)
+	if frameSize > len(data) {
+		return 0
+	}
+	return frameSize
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix
