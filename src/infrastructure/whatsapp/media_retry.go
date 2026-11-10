@@ -32,6 +32,12 @@ type mediaRetryKey struct {
 	messageID types.MessageID
 }
 
+// mediaRetryDeviceID is the exact companion session (full AD JID). Slots linked
+// to the same number share a storage partition, but each gets its own answer.
+func mediaRetryDeviceID(client *whatsmeow.Client) string {
+	return client.Store.ID.String()
+}
+
 // mediaRetryIdentity is the message a download asked the phone about. A
 // notification is only accepted when it names the same message: message IDs
 // are not unique across chats, and in groups every participant holds the
@@ -142,7 +148,7 @@ func handleMediaRetry(ctx context.Context, client *whatsmeow.Client, evt *events
 	if evt == nil || client == nil || client.Store == nil || client.Store.ID == nil {
 		return
 	}
-	key := mediaRetryKey{deviceID: client.Store.ID.ToNonAD().String(), messageID: evt.MessageID}
+	key := mediaRetryKey{deviceID: mediaRetryDeviceID(client), messageID: evt.MessageID}
 	// Stored chats and senders use phone-number JIDs; normalize LIDs the same way.
 	identity := mediaRetryIdentity{
 		chat:   evt.ChatID.ToNonAD(),
@@ -162,7 +168,7 @@ func RequestMediaReupload(ctx context.Context, client *whatsmeow.Client, info ty
 		return "", whatsmeow.ErrNotLoggedIn
 	}
 	identity := identityFromMessageInfo(info).normalized(ctx, client)
-	return requestMediaReupload(ctx, client, client.Store.ID.ToNonAD().String(), info, identity, mediaKey, timeout)
+	return requestMediaReupload(ctx, client, mediaRetryDeviceID(client), info, identity, mediaKey, timeout)
 }
 
 func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID string, info types.MessageInfo, identity mediaRetryIdentity, mediaKey []byte, timeout time.Duration) (string, error) {

@@ -239,8 +239,34 @@ func TestRequestMediaReuploadMatchesSenderStoredBeforeItsLIDWasMapped(t *testing
 	})}
 	identity := identityFromMessageInfo(info).normalized(context.Background(), client)
 
-	directPath, err := requestMediaReupload(context.Background(), phone, account.String(), info, identity, mediaKey, 50*time.Millisecond)
+	directPath, err := requestMediaReupload(context.Background(), phone, mediaRetryDeviceID(client), info, identity, mediaKey, 50*time.Millisecond)
 
+	require.NoError(t, err)
+	require.Equal(t, "/v/t62.7118-24/fresh.enc", directPath)
+}
+
+func TestRequestMediaReuploadIgnoresAnswerOnSiblingCompanionSlot(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	t.Cleanup(func() { log = originalLog })
+
+	// Two companion sessions linked to the same number.
+	slotA := types.NewADJID("5511999999999", 0, 11)
+	slotB := types.NewADJID("5511999999999", 0, 12)
+	clientA := &whatsmeow.Client{Store: &store.Device{ID: &slotA}}
+	clientB := &whatsmeow.Client{Store: &store.Device{ID: &slotB}}
+	info := testMediaRetryInfo("MSG-SLOT")
+	identity := identityFromMessageInfo(info)
+	mediaKey := []byte("0123456789abcdef0123456789abcdef")
+	answer := encryptedMediaRetry(t, info.ID, mediaKey, &waMmsRetry.MediaRetryNotification{
+		DirectPath: proto.String("/v/t62.7118-24/fresh.enc"),
+		Result:     waMmsRetry.MediaRetryNotification_SUCCESS.Enum(),
+	})
+
+	_, err := requestMediaReupload(context.Background(), phoneThroughEventHandler{client: clientB, answer: answer}, mediaRetryDeviceID(clientA), info, identity, mediaKey, 30*time.Millisecond)
+	require.ErrorIs(t, err, ErrMediaRetryTimeout, "slot B's answer must not complete slot A's request")
+
+	directPath, err := requestMediaReupload(context.Background(), phoneThroughEventHandler{client: clientA, answer: answer}, mediaRetryDeviceID(clientA), info, identity, mediaKey, time.Second)
 	require.NoError(t, err)
 	require.Equal(t, "/v/t62.7118-24/fresh.enc", directPath)
 }
