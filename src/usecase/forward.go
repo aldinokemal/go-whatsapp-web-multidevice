@@ -122,7 +122,19 @@ func (service serviceSend) reuploadForwardMessage(ctx context.Context, client *w
 		return nil, err
 	}
 
-	extracted, err := utils.ExtractMedia(ctx, client, config.PathSendItems, downloadable)
+	// Download the media; media expired on the server is re-requested from the phone.
+	extractMedia := service.extractMediaFn
+	if extractMedia == nil {
+		extractMedia = utils.ExtractMedia
+	}
+	extracted, err := extractMedia(ctx, client, config.PathSendItems, downloadable)
+	if utils.IsExpiredMediaError(err) {
+		extracted, err = whatsapp.ExpiredMediaRecovery{
+			Repo:            service.chatStorageRepo,
+			RequestReupload: service.requestMediaReuploadFn,
+			FetchReuploaded: service.fetchReuploadedMediaFn,
+		}.Recover(ctx, client, message, config.PathSendItems, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to download media for re-upload: %w", err)
 	}

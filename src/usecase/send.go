@@ -226,6 +226,12 @@ func getVideoMetadata(videoPath string) videoMetadata {
 type serviceSend struct {
 	appService      app.IAppUsecase
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+
+	// Forward re-upload seams; nil uses the real whatsmeow/CDN implementations.
+	extractMediaFn         extractMediaFunc
+	requestMediaReuploadFn requestMediaReuploadFunc
+	fetchReuploadedMediaFn fetchReuploadedMediaFunc
+	uploadMediaFn          func(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (whatsmeow.UploadResponse, error)
 }
 
 func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorage.IChatStorageRepository) domainSend.ISendUsecase {
@@ -2130,6 +2136,9 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 }
 
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+	if service.uploadMediaFn != nil {
+		return service.uploadMediaFn(ctx, client, mediaType, media, recipient)
+	}
 	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
 }
 
