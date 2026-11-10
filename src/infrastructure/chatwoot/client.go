@@ -19,6 +19,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -997,8 +998,16 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 var contentDispositionEscaper = strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\r", "", "\n", "")
 
 // escapeContentDispositionFilename makes fileName safe to embed inside a
-// quoted Content-Disposition filename parameter.
+// quoted Content-Disposition filename parameter. Control characters are
+// dropped first: a NUL or DEL in the header makes the receiving multipart
+// parser reject the whole request.
 func escapeContentDispositionFilename(fileName string) string {
+	fileName = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, fileName)
 	return contentDispositionEscaper.Replace(fileName)
 }
 

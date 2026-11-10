@@ -743,7 +743,8 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 			continue
 		}
 		attachments = append(attachments, path)
-		logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+		// The path embeds the sender's filename or caption; keep it out of logs.
+		logrus.Infof("Chatwoot: Found %s attachment", field)
 	}
 
 	// interactive_media carries zero or more paths collected from an
@@ -758,14 +759,14 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		for _, path := range paths {
 			if path != "" {
 				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+				logrus.Info("Chatwoot: Found interactive media attachment")
 			}
 		}
 	case []any:
 		for _, v := range paths {
 			if path, ok := v.(string); ok && path != "" {
 				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+				logrus.Info("Chatwoot: Found interactive media attachment")
 			}
 		}
 	}

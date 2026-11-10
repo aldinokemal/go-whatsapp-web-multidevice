@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -959,9 +960,22 @@ type ExtractedMedia struct {
 }
 
 // reUnsafeFilenameChars matches anything outside a conservative filename
-// allowlist. Applied to sender-controlled names (e.g. a document's original
-// filename) before they touch the filesystem.
-var reUnsafeFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+// allowlist: letters, combining marks and digits of any script, plus "._-".
+// Applied to sender-controlled names (e.g. a document's original filename)
+// before they touch the filesystem. Separators, control and format characters
+// (bidi overrides included) are not in the allowlist.
+var reUnsafeFilenameChars = regexp.MustCompile(`[^\p{L}\p{M}\p{N}._-]+`)
+
+// truncateUTF8 cuts s to at most n bytes without splitting a UTF-8 sequence.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
 
 // reStorageExtension is the shape of an extension safe to put on disk as is:
 // a short alphanumeric suffix.
@@ -1017,7 +1031,7 @@ func sanitizeFilenameComponent(name string) string {
 		if len(ext) >= maxLen {
 			ext = ""
 		}
-		name = name[:maxLen-len(ext)] + ext
+		name = truncateUTF8(name, maxLen-len(ext)) + ext
 	}
 	return name
 }
@@ -1052,9 +1066,7 @@ func mediaStorageName(displayName, extension string) string {
 		return name
 	}
 	const maxLen = 100
-	if len(name)+len(extension) > maxLen {
-		name = name[:maxLen-len(extension)]
-	}
+	name = truncateUTF8(name, maxLen-len(extension))
 	return name + extension
 }
 

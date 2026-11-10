@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow"
@@ -114,6 +115,16 @@ func TestSanitizeFilenameComponent(t *testing.T) {
 			input: "...hidden.pdf",
 			want:  "hidden.pdf",
 		},
+		{
+			name:  "NonASCIILettersKept",
+			input: "合同 relatório.pdf",
+			want:  "合同_relatório.pdf",
+		},
+		{
+			name:  "BidiOverrideReplaced",
+			input: "invoice\u202Efdp.exe",
+			want:  "invoice_fdp.exe",
+		},
 	}
 
 	for _, tt := range tests {
@@ -136,6 +147,18 @@ func TestSanitizeFilenameComponentCapsLength(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, ".pdf") {
 		t.Fatalf("sanitizeFilenameComponent() = %q, want suffix .pdf", got)
+	}
+}
+
+func TestSanitizeFilenameComponentTruncatesOnRuneBoundary(t *testing.T) {
+	// The leading "a" puts both byte cuts in the middle of a two-byte "é".
+	got := sanitizeFilenameComponent("a" + strings.Repeat("é", 300) + ".pdf")
+	if len(got) > 100 || !utf8.ValidString(got) || !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("got %q (len %d), want valid UTF-8 within 100 bytes ending in .pdf", got, len(got))
+	}
+	got = mediaStorageName("a"+strings.Repeat("é", 49)+".x", ".pdf")
+	if len(got) > 100 || !utf8.ValidString(got) || !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("mediaStorageName = %q (len %d), want valid UTF-8 within 100 bytes ending in .pdf", got, len(got))
 	}
 }
 

@@ -1225,19 +1225,26 @@ func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
 	defer server.Close()
 
 	c := newTestClient(t, server.URL)
-	malicious := `evil".pdf"; filename="injected`
-	att := []MessageAttachment{{Path: tmp, FileName: malicious}}
-	if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
-		t.Fatalf("CreateMessage: %v", err)
+	// A quote must round-trip through escaping; control bytes (NUL and DEL
+	// make multipart.Reader reject the header) must be dropped; non-ASCII
+	// names must pass through.
+	tests := map[string]string{
+		`evil".pdf"; filename="injected`: `evil".pdf"; filename="injected`,
+		"bad\x00\x7f\r\n\t.pdf":          "bad.pdf",
+		"合同.pdf":                         "合同.pdf",
 	}
-	// The request must still parse as exactly one well-formed multipart part
-	// (proving the quote didn't break the header), and the parsed filename
-	// must decode back to the original string, quote included.
-	if partCount == 0 {
-		t.Fatal("no multipart parts parsed - malformed Content-Disposition header")
-	}
-	if gotFileName != malicious {
-		t.Errorf("filename = %q, want %q (round-tripped through escaping)", gotFileName, malicious)
+	for name, want := range tests {
+		partCount, gotFileName = 0, ""
+		att := []MessageAttachment{{Path: tmp, FileName: name}}
+		if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
+			t.Fatalf("CreateMessage(%q): %v", name, err)
+		}
+		if partCount == 0 {
+			t.Fatalf("%q: no multipart parts parsed - malformed Content-Disposition header", name)
+		}
+		if gotFileName != want {
+			t.Errorf("filename = %q, want %q", gotFileName, want)
+		}
 	}
 }
 
