@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -23,25 +22,6 @@ func (service serviceMessage) extractMedia(ctx context.Context, client *whatsmeo
 		return service.extractMediaFn(ctx, client, storageLocation, mediaFile)
 	}
 	return utils.ExtractMedia(ctx, client, storageLocation, mediaFile)
-}
-
-// buildStoredDownloadableMessage builds the whatsmeow media message for a
-// stored row, downloading from directPath.
-func buildStoredDownloadableMessage(message *domainChatStorage.Message, directPath string) (whatsmeow.DownloadableMessage, error) {
-	downloadableMsg, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported media type: %s", message.MediaType)
-	}
-	return downloadableMsg, nil
 }
 
 // recoverExpiredMedia re-requests media that expired on WhatsApp's servers

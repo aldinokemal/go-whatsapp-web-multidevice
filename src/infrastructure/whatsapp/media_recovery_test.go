@@ -68,6 +68,21 @@ func TestMediaRetryMessageInfoInvalidChatFails(t *testing.T) {
 	require.ErrorContains(t, err, "invalid chat JID")
 }
 
+func TestRecoverKeepsOriginalErrorForMessageThePhoneCannotBeAskedAbout(t *testing.T) {
+	recovery := ExpiredMediaRecovery{
+		RequestReupload: func(context.Context, *whatsmeow.Client, types.MessageInfo, []byte, time.Duration) (string, error) {
+			t.Error("a message without a valid identity must not reach the phone")
+			return "", nil
+		},
+	}
+	groupMessageWithoutSender := &domainChatStorage.Message{ID: "no-sender", ChatJID: "120363000000000001@g.us", MediaType: "image"}
+
+	_, err := recovery.Recover(context.Background(), nil, groupMessageWithoutSender, t.TempDir(), whatsmeow.ErrMediaDownloadFailedWith404)
+
+	require.ErrorContains(t, err, "no valid sender")
+	require.ErrorIs(t, err, whatsmeow.ErrMediaDownloadFailedWith404)
+}
+
 // bulkRecoveryPhone plays the phone for a run over several expired messages.
 type bulkRecoveryPhone struct {
 	requestErr error

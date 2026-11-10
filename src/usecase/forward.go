@@ -108,16 +108,7 @@ func forwardStoredContent(message *domainChatStorage.Message) string {
 
 func (service serviceSend) reuploadForwardMessage(ctx context.Context, client *whatsmeow.Client, message *domainChatStorage.Message, recipient types.JID, opts utils.ForwardBuildOptions) (*waE2E.Message, error) {
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
-	downloadable, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadable, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
 		return nil, err
 	}

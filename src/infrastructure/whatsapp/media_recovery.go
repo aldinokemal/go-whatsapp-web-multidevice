@@ -58,16 +58,7 @@ func (r ExpiredMediaRecovery) Recover(ctx context.Context, client *whatsmeow.Cli
 		return utils.ExtractedMedia{}, fmt.Errorf("re-upload request failed: %w; original download error: %w", err, downloadErr)
 	}
 
-	downloadableMsg, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadableMsg, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
 		return utils.ExtractedMedia{}, fmt.Errorf("%w; original download error: %w", err, downloadErr)
 	}

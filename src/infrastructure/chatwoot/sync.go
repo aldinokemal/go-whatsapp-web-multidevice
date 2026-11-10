@@ -685,16 +685,7 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 		return "", fmt.Errorf("WhatsApp client not available")
 	}
 
-	downloadable, err := utils.BuildDownloadableMessage(
-		msg.MediaType,
-		msg.URL,
-		directPath,
-		msg.Filename,
-		msg.MediaKey,
-		msg.FileSHA256,
-		msg.FileEncSHA256,
-		msg.FileLength,
-	)
+	downloadable, err := utils.BuildStoredDownloadableMessage(msg, directPath)
 	if err != nil {
 		return "", fmt.Errorf("unsupported media type: %s", msg.MediaType)
 	}
