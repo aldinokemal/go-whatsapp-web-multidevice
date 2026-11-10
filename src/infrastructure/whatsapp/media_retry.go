@@ -101,7 +101,7 @@ func handleMediaRetry(client *whatsmeow.Client, evt *events.MediaRetry) {
 	}
 	key := mediaRetryKey{deviceID: client.Store.ID.ToNonAD().String(), messageID: evt.MessageID}
 	if !mediaRetryWaiters.deliver(key, evt) {
-		log.Debugf("Media retry notification for message %s arrived with no pending download", evt.MessageID)
+		log.Debugf("Media retry notification for message %s on device %s arrived with no pending download", evt.MessageID, key.deviceID)
 	}
 }
 
@@ -120,24 +120,26 @@ func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID
 		return "", fmt.Errorf("message %s has no media key to request a re-upload", info.ID)
 	}
 
+	// One deadline covers both sending the request and waiting for the answer.
+	retryCtx, cancel := context.WithTimeoutCause(ctx, timeout, ErrMediaRetryTimeout)
+	defer cancel()
+
 	// Register before sending so a fast answer is not lost.
 	responses, unregister := mediaRetryWaiters.register(mediaRetryKey{deviceID: deviceID, messageID: info.ID})
 	defer unregister()
 
-	if err := sender.SendMediaRetryReceipt(ctx, &info, mediaKey); err != nil {
+	if err := sender.SendMediaRetryReceipt(retryCtx, &info, mediaKey); err != nil {
+		if retryCtx.Err() != nil {
+			return "", context.Cause(retryCtx)
+		}
 		return "", fmt.Errorf("failed to request media re-upload: %w", err)
 	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 
 	var evt *events.MediaRetry
 	select {
 	case evt = <-responses:
-	case <-timer.C:
-		return "", ErrMediaRetryTimeout
-	case <-ctx.Done():
-		return "", ctx.Err()
+	case <-retryCtx.Done():
+		return "", context.Cause(retryCtx)
 	}
 
 	notification, err := whatsmeow.DecryptMediaRetryNotification(evt, mediaKey)

@@ -36,6 +36,11 @@ type serviceMessage struct {
 	markReadFn      markReadFunc
 	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
 	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
+
+	// Media download seams; nil uses the real whatsmeow/CDN implementations.
+	extractMediaFn         extractMediaFunc
+	requestMediaReuploadFn requestMediaReuploadFunc
+	fetchReuploadedMediaFn fetchReuploadedMediaFunc
 }
 
 func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
@@ -704,27 +709,18 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("failed to create directory: %v", err)
 	}
 
-	downloadableMsg, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadableMsg, err := buildStoredDownloadableMessage(message, directPath)
 	if err != nil {
-		return response, fmt.Errorf("unsupported media type: %s", message.MediaType)
+		return response, err
 	}
 
-	// Download the media using existing utils.ExtractMedia function
-	extractedMedia, err := utils.ExtractMedia(ctx, client, dateDir, downloadableMsg)
+	// Download the media; media expired on the server is re-requested from the phone.
+	extractedMedia, err := service.extractMedia(ctx, client, dateDir, downloadableMsg)
 	if err != nil && whatsapp.IsExpiredMediaError(err) {
-		extractedMedia, err = service.downloadReuploadedMedia(ctx, client, message, dateDir, err)
+		extractedMedia, err = service.recoverExpiredMedia(ctx, client, message, dateDir, err)
 	}
 	if err != nil {
-		return response, fmt.Errorf("failed to download media: %v", err)
+		return response, fmt.Errorf("failed to download media: %w", err)
 	}
 
 	// Get file size

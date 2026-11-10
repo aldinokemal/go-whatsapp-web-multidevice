@@ -95,6 +95,13 @@ func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Mes
 	return r.base.StoreMessagesBatch(messages)
 }
 
+func (r *deviceChatStorage) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.UpdateMessageMedia(deviceID, chatJID, messageID, media)
+}
+
 // GetMessageByID is scoped to this device, like every other read on the
 // wrapper: the base lookup by ID alone can return another device's row.
 func (r *deviceChatStorage) GetMessageByID(id string) (*domainChatStorage.Message, error) {

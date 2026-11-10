@@ -24,13 +24,18 @@ const testMediaRetryDevice = "5511999999999@s.whatsapp.net"
 // fakeMediaRetrySender answers a re-upload request the way the phone would,
 // by delivering a notification through the event handler path.
 type fakeMediaRetrySender struct {
+	block   bool
 	sendErr error
 	answer  func(info *types.MessageInfo) *events.MediaRetry
 	sent    []types.MessageInfo
 }
 
-func (f *fakeMediaRetrySender) SendMediaRetryReceipt(_ context.Context, info *types.MessageInfo, _ []byte) error {
+func (f *fakeMediaRetrySender) SendMediaRetryReceipt(ctx context.Context, info *types.MessageInfo, _ []byte) error {
 	f.sent = append(f.sent, *info)
+	if f.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if f.sendErr != nil {
 		return f.sendErr
 	}
@@ -165,4 +170,26 @@ func TestIsExpiredMediaError(t *testing.T) {
 	}
 	require.False(t, IsExpiredMediaError(whatsmeow.ErrInvalidMediaSHA256))
 	require.False(t, IsExpiredMediaError(errors.New("other")))
+}
+
+func TestRequestMediaReuploadTimeoutCoversBlockedSend(t *testing.T) {
+	sender := &fakeMediaRetrySender{block: true}
+
+	start := time.Now()
+	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-BLOCKED"), []byte("key"), 30*time.Millisecond)
+
+	require.ErrorIs(t, err, ErrMediaRetryTimeout)
+	require.Less(t, time.Since(start), time.Second, "a blocked send must not outlive the retry timeout")
+	require.Empty(t, mediaRetryWaiters.waiters)
+}
+
+func TestRequestMediaReuploadReturnsCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sender := &fakeMediaRetrySender{block: true}
+
+	_, err := requestMediaReupload(ctx, sender, testMediaRetryDevice, testMediaRetryInfo("MSG-CANCELLED"), []byte("key"), time.Second)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, ErrMediaRetryTimeout)
 }

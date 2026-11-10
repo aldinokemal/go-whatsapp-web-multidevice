@@ -430,6 +430,27 @@ func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatSt
 	return insertErr
 }
 
+// UpdateMessageMedia replaces only the media location and integrity fields of
+// one device's stored message. It never rewrites content or other fields, so a
+// concurrent edit stored while the media was being recovered is preserved.
+func (r *SQLiteRepository) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" || chatJID == "" || messageID == "" {
+		return errors.New("device ID, chat JID and message ID are required")
+	}
+	result, err := r.db.Exec(`
+		UPDATE messages SET url = ?, direct_path = ?, file_sha256 = ?, file_enc_sha256 = ?, file_length = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`, media.URL, media.DirectPath, media.FileSHA256, media.FileEncSHA256, media.FileLength, time.Now(),
+		messageID, chatJID, deviceID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("message %s not found in chat %s for device %s", messageID, chatJID, deviceID)
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	if len(messages) == 0 {
 		return nil

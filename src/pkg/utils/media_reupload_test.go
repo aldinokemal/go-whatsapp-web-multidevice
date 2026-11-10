@@ -1,15 +1,23 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"fmt"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/util/cbcutil"
 	"go.mau.fi/whatsmeow/util/hkdfutil"
+	"google.golang.org/protobuf/proto"
 )
 
 // encryptTestMedia encrypts a file the way WhatsApp clients do: AES-CBC with
@@ -70,9 +78,98 @@ func TestDecryptAuthenticatedMediaRejectsShortFile(t *testing.T) {
 	require.ErrorIs(t, err, whatsmeow.ErrTooShortFile)
 }
 
-func TestIsMediaHashMismatch(t *testing.T) {
-	require.True(t, IsMediaHashMismatch(whatsmeow.ErrInvalidMediaEncSHA256))
-	require.True(t, IsMediaHashMismatch(fmt.Errorf("last host: %w", whatsmeow.ErrInvalidMediaSHA256)))
-	require.False(t, IsMediaHashMismatch(whatsmeow.ErrInvalidMediaHMAC))
-	require.False(t, IsMediaHashMismatch(whatsmeow.ErrMediaDownloadFailedWith403))
+// fakeMediaDownloader plays whatsmeow's media hosts.
+type fakeMediaDownloader struct {
+	hosts     []string
+	responses map[string]func() (*http.Response, error)
+	requested []string
+}
+
+func (f *fakeMediaDownloader) RefreshMediaConn(context.Context, bool) (*whatsmeow.MediaConn, error) {
+	conn := &whatsmeow.MediaConn{}
+	for _, host := range f.hosts {
+		conn.Hosts = append(conn.Hosts, whatsmeow.MediaConnHost{Hostname: host})
+	}
+	return conn, nil
+}
+
+func (f *fakeMediaDownloader) DoMediaDownloadRequest(_ context.Context, mediaURL string) (*http.Response, error) {
+	f.requested = append(f.requested, mediaURL)
+	parsed, err := url.Parse(mediaURL)
+	if err != nil {
+		return nil, err
+	}
+	if respond, ok := f.responses[parsed.Host]; ok {
+		return respond()
+	}
+	return nil, errors.New("connection refused")
+}
+
+func okResponse(body []byte) func() (*http.Response, error) {
+	return func() (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	}
+}
+
+func TestDownloadReuploadedMediaReturnsHashesOfChangedCopy(t *testing.T) {
+	mediaKey := []byte("0123456789abcdef0123456789abcdef")
+	plaintext := []byte("\xff\xd8\xff\xe0 the copy the phone kept")
+	encrypted := encryptTestMedia(t, plaintext, mediaKey, whatsmeow.MediaImage)
+	wantEnc := sha256.Sum256(encrypted)
+	stale := sha256.Sum256([]byte("original file"))
+
+	downloader := &fakeMediaDownloader{
+		hosts:     []string{"down.example", "mmg.example"},
+		responses: map[string]func() (*http.Response, error){"mmg.example": okResponse(append([]byte(nil), encrypted...))},
+	}
+	image := &waE2E.ImageMessage{
+		Mimetype:      proto.String("image/jpeg"),
+		MediaKey:      mediaKey,
+		FileSHA256:    stale[:],
+		FileEncSHA256: stale[:],
+	}
+
+	media, err := downloadReuploadedMedia(context.Background(), downloader, "/v/t62.7118-24/fresh.enc?oh=x", image, t.TempDir())
+
+	require.NoError(t, err)
+	wantPlain := sha256.Sum256(plaintext)
+	require.Equal(t, wantPlain[:], media.FileSHA256)
+	require.Equal(t, wantEnc[:], media.FileEncSHA256)
+	require.Equal(t, uint64(len(plaintext)), media.FileLength)
+	stored, err := os.ReadFile(media.MediaPath)
+	require.NoError(t, err)
+	require.Equal(t, plaintext, stored)
+
+	require.Len(t, downloader.requested, 2, "a network error on one host moves on to the next")
+	last, err := url.Parse(downloader.requested[1])
+	require.NoError(t, err)
+	require.Equal(t, "/v/t62.7118-24/fresh.enc", last.Path)
+	require.Equal(t, "x", last.Query().Get("oh"))
+	require.Equal(t, "image", last.Query().Get("mms-type"))
+}
+
+func TestDownloadReuploadedMediaStopsOnGoneFile(t *testing.T) {
+	gone := func() (*http.Response, error) { return nil, whatsmeow.ErrMediaDownloadFailedWith410 }
+	downloader := &fakeMediaDownloader{
+		hosts:     []string{"a.example", "b.example"},
+		responses: map[string]func() (*http.Response, error){"a.example": gone, "b.example": gone},
+	}
+
+	_, err := downloadReuploadedMedia(context.Background(), downloader, "/v/gone.enc", &waE2E.ImageMessage{MediaKey: []byte("k")}, t.TempDir())
+
+	require.ErrorIs(t, err, whatsmeow.ErrMediaDownloadFailedWith410)
+	require.Len(t, downloader.requested, 1, "another host cannot serve a file that is gone")
+}
+
+func TestDownloadReuploadedMediaRejectsInvalidPaths(t *testing.T) {
+	for _, path := range []string{"", "v/no-slash", "//evil.example/x"} {
+		_, err := downloadReuploadedMedia(context.Background(), &fakeMediaDownloader{}, path, &waE2E.ImageMessage{}, t.TempDir())
+		require.ErrorContains(t, err, "invalid media direct path", "path %q", path)
+	}
+}
+
+func TestReuploadedMediaQueryMatchesWhatsmeow(t *testing.T) {
+	hash := []byte{0xfb, 0xff}
+	require.Equal(t, "&hash=-_8=&mms-type=image&__wa-mms=", reuploadedMediaQuery("/p?oh=1", hash, whatsmeow.MediaImage))
+	require.Equal(t, "?hash=-_8=&mms-type=video&__wa-mms=", reuploadedMediaQuery("/p", hash, whatsmeow.MediaVideo))
 }
