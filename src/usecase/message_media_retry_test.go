@@ -49,6 +49,18 @@ func TestMediaRetryMessageInfoGroupCarriesSender(t *testing.T) {
 	require.Equal(t, types.NewJID("123456789012345", types.HiddenUserServer), info.Sender)
 }
 
+func TestMediaRetryMessageInfoStatusCarriesAuthor(t *testing.T) {
+	info, err := mediaRetryMessageInfo(&domainChatStorage.Message{
+		ID:      "3A0000000000000000DD",
+		ChatJID: "status@broadcast",
+		Sender:  "5511888888888@s.whatsapp.net",
+	})
+
+	require.NoError(t, err)
+	require.True(t, info.IsGroup, "whatsmeow sends the participant for broadcast messages only when IsGroup is set")
+	require.Equal(t, types.NewJID("5511888888888", types.DefaultUserServer), info.Sender)
+}
+
 func TestMediaRetryMessageInfoGroupWithoutSenderFails(t *testing.T) {
 	_, err := mediaRetryMessageInfo(&domainChatStorage.Message{
 		ID:      "3A0000000000000000CC",

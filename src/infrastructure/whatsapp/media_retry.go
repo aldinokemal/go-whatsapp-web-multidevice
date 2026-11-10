@@ -41,31 +41,68 @@ type mediaRetryKey struct {
 	messageID types.MessageID
 }
 
+// mediaRetryIdentity is the message a download asked the phone about. A
+// notification is only accepted when it names the same message: message IDs
+// are not unique across chats, and in groups every participant holds the
+// media key, so matching on the ID alone could hand one message's file to
+// another.
+type mediaRetryIdentity struct {
+	chat   types.JID
+	sender types.JID
+	fromMe bool
+}
+
+func identityFromMessageInfo(info types.MessageInfo) mediaRetryIdentity {
+	identity := mediaRetryIdentity{chat: info.Chat.ToNonAD(), fromMe: info.IsFromMe}
+	if info.IsGroup {
+		identity.sender = info.Sender.ToNonAD()
+	}
+	return identity
+}
+
+// matches compares a notification's identity with the request. The sender is
+// only compared when both sides carry one, since the phone sends it for group
+// and broadcast messages only.
+func (identity mediaRetryIdentity) matches(other mediaRetryIdentity) bool {
+	if identity.chat != other.chat || identity.fromMe != other.fromMe {
+		return false
+	}
+	if identity.sender.IsEmpty() || other.sender.IsEmpty() {
+		return true
+	}
+	return identity.sender == other.sender
+}
+
+type mediaRetryWaiter struct {
+	identity  mediaRetryIdentity
+	responses chan *events.MediaRetry
+}
+
 // mediaRetryRegistry routes *events.MediaRetry notifications, which arrive on
 // the device event loop, to the downloads waiting for them.
 type mediaRetryRegistry struct {
 	mu      sync.Mutex
-	waiters map[mediaRetryKey][]chan *events.MediaRetry
+	waiters map[mediaRetryKey][]*mediaRetryWaiter
 }
 
 func newMediaRetryRegistry() *mediaRetryRegistry {
-	return &mediaRetryRegistry{waiters: make(map[mediaRetryKey][]chan *events.MediaRetry)}
+	return &mediaRetryRegistry{waiters: make(map[mediaRetryKey][]*mediaRetryWaiter)}
 }
 
 var mediaRetryWaiters = newMediaRetryRegistry()
 
-func (r *mediaRetryRegistry) register(key mediaRetryKey) (<-chan *events.MediaRetry, func()) {
-	ch := make(chan *events.MediaRetry, 1)
+func (r *mediaRetryRegistry) register(key mediaRetryKey, identity mediaRetryIdentity) (<-chan *events.MediaRetry, func()) {
+	waiter := &mediaRetryWaiter{identity: identity, responses: make(chan *events.MediaRetry, 1)}
 	r.mu.Lock()
-	r.waiters[key] = append(r.waiters[key], ch)
+	r.waiters[key] = append(r.waiters[key], waiter)
 	r.mu.Unlock()
 
 	unregister := func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		waiters := r.waiters[key]
-		for i, waiter := range waiters {
-			if waiter == ch {
+		for i, registered := range waiters {
+			if registered == waiter {
 				waiters = append(waiters[:i], waiters[i+1:]...)
 				break
 			}
@@ -76,32 +113,46 @@ func (r *mediaRetryRegistry) register(key mediaRetryKey) (<-chan *events.MediaRe
 			r.waiters[key] = waiters
 		}
 	}
-	return ch, unregister
+	return waiter.responses, unregister
 }
 
-// deliver hands the notification to every download waiting on the message and
-// reports whether anyone was waiting. It never blocks the event loop.
-func (r *mediaRetryRegistry) deliver(key mediaRetryKey, evt *events.MediaRetry) bool {
+// deliver hands the notification to every download waiting on the same
+// message and reports whether any did. Waiters for another message with the
+// same ID keep waiting. It never blocks the event loop.
+func (r *mediaRetryRegistry) deliver(key mediaRetryKey, identity mediaRetryIdentity, evt *events.MediaRetry) bool {
 	r.mu.Lock()
-	waiters := append([]chan *events.MediaRetry(nil), r.waiters[key]...)
+	waiters := append([]*mediaRetryWaiter(nil), r.waiters[key]...)
 	r.mu.Unlock()
 
-	for _, ch := range waiters {
+	delivered := false
+	for _, waiter := range waiters {
+		if !waiter.identity.matches(identity) {
+			continue
+		}
+		delivered = true
 		select {
-		case ch <- evt:
+		case waiter.responses <- evt:
 		default:
 		}
 	}
-	return len(waiters) > 0
+	return delivered
 }
 
-func handleMediaRetry(client *whatsmeow.Client, evt *events.MediaRetry) {
+func handleMediaRetry(ctx context.Context, client *whatsmeow.Client, evt *events.MediaRetry) {
 	if evt == nil || client == nil || client.Store == nil || client.Store.ID == nil {
 		return
 	}
 	key := mediaRetryKey{deviceID: client.Store.ID.ToNonAD().String(), messageID: evt.MessageID}
-	if !mediaRetryWaiters.deliver(key, evt) {
-		log.Debugf("Media retry notification for message %s on device %s arrived with no pending download", evt.MessageID, key.deviceID)
+	// Stored chats and senders use phone-number JIDs; normalize LIDs the same way.
+	identity := mediaRetryIdentity{
+		chat:   NormalizeJIDFromLID(ctx, evt.ChatID.ToNonAD(), client),
+		fromMe: evt.FromMe,
+	}
+	if !evt.SenderID.IsEmpty() {
+		identity.sender = NormalizeJIDFromLID(ctx, evt.SenderID.ToNonAD(), client)
+	}
+	if !mediaRetryWaiters.deliver(key, identity, evt) {
+		log.Debugf("Media retry notification for message %s in chat %s on device %s arrived with no matching pending download", evt.MessageID, evt.ChatID, key.deviceID)
 	}
 }
 
@@ -125,7 +176,7 @@ func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID
 	defer cancel()
 
 	// Register before sending so a fast answer is not lost.
-	responses, unregister := mediaRetryWaiters.register(mediaRetryKey{deviceID: deviceID, messageID: info.ID})
+	responses, unregister := mediaRetryWaiters.register(mediaRetryKey{deviceID: deviceID, messageID: info.ID}, identityFromMessageInfo(info))
 	defer unregister()
 
 	if err := sender.SendMediaRetryReceipt(retryCtx, &info, mediaKey); err != nil {

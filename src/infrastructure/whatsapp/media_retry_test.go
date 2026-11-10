@@ -41,7 +41,8 @@ func (f *fakeMediaRetrySender) SendMediaRetryReceipt(ctx context.Context, info *
 	}
 	if f.answer != nil {
 		if evt := f.answer(info); evt != nil {
-			mediaRetryWaiters.deliver(mediaRetryKey{deviceID: testMediaRetryDevice, messageID: info.ID}, evt)
+			// The phone echoes the message identity it was asked about.
+			mediaRetryWaiters.deliver(mediaRetryKey{deviceID: testMediaRetryDevice, messageID: info.ID}, identityFromMessageInfo(*info), evt)
 		}
 	}
 	return nil
@@ -146,10 +147,11 @@ func TestRequestMediaReuploadRequiresMediaKey(t *testing.T) {
 
 func TestMediaRetryRegistryIgnoresOtherDevices(t *testing.T) {
 	registry := newMediaRetryRegistry()
-	responses, unregister := registry.register(mediaRetryKey{deviceID: "device-a", messageID: "MSG"})
+	identity := identityFromMessageInfo(testMediaRetryInfo("MSG"))
+	responses, unregister := registry.register(mediaRetryKey{deviceID: "device-a", messageID: "MSG"}, identity)
 	defer unregister()
 
-	delivered := registry.deliver(mediaRetryKey{deviceID: "device-b", messageID: "MSG"}, &events.MediaRetry{MessageID: "MSG"})
+	delivered := registry.deliver(mediaRetryKey{deviceID: "device-b", messageID: "MSG"}, identity, &events.MediaRetry{MessageID: "MSG"})
 
 	require.False(t, delivered)
 	select {
@@ -157,6 +159,41 @@ func TestMediaRetryRegistryIgnoresOtherDevices(t *testing.T) {
 		t.Fatalf("device A received device B's notification: %v", evt)
 	default:
 	}
+}
+
+func TestMediaRetryRegistryKeepsWaitingOnSameIDFromAnotherChat(t *testing.T) {
+	registry := newMediaRetryRegistry()
+	key := mediaRetryKey{deviceID: "device-a", messageID: "MSG"}
+	group := types.NewJID("120363000000000001", types.GroupServer)
+	author := types.NewJID("5511777777777", types.DefaultUserServer)
+	wanted := mediaRetryIdentity{chat: group, sender: author}
+	responses, unregister := registry.register(key, wanted)
+	defer unregister()
+
+	// A private chat message reusing the same ID (and possibly the same media
+	// key) must not satisfy the group download.
+	private := mediaRetryIdentity{chat: types.NewJID("5511666666666", types.DefaultUserServer)}
+	require.False(t, registry.deliver(key, private, &events.MediaRetry{MessageID: "MSG"}))
+	// Another author in the same group is a different message too.
+	otherAuthor := mediaRetryIdentity{chat: group, sender: types.NewJID("5511555555555", types.DefaultUserServer)}
+	require.False(t, registry.deliver(key, otherAuthor, &events.MediaRetry{MessageID: "MSG"}))
+	select {
+	case evt := <-responses:
+		t.Fatalf("download received another message's notification: %v", evt)
+	default:
+	}
+
+	answer := &events.MediaRetry{MessageID: "MSG"}
+	require.True(t, registry.deliver(key, wanted, answer))
+	require.Same(t, answer, <-responses)
+}
+
+func TestMediaRetryIdentityMatchesWithoutEchoedSender(t *testing.T) {
+	group := types.NewJID("120363000000000001", types.GroupServer)
+	requested := mediaRetryIdentity{chat: group, sender: types.NewJID("5511777777777", types.DefaultUserServer)}
+
+	require.True(t, requested.matches(mediaRetryIdentity{chat: group}))
+	require.False(t, requested.matches(mediaRetryIdentity{chat: group, fromMe: true}))
 }
 
 func TestIsExpiredMediaError(t *testing.T) {

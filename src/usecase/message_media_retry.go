@@ -135,13 +135,15 @@ func mediaRetryMessageInfo(message *domainChatStorage.Message) (types.MessageInf
 		MessageSource: types.MessageSource{
 			Chat:     chat.ToNonAD(),
 			IsFromMe: message.IsFromMe,
-			IsGroup:  chat.Server == types.GroupServer,
+			// whatsmeow treats broadcast chats (including status@broadcast)
+			// like groups: the phone needs the author to find the message.
+			IsGroup: chat.Server == types.GroupServer || chat.Server == types.BroadcastServer,
 		},
 	}
 	if info.IsGroup {
 		sender, err := types.ParseJID(message.Sender)
 		if err != nil || sender.User == "" {
-			return types.MessageInfo{}, fmt.Errorf("group message %s has no valid sender", message.ID)
+			return types.MessageInfo{}, fmt.Errorf("group or broadcast message %s has no valid sender", message.ID)
 		}
 		info.Sender = sender.ToNonAD()
 	}

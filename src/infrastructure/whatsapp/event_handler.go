@@ -62,7 +62,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.UndecryptableMessage:
 		handleUndecryptableMessage(evt)
 	case *events.MediaRetry:
-		handleMediaRetry(client, evt)
+		handleMediaRetry(ctx, client, evt)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
