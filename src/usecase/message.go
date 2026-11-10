@@ -720,6 +720,9 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 
 	// Download the media using existing utils.ExtractMedia function
 	extractedMedia, err := utils.ExtractMedia(ctx, client, dateDir, downloadableMsg)
+	if err != nil && whatsapp.IsExpiredMediaError(err) {
+		extractedMedia, err = service.downloadReuploadedMedia(ctx, client, message, dateDir, err)
+	}
 	if err != nil {
 		return response, fmt.Errorf("failed to download media: %v", err)
 	}
