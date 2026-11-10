@@ -43,6 +43,12 @@ func (service serviceMessage) downloadReuploadedMedia(ctx context.Context, clien
 	}
 
 	extractedMedia, err := utils.ExtractMedia(ctx, client, storageLocation, downloadableMsg)
+	if err != nil && utils.IsMediaHashMismatch(err) {
+		// The phone re-uploaded a copy that differs from the file first sent.
+		// Accept it only if it is authenticated by the message's media key.
+		logrus.Warnf("Re-uploaded media of message %s does not match the original hashes (%v); accepting it after HMAC validation", message.ID, err)
+		extractedMedia, err = utils.DownloadReuploadedMedia(ctx, directPath, downloadableMsg, storageLocation)
+	}
 	if err != nil {
 		return utils.ExtractedMedia{}, fmt.Errorf("download after re-upload failed: %w", err)
 	}
