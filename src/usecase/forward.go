@@ -106,6 +106,10 @@ func forwardStoredContent(message *domainChatStorage.Message) string {
 	}
 }
 
+// reuploadForwardMessage builds the forward of a stored media message from a
+// fresh upload: it downloads the stored media and uploads it again for the
+// recipient. Media that expired on WhatsApp's servers is re-requested from the
+// phone first, which waits up to whatsapp.DefaultMediaRetryTimeout.
 func (service serviceSend) reuploadForwardMessage(ctx context.Context, client *whatsmeow.Client, message *domainChatStorage.Message, recipient types.JID, opts utils.ForwardBuildOptions) (*waE2E.Message, error) {
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
 	downloadable, err := utils.BuildStoredDownloadableMessage(message, directPath)

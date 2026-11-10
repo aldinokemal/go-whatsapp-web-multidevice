@@ -2135,6 +2135,8 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	return response, nil
 }
 
+// uploadMedia uploads media for a send to recipient, using the newsletter
+// upload for newsletter recipients.
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
 	if service.uploadMediaFn != nil {
 		return service.uploadMediaFn(ctx, client, mediaType, media, recipient)

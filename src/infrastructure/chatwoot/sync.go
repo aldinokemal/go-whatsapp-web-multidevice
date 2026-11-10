@@ -559,6 +559,10 @@ func (s *SyncService) syncMessage(
 	return s.syncMessageWithOptions(ctx, conversationID, msg, waClient, opts, isGroup, false)
 }
 
+// syncMessageWithOptions imports one stored message into a Chatwoot
+// conversation and links it, skipping a message that is already linked. With
+// requireMediaAttachment it fails instead of importing the message without its
+// media, which the pgimport REST media pre-pass relies on.
 func (s *SyncService) syncMessageWithOptions(
 	ctx context.Context,
 	conversationID int,

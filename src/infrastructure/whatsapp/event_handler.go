@@ -274,6 +274,9 @@ func handleLoggedOut(ctx context.Context, instance *DeviceInstance, evt *events.
 	}
 }
 
+// handleConnectionEvents runs when a device connects or its push name changes.
+// It refreshes the device's stored identity, starts the one-time Chatwoot
+// history auto-sync and sends the configured presence.
 func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instance *DeviceInstance) {
 	if client == nil {
 		return
