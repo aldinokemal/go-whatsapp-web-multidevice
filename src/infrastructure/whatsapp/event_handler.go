@@ -67,8 +67,13 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
 		handleArchive(ctx, evt, chatStorageRepo, client)
+		forwardAppState(ctx, evt, instance.JID(), client)
+	case *events.Pin, *events.Mute, *events.ClearChat, *events.DeleteChat, *events.Contact:
+		forwardAppState(ctx, evt, instance.JID(), client)
 	case *events.Presence:
 		handlePresence(ctx, evt, instance.JID(), client)
+	case *events.PushName, *events.Picture, *events.UserAbout, *events.BusinessName:
+		forwardContactUpdate(ctx, evt, instance.JID(), client)
 	case *events.ChatPresence:
 		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
@@ -89,6 +94,10 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleNewsletterMuteChange(ctx, evt, instance.JID(), client)
 	case *events.CallOffer:
 		handleCallOffer(ctx, evt, chatStorageRepo, instance.JID(), client)
+	case *events.CallAccept:
+		forwardCallAccept(ctx, evt, instance.JID(), client)
+	case *events.CallTerminate:
+		forwardCallTerminate(ctx, evt, instance.JID(), client)
 	}
 
 	instance.UpdateStateFromClient()
