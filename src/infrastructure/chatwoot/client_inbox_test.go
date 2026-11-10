@@ -599,7 +599,7 @@ func TestCreateMessage_OptionsMultipartPath(t *testing.T) {
 			defer server.Close()
 
 			c := newTestClient(t, server.URL)
-			id, err := c.CreateMessage(5, "caption", "incoming", []string{tmp}, tc.opts)
+			id, err := c.CreateMessage(5, "caption", "incoming", []MessageAttachment{{Path: tmp}}, tc.opts)
 			if err != nil {
 				t.Fatalf("CreateMessage: %v", err)
 			}

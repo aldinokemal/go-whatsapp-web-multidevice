@@ -19,6 +19,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -877,7 +878,15 @@ type MessageOptions struct {
 	Private           bool
 }
 
-func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []string, opt MessageOptions) (int, error) {
+// MessageAttachment pairs a local file to upload with the display filename
+// Chatwoot should show for it. FileName is optional; when empty, the local
+// Path's basename is used instead (see createMessageWithAttachments).
+type MessageAttachment struct {
+	Path     string
+	FileName string
+}
+
+func (c *Client) CreateMessage(conversationID int, content string, messageType string, attachments []MessageAttachment, opt MessageOptions) (int, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d/messages", c.BaseURL, c.AccountID, conversationID)
 
 	if len(attachments) > 0 {
@@ -982,6 +991,60 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	return nil
 }
 
+// contentDispositionEscaper mirrors the quoting mime/multipart.Writer applies
+// internally to filenames passed to CreateFormFile - since this file builds
+// the Content-Disposition header manually (to also set a custom Content-Type),
+// the same escaping has to be done by hand.
+var contentDispositionEscaper = strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\r", "", "\n", "")
+
+// escapeContentDispositionFilename makes fileName safe to embed inside a
+// quoted Content-Disposition filename parameter. Control characters are
+// dropped first: a NUL or DEL in the header makes the receiving multipart
+// parser reject the whole request.
+func escapeContentDispositionFilename(fileName string) string {
+	fileName = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, fileName)
+	return contentDispositionEscaper.Replace(fileName)
+}
+
+// mimeTypeForExt returns the MIME type for a file extension, falling back to a
+// built-in table for types absent from Go's built-in mime database. This is
+// necessary on minimal Alpine images where /etc/mime.types is not installed:
+// without it, mime.TypeByExtension returns "" for audio/video extensions such
+// as .ogg and .mp4, causing Chatwoot to classify the attachment as a generic
+// file (download link) instead of audio/video (inline player).
+func mimeTypeForExt(ext string) string {
+	if t := mime.TypeByExtension(ext); t != "" {
+		return t
+	}
+	return fallbackMimeType(ext)
+}
+
+// fallbackMimeType is the table mimeTypeForExt uses when the host has no MIME
+// database entry for ext.
+func fallbackMimeType(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".ogg", ".oga", ".opus":
+		return "audio/ogg"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".m4a":
+		return "audio/mp4"
+	case ".aac":
+		return "audio/aac"
+	case ".amr":
+		return "audio/amr"
+	default:
+		return "application/octet-stream"
+	}
+}
+
 // escapeChatwootPathSegment percent-encodes a value for use as a single path
 // segment of Chatwoot's public API.
 //
@@ -1008,7 +1071,7 @@ func escapeChatwootPathSegment(s string) string {
 	return s
 }
 
-func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []string, opt MessageOptions) (int, error) {
+func (c *Client) createMessageWithAttachments(endpoint, content, messageType string, attachments []MessageAttachment, opt MessageOptions) (int, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -1042,32 +1105,40 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 		}
 	}
 
-	for _, filePath := range attachments {
+	for _, att := range attachments {
+		filePath := att.Path
 		file, err := os.Open(filePath)
 		if err != nil {
 			return 0, fmt.Errorf("open attachment %s: %w", filePath, err)
 		}
 
-		fileName := filepath.Base(filePath)
+		// Prefer the caller-supplied display name (e.g. the WhatsApp
+		// message's original filename) over the local path's basename,
+		// which is often a generated/temp name with no meaning to the
+		// Chatwoot operator viewing the attachment.
+		fileName := att.FileName
+		if fileName == "" {
+			fileName = filepath.Base(filePath)
+		} else {
+			fileName = filepath.Base(fileName)
+		}
+		// The Content-Type below follows the path's extension, so the name
+		// must end with it too: a recovered history-sync file is stored with
+		// the MIME-resolved extension when the sender's suffix is unusable
+		// ("report.pdf(1)"), while FileName is still the sender's raw name.
 		ext := filepath.Ext(filePath)
-
-		mimeType := mime.TypeByExtension(ext)
-		if mimeType == "" {
-			switch ext {
-			case ".oga", ".ogg":
-				// The runtime image ships no /etc/mime.types, so
-				// mime.TypeByExtension never resolves these on its own.
-				// WhatsApp voice notes are saved as .ogg (Opus-in-Ogg);
-				// .oga is the alternate extension for the same container.
-				mimeType = "audio/ogg"
-			default:
-				mimeType = "application/octet-stream"
-			}
+		if ext != "" && !strings.EqualFold(filepath.Ext(fileName), ext) {
+			fileName += ext
 		}
 
+		mimeType := mimeTypeForExt(ext)
+
 		// Custom form part with correct Content-Type for Chatwoot to render images inline.
+		// fileName may originate from a WhatsApp sender's own filename, so quotes/backslashes
+		// are escaped before landing in the header value - otherwise a crafted name could break
+		// out of the quoted filename parameter and corrupt the multipart request.
 		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, fileName))
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, escapeContentDispositionFilename(fileName)))
 		h.Set("Content-Type", mimeType)
 
 		part, err := writer.CreatePart(h)

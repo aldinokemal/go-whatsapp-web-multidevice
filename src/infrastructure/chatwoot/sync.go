@@ -601,7 +601,7 @@ func (s *SyncService) syncMessageWithOptions(
 		content = fmt.Sprintf("%s: %s", senderName, content)
 	}
 
-	var attachments []string
+	var attachments []MessageAttachment
 
 	// Handle media if enabled and present
 	if opts.IncludeMedia && hasDownloadableChatwootMedia(msg) {
@@ -614,7 +614,10 @@ func (s *SyncService) syncMessageWithOptions(
 			// Continue without media - it might be expired
 			content += " [media unavailable]"
 		} else if filePath != "" {
-			attachments = append(attachments, filePath)
+			// msg.Filename is the original document name or a descriptive
+			// generated name (see ExtractMediaInfo) - use it as the display
+			// name instead of the throwaway temp file's random basename.
+			attachments = append(attachments, MessageAttachment{Path: filePath, FileName: msg.Filename})
 		}
 	}
 	if requireMediaAttachment && len(attachments) == 0 {
@@ -638,9 +641,9 @@ func (s *SyncService) syncMessageWithOptions(
 		return createErr
 	})
 
-	for _, fp := range attachments {
-		if err := os.Remove(fp); err != nil {
-			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", fp, err)
+	for _, att := range attachments {
+		if err := os.Remove(att.Path); err != nil {
+			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", att.Path, err)
 		}
 	}
 

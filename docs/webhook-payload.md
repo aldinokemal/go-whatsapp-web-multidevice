@@ -1254,6 +1254,10 @@ With auto-download enabled (no caption):
 }
 ```
 
+Downloaded media paths use `<unix>-<uuid>-<display-name>`. The display name is
+sanitized, and the unique prefix distinguishes files with the same name.
+Consumers should treat the path as opaque rather than parse its filename.
+
 With auto-download enabled (with caption):
 
 ```json
