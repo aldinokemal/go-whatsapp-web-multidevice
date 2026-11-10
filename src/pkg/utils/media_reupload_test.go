@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -166,6 +167,19 @@ func TestDownloadReuploadedMediaRejectsInvalidPaths(t *testing.T) {
 		_, err := downloadReuploadedMedia(context.Background(), &fakeMediaDownloader{}, path, &waE2E.ImageMessage{}, t.TempDir())
 		require.ErrorContains(t, err, "invalid media direct path", "path %q", path)
 	}
+}
+
+func TestIsExpiredMediaError(t *testing.T) {
+	for _, err := range []error{
+		whatsmeow.ErrMediaDownloadFailedWith403,
+		whatsmeow.ErrMediaDownloadFailedWith404,
+		whatsmeow.ErrMediaDownloadFailedWith410,
+		fmt.Errorf("wrapped: %w", whatsmeow.ErrMediaDownloadFailedWith410),
+	} {
+		require.True(t, IsExpiredMediaError(err), err.Error())
+	}
+	require.False(t, IsExpiredMediaError(whatsmeow.ErrInvalidMediaSHA256))
+	require.False(t, IsExpiredMediaError(errors.New("other")))
 }
 
 func TestReuploadedMediaQueryMatchesWhatsmeow(t *testing.T) {

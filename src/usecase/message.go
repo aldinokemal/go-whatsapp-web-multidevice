@@ -716,7 +716,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 
 	// Download the media; media expired on the server is re-requested from the phone.
 	extractedMedia, err := service.extractMedia(ctx, client, dateDir, downloadableMsg)
-	if err != nil && whatsapp.IsExpiredMediaError(err) {
+	if utils.IsExpiredMediaError(err) {
 		extractedMedia, err = service.recoverExpiredMedia(ctx, client, message, dateDir, err)
 	}
 	if err != nil {

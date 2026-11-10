@@ -21,15 +21,6 @@ const DefaultMediaRetryTimeout = 30 * time.Second
 // re-upload request in time, usually because it is offline.
 var ErrMediaRetryTimeout = errors.New("timed out waiting for the phone to re-upload the media")
 
-// IsExpiredMediaError reports whether a download failed because the media is
-// no longer on WhatsApp's servers (403, 404 or 410), which is the case the
-// phone can fix by re-uploading the file.
-func IsExpiredMediaError(err error) bool {
-	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
-}
-
 // mediaRetrySender is the part of *whatsmeow.Client used to ask the phone for
 // a re-upload. It exists so the request/response flow can be tested.
 type mediaRetrySender interface {
@@ -57,6 +48,15 @@ func identityFromMessageInfo(info types.MessageInfo) mediaRetryIdentity {
 	if info.IsGroup {
 		identity.sender = info.Sender.ToNonAD()
 	}
+	return identity
+}
+
+// normalized resolves LIDs the way stored rows are. Both the request and the
+// phone's answer go through it: a row stored before its LID mapping was known
+// keeps the LID, and would otherwise never equal a normalized answer.
+func (identity mediaRetryIdentity) normalized(ctx context.Context, client *whatsmeow.Client) mediaRetryIdentity {
+	identity.chat = NormalizeJIDFromLID(ctx, identity.chat, client)
+	identity.sender = NormalizeJIDFromLID(ctx, identity.sender, client)
 	return identity
 }
 
@@ -145,12 +145,10 @@ func handleMediaRetry(ctx context.Context, client *whatsmeow.Client, evt *events
 	key := mediaRetryKey{deviceID: client.Store.ID.ToNonAD().String(), messageID: evt.MessageID}
 	// Stored chats and senders use phone-number JIDs; normalize LIDs the same way.
 	identity := mediaRetryIdentity{
-		chat:   NormalizeJIDFromLID(ctx, evt.ChatID.ToNonAD(), client),
+		chat:   evt.ChatID.ToNonAD(),
+		sender: evt.SenderID.ToNonAD(),
 		fromMe: evt.FromMe,
-	}
-	if !evt.SenderID.IsEmpty() {
-		identity.sender = NormalizeJIDFromLID(ctx, evt.SenderID.ToNonAD(), client)
-	}
+	}.normalized(ctx, client)
 	if !mediaRetryWaiters.deliver(key, identity, evt) {
 		log.Debugf("Media retry notification for message %s in chat %s on device %s arrived with no matching pending download", evt.MessageID, evt.ChatID, key.deviceID)
 	}
@@ -163,10 +161,11 @@ func RequestMediaReupload(ctx context.Context, client *whatsmeow.Client, info ty
 	if client == nil || client.Store == nil || client.Store.ID == nil {
 		return "", whatsmeow.ErrNotLoggedIn
 	}
-	return requestMediaReupload(ctx, client, client.Store.ID.ToNonAD().String(), info, mediaKey, timeout)
+	identity := identityFromMessageInfo(info).normalized(ctx, client)
+	return requestMediaReupload(ctx, client, client.Store.ID.ToNonAD().String(), info, identity, mediaKey, timeout)
 }
 
-func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID string, info types.MessageInfo, mediaKey []byte, timeout time.Duration) (string, error) {
+func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID string, info types.MessageInfo, identity mediaRetryIdentity, mediaKey []byte, timeout time.Duration) (string, error) {
 	if len(mediaKey) == 0 {
 		return "", fmt.Errorf("message %s has no media key to request a re-upload", info.ID)
 	}
@@ -176,7 +175,7 @@ func requestMediaReupload(ctx context.Context, sender mediaRetrySender, deviceID
 	defer cancel()
 
 	// Register before sending so a fast answer is not lost.
-	responses, unregister := mediaRetryWaiters.register(mediaRetryKey{deviceID: deviceID, messageID: info.ID}, identityFromMessageInfo(info))
+	responses, unregister := mediaRetryWaiters.register(mediaRetryKey{deviceID: deviceID, messageID: info.ID}, identity)
 	defer unregister()
 
 	if err := sender.SendMediaRetryReceipt(retryCtx, &info, mediaKey); err != nil {

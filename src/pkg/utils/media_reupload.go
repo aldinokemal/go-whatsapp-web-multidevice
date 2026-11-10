@@ -139,13 +139,19 @@ func fetchFromMediaHost(ctx context.Context, downloader mediaDownloader, mediaUR
 	return encrypted, nil
 }
 
-// isFinalMediaFetchError reports errors another host would not fix: the file
-// is gone (403/404/410) or too large.
-func isFinalMediaFetchError(err error) bool {
-	return errors.Is(err, errFileTooLarge) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
+// IsExpiredMediaError reports whether a download failed because the media is
+// no longer on WhatsApp's servers (403, 404 or 410), which is the case the
+// phone can fix by re-uploading the file.
+func IsExpiredMediaError(err error) bool {
+	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+}
+
+// isFinalMediaFetchError reports errors another host would not fix: the file
+// is gone or too large.
+func isFinalMediaFetchError(err error) bool {
+	return errors.Is(err, errFileTooLarge) || IsExpiredMediaError(err)
 }
 
 // reuploadedMediaQuery appends the parameters whatsmeow adds to media

@@ -6,16 +6,17 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waMmsRetry"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"go.mau.fi/whatsmeow/util/hkdfutil"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -76,6 +77,12 @@ func testMediaRetryInfo(id string) types.MessageInfo {
 	}
 }
 
+// requestTestReupload asks for a re-upload the way RequestMediaReupload does,
+// minus the client that resolves LIDs.
+func requestTestReupload(ctx context.Context, sender mediaRetrySender, info types.MessageInfo, mediaKey []byte, timeout time.Duration) (string, error) {
+	return requestMediaReupload(ctx, sender, testMediaRetryDevice, info, identityFromMessageInfo(info), mediaKey, timeout)
+}
+
 func TestRequestMediaReuploadReturnsNewDirectPath(t *testing.T) {
 	mediaKey := []byte("0123456789abcdef0123456789abcdef")
 	sender := &fakeMediaRetrySender{answer: func(info *types.MessageInfo) *events.MediaRetry {
@@ -86,7 +93,7 @@ func TestRequestMediaReuploadReturnsNewDirectPath(t *testing.T) {
 		})
 	}}
 
-	directPath, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-OK"), mediaKey, time.Second)
+	directPath, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-OK"), mediaKey, time.Second)
 
 	require.NoError(t, err)
 	require.Equal(t, "/v/t62.7118-24/fresh.enc", directPath)
@@ -103,7 +110,7 @@ func TestRequestMediaReuploadReportsPhoneFailure(t *testing.T) {
 		})
 	}}
 
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-NOT-FOUND"), mediaKey, time.Second)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-NOT-FOUND"), mediaKey, time.Second)
 
 	require.ErrorContains(t, err, "NOT_FOUND")
 }
@@ -113,7 +120,7 @@ func TestRequestMediaReuploadReportsMediaGoneFromPhone(t *testing.T) {
 		return &events.MediaRetry{MessageID: info.ID, Error: &events.MediaRetryError{Code: 2}}
 	}}
 
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-GONE"), []byte("0123456789abcdef0123456789abcdef"), time.Second)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-GONE"), []byte("0123456789abcdef0123456789abcdef"), time.Second)
 
 	require.ErrorIs(t, err, whatsmeow.ErrMediaNotAvailableOnPhone)
 }
@@ -121,7 +128,7 @@ func TestRequestMediaReuploadReportsMediaGoneFromPhone(t *testing.T) {
 func TestRequestMediaReuploadTimesOutWhenPhoneIsSilent(t *testing.T) {
 	sender := &fakeMediaRetrySender{}
 
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-SILENT"), []byte("key"), 20*time.Millisecond)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-SILENT"), []byte("key"), 20*time.Millisecond)
 
 	require.ErrorIs(t, err, ErrMediaRetryTimeout)
 	require.Empty(t, mediaRetryWaiters.waiters, "waiter must be removed after a timeout")
@@ -130,7 +137,7 @@ func TestRequestMediaReuploadTimesOutWhenPhoneIsSilent(t *testing.T) {
 func TestRequestMediaReuploadPropagatesSendError(t *testing.T) {
 	sender := &fakeMediaRetrySender{sendErr: errors.New("not connected")}
 
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-SEND"), []byte("key"), time.Second)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-SEND"), []byte("key"), time.Second)
 
 	require.ErrorContains(t, err, "not connected")
 	require.Empty(t, mediaRetryWaiters.waiters)
@@ -139,7 +146,7 @@ func TestRequestMediaReuploadPropagatesSendError(t *testing.T) {
 func TestRequestMediaReuploadRequiresMediaKey(t *testing.T) {
 	sender := &fakeMediaRetrySender{}
 
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-NOKEY"), nil, time.Second)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-NOKEY"), nil, time.Second)
 
 	require.ErrorContains(t, err, "no media key")
 	require.Empty(t, sender.sent)
@@ -196,24 +203,53 @@ func TestMediaRetryIdentityMatchesWithoutEchoedSender(t *testing.T) {
 	require.False(t, requested.matches(mediaRetryIdentity{chat: group, fromMe: true}))
 }
 
-func TestIsExpiredMediaError(t *testing.T) {
-	for _, err := range []error{
-		whatsmeow.ErrMediaDownloadFailedWith403,
-		whatsmeow.ErrMediaDownloadFailedWith404,
-		whatsmeow.ErrMediaDownloadFailedWith410,
-		fmt.Errorf("wrapped: %w", whatsmeow.ErrMediaDownloadFailedWith410),
-	} {
-		require.True(t, IsExpiredMediaError(err), err.Error())
+// phoneThroughEventHandler answers a request through the real event handler,
+// echoing the chat and participant it was asked about.
+type phoneThroughEventHandler struct {
+	client *whatsmeow.Client
+	answer *events.MediaRetry
+}
+
+func (p phoneThroughEventHandler) SendMediaRetryReceipt(ctx context.Context, info *types.MessageInfo, _ []byte) error {
+	evt := *p.answer
+	evt.ChatID, evt.SenderID, evt.FromMe = info.Chat, info.Sender, info.IsFromMe
+	handleMediaRetry(ctx, p.client, &evt)
+	return nil
+}
+
+func TestRequestMediaReuploadMatchesSenderStoredBeforeItsLIDWasMapped(t *testing.T) {
+	originalLog := log
+	log = waLog.Noop
+	t.Cleanup(func() { log = originalLog })
+
+	account := types.NewJID("5511999999999", types.DefaultUserServer)
+	lid := types.NewJID("123456789012345", types.HiddenUserServer)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &account, LIDs: &callOfferLIDStore{
+		phoneNumbers: map[types.JID]types.JID{lid: types.NewJID("5511777777777", types.DefaultUserServer)},
+	}}}
+	// History sync stored the group sender as a LID; its phone number is known by now.
+	info := types.MessageInfo{
+		ID:            "MSG-LID",
+		MessageSource: types.MessageSource{Chat: types.NewJID("120363000000000001", types.GroupServer), Sender: lid, IsGroup: true},
 	}
-	require.False(t, IsExpiredMediaError(whatsmeow.ErrInvalidMediaSHA256))
-	require.False(t, IsExpiredMediaError(errors.New("other")))
+	mediaKey := []byte("0123456789abcdef0123456789abcdef")
+	phone := phoneThroughEventHandler{client: client, answer: encryptedMediaRetry(t, info.ID, mediaKey, &waMmsRetry.MediaRetryNotification{
+		DirectPath: proto.String("/v/t62.7118-24/fresh.enc"),
+		Result:     waMmsRetry.MediaRetryNotification_SUCCESS.Enum(),
+	})}
+	identity := identityFromMessageInfo(info).normalized(context.Background(), client)
+
+	directPath, err := requestMediaReupload(context.Background(), phone, account.String(), info, identity, mediaKey, 50*time.Millisecond)
+
+	require.NoError(t, err)
+	require.Equal(t, "/v/t62.7118-24/fresh.enc", directPath)
 }
 
 func TestRequestMediaReuploadTimeoutCoversBlockedSend(t *testing.T) {
 	sender := &fakeMediaRetrySender{block: true}
 
 	start := time.Now()
-	_, err := requestMediaReupload(context.Background(), sender, testMediaRetryDevice, testMediaRetryInfo("MSG-BLOCKED"), []byte("key"), 30*time.Millisecond)
+	_, err := requestTestReupload(context.Background(), sender, testMediaRetryInfo("MSG-BLOCKED"), []byte("key"), 30*time.Millisecond)
 
 	require.ErrorIs(t, err, ErrMediaRetryTimeout)
 	require.Less(t, time.Since(start), time.Second, "a blocked send must not outlive the retry timeout")
@@ -225,7 +261,7 @@ func TestRequestMediaReuploadReturnsCallerCancellation(t *testing.T) {
 	cancel()
 	sender := &fakeMediaRetrySender{block: true}
 
-	_, err := requestMediaReupload(ctx, sender, testMediaRetryDevice, testMediaRetryInfo("MSG-CANCELLED"), []byte("key"), time.Second)
+	_, err := requestTestReupload(ctx, sender, testMediaRetryInfo("MSG-CANCELLED"), []byte("key"), time.Second)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotErrorIs(t, err, ErrMediaRetryTimeout)
