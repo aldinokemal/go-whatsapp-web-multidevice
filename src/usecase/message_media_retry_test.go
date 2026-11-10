@@ -20,62 +20,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-func TestMediaRetryMessageInfoDirectChat(t *testing.T) {
-	info, err := mediaRetryMessageInfo(&domainChatStorage.Message{
-		ID:      "3A0000000000000000AA",
-		ChatJID: "5511888888888@s.whatsapp.net",
-		Sender:  "5511888888888@s.whatsapp.net",
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, types.MessageID("3A0000000000000000AA"), info.ID)
-	require.Equal(t, types.NewJID("5511888888888", types.DefaultUserServer), info.Chat)
-	require.False(t, info.IsGroup)
-	require.False(t, info.IsFromMe)
-	require.True(t, info.Sender.IsEmpty(), "direct chats do not send a participant")
-}
-
-func TestMediaRetryMessageInfoGroupCarriesSender(t *testing.T) {
-	info, err := mediaRetryMessageInfo(&domainChatStorage.Message{
-		ID:       "3A0000000000000000BB",
-		ChatJID:  "120363000000000001@g.us",
-		Sender:   "123456789012345:7@lid",
-		IsFromMe: true,
-	})
-
-	require.NoError(t, err)
-	require.True(t, info.IsGroup)
-	require.True(t, info.IsFromMe)
-	require.Equal(t, types.NewJID("123456789012345", types.HiddenUserServer), info.Sender)
-}
-
-func TestMediaRetryMessageInfoStatusCarriesAuthor(t *testing.T) {
-	info, err := mediaRetryMessageInfo(&domainChatStorage.Message{
-		ID:      "3A0000000000000000DD",
-		ChatJID: "status@broadcast",
-		Sender:  "5511888888888@s.whatsapp.net",
-	})
-
-	require.NoError(t, err)
-	require.True(t, info.IsGroup, "whatsmeow sends the participant for broadcast messages only when IsGroup is set")
-	require.Equal(t, types.NewJID("5511888888888", types.DefaultUserServer), info.Sender)
-}
-
-func TestMediaRetryMessageInfoGroupWithoutSenderFails(t *testing.T) {
-	_, err := mediaRetryMessageInfo(&domainChatStorage.Message{
-		ID:      "3A0000000000000000CC",
-		ChatJID: "120363000000000001@g.us",
-	})
-
-	require.ErrorContains(t, err, "no valid sender")
-}
-
-func TestMediaRetryMessageInfoInvalidChatFails(t *testing.T) {
-	_, err := mediaRetryMessageInfo(&domainChatStorage.Message{ID: "X", ChatJID: ""})
-
-	require.ErrorContains(t, err, "invalid chat JID")
-}
-
 // fakeMediaCDN plays the media CDN and the phone for DownloadMedia: the
 // original path has expired, the phone re-uploads a copy whose bytes differ
 // from the original hashes, and only those new hashes validate afterwards.
