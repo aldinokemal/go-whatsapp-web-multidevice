@@ -101,11 +101,11 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 }
 
 // shouldForwardReceipt suppresses duplicate contact receipts from linked devices
-// unless explicitly enabled. Own-device reads always pass because only the device
-// where the account owner opened the chat emits them.
+// unless explicitly enabled. Own-device reads and plays always pass because only the
+// device where the account owner opened the chat or played the media emits them.
 func shouldForwardReceipt(evt *events.Receipt) bool {
 	if config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0 {
 		return true
 	}
-	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
+	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf || evt.Type == types.ReceiptTypePlayed || evt.Type == types.ReceiptTypePlayedSelf)
 }

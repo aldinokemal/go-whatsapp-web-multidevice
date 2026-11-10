@@ -59,6 +59,9 @@ func TestStartupEventsFollowRegistryOwner(t *testing.T) {
 	require.NoError(t, keys.DeleteDevice(context.Background(), keyDevice))
 	dispatch(&events.PairSuccess{ID: ad})
 	require.Equal(t, "LOGIN_SUCCESS", (<-websocket.Broadcast).Code)
+	paired := recvWebhook(t, got).body
+	require.Equal(t, "connection", paired["event"])
+	require.Equal(t, "slot-a", paired["session_id"])
 	keyDevice, err = keys.GetDevice(context.Background(), ad)
 	require.NoError(t, err)
 	require.NotNil(t, keyDevice, "pairing must sync keys even after the startup context is cancelled")
