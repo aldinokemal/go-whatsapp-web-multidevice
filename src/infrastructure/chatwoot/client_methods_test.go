@@ -1190,6 +1190,13 @@ func TestCreateMessage_AttachmentFileNameOverridesLocalBasename(t *testing.T) {
 	if gotFileName != "voice-note.oga" {
 		t.Errorf("filename = %q, want resolved extension", gotFileName)
 	}
+	att[0].FileName = "voice-note.oga(1)"
+	if _, err := c.CreateMessage(5, "x", "incoming", att, MessageOptions{}); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if gotFileName != "voice-note.oga(1).oga" {
+		t.Errorf("filename = %q, want the path's extension appended to a mismatched suffix", gotFileName)
+	}
 }
 
 func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
@@ -1197,7 +1204,7 @@ func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
 	// hand-built Content-Disposition header. An embedded quote must not let
 	// the value escape the quoted filename parameter and corrupt the
 	// multipart request (or smuggle extra header parameters).
-	tmp := filepath.Join(t.TempDir(), "a.oga")
+	tmp := filepath.Join(t.TempDir(), "a.pdf")
 	if err := os.WriteFile(tmp, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
@@ -1229,9 +1236,9 @@ func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
 	// make multipart.Reader reject the header) must be dropped; non-ASCII
 	// names must pass through.
 	tests := map[string]string{
-		`evil".pdf"; filename="injected`: `evil".pdf"; filename="injected`,
-		"bad\x00\x7f\r\n\t.pdf":          "bad.pdf",
-		"合同.pdf":                         "合同.pdf",
+		`evil"; filename="injected.pdf`: `evil"; filename="injected.pdf`,
+		"bad\x00\x7f\r\n\t.pdf":         "bad.pdf",
+		"合同.pdf":                        "合同.pdf",
 	}
 	for name, want := range tests {
 		partCount, gotFileName = 0, ""

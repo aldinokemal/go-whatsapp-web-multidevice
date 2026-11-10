@@ -1122,8 +1122,12 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 		} else {
 			fileName = filepath.Base(fileName)
 		}
+		// The Content-Type below follows the path's extension, so the name
+		// must end with it too: a recovered history-sync file is stored with
+		// the MIME-resolved extension when the sender's suffix is unusable
+		// ("report.pdf(1)"), while FileName is still the sender's raw name.
 		ext := filepath.Ext(filePath)
-		if filepath.Ext(fileName) == "" && ext != "" {
+		if ext != "" && !strings.EqualFold(filepath.Ext(fileName), ext) {
 			fileName += ext
 		}
 
