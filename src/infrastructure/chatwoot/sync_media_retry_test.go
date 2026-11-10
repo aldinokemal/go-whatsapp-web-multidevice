@@ -86,6 +86,9 @@ func (f *historyMediaFixture) sync(recoverMedia ExpiredMediaRecoverer) error {
 	return f.svc.syncMessage(context.Background(), 42, f.msg, &whatsmeow.Client{}, opts, false)
 }
 
+// TestSyncMessageAttachesExpiredMediaRecoveredFromPhone: media that expired on
+// WhatsApp's servers is attached from the phone's re-upload, and the file the
+// recovery stored is removed once Chatwoot has it.
 func TestSyncMessageAttachesExpiredMediaRecoveredFromPhone(t *testing.T) {
 	f := newHistoryMediaFixture(t, whatsmeow.ErrMediaDownloadFailedWith404)
 
@@ -111,6 +114,9 @@ func TestSyncMessageAttachesExpiredMediaRecoveredFromPhone(t *testing.T) {
 	}
 }
 
+// TestSyncMessageImportsPlaceholderWhenExpiredMediaCannotBeRecovered: a failed
+// recovery must not drop the message. It is imported with the unavailable
+// placeholder, like any other failed download.
 func TestSyncMessageImportsPlaceholderWhenExpiredMediaCannotBeRecovered(t *testing.T) {
 	f := newHistoryMediaFixture(t, whatsmeow.ErrMediaDownloadFailedWith410)
 
@@ -129,6 +135,9 @@ func TestSyncMessageImportsPlaceholderWhenExpiredMediaCannotBeRecovered(t *testi
 	}
 }
 
+// TestSyncMessageDoesNotAskPhoneForOtherDownloadFailures: only 403, 404 and
+// 410 mean the file is gone from the server. The phone cannot fix any other
+// download error, so it must not cost a phone round trip.
 func TestSyncMessageDoesNotAskPhoneForOtherDownloadFailures(t *testing.T) {
 	f := newHistoryMediaFixture(t, errors.New("media connection refused"))
 
@@ -142,5 +151,33 @@ func TestSyncMessageDoesNotAskPhoneForOtherDownloadFailures(t *testing.T) {
 	}
 	if f.content != "[image] [media unavailable]" {
 		t.Fatalf("content = %q, want the unavailable placeholder", f.content)
+	}
+}
+
+// TestSyncMessageDownloadsMediaStoredWithDirectPathOnly: a stored row can hold
+// a direct path without a URL. whatsmeow downloads by direct path, so both
+// REST import paths must attach such media instead of skipping the download.
+func TestSyncMessageDownloadsMediaStoredWithDirectPathOnly(t *testing.T) {
+	for name, requireMediaAttachment := range map[string]bool{"REST import": false, "pgimport media pre-pass": true} {
+		t.Run(name, func(t *testing.T) {
+			f := newHistoryMediaFixture(t, nil)
+			f.msg.URL = ""
+			f.msg.DirectPath = "/v/t62.7118-24/direct.enc"
+			f.svc.downloadFn = func(_ context.Context, _ *whatsmeow.Client, media whatsmeow.DownloadableMessage) ([]byte, error) {
+				if media.GetDirectPath() != f.msg.DirectPath {
+					t.Errorf("download direct path = %q, want %q", media.GetDirectPath(), f.msg.DirectPath)
+				}
+				return []byte("direct"), nil
+			}
+
+			err := f.svc.syncMessageWithOptions(context.Background(), 42, f.msg, &whatsmeow.Client{}, SyncOptions{IncludeMedia: true}, false, requireMediaAttachment)
+
+			if err != nil {
+				t.Fatalf("syncMessageWithOptions: %v", err)
+			}
+			if len(f.attachments) != 1 || f.attachments[0] != "direct" {
+				t.Fatalf("attachments = %q, want the downloaded file", f.attachments)
+			}
+		})
 	}
 }

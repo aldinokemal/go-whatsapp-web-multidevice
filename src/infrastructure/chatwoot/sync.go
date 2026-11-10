@@ -604,7 +604,7 @@ func (s *SyncService) syncMessageWithOptions(
 	var attachments []string
 
 	// Handle media if enabled and present
-	if opts.IncludeMedia && msg.MediaType != "" && msg.URL != "" && len(msg.MediaKey) > 0 {
+	if opts.IncludeMedia && hasDownloadableChatwootMedia(msg) {
 		filePath, err := s.downloadMedia(ctx, msg, waClient, opts.RecoverExpiredMedia)
 		if err != nil {
 			if requireMediaAttachment {
