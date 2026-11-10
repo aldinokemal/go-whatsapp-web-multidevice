@@ -30,6 +30,11 @@ Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
   `CHATWOOT_IMPORT_MEDIA_WITH_REST`, downloadable media first goes through REST for
   attachments; shared source IDs prevent duplicate import. Preserve configurable
   placeholders for media that cannot be downloaded.
+- Media that expired on WhatsApp's servers is re-requested from the phone through
+  `SyncOptions.RecoverExpiredMedia`. This package cannot import `../whatsapp`, so
+  callers pass `whatsapp.NewBulkMediaRecovery(repo).Recover`, a new one per run. It
+  waits for an answer that arrives on the device event loop: keep `SyncHistory` on
+  its own goroutine.
 - `SyncService.Close()` closes its importer pool; preserve cleanup of cached sync
   services on shutdown. Use sync/registry tests for routing changes and `pgimport`
   sqlmock tests for direct SQL behavior.

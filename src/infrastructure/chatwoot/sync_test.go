@@ -31,17 +31,17 @@ func TestTriggerAutoSync_NoopWhenGated(t *testing.T) {
 	// Disabled integration: no-op regardless of the import flag.
 	config.ChatwootEnabled = false
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled but import off: no-op.
 	config.ChatwootEnabled = true
 	config.ChatwootImportMessages = false
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled + import on, but no logged-in client (nil) means no storage JID
 	// is available yet — must return without panicking or launching a sync.
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 }
 
 func TestSyncProgress_SetRunning(t *testing.T) {

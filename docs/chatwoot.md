@@ -423,7 +423,7 @@ curl "http://your-api:3000/chatwoot/sync/status?device_id=my-device-id"
 ### Notes
 
 - Group messages include the sender name: `John: Hello!`
-- Media older than ~2 weeks may be unavailable on WhatsApp servers
+- Media older than ~2 weeks may be unavailable on WhatsApp servers. The sync then asks the phone to re-upload the file, which needs the phone online and still holding it; otherwise the message is imported without its attachment. If the phone leaves a request unanswered for 30 seconds, the rest of that sync run stops asking.
 - The sync runs in the background and can be monitored via the status endpoint
 - Only one sync can run per device at a time
 - For correct timestamps, use the [Direct Database Import](#direct-database-import-recommended) (the REST path cannot set `created_at` on Chatwoot messages)

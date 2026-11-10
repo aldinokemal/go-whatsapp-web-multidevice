@@ -46,6 +46,9 @@ type SyncService struct {
 	// configID is the chatwoot_device_configs row id this service syncs for (0 =
 	// legacy/env). Stamped onto message links so reverse routing is config-scoped.
 	configID int64
+
+	// downloadFn is a test seam; nil downloads through the WhatsApp client.
+	downloadFn func(ctx context.Context, waClient *whatsmeow.Client, media whatsmeow.DownloadableMessage) ([]byte, error)
 }
 
 // NewSyncService creates a new sync service instance
@@ -598,7 +601,7 @@ func (s *SyncService) syncMessageWithOptions(
 
 	// Handle media if enabled and present
 	if opts.IncludeMedia && msg.MediaType != "" && msg.URL != "" && len(msg.MediaKey) > 0 {
-		filePath, err := s.downloadMedia(ctx, msg, waClient)
+		filePath, err := s.downloadMedia(ctx, msg, waClient, opts.RecoverExpiredMedia)
 		if err != nil {
 			if requireMediaAttachment {
 				return fmt.Errorf("failed to download required media: %w", err)
@@ -669,8 +672,10 @@ func (s *SyncService) syncMessageWithOptions(
 	return nil
 }
 
-// downloadMedia downloads media for a message and returns the temp file path
-func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client) (string, error) {
+// downloadMedia downloads media for a message and returns the temp file path.
+// Media that expired on WhatsApp's servers is re-requested from the phone when
+// recoverMedia is set.
+func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client, recoverMedia ExpiredMediaRecoverer) (string, error) {
 	directPath := utils.ResolveMediaDirectPath(msg.DirectPath, msg.URL)
 	if directPath == "" || len(msg.MediaKey) == 0 {
 		return "", fmt.Errorf("missing media direct path or key")
@@ -695,7 +700,19 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	}
 
 	// Download
-	data, err := waClient.Download(ctx, downloadable)
+	var data []byte
+	if s.downloadFn != nil {
+		data, err = s.downloadFn(ctx, waClient, downloadable)
+	} else {
+		data, err = waClient.Download(ctx, downloadable)
+	}
+	if utils.IsExpiredMediaError(err) && recoverMedia != nil {
+		recovered, recoverErr := recoverMedia(ctx, waClient, msg, os.TempDir(), err)
+		if recoverErr != nil {
+			return "", fmt.Errorf("download failed: %w", recoverErr)
+		}
+		return recovered.MediaPath, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
@@ -892,7 +909,8 @@ var autoSyncTriggered sync.Map
 // event: it self-guards on configuration, requires a logged-in client (so the
 // storage JID is available), and latches per device so it runs only once per
 // process. The sync runs in the background and never blocks the caller.
-func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, waClient *whatsmeow.Client) {
+// recoverMedia becomes the run's SyncOptions.RecoverExpiredMedia.
+func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, waClient *whatsmeow.Client, recoverMedia ExpiredMediaRecoverer) {
 	if !config.ChatwootEnabled || !config.ChatwootImportMessages {
 		return
 	}
@@ -936,6 +954,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 	go func() {
 		opts := DefaultSyncOptions()
 		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
+		opts.RecoverExpiredMedia = recoverMedia
 
 		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
 

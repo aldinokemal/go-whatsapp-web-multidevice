@@ -322,7 +322,7 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 	// device may connect before its pushname is known.
 	if instance != nil {
 		if repo := instance.GetChatStorage(); repo != nil {
-			chatwoot.TriggerAutoSync(repo, client)
+			chatwoot.TriggerAutoSync(repo, client, NewBulkMediaRecovery(repo).Recover)
 		}
 	}
 
