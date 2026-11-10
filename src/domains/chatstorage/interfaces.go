@@ -30,6 +30,9 @@ type IChatStorageRepository interface {
 	StoreMessage(message *Message) error
 	StoreMessageEdit(edit *MessageEdit) error
 	StoreMessagesBatch(messages []*Message) error
+	// UpdateMessageMedia replaces only the media location and integrity fields of
+	// one device's stored message, leaving content and every other field as is.
+	UpdateMessageMedia(deviceID, chatJID, messageID string, media MessageMedia) error
 	// GetMessageByID matches an ID on any device and returns an arbitrary one of
 	// the rows. Each device stores its own copy (with its own "from me" flag and
 	// media keys), so user-facing flows must use the device-scoped lookups below.
