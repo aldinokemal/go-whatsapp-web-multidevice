@@ -2,6 +2,8 @@ package chatwoot
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -13,6 +15,8 @@ import (
 // it, each in both address forms WhatsApp uses for the same account: the
 // phone-number JID (628…@s.whatsapp.net, or the group JID for ChatJID) and
 // the LID (…@lid). Fill in every form that is known and leave the rest empty.
+// ChatJID and SenderJID hold the address the message was delivered (or
+// stored) under; when that is a LID, the *LID field may hold the phone JID.
 type MessageIdentity struct {
 	ChatJID   string
 	ChatLID   string
@@ -78,7 +82,8 @@ func (rc *ResolvedConfig) EffectiveIgnoreJids() []string {
 // jidFormResolver fills in the other address form of a stored JID from the
 // device's LID mapping table. Chat storage keeps one JID per chat and per
 // sender: the phone JID when the LID could be resolved at the time, else the
-// LID. The cache keeps a history run from repeating a lookup per message.
+// LID. The cache keeps a history run from repeating a lookup per message;
+// failed lookups are not cached.
 type jidFormResolver struct {
 	lids  lidMappingStore
 	cache map[string]string
@@ -98,33 +103,41 @@ func newJIDFormResolver(waClient *whatsmeow.Client) *jidFormResolver {
 	return r
 }
 
-// forms returns the phone-JID and LID forms of a stored user JID. The form
-// that is not stored is looked up in the mapping table and left empty when
-// there is no client, no mapping, or the lookup fails. Group and other
-// non-user JIDs are returned as the phone form unchanged.
-func (r *jidFormResolver) forms(ctx context.Context, jid string) (phoneJID, lid string) {
-	parsed, err := types.ParseJID(jid)
-	if err != nil || jid == "" {
-		return jid, ""
+// identity returns the stored JID as the delivered form and, for a user JID,
+// its other address form as the alias, ready for MessageIdentity. The stored
+// form stays the wildcard target whether or not a mapping is known now, which
+// is the address the message was delivered under; the alias is matched
+// against exact entries only (see ShouldIgnoreMessage).
+//
+// The alias is only needed when ignore holds an exact entry, so no lookup is
+// made otherwise. A failed lookup is returned rather than read as "no
+// mapping": the caller must not import content it may have been told to
+// ignore. No client, or no mapping, is not an error.
+func (r *jidFormResolver) identity(ctx context.Context, jid string, ignore []string) (delivered, alias string, err error) {
+	if jid == "" || !hasExactIgnoreEntry(ignore) {
+		return jid, "", nil
+	}
+	parsed, parseErr := types.ParseJID(jid)
+	if parseErr != nil {
+		return jid, "", nil
 	}
 	parsed = parsed.ToNonAD()
 	switch parsed.Server {
-	case types.HiddenUserServer:
-		return r.other(ctx, parsed), parsed.String()
-	case types.DefaultUserServer:
-		return parsed.String(), r.other(ctx, parsed)
+	case types.HiddenUserServer, types.DefaultUserServer:
+		alias, err = r.other(ctx, parsed)
+		return parsed.String(), alias, err
 	default:
-		return jid, ""
+		return jid, "", nil
 	}
 }
 
-func (r *jidFormResolver) other(ctx context.Context, jid types.JID) string {
+func (r *jidFormResolver) other(ctx context.Context, jid types.JID) (string, error) {
 	if r.lids == nil {
-		return ""
+		return "", nil
 	}
 	key := jid.String()
 	if cached, ok := r.cache[key]; ok {
-		return cached
+		return cached, nil
 	}
 	var (
 		found types.JID
@@ -135,10 +148,24 @@ func (r *jidFormResolver) other(ctx context.Context, jid types.JID) string {
 	} else {
 		found, err = r.lids.GetLIDForPN(ctx, jid)
 	}
+	if err != nil {
+		return "", fmt.Errorf("chatwoot: LID mapping lookup for %s: %w", key, err)
+	}
 	out := ""
-	if err == nil && !found.IsEmpty() {
+	if !found.IsEmpty() {
 		out = found.ToNonAD().String()
 	}
 	r.cache[key] = out
-	return out
+	return out, nil
+}
+
+// hasExactIgnoreEntry reports whether ignore holds a non-wildcard entry, the
+// only kind an alias form is matched against.
+func hasExactIgnoreEntry(ignore []string) bool {
+	for _, pattern := range ignore {
+		if pattern = strings.TrimSpace(pattern); pattern != "" && !strings.HasPrefix(pattern, "@") {
+			return true
+		}
+	}
+	return false
 }

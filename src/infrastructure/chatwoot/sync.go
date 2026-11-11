@@ -236,9 +236,19 @@ func (s *SyncService) SyncHistory(ctx context.Context, deviceID string, waClient
 		// progress tracker — the chat is excluded entirely instead of counted
 		// as "synced 0". Ignored senders inside a chat that is itself mirrored
 		// are dropped per message in filterIgnoredSenders.
-		chatJID, chatLID := jidForms.forms(ctx, chat.JID)
-		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) ||
-			ShouldIgnoreMessage(MessageIdentity{ChatJID: chatJID, ChatLID: chatLID}, ignore) {
+		if utils.IsSystemBroadcastJID(chat.JID) || utils.IsNewsletterJID(chat.JID) {
+			logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s", chat.JID)
+			continue
+		}
+		chatJID, chatAlias, idErr := jidForms.identity(ctx, chat.JID, ignore)
+		if idErr != nil {
+			// Fail closed, like the live path: the chat may be ignored under
+			// the address that could not be read. A later sync retries it.
+			logrus.Warnf("Chatwoot Sync: Skipping chat %s for this run: its other address could not be checked against the ignore list: %v", chat.JID, idErr)
+			progress.IncrementFailedChats()
+			continue
+		}
+		if ShouldIgnoreMessage(MessageIdentity{ChatJID: chatJID, ChatLID: chatAlias}, ignore) {
 			logrus.Debugf("Chatwoot Sync: Skipping ignored chat %s", chat.JID)
 			continue
 		}
@@ -489,8 +499,9 @@ func (s *SyncService) syncChatPG(
 // list, so history sync leaves out exactly what live forwarding suppresses: a
 // participant ignored by JID stays out of a group that is otherwise mirrored.
 // The sender is matched in its stored form and, where the device's LID mapping
-// knows it, in the other form too. The chat itself was already checked by the
-// caller.
+// knows it, in the other form too (exact entries only). A sender whose other
+// form cannot be read is left out of this run. The chat itself was already
+// checked by the caller.
 func filterIgnoredSenders(ctx context.Context, messages []*domainChatStorage.Message, ignore []string, jidForms *jidFormResolver) []*domainChatStorage.Message {
 	if len(ignore) == 0 || len(messages) == 0 {
 		return messages
@@ -503,8 +514,14 @@ func filterIgnoredSenders(ctx context.Context, messages []*domainChatStorage.Mes
 		if msg == nil {
 			continue
 		}
-		senderJID, senderLID := jidForms.forms(ctx, msg.Sender)
-		if ShouldIgnoreMessage(MessageIdentity{SenderJID: senderJID, SenderLID: senderLID}, ignore) {
+		senderJID, senderAlias, err := jidForms.identity(ctx, msg.Sender, ignore)
+		if err != nil {
+			// Fail closed: the sender may be ignored under the address that
+			// could not be read. The message is left for a later sync.
+			logrus.Warnf("Chatwoot Sync: Skipping message %s for this run: sender %s could not be checked against the ignore list: %v", msg.ID, msg.Sender, err)
+			continue
+		}
+		if ShouldIgnoreMessage(MessageIdentity{SenderJID: senderJID, SenderLID: senderAlias}, ignore) {
 			logrus.Debugf("Chatwoot Sync: Skipping message %s from ignored sender %s", msg.ID, msg.Sender)
 			continue
 		}

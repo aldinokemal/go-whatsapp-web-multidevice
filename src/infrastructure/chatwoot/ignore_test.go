@@ -114,32 +114,45 @@ func TestJIDFormResolver(t *testing.T) {
 	lids := &fakeLIDStore{pnToLID: map[string]string{"628111@s.whatsapp.net": "123@lid"}}
 	r := newJIDFormResolver(&whatsmeow.Client{Store: &store.Device{LIDs: lids}})
 	ctx := context.Background()
+	exact := []string{"999@lid"}
 
-	if pn, lid := r.forms(ctx, "628111@s.whatsapp.net"); pn != "628111@s.whatsapp.net" || lid != "123@lid" {
-		t.Fatalf("phone -> (%q, %q)", pn, lid)
+	check := func(name, jid string, ignore []string, wantDelivered, wantAlias string) {
+		t.Helper()
+		delivered, alias, err := r.identity(ctx, jid, ignore)
+		if err != nil || delivered != wantDelivered || alias != wantAlias {
+			t.Fatalf("%s: %s -> (%q, %q, %v), want (%q, %q, nil)", name, jid, delivered, alias, err, wantDelivered, wantAlias)
+		}
 	}
-	if pn, lid := r.forms(ctx, "123@lid"); pn != "628111@s.whatsapp.net" || lid != "123@lid" {
-		t.Fatalf("lid -> (%q, %q)", pn, lid)
-	}
-	if pn, lid := r.forms(ctx, "628999@s.whatsapp.net"); pn != "628999@s.whatsapp.net" || lid != "" {
-		t.Fatalf("unmapped phone -> (%q, %q)", pn, lid)
-	}
-	if pn, lid := r.forms(ctx, "120363000000000001@g.us"); pn != "120363000000000001@g.us" || lid != "" {
-		t.Fatalf("group -> (%q, %q)", pn, lid)
-	}
+	// The stored form is always the delivered form; the other is the alias.
+	check("phone", "628111@s.whatsapp.net", exact, "628111@s.whatsapp.net", "123@lid")
+	check("lid", "123@lid", exact, "123@lid", "628111@s.whatsapp.net")
+	check("unmapped phone", "628999@s.whatsapp.net", exact, "628999@s.whatsapp.net", "")
+	check("group", "120363000000000001@g.us", exact, "120363000000000001@g.us", "")
 	before := lids.calls
-	r.forms(ctx, "628111@s.whatsapp.net")
+	check("cached", "628111@s.whatsapp.net", exact, "628111@s.whatsapp.net", "123@lid")
 	if lids.calls != before {
 		t.Fatal("a repeated lookup must be served from the cache")
 	}
-
-	// No client, or a failing mapping table: only the stored form is known.
-	if pn, lid := newJIDFormResolver(nil).forms(ctx, "123@lid"); pn != "" || lid != "123@lid" {
-		t.Fatalf("no client -> (%q, %q)", pn, lid)
+	// Wildcards never match an alias, so a wildcard-only list needs no lookup.
+	check("wildcards only", "628444@s.whatsapp.net", []string{"@lid", "@g.us"}, "628444@s.whatsapp.net", "")
+	if lids.calls != before {
+		t.Fatal("a wildcard-only list must not look up mappings")
 	}
-	failing := newJIDFormResolver(&whatsmeow.Client{Store: &store.Device{LIDs: &fakeLIDStore{err: errors.New("db down")}}})
-	if pn, lid := failing.forms(ctx, "628111@s.whatsapp.net"); pn != "628111@s.whatsapp.net" || lid != "" {
-		t.Fatalf("failing store -> (%q, %q)", pn, lid)
+
+	// No client: only the stored form is known, and that is not an error.
+	if delivered, alias, err := newJIDFormResolver(nil).identity(ctx, "123@lid", exact); err != nil || delivered != "123@lid" || alias != "" {
+		t.Fatalf("no client -> (%q, %q, %v)", delivered, alias, err)
+	}
+	// A failing mapping table is an error, and it is not cached.
+	failingStore := &fakeLIDStore{err: errors.New("db down")}
+	failing := newJIDFormResolver(&whatsmeow.Client{Store: &store.Device{LIDs: failingStore}})
+	for i := 0; i < 2; i++ {
+		if _, _, err := failing.identity(ctx, "628111@s.whatsapp.net", exact); err == nil {
+			t.Fatalf("failing store, attempt %d: want an error", i+1)
+		}
+	}
+	if failingStore.calls != 2 {
+		t.Fatalf("a failed lookup must not be cached: %d calls", failingStore.calls)
 	}
 }
 
@@ -390,5 +403,96 @@ func TestFilterIgnoredSendersResolvesLID(t *testing.T) {
 	}
 	if got := ids(filterIgnoredSenders(context.Background(), messages, nil, r)); got != "a,b,c" {
 		t.Fatalf("empty list kept %q, want everything", got)
+	}
+}
+
+// TestSyncHistoryLIDWildcardFollowsStoredAddress: an "@lid" wildcard matches a
+// chat or sender stored under a LID whether or not its phone number is known
+// now, and never one stored under its phone JID.
+func TestSyncHistoryLIDWildcardFollowsStoredAddress(t *testing.T) {
+	const (
+		mappedLID   = "777@lid" // phone 628777@s.whatsapp.net
+		unmappedLID = "888@lid"
+		phoneDM     = "628111@s.whatsapp.net" // LID 123@lid
+		group       = "120363000000000001@g.us"
+	)
+	newClient := func() *whatsmeow.Client {
+		return &whatsmeow.Client{Store: &store.Device{LIDs: &fakeLIDStore{pnToLID: map[string]string{
+			"628777@s.whatsapp.net": mappedLID,
+			phoneDM:                 "123@lid",
+			"628555@s.whatsapp.net": "555@lid",
+		}}}}
+	}
+	repo := &historyIgnoreRepo{
+		chats: []*domainChatStorage.Chat{{JID: mappedLID}, {JID: unmappedLID}, {JID: phoneDM}},
+		messages: map[string][]*domainChatStorage.Message{
+			mappedLID:   {historyMsg("m-mapped", mappedLID, mappedLID)},
+			unmappedLID: {historyMsg("m-unmapped", unmappedLID, unmappedLID)},
+			phoneDM:     {historyMsg("m-phone", phoneDM, phoneDM)},
+		},
+	}
+	// "628999@s.whatsapp.net" is an unrelated exact entry, so aliases are
+	// resolved; the wildcard must still follow the stored address.
+	ignore := []string{"@lid", "628999@s.whatsapp.net"}
+	fake, _ := runHistoryIgnoreSync(t, repo, newClient(), ignore)
+	if got, want := strings.Join(fake.uploaded(), ","), "WAID:m-phone"; got != want {
+		t.Fatalf("@lid wildcard: uploaded %s, want %s", got, want)
+	}
+
+	// The same rule for group participants.
+	messages := []*domainChatStorage.Message{
+		historyMsg("g-lid", group, "555@lid"),                 // mapped LID sender
+		historyMsg("g-phone", group, "628555@s.whatsapp.net"), // same person, phone form
+	}
+	kept := filterIgnoredSenders(context.Background(), messages, ignore, newJIDFormResolver(newClient()))
+	if len(kept) != 1 || kept[0].ID != "g-phone" {
+		t.Fatalf("@lid wildcard on group senders kept %v, want g-phone", kept)
+	}
+}
+
+// TestSyncHistoryFailsClosedWhenLIDMappingsFail: a mapping-store error during
+// history import must not let an ignored chat or group sender through. Those
+// chats and messages are left out of the run, and the chats count as failed.
+func TestSyncHistoryFailsClosedWhenLIDMappingsFail(t *testing.T) {
+	const (
+		dm    = "628111@s.whatsapp.net" // would map to the ignored 123@lid
+		other = "628444@s.whatsapp.net"
+		group = "120363000000000001@g.us"
+	)
+	failing := func() *whatsmeow.Client {
+		return &whatsmeow.Client{Store: &store.Device{LIDs: &fakeLIDStore{err: errors.New("lid store unavailable")}}}
+	}
+	newRepo := func() *historyIgnoreRepo {
+		return &historyIgnoreRepo{
+			chats: []*domainChatStorage.Chat{{JID: dm}, {JID: other}},
+			messages: map[string][]*domainChatStorage.Message{
+				dm:    {historyMsg("dm", dm, dm)},
+				other: {historyMsg("other", other, other)},
+			},
+		}
+	}
+
+	fake, progress := runHistoryIgnoreSync(t, newRepo(), failing(), []string{"123@lid"})
+	if got := strings.Join(fake.uploaded(), ","); got != "" {
+		t.Fatalf("failing mapping store: uploaded %s, want nothing", got)
+	}
+	if progress.FailedChats != 2 || progress.SyncedChats != 0 {
+		t.Fatalf("unchecked chats must count as failed: %+v", progress)
+	}
+
+	// Group senders: the user sender whose LID cannot be read is left out.
+	messages := []*domainChatStorage.Message{historyMsg("g-user", group, dm), historyMsg("g-note", group, "")}
+	kept := filterIgnoredSenders(context.Background(), messages, []string{"123@lid"}, newJIDFormResolver(failing()))
+	if len(kept) != 1 || kept[0].ID != "g-note" {
+		t.Fatalf("failing store on group senders kept %v, want g-note", kept)
+	}
+
+	// With wildcard entries only, aliases are irrelevant and nothing fails.
+	fake, progress = runHistoryIgnoreSync(t, newRepo(), failing(), []string{"@g.us"})
+	if got, want := strings.Join(fake.uploaded(), ","), "WAID:dm,WAID:other"; got != want {
+		t.Fatalf("wildcard-only list: uploaded %s, want %s", got, want)
+	}
+	if progress.FailedChats != 0 {
+		t.Fatalf("wildcard-only list must not fail chats: %+v", progress)
 	}
 }
