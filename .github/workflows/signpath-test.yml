@@ -1,0 +1,123 @@
+name: SignPath test signing (Windows x64)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  test-signing:
+    if: >-
+      github.repository == 'aldinokemal/go-whatsapp-web-multidevice' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.head_ref == 'feat/signpath-test-signing'))
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Install Windows cross-compiler and signature tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 osslsigncode
+
+      - name: Build Windows x64 executable with version metadata
+        id: build
+        working-directory: src
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '1'
+          CC: x86_64-w64-mingw32-gcc
+        run: |
+          version=$(sed -nE 's/^[[:space:]]*AppVersion[[:space:]]*=[[:space:]]*"v([0-9]+\.[0-9]+\.[0-9]+)"[[:space:]]*$/\1/p' config/settings.go)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Expected AppVersion to contain a stable semantic version.' >&2
+            exit 1
+          fi
+          resource_version="${version//./,},0"
+          resource_file="$RUNNER_TEMP/gowa-version.rc"
+          trap 'rm -f "$resource_file" gowa_version_windows_amd64.syso' EXIT
+          cat > "$resource_file" <<EOF
+          1 VERSIONINFO
+          FILEVERSION $resource_version
+          PRODUCTVERSION $resource_version
+          FILEOS 0x00040004
+          FILETYPE 0x1
+          BEGIN
+            BLOCK "StringFileInfo"
+            BEGIN
+              BLOCK "040904B0"
+              BEGIN
+                VALUE "ProductName", "GOWA"
+                VALUE "ProductVersion", "$version"
+                VALUE "FileVersion", "$version"
+              END
+            END
+            BLOCK "VarFileInfo"
+            BEGIN
+              VALUE "Translation", 0x0409, 1200
+            END
+          END
+          EOF
+          x86_64-w64-mingw32-windres -i "$resource_file" -O coff -o gowa_version_windows_amd64.syso
+          mkdir -p "$RUNNER_TEMP/unsigned"
+          go build -ldflags '-s -w' -o "$RUNNER_TEMP/unsigned/windows-amd64.exe" .
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload unsigned executable for SignPath
+        id: unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-windows-amd64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/unsigned/windows-amd64.exe
+          if-no-files-found: error
+
+      - name: Load SignPath CI token from 1Password
+        id: signpath-token
+        uses: 1password/load-secrets-action@v5
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SIGNPATH_API_TOKEN: op://GOWA-OSS/SignPath/token
+
+      - name: Sign using the SignPath test certificate
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ steps.signpath-token.outputs.SIGNPATH_API_TOKEN }}
+          organization-id: bf2a8ecf-fdb9-4d01-9cb2-7cbb79320525
+          project-slug: go-whatsapp-web-multidevice
+          signing-policy-slug: test-signing
+          artifact-configuration-slug: windows-amd64-zip
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}/signed
+          parameters: |
+            version: ${{ toJSON(steps.build.outputs.version) }}
+
+      - name: Check the signed executable has an Authenticode signature
+        run: |
+          osslsigncode extract-signature \
+            -in "$RUNNER_TEMP/signed/windows-amd64.exe" \
+            -out "$RUNNER_TEMP/gowa-authenticode.p7b"
+
+      - name: Upload signed test executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-signed-windows-amd64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signed/windows-amd64.exe
+          if-no-files-found: error
