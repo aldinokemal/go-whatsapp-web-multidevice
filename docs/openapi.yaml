@@ -1,7 +1,7 @@
 openapi: "3.0.0"
 info:
   title: WhatsApp API MultiDevice
-  version: "9.7.0"
+  version: "9.9.0"
   description: |
     This API is used for sending whatsapp via API.
 
