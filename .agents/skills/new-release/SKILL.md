@@ -6,7 +6,8 @@ description: Publish a stable GOWA release. Use only for an explicit $new-releas
 # New release
 
 Publish from a clean, current `main` checkout of
-`aldinokemal/go-whatsapp-web-multidevice`: update only `AppVersion`, validate, commit,
+`aldinokemal/go-whatsapp-web-multidevice`: update only `AppVersion` and the OpenAPI
+`info.version`, validate, commit,
 push `main`, push the matching tag, and verify the release created by `release.yml`.
 Release-note editing is a separate task; do not run `gh release create`.
 
@@ -38,7 +39,7 @@ Release-note editing is a separate task; do not run `gh release create`.
    must exit `2`; `gh api -i repos/aldinokemal/go-whatsapp-web-multidevice/releases/tags/<version>`
    must return explicit HTTP `404`. A present ref/release or any other error stops the workflow.
 4. Show the repository, requested/current versions, full `base_sha`, and subject. Ask:
-   `Update AppVersion to <version>, commit, push main, and tag the release? [yes/no]`
+   `Update AppVersion and OpenAPI info.version to <version>, commit, push main, and tag the release? [yes/no]`
 
 ## Publish after confirmation
 
@@ -46,12 +47,14 @@ Recheck preflight facts immediately before editing: URLs/repository/auth, clean
 `main`, fresh `origin/main == HEAD == base_sha`, unchanged `current_version`, and
 exact tag/release absence. If any differs, stop and report the changed fact.
 
-1. Replace only the quoted `AppVersion` value. Require `git diff --check` and verify
-   that the entire diff is that one replacement in `src/config/settings.go`.
+1. Replace only the quoted `AppVersion` value in `src/config/settings.go` and the
+   quoted `info.version` value in `docs/openapi.yaml` (the version without the `v`
+   prefix). Require `git diff --check` and verify that the entire diff is those two
+   one-line replacements.
 2. Run `go test ./...` from `src/` and require success. This validates the release
    candidate; do not also require an unchanged baseline suite before confirmation.
-3. Stage only `src/config/settings.go`; verify the staged diff is still exactly
-   that version replacement. Commit `chore(release): <version>` and record the full
+3. Stage only `src/config/settings.go` and `docs/openapi.yaml`; verify the staged
+   diff is still exactly those version replacements. Commit `chore(release): <version>` and record the full
    `release_sha`, which must differ from `base_sha`.
 4. Push `origin HEAD:refs/heads/main`, fetch `origin main --tags --prune`, and require
    `HEAD == origin/main == release_sha`. Recheck local/remote tag and release absence.
