@@ -1,9 +1,7 @@
 package config
 
 import (
-	"bufio"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,15 +12,13 @@ import (
 // AppVersion. The new-release skill runs `go test ./...` before committing a
 // release, so a bump that skips the spec fails here instead of shipping.
 func TestOpenAPIInfoVersionMatchesAppVersion(t *testing.T) {
-	file, err := os.Open(filepath.Join("..", "..", "docs", "openapi.yaml"))
+	spec, err := os.ReadFile("../../docs/openapi.yaml")
 	require.NoError(t, err)
-	defer file.Close()
 
 	var specVersion string
 	inInfo := false
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, line := range strings.Split(string(spec), "\n") {
+		line = strings.TrimRight(line, "\r")
 		if line == "info:" {
 			inInfo = true
 			continue
@@ -38,7 +34,6 @@ func TestOpenAPIInfoVersionMatchesAppVersion(t *testing.T) {
 			break
 		}
 	}
-	require.NoError(t, scanner.Err())
 	require.NotEmpty(t, specVersion, "info.version not found in docs/openapi.yaml")
 
 	require.Equal(t, strings.TrimPrefix(AppVersion, "v"), specVersion,
