@@ -22,6 +22,7 @@ func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
 	app.Get("/user/check", rest.UserCheck)
+	app.Post("/user/presence/subscribe", rest.UserSubscribePresence)
 	app.Get("/user/business-profile", rest.UserBusinessProfile)
 
 	return rest
@@ -96,6 +97,26 @@ func (controller *User) UserMyPrivacySetting(c fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get privacy",
+		Results: response,
+	})
+}
+
+func (controller *User) UserSubscribePresence(c fiber.Ctx) error {
+	var request domainUser.SubscribePresenceRequest
+	err := c.Bind().Body(&request)
+	utils.PanicIfNeeded(err)
+
+	utils.SanitizePhone(&request.Phone)
+
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+
+	response, err := controller.Service.SubscribePresence(ctx, request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success subscribe to user presence",
 		Results: response,
 	})
 }

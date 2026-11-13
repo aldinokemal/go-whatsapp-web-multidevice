@@ -226,6 +226,12 @@ func getVideoMetadata(videoPath string) videoMetadata {
 type serviceSend struct {
 	appService      app.IAppUsecase
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+
+	// Forward re-upload seams; nil uses the real whatsmeow/CDN implementations.
+	extractMediaFn         extractMediaFunc
+	requestMediaReuploadFn requestMediaReuploadFunc
+	fetchReuploadedMediaFn fetchReuploadedMediaFunc
+	uploadMediaFn          func(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (whatsmeow.UploadResponse, error)
 }
 
 func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorage.IChatStorageRepository) domainSend.ISendUsecase {
@@ -235,12 +241,34 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 	}
 }
 
+// sendRequestExtras returns the options a send carries in its context, merged
+// with any caller-supplied extra. whatsmeow accepts only one SendRequestExtra.
+// A caller may pin the WhatsApp message id (the Chatwoot bridge and the
+// scheduler derive it before dispatch); otherwise whatsmeow generates one.
+// Caller fields, such as interactive additional nodes, are kept. A caller id
+// wins over the context id.
+func sendRequestExtras(ctx context.Context, extra ...whatsmeow.SendRequestExtra) []whatsmeow.SendRequestExtra {
+	if len(extra) == 0 {
+		if messageID := whatsapp.SendMessageIDFromContext(ctx); messageID != "" {
+			return []whatsmeow.SendRequestExtra{{ID: messageID}}
+		}
+		return nil
+	}
+	merged := append([]whatsmeow.SendRequestExtra(nil), extra...)
+	if merged[0].ID == "" {
+		if messageID := whatsapp.SendMessageIDFromContext(ctx); messageID != "" {
+			merged[0].ID = messageID
+		}
+	}
+	return merged
+}
+
 // wrapSendMessage sends the message and stores it asynchronously on success.
 // whatsmeow handles the trusted-contact (tctoken) lifecycle internally; a 463
 // "reach-out timelock" rejection is a WhatsApp server-side restriction that the
 // client cannot retry around, so it is surfaced as-is via normalizeSendError.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg, extra...)
+	ts, err := client.SendMessage(ctx, recipient, msg, sendRequestExtras(ctx, extra...)...)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
@@ -1585,6 +1613,16 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 	return response, nil
 }
 
+// buildPollCreation uses whatsmeow's builder and preserves the scheduled
+// occurrence's secret, which its durable secret store associates with the ID.
+func buildPollCreation(ctx context.Context, client *whatsmeow.Client, request domainSend.PollRequest) *waE2E.Message {
+	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	if secret := whatsapp.PollSecretFromContext(ctx); len(secret) > 0 {
+		msg.MessageContextInfo.MessageSecret = secret
+	}
+	return msg
+}
+
 func (service serviceSend) SendPoll(ctx context.Context, request domainSend.PollRequest) (response domainSend.GenericResponse, err error) {
 	err = validations.ValidateSendPoll(ctx, request)
 	if err != nil {
@@ -1603,7 +1641,7 @@ func (service serviceSend) SendPoll(ctx context.Context, request domainSend.Poll
 
 	content := "📊 " + request.Question
 
-	msg := client.BuildPollCreation(request.Question, request.Options, request.MaxAnswer)
+	msg := buildPollCreation(ctx, client, request)
 
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		if msg.PollCreationMessage.ContextInfo == nil {
@@ -2097,7 +2135,12 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 	return response, nil
 }
 
+// uploadMedia uploads media for a send to recipient, using the newsletter
+// upload for newsletter recipients.
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
+	if service.uploadMediaFn != nil {
+		return service.uploadMediaFn(ctx, client, mediaType, media, recipient)
+	}
 	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
 }
 

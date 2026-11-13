@@ -16,6 +16,11 @@ This package owns clients, device lifecycle, JIDs, events, presence, and forward
   Keep work bounded and failures observable without blocking the event loop.
   Preserve the `shouldForwardReceipt` guard: contacts' linked-device receipts stay
   dropped to prevent duplicates; only the account's own read receipts pass from any device.
+  Device events (`event_device.go`) take the webhook config by stable slot ID with a
+  bounded context-aware SQL lookup. They capture the session id before returning,
+  since `handleLoggedOut` forwards
+  just before `TriggerLoggedOut` clears the JID; delivery starts before the bounded
+  websocket broadcast.
 - Chatwoot retries: `StartChatwootForwardRetryWorker` uses durable chat-storage jobs
   keyed by device, event name, and WhatsApp message ID. Initialize the client registry
   before the retry worker; preserve device routing when replaying queued events.
@@ -24,6 +29,10 @@ This package owns clients, device lifecycle, JIDs, events, presence, and forward
   `sync.Once`; do not introduce a second scheduler.
 - Session keys: `key_cache.go` redirects selected key stores. Leave privacy tokens
   in durable primary WhatsApp storage rather than moving them to a volatile keys DB.
+- Expired media: `media_retry.go` routes `events.MediaRetry` to the downloads
+  waiting for it; `media_recovery.go` is the recovery shared by stored-media
+  download paths. It waits up to `DefaultMediaRetryTimeout` for the phone, so call
+  it from request or worker goroutines, never from an event handler.
 - History: `history_sync.go` handles batches; preserve the same device and JID rules.
 
 Tests commonly exercise unexported helpers and replace package globals. Restore

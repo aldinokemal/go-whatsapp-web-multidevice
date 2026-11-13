@@ -460,6 +460,27 @@ func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatSt
 	return insertErr
 }
 
+// UpdateMessageMedia replaces only the media location and integrity fields of
+// one device's stored message. It never rewrites content or other fields, so a
+// concurrent edit stored while the media was being recovered is preserved.
+func (r *SQLiteRepository) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" || chatJID == "" || messageID == "" {
+		return errors.New("device ID, chat JID and message ID are required")
+	}
+	result, err := r.db.Exec(`
+		UPDATE messages SET url = ?, direct_path = ?, file_sha256 = ?, file_enc_sha256 = ?, file_length = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`, media.URL, media.DirectPath, media.FileSHA256, media.FileEncSHA256, media.FileLength, time.Now(),
+		messageID, chatJID, deviceID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("message %s not found in chat %s for device %s", messageID, chatJID, deviceID)
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	if len(messages) == 0 {
 		return nil
@@ -1103,18 +1124,60 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 	return link, err
 }
 
-func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	query := `
+func (r *SQLiteRepository) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
+	rows, err := r.db.Query(`
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
+		ORDER BY created_at, rowid
+	`, deviceID, chatwootMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	links := []*domainChatStorage.ChatwootMessageLink{}
+	for rows.Next() {
+		link, err := r.scanChatwootMessageLink(rows)
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+// GetChatwootMessageLinkForReply applies the whole scope before LIMIT 1, so a
+// link from another config, account, inbox or conversation is never picked.
+// Several links (one per attachment) resolve to the first one delivered.
+func (r *SQLiteRepository) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	// Account 0 marks a legacy row: it never matches as an account id.
+	if filter.ChatwootAccountID <= 0 {
+		return nil, nil
+	}
+	legacyZero := 0
+	if filter.AllowLegacyAccountZero && filter.ChatwootConfigID == 0 {
+		legacyZero = 1
+	}
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND chatwoot_message_id = ? AND chatwoot_conversation_id = ?
+			AND chatwoot_inbox_id = ? AND chatwoot_config_id = ?
+			AND (chatwoot_account_id = ? OR (? = 1 AND chatwoot_account_id = 0))
+		ORDER BY chatwoot_account_id = 0, created_at, wa_message_id
 		LIMIT 1
 	`
 
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, chatwootMessageID))
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query,
+		filter.DeviceID, filter.ChatwootMessageID, filter.ChatwootConversationID,
+		filter.ChatwootInboxID, filter.ChatwootConfigID, filter.ChatwootAccountID, legacyZero))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1745,12 +1808,14 @@ func (r *SQLiteRepository) CreateScheduledSend(job *domainChatStorage.ScheduledS
 			id, device_id, message_type, payload_json, assets_json, phone, summary,
 			scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 			end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+			pending_message_id, pending_poll_secret, legacy_attempt_unknown
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.DeviceID, job.MessageType, job.PayloadJSON, job.AssetsJSON, job.Phone, job.Summary,
 		job.ScheduledAt, job.NextRunAt, job.Timezone, job.Recurrence, job.WeekdaysJSON, job.DayOfMonth,
 		job.EndAt, job.OccurrenceLimit, job.OccurrenceCount, job.Attempts, job.Status, job.LeaseToken,
-		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt)
+		job.LeaseUntil, job.LastRunAt, job.LastMessageID, job.LastError, job.CreatedAt, job.UpdatedAt,
+		job.PendingMessageID, job.PendingPollSecret, job.LegacyAttemptUnknown)
 	return err
 }
 
@@ -1849,21 +1914,16 @@ func (r *SQLiteRepository) ClaimNextScheduledSend(now, leaseUntil time.Time, lea
 	return job, err
 }
 
-func (r *SQLiteRepository) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
-	rows, err := r.db.Query(`SELECT `+scheduledSendColumns+` FROM scheduled_sends WHERE status = 'running' AND lease_until <= ?`, now)
-	if err != nil {
-		return nil, err
+// ClaimExpiredScheduledSend fences the previous worker before exposing recovery state.
+func (r *SQLiteRepository) ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	row := r.db.QueryRow(`UPDATE scheduled_sends SET lease_token = ?, lease_until = ?, updated_at = ?
+		WHERE id = (SELECT id FROM scheduled_sends WHERE status = 'running' AND lease_until <= ? ORDER BY lease_until, id LIMIT 1)
+		RETURNING `+scheduledSendColumns, leaseToken, leaseUntil, now, now)
+	job, err := scanScheduledSend(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	defer rows.Close()
-	result := make([]*domainChatStorage.ScheduledSend, 0)
-	for rows.Next() {
-		job, err := scanScheduledSend(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, job)
-	}
-	return result, rows.Err()
+	return job, err
 }
 
 func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
@@ -1883,18 +1943,39 @@ func (r *SQLiteRepository) ListScheduledSendIDs() ([]string, error) {
 	return ids, rows.Err()
 }
 
+func (r *SQLiteRepository) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error) {
+	result, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = ?, pending_poll_secret = ?, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ? AND lease_until > ? AND (pending_message_id = '' OR (pending_message_id = ? AND pending_poll_secret IS ?))`, messageID, pollSecret, now, id, leaseToken, now, messageID, pollSecret)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected > 0, err
+}
+
+func (r *SQLiteRepository) ClearScheduledSendPendingMessageID(deviceID, id string) error {
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, updated_at = ? WHERE device_id = ? AND id = ? AND status = 'paused'`, time.Now().UTC(), deviceID, id)
+	return err
+}
+
 func (r *SQLiteRepository) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), id, leaseToken)
+	// With no attempt on record, what runs next has not been sent under any
+	// id yet (a new occurrence after a skipped one, or one that only waited
+	// for its device): it must not inherit the id of an earlier occurrence.
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'active', attempts = ?, last_error = ?, next_run_at = ?, lease_token = '', lease_until = NULL, updated_at = ?,
+		pending_message_id = CASE WHEN ? > 0 THEN pending_message_id ELSE '' END,
+		pending_poll_secret = CASE WHEN ? > 0 THEN pending_poll_secret ELSE NULL END,
+		legacy_attempt_unknown = CASE WHEN ? > 0 THEN legacy_attempt_unknown ELSE FALSE END
+		WHERE id = ? AND status = 'running' AND lease_token = ?`, attempts, lastError, nextRunAt, time.Now().UTC(), attempts, attempts, attempts, id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) CompleteScheduledSend(id, leaseToken, status, lastMessageID string, occurrenceCount int, nextRunAt *time.Time) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = ?, occurrence_count = ?, attempts = 0, last_message_id = ?, pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, last_run_at = ?, next_run_at = COALESCE(?, next_run_at), last_error = '', lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, status, occurrenceCount, lastMessageID, time.Now().UTC(), nextRunAt, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
 func (r *SQLiteRepository) FailScheduledSend(id, leaseToken, lastError string) error {
-	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', last_error = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, time.Now().UTC(), id, leaseToken)
+	_, err := r.db.Exec(`UPDATE scheduled_sends SET status = 'failed', pending_message_id = '', pending_poll_secret = NULL, legacy_attempt_unknown = FALSE, last_error = ?, lease_token = '', lease_until = NULL, updated_at = ? WHERE id = ? AND status = 'running' AND lease_token = ?`, lastError, time.Now().UTC(), id, leaseToken)
 	return err
 }
 
@@ -1915,7 +1996,8 @@ func (r *SQLiteRepository) SetScheduledSendStatus(deviceID, id string, from []st
 const scheduledSendColumns = `id, device_id, message_type, payload_json, assets_json, phone, summary,
 	scheduled_at, next_run_at, timezone, recurrence, weekdays_json, day_of_month,
 	end_at, occurrence_limit, occurrence_count, attempts, status, lease_token,
-	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at`
+	lease_until, last_run_at, last_message_id, last_error, created_at, updated_at,
+	pending_message_id, pending_poll_secret, legacy_attempt_unknown`
 
 func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStorage.ScheduledSend, error) {
 	job := &domainChatStorage.ScheduledSend{}
@@ -1925,6 +2007,7 @@ func scanScheduledSend(scanner interface{ Scan(...any) error }) (*domainChatStor
 		&job.ScheduledAt, &job.NextRunAt, &job.Timezone, &job.Recurrence, &job.WeekdaysJSON, &job.DayOfMonth,
 		&endAt, &job.OccurrenceLimit, &job.OccurrenceCount, &job.Attempts, &job.Status, &job.LeaseToken,
 		&leaseUntil, &lastRunAt, &job.LastMessageID, &job.LastError, &job.CreatedAt, &job.UpdatedAt,
+		&job.PendingMessageID, &job.PendingPollSecret, &job.LegacyAttemptUnknown,
 	); err != nil {
 		return nil, err
 	}
@@ -2163,13 +2246,13 @@ func (r *SQLiteRepository) SetDeviceWebhookConfig(deviceID string, config *domai
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
 // Returns (nil, nil) if no device-specific webhook configuration is set.
-func (r *SQLiteRepository) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+func (r *SQLiteRepository) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device id is required")
 	}
 	var config domainChatStorage.DeviceWebhookConfig
 	var webhookURL *string
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT webhook_url, COALESCE(webhook_secret, ''), COALESCE(webhook_events, ''), COALESCE(webhook_insecure_skip_verify, FALSE)
 		FROM devices WHERE device_id = ? LIMIT 1
 	`, deviceID).Scan(&webhookURL, &config.WebhookSecret, &config.WebhookEvents, &config.WebhookInsecureSkipVerify)
@@ -2688,6 +2771,32 @@ func (r *SQLiteRepository) CreateReaction(ctx context.Context, evt *events.Messa
 		return nil
 	}
 	return r.StoreReaction(reaction)
+}
+
+// GetReactionForEvent returns the stored reaction addressed by an event, or nil if absent.
+func (r *SQLiteRepository) GetReactionForEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	target, err := r.reactionFromEvent(ctx, evt)
+	if err != nil || target == nil {
+		return nil, err
+	}
+
+	var stored domainChatStorage.Reaction
+	err = r.db.QueryRowContext(ctx, `
+		SELECT message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+			reaction_timestamp, created_at, updated_at
+		FROM message_reactions
+		WHERE message_id = ? AND chat_jid = ? AND reactor_jid = ? AND device_id = ?
+	`, target.MessageID, target.ChatJID, target.ReactorJID, target.DeviceID).Scan(
+		&stored.MessageID, &stored.ChatJID, &stored.DeviceID, &stored.ReactorJID,
+		&stored.Emoji, &stored.IsFromMe, &stored.Timestamp, &stored.CreatedAt, &stored.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &stored, nil
 }
 
 func (r *SQLiteRepository) reactionFromEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
@@ -3365,5 +3474,18 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 50: Per-device secret for Chatwoot's signed webhooks (each API channel has its own)
 		`ALTER TABLE chatwoot_device_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''`,
+
+		// Migration 51: Reuse the identity of a scheduled occurrence on retries.
+		`ALTER TABLE scheduled_sends ADD COLUMN pending_message_id VARCHAR(255) NOT NULL DEFAULT ''`,
+
+		// Migration 52: Track attempts made before occurrence IDs were persisted.
+		`ALTER TABLE scheduled_sends ADD COLUMN legacy_attempt_unknown BOOLEAN NOT NULL DEFAULT FALSE`,
+
+		// Migration 53: An old running or retried occurrence may already have
+		// reached WhatsApp under an unknown ID. It must be skipped, not replayed.
+		`UPDATE scheduled_sends SET legacy_attempt_unknown = TRUE WHERE status = 'running' OR attempts > 0`,
+
+		// Migration 54: Poll retries must reuse the secret as well as the ID.
+		`ALTER TABLE scheduled_sends ADD COLUMN pending_poll_secret BLOB`,
 	}
 }

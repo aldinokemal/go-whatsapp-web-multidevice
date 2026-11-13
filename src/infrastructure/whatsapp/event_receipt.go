@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -99,20 +100,11 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
 }
 
-// shouldForwardReceipt reports whether a receipt event should be forwarded.
-//
-// WhatsApp sends separate receipt events for each linked device (phone, web,
-// desktop, etc.) of a contact. For example, if a contact has 3 devices, you
-// would receive 3 "delivered" receipts for the same message. To avoid duplicate
-// webhooks we only forward the receipt from the primary device (Device == 0).
-//
-// The exception is a read receipt sent by one of the current account's own
-// devices (IsFromMe). It means the account owner read the chat on that device
-// (WhatsApp Web, Desktop or another companion), and only the device where the
-// chat was opened sends it, so it is not duplicated per device. Dropping it
-// would hide reads that did not happen on the phone.
+// shouldForwardReceipt suppresses duplicate contact receipts from linked devices
+// unless explicitly enabled. Own-device reads always pass because only the device
+// where the account owner opened the chat emits them.
 func shouldForwardReceipt(evt *events.Receipt) bool {
-	if evt.Sender.Device == 0 {
+	if config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0 {
 		return true
 	}
 	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)

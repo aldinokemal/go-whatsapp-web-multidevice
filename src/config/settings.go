@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v9.7.0"
+	AppVersion             = "v9.9.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -64,6 +64,7 @@ var (
 	WhatsappWebhookInsecureSkipVerify = false          // Skip TLS certificate verification for webhooks (insecure)
 	WhatsappWebhookEvents             []string         // Whitelist of events to forward to webhook (empty = all events)
 	WhatsappWebhookIgnoreJids         []string         // JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks
+	WhatsappWebhookAllDeviceReceipts           = false // Forward receipts from all linked devices, not only the primary device
 	WhatsappWebhookDeviceMergeGlobal           = false // Per-device webhook adds to the global WHATSAPP_WEBHOOK targets instead of replacing them
 	WhatsappAutoRejectCall                     = false // Auto-reject incoming calls
 	WhatsappLogLevel                           = "ERROR"
@@ -184,4 +185,10 @@ var (
 	// message when the opposite side reports deletion.
 	ChatwootMessageRead   = false
 	ChatwootMessageDelete = false
+
+	// ChatwootRevokeOnDelete is the Chatwoot-to-WhatsApp half of
+	// ChatwootMessageDelete alone: a message the agent deletes in Chatwoot is
+	// revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in
+	// Chatwoot.
+	ChatwootRevokeOnDelete = false
 )

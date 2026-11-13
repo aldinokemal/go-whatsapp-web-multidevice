@@ -36,6 +36,11 @@ type serviceMessage struct {
 	markReadFn      markReadFunc
 	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
 	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
+
+	// Media download seams; nil uses the real whatsmeow/CDN implementations.
+	extractMediaFn         extractMediaFunc
+	requestMediaReuploadFn requestMediaReuploadFunc
+	fetchReuploadedMediaFn fetchReuploadedMediaFunc
 }
 
 func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
@@ -489,6 +494,10 @@ func (service serviceMessage) updateStoredMessage(
 	return nil
 }
 
+// UpdateMessage implements message.IMessageService. It edits a sent message;
+// with MediaType set, it replaces that image or document's caption instead of
+// sending a text edit, and refuses a MediaType that differs from the stored
+// copy's type.
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
@@ -504,8 +513,35 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
+	// WhatsApp ignores a caption edit of another message type, so only a stored
+	// copy of the requested type is updated. With no stored copy the type cannot
+	// be checked: the edit is sent, and storage gets no row whose type is a guess.
+	uncachedCaptionEdit := false
+	if request.MediaType != "" {
+		stored, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
+		if err != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+		}
+		uncachedCaptionEdit = stored == nil
+		if stored != nil && stored.MediaType != request.MediaType {
+			storedType := stored.MediaType
+			if storedType == "" {
+				storedType = "text"
+			}
+			return response, pkgError.ValidationError(fmt.Sprintf("media_type: message %s is %s, not %s.", request.MessageID, storedType, request.MediaType))
+		}
+	}
+
 	text := request.Message
 	msg := &waE2E.Message{Conversation: proto.String(text)}
+	// WhatsApp applies a caption edit only when it carries the media message's own
+	// type; a Conversation edit of an image or document is accepted and then ignored.
+	switch request.MediaType {
+	case "image":
+		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(text)}}
+	case "document":
+		msg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{Caption: proto.String(text)}}
+	}
 	if link := strings.TrimSpace(request.Link); link != "" {
 		if !containsLinkToken(text, link) {
 			text = buildLinkMessageText(text, link)
@@ -520,8 +556,10 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, err
 	}
 
-	if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
-		return response, err
+	if !uncachedCaptionEdit {
+		if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
+			return response, err
+		}
 	}
 
 	response.MessageID = ts.ID
@@ -671,24 +709,18 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("failed to create directory: %v", err)
 	}
 
-	downloadableMsg, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadableMsg, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
-		return response, fmt.Errorf("unsupported media type: %s", message.MediaType)
+		return response, err
 	}
 
-	// Download the media using existing utils.ExtractMedia function
-	extractedMedia, err := utils.ExtractMedia(ctx, client, dateDir, downloadableMsg)
+	// Download the media; media expired on the server is re-requested from the phone.
+	extractedMedia, err := service.extractMedia(ctx, client, dateDir, downloadableMsg)
+	if utils.IsExpiredMediaError(err) {
+		extractedMedia, err = service.recoverExpiredMedia(ctx, client, message, dateDir, err)
+	}
 	if err != nil {
-		return response, fmt.Errorf("failed to download media: %v", err)
+		return response, fmt.Errorf("failed to download media: %w", err)
 	}
 
 	// Get file size

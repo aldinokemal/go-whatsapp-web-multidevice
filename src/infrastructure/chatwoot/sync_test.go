@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,17 +32,95 @@ func TestTriggerAutoSync_NoopWhenGated(t *testing.T) {
 	// Disabled integration: no-op regardless of the import flag.
 	config.ChatwootEnabled = false
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled but import off: no-op.
 	config.ChatwootEnabled = true
 	config.ChatwootImportMessages = false
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled + import on, but no logged-in client (nil) means no storage JID
 	// is available yet — must return without panicking or launching a sync.
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
+}
+
+// autoSyncRepo resolves the env Chatwoot config for any device (its config
+// table is empty) and holds a sync inside GetChats until released.
+type autoSyncRepo struct {
+	fakeConfigRepo
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *autoSyncRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	close(r.entered)
+	<-r.release
+	return nil, nil
+}
+
+// TestTriggerAutoSyncReturnsWhileTheSyncRuns: the whatsmeow Connected handler
+// calls TriggerAutoSync, and expired-media recovery waits for an answer that
+// arrives on that same event loop. The sync must therefore run on its own
+// goroutine and never hold the caller.
+func TestTriggerAutoSyncReturnsWhileTheSyncRuns(t *testing.T) {
+	jid := types.NewJID("628999000111", types.DefaultUserServer)
+	deviceID := jid.String()
+	repo := &autoSyncRepo{entered: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(repo.release) })
+	defer release()
+
+	prevEnabled, prevImport, prevDBURI := config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI
+	prevURL, prevToken, prevAccount, prevInbox := config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID
+	prevRegistry := GetClientRegistry()
+	syncServicesMu.Lock()
+	prevService, hadService := syncServices[legacySyncServiceKey]
+	syncServicesMu.Unlock()
+	t.Cleanup(func() {
+		config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI = prevEnabled, prevImport, prevDBURI
+		config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID = prevURL, prevToken, prevAccount, prevInbox
+		globalRegistryMu.Lock()
+		globalRegistry = prevRegistry
+		globalRegistryMu.Unlock()
+		syncServicesMu.Lock()
+		if hadService {
+			syncServices[legacySyncServiceKey] = prevService
+		} else {
+			delete(syncServices, legacySyncServiceKey)
+		}
+		syncServicesMu.Unlock()
+		autoSyncTriggered.Delete(deviceID)
+	})
+	config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI = true, true, ""
+	config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID = "https://env.example.com", "env-tok", 1, 2
+	InitClientRegistry(repo)
+
+	returned := make(chan struct{})
+	go func() {
+		TriggerAutoSync(repo, &whatsmeow.Client{Store: &store.Device{ID: &jid}}, nil)
+		close(returned)
+	}()
+
+	select {
+	case <-repo.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("auto-sync did not start")
+	}
+	// The sync is now held inside GetChats.
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("TriggerAutoSync is waiting for the sync; it must return to the event loop")
+	}
+
+	// Let the run finish before the globals are restored.
+	release()
+	svc := LookupSyncServiceForDevice(legacySyncServiceKey)
+	for deadline := time.Now().Add(5 * time.Second); svc.IsRunning(deviceID); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("auto-sync did not finish")
+		}
+	}
 }
 
 func TestSyncProgress_SetRunning(t *testing.T) {

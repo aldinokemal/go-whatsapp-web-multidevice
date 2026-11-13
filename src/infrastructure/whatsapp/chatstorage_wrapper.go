@@ -45,6 +45,10 @@ func (r *deviceChatStorage) CreateReaction(ctx context.Context, evt *events.Mess
 	return r.base.CreateReaction(ctx, evt)
 }
 
+func (r *deviceChatStorage) GetReactionForEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	return r.base.GetReactionForEvent(ctx, evt)
+}
+
 func (r *deviceChatStorage) CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error {
 	return r.base.CreateIncomingCallRecord(ctx, evt, autoRejected)
 }
@@ -93,6 +97,13 @@ func (r *deviceChatStorage) StoreMessageEdit(edit *domainChatStorage.MessageEdit
 
 func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	return r.base.StoreMessagesBatch(messages)
+}
+
+func (r *deviceChatStorage) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.UpdateMessageMedia(deviceID, chatJID, messageID, media)
 }
 
 // GetMessageByID is scoped to this device, like every other read on the
@@ -171,12 +182,19 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessa
 	return r.base.GetChatwootMessageLinkByWhatsAppID(targetDeviceID, waMessageID)
 }
 
-func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *deviceChatStorage) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {
 		targetDeviceID = r.deviceID
 	}
-	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
+	return r.base.ListChatwootMessageLinksByChatwootID(targetDeviceID, chatwootMessageID)
+}
+
+func (r *deviceChatStorage) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {
+	if filter.DeviceID == "" {
+		filter.DeviceID = r.deviceID
+	}
+	return r.base.GetChatwootMessageLinkForReply(filter)
 }
 
 func (r *deviceChatStorage) GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*domainChatStorage.ChatwootMessageLink, error) {
@@ -276,12 +294,20 @@ func (r *deviceChatStorage) ClaimNextScheduledSend(now, leaseUntil time.Time, le
 	return r.base.ClaimNextScheduledSend(now, leaseUntil, leaseToken)
 }
 
-func (r *deviceChatStorage) ListExpiredScheduledSends(now time.Time) ([]*domainChatStorage.ScheduledSend, error) {
-	return r.base.ListExpiredScheduledSends(now)
+func (r *deviceChatStorage) ClaimExpiredScheduledSend(now, leaseUntil time.Time, leaseToken string) (*domainChatStorage.ScheduledSend, error) {
+	return r.base.ClaimExpiredScheduledSend(now, leaseUntil, leaseToken)
 }
 
 func (r *deviceChatStorage) ListScheduledSendIDs() ([]string, error) {
 	return r.base.ListScheduledSendIDs()
+}
+
+func (r *deviceChatStorage) SetScheduledSendPendingAttempt(id, leaseToken, messageID string, pollSecret []byte, now time.Time) (bool, error) {
+	return r.base.SetScheduledSendPendingAttempt(id, leaseToken, messageID, pollSecret, now)
+}
+
+func (r *deviceChatStorage) ClearScheduledSendPendingMessageID(deviceID, id string) error {
+	return r.base.ClearScheduledSendPendingMessageID(deviceID, id)
 }
 
 func (r *deviceChatStorage) RetryScheduledSend(id, leaseToken, lastError string, attempts int, nextRunAt time.Time) error {
@@ -438,6 +464,6 @@ func (r *deviceChatStorage) SetDeviceWebhookConfig(deviceID string, config *doma
 }
 
 // GetDeviceWebhookConfig retrieves the complete webhook configuration for a device.
-func (r *deviceChatStorage) GetDeviceWebhookConfig(deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
-	return r.base.GetDeviceWebhookConfig(deviceID)
+func (r *deviceChatStorage) GetDeviceWebhookConfig(ctx context.Context, deviceID string) (*domainChatStorage.DeviceWebhookConfig, error) {
+	return r.base.GetDeviceWebhookConfig(ctx, deviceID)
 }
