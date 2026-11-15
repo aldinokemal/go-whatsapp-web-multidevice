@@ -5157,6 +5157,18 @@ components:
         jid:
           type: string
           example: '6289987391723@s.whatsapp.net'
+        canonical_pn:
+          type: string
+          pattern: '^[0-9]+@s\.whatsapp\.net$'
+          example: '6289987391723@s.whatsapp.net'
+          description: >-
+            Phone-number JID of this participant as reported by the group-info
+            entry itself: the participant JID when it is a phone-number JID, or
+            the entry's phone number when the participant is identified by LID.
+            Omitted when the entry does not provide one (for example an
+            unresolved LID, a failed or pending addition, or conflicting fields).
+            Unlike `phone_number`, it is never derived from cached LID mappings
+            and never contains LID digits.
         phone_number:
           type: string
           example: '6289987391723@s.whatsapp.net'

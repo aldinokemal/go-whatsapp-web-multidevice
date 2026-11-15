@@ -198,6 +198,7 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 
 			participantData := domainGroup.GroupParticipant{
 				JID:          participant.JID.String(),
+				CanonicalPN:  groupParticipantCanonicalPN(participant),
 				PhoneNumber:  groupParticipantPhoneUser(ctx, client, participant),
 				LID:          participant.LID.String(),
 				DisplayName:  displayName,
@@ -535,6 +536,50 @@ func mapKeysToSlice(uniq map[types.JID]struct{}) []types.JID {
 		out = append(out, j)
 	}
 	return out
+}
+
+// groupParticipantCanonicalPN returns the participant's phone-number JID
+// (`<digits>@s.whatsapp.net`) as reported by the group-info entry itself, or ""
+// when that entry does not prove one.
+//
+// Unlike groupParticipantPhoneUser, it never consults the device's cached LID
+// mappings and never presents an unresolved LID's user part as a phone number:
+//  1. a failed (Error != 0) or pending (AddRequest != nil) entry -> "";
+//  2. phone-number wire JID -> that JID, unless PhoneNumber names a different one;
+//  3. LID wire JID -> PhoneNumber, when it is a phone-number JID and the LID
+//     field (if set) is the same LID;
+//  4. anything else (other servers, device/agent parts, non-digit users) -> "".
+func groupParticipantCanonicalPN(p types.GroupParticipant) string {
+	if p.Error != 0 || p.AddRequest != nil {
+		return ""
+	}
+	if isPlainUserJID(p.JID, types.DefaultUserServer) {
+		if !p.PhoneNumber.IsEmpty() && p.PhoneNumber != p.JID {
+			return ""
+		}
+		return p.JID.String()
+	}
+	if !isPlainUserJID(p.JID, types.HiddenUserServer) || !isPlainUserJID(p.PhoneNumber, types.DefaultUserServer) {
+		return ""
+	}
+	if !p.LID.IsEmpty() && p.LID != p.JID {
+		return ""
+	}
+	return p.PhoneNumber.String()
+}
+
+// isPlainUserJID reports whether jid is a bare user JID on server: an all-digit
+// user with no device, agent or integrator part.
+func isPlainUserJID(jid types.JID, server string) bool {
+	if jid.Server != server || jid.User == "" || jid.RawAgent != 0 || jid.Device != 0 || jid.Integrator != 0 {
+		return false
+	}
+	for _, r := range jid.User {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // groupParticipantPhoneJID is the @s.whatsapp.net (or best-effort) JID for contact / user-info map lookups.

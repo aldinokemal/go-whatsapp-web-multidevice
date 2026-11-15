@@ -40,6 +40,7 @@ type GetGroupParticipantsRequest struct {
 
 type GroupParticipant struct {
 	JID          string `json:"jid"`
+	CanonicalPN  string `json:"canonical_pn,omitempty"`
 	PhoneNumber  string `json:"phone_number"`
 	LID          string `json:"lid,omitempty"`
 	DisplayName  string `json:"display_name,omitempty"`
