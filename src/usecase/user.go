@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -349,6 +351,75 @@ func (service serviceUser) MyListContacts(ctx context.Context) (response domainU
 	}
 
 	return response, nil
+}
+
+// MyListContactsDetailed lists the person contacts of the device carried by ctx
+// with every contact-store name in its own field.
+func (service serviceUser) MyListContactsDetailed(ctx context.Context) (response domainUser.MyListContactsDetailedResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	response.Data, err = buildDetailedContacts(ctx, client.Store.Contacts, client.Store.LIDs)
+	return response, err
+}
+
+// contactLister and pnLIDMapper are the parts of whatsmeow's store.ContactStore
+// and store.LIDStore that buildDetailedContacts reads.
+type contactLister interface {
+	GetAllContacts(ctx context.Context) (map[types.JID]types.ContactInfo, error)
+}
+
+type pnLIDMapper interface {
+	GetLIDForPN(ctx context.Context, pn types.JID) (types.JID, error)
+}
+
+// buildDetailedContacts returns one row per person contact, sorted by JID:
+//   - keys on servers other than s.whatsapp.net and lid (groups, broadcast
+//     lists, newsletters, bots) are skipped;
+//   - jid is the store key without device part; a phone number is never
+//     derived from a LID;
+//   - lid is set only for a phone-number key the LID store maps; a lookup
+//     error leaves it empty;
+//   - each name is kept verbatim unless blank, without precedence or merging.
+//
+// A contact store error is returned instead of an empty list.
+func buildDetailedContacts(ctx context.Context, contacts contactLister, lids pnLIDMapper) ([]domainUser.MyListContactsDetailedData, error) {
+	all, err := contacts.GetAllContacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]domainUser.MyListContactsDetailedData, 0, len(all))
+	for key, info := range all {
+		jid := key.ToNonAD()
+		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+			continue
+		}
+		row := domainUser.MyListContactsDetailedData{
+			JID:          jid.String(),
+			FullName:     nonBlank(info.FullName),
+			FirstName:    nonBlank(info.FirstName),
+			PushName:     nonBlank(info.PushName),
+			BusinessName: nonBlank(info.BusinessName),
+		}
+		if jid.Server == types.DefaultUserServer && lids != nil {
+			if lid, lookupErr := lids.GetLIDForPN(ctx, jid); lookupErr == nil && !lid.IsEmpty() {
+				row.LID = lid.ToNonAD().String()
+			}
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].JID < rows[j].JID })
+	return rows, nil
+}
+
+func nonBlank(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return value
 }
 
 func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {
