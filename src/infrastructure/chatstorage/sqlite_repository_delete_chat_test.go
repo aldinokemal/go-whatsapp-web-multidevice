@@ -1,6 +1,7 @@
 package chatstorage
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -156,4 +157,28 @@ func TestDeleteChatByDeviceBeforeRollsBackAllAliases(t *testing.T) {
 		require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name).Scan(&count))
 		require.Equal(t, 2, count, table.name)
 	}
+}
+
+func TestDeleteChatByDeviceBeforeUsesInstantAcrossZones(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	base := time.Date(2026, 11, 12, 22, 4, 12, 0, time.UTC)
+	for i, offset := range []time.Duration{-5 * time.Hour, -time.Second, 0, time.Second, 5 * time.Hour} {
+		require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
+			DeviceID: "device-a", ChatJID: "chat-a", ID: fmt.Sprintf("m%d", i), Content: "hello", Timestamp: base.Add(offset),
+		}))
+	}
+	removed, err := repo.DeleteChatByDeviceBefore("device-a", base.In(time.FixedZone("PET", -5*3600)), "chat-a")
+	require.NoError(t, err)
+	require.False(t, removed)
+	rows, err := repo.db.Query("SELECT id FROM messages WHERE device_id = ? AND chat_jid = ? ORDER BY id", "device-a", "chat-a")
+	require.NoError(t, err)
+	defer rows.Close()
+	var kept []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		kept = append(kept, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []string{"m3", "m4"}, kept)
 }

@@ -283,6 +283,8 @@ func (r *SQLiteRepository) DeleteChatByDeviceBefore(deviceID string, bound time.
 	if bound.IsZero() {
 		return false, fmt.Errorf("chat deletion bound is required")
 	}
+	// Stored timestamps are UTC text and SQLite compares text, so bind the same zone.
+	bound = bound.UTC()
 	return r.deleteChatByDevice(deviceID, jids, &bound)
 }
 
