@@ -196,17 +196,8 @@ func (service serviceGroup) GetGroupParticipants(ctx context.Context, request do
 			lookupJID := groupParticipantPhoneJID(ctx, client, participant)
 			displayName := resolveParticipantDisplayName(ctx, client, participant.DisplayName, lookupJID, participant.JID, userInfo)
 
-			participantData := domainGroup.GroupParticipant{
-				JID:          participant.JID.String(),
-				CanonicalPN:  groupParticipantCanonicalPN(participant),
-				PhoneNumber:  groupParticipantPhoneUser(ctx, client, participant),
-				LID:          participant.LID.String(),
-				DisplayName:  displayName,
-				IsAdmin:      participant.IsAdmin,
-				IsSuperAdmin: participant.IsSuperAdmin,
-			}
-
-			response.Participants = append(response.Participants, participantData)
+			phoneUser := groupParticipantPhoneUser(ctx, client, participant)
+			response.Participants = append(response.Participants, groupParticipantData(participant, phoneUser, displayName))
 		}
 	}
 
@@ -536,6 +527,20 @@ func mapKeysToSlice(uniq map[types.JID]struct{}) []types.JID {
 		out = append(out, j)
 	}
 	return out
+}
+
+// groupParticipantData maps one group-info entry to the response DTO, given
+// the phone user and display name already resolved through the client.
+func groupParticipantData(participant types.GroupParticipant, phoneUser, displayName string) domainGroup.GroupParticipant {
+	return domainGroup.GroupParticipant{
+		JID:          participant.JID.String(),
+		CanonicalPN:  groupParticipantCanonicalPN(participant),
+		PhoneNumber:  phoneUser,
+		LID:          participant.LID.String(),
+		DisplayName:  displayName,
+		IsAdmin:      participant.IsAdmin,
+		IsSuperAdmin: participant.IsSuperAdmin,
+	}
 }
 
 // groupParticipantCanonicalPN returns the participant's phone-number JID

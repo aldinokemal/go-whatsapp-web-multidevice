@@ -140,14 +140,28 @@ func TestGroupParticipantCanonicalPN(t *testing.T) {
 	}
 }
 
+func TestGroupParticipantDataCarriesCanonicalPN(t *testing.T) {
+	pn := types.NewJID("12025550101", types.DefaultUserServer)
+	lid := types.NewJID("555000001", types.HiddenUserServer)
+	entry := types.GroupParticipant{JID: lid, LID: lid, PhoneNumber: pn, IsAdmin: true}
+
+	got := groupParticipantData(entry, pn.User, "Alice")
+	want := domainGroup.GroupParticipant{
+		JID:         lid.String(),
+		CanonicalPN: pn.String(),
+		PhoneNumber: pn.User,
+		LID:         lid.String(),
+		DisplayName: "Alice",
+		IsAdmin:     true,
+	}
+	if got != want {
+		t.Fatalf("groupParticipantData() = %+v, want %+v", got, want)
+	}
+}
+
 func TestGroupParticipantCanonicalPNIsOmittedWhenUnresolved(t *testing.T) {
 	lid := types.NewJID("555000001", types.HiddenUserServer)
-	participant := domainGroup.GroupParticipant{
-		JID:         lid.String(),
-		CanonicalPN: groupParticipantCanonicalPN(types.GroupParticipant{JID: lid}),
-		PhoneNumber: lid.User,
-		LID:         lid.String(),
-	}
+	participant := groupParticipantData(types.GroupParticipant{JID: lid, LID: lid}, lid.User, "")
 	encoded, err := json.Marshal(participant)
 	if err != nil {
 		t.Fatal(err)
