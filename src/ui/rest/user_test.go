@@ -29,6 +29,19 @@ func (s *detailedContactsServiceStub) MyListContactsDetailed(ctx context.Context
 	}}, nil
 }
 
+type userServiceWithoutDetailedContacts struct {
+	domainUser.IUserUsecase
+}
+
+func TestUserMyListContactsDetailedIsNotRegisteredWithoutTheCapability(t *testing.T) {
+	app := fiber.New()
+	InitRestUser(app, userServiceWithoutDetailedContacts{})
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/user/my/contacts/detailed", nil))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
 func TestUserMyListContactsDetailedUsesTheRequestDevice(t *testing.T) {
 	device := whatsapp.NewDeviceInstance("device-a", nil, nil)
 	service := &detailedContactsServiceStub{}

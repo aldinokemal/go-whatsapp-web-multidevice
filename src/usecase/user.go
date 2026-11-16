@@ -32,6 +32,8 @@ type serviceUser struct {
 	getProfilePictureInfoFn func(ctx context.Context, client *whatsmeow.Client, jid types.JID, params *whatsmeow.GetProfilePictureParams) (*types.ProfilePictureInfo, error)
 }
 
+var _ domainUser.IUserContactsDetailed = (*serviceUser)(nil)
+
 func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
 	return &serviceUser{
 		chatStorageRepo: chatStorageRepo,

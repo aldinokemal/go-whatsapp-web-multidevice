@@ -24,6 +24,12 @@ type IUserListing interface {
 	MyListGroups(ctx context.Context) (response MyListGroupsResponse, err error)
 	MyListNewsletter(ctx context.Context) (response MyListNewsletterResponse, err error)
 	MyListContacts(ctx context.Context) (response MyListContactsResponse, err error)
+}
+
+// IUserContactsDetailed is an optional capability of a user usecase: it is kept
+// out of IUserListing so existing implementations of IUserUsecase still compile.
+// GET /user/my/contacts/detailed is registered only when the service has it.
+type IUserContactsDetailed interface {
 	MyListContactsDetailed(ctx context.Context) (response MyListContactsDetailedResponse, err error)
 }
 
