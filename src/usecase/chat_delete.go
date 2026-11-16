@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"time"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -31,6 +32,7 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 		return response, err
 	}
 	deleteMedia := request.DeleteMedia == nil || *request.DeleteMedia
+	var bound *time.Time
 	if !request.LocalOnly {
 		var latest *domainChatStorage.Message
 		for _, jid := range jids {
@@ -45,6 +47,7 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 		if latest == nil || latest.ID == "" || latest.Timestamp.IsZero() {
 			return response, pkgError.ValidationError("chat has no stored message to anchor deletion")
 		}
+		bound = new(latest.Timestamp)
 		if client == nil {
 			return response, pkgError.ErrWaCLI
 		}
@@ -67,7 +70,7 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 			return response, err
 		}
 	}
-	if err := whatsapp.PurgeLocalChat(service.chatStorageRepo, deviceID, jids, deleteMedia); err != nil {
+	if err := whatsapp.PurgeLocalChat(service.chatStorageRepo, deviceID, jids, deleteMedia, bound); err != nil {
 		if request.LocalOnly {
 			return response, pkgError.InternalServerError(fmt.Sprintf("local chat deletion failed: %v", err))
 		}

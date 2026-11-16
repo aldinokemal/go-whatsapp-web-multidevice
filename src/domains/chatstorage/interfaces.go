@@ -26,6 +26,9 @@ type IChatStorageRepository interface {
 	DeleteChat(jid string) error
 	// DeleteChatByDevice atomically purges a chat and its known JID aliases.
 	DeleteChatByDevice(deviceID, jid string, aliases ...string) error
+	// DeleteChatByDeviceBefore preserves messages newer than bound. The result is true
+	// only when no messages remain across the supplied aliases and the chat rows were removed.
+	DeleteChatByDeviceBefore(deviceID string, bound time.Time, jids ...string) (bool, error)
 	// IsChatMediaDirectoryReferenced checks all devices before shared-cache cleanup.
 	IsChatMediaDirectoryReferenced(directory string) (bool, error)
 

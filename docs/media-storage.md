@@ -104,7 +104,9 @@ retention procedure for these untracked files. No contacts, identity keys,
 sessions, or LID mappings are deleted. The pinned whatsmeow store has no safe
 per-chat delete API for message secrets or chat settings, so those rows are kept.
 
-A deletion event from another linked device uses the same local cleanup and its
-`DeleteMedia` flag. The operation does not prevent a later incoming message or
+A WhatsApp-first deletion and a deletion event from another linked device delete
+only messages at or before their timestamp bound. Chat media is removed only when
+no messages remain for any known alias. Local-only deletion removes the whole
+local chat. The operation does not prevent a later incoming message or
 history sync from creating the chat again. Local-only deletion does not remove
 anything from WhatsApp.

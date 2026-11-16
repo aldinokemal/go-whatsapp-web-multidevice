@@ -275,28 +275,76 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 
 // DeleteChatByDevice deletes a chat and all its messages for a specific device
 func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string, aliases ...string) error {
-	if deviceID == "" {
-		return fmt.Errorf("device_id is required for chat deletion")
+	_, err := r.deleteChatByDevice(deviceID, append([]string{jid}, aliases...), nil)
+	return err
+}
+
+func (r *SQLiteRepository) DeleteChatByDeviceBefore(deviceID string, bound time.Time, jids ...string) (bool, error) {
+	if bound.IsZero() {
+		return false, fmt.Errorf("chat deletion bound is required")
+	}
+	return r.deleteChatByDevice(deviceID, jids, &bound)
+}
+
+func (r *SQLiteRepository) deleteChatByDevice(deviceID string, jids []string, bound *time.Time) (bool, error) {
+	if deviceID == "" || len(jids) == 0 {
+		return false, fmt.Errorf("device_id and chat JIDs are required for chat deletion")
 	}
 	tx, err := r.db.Begin()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 
-	for _, chatJID := range append([]string{jid}, aliases...) {
-		for _, table := range []struct{ name, column string }{
-			{"message_reactions", "chat_jid"}, {"message_edits", "chat_jid"},
-			{"chatwoot_message_links", "wa_chat_jid"}, {"poll_definitions", "chat_jid"},
-			{"messages", "chat_jid"}, {"chats", "jid"},
+	for _, chatJID := range jids {
+		for _, table := range []struct{ name, chatColumn, messageColumn string }{
+			{"message_reactions", "chat_jid", "message_id"}, {"message_edits", "chat_jid", "original_message_id"},
+			{"chatwoot_message_links", "wa_chat_jid", "wa_message_id"}, {"poll_definitions", "chat_jid", "poll_message_id"},
 		} {
-			if _, err := tx.Exec("DELETE FROM "+table.name+" WHERE "+table.column+" = ? AND device_id = ?", chatJID, deviceID); err != nil {
-				return err
+			query := "DELETE FROM " + table.name + " WHERE " + table.chatColumn + " = ? AND device_id = ?"
+			args := []any{chatJID, deviceID}
+			if bound != nil {
+				query += " AND " + table.messageColumn + " IN (SELECT id FROM messages WHERE chat_jid = ? AND device_id = ? AND timestamp <= ?)"
+				args = append(args, chatJID, deviceID, *bound)
+			}
+			if _, err := tx.Exec(query, args...); err != nil {
+				return false, err
+			}
+		}
+		query := "DELETE FROM messages WHERE chat_jid = ? AND device_id = ?"
+		args := []any{chatJID, deviceID}
+		if bound != nil {
+			query += " AND timestamp <= ?"
+			args = append(args, *bound)
+		}
+		if _, err := tx.Exec(query, args...); err != nil {
+			return false, err
+		}
+	}
+	fullyRemoved := true
+	if bound != nil {
+		for _, chatJID := range jids {
+			var remaining bool
+			if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE chat_jid = ? AND device_id = ?)", chatJID, deviceID).Scan(&remaining); err != nil {
+				return false, err
+			}
+			if remaining {
+				fullyRemoved = false
+				break
 			}
 		}
 	}
-
-	return tx.Commit()
+	if fullyRemoved {
+		for _, chatJID := range jids {
+			if _, err := tx.Exec("DELETE FROM chats WHERE jid = ? AND device_id = ?", chatJID, deviceID); err != nil {
+				return false, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return fullyRemoved, nil
 }
 
 // StoreMessage creates or updates a message. Empty ContextMetadata means context

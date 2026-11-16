@@ -3311,9 +3311,11 @@ paths:
         By default, reads the latest stored message for this device and sends a
         WhatsApp delete-chat app-state patch before any local changes. A chat with
         no stored message returns 400. A failed send leaves the local copy intact.
+        After a send, the local purge deletes only messages at or before the anchor
+        timestamp. A newer message keeps the chat row and its media.
         With local_only=true, no WhatsApp connection or stored message is needed,
-        and no app-state patch is built or sent. Both modes purge both known PN/LID
-        forms in one device-scoped database transaction. delete_media controls the
+        and no app-state patch is built or sent. It purges the full local chat.
+        Both modes purge both known PN/LID forms in one device-scoped transaction. delete_media controls the
         WhatsApp media flag (when sent) and local chat media cleanup. Shared legacy
         media directories and flat webhook downloads without chat ownership are
         retained. WhatsApp session keys, contacts and LID mappings are not deleted.

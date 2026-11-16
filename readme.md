@@ -822,8 +822,11 @@ routes. The path JID is the target. `delete_media` defaults to `true`;
 - Default: delete on WhatsApp first, then purge the device's local copy. The latest
   stored message anchors the WhatsApp request. If no message is stored, the API
   returns 400 without changes. A failed send also leaves local data intact.
+  The local purge removes only messages at or before the anchor timestamp. If a newer
+  message is stored, it stays, and the chat row and media stay too.
 - `local_only: true`: purge only local data. No WhatsApp connection, stored message,
-  or app-state send is needed. WhatsApp is not changed.
+  or app-state send is needed. WhatsApp is not changed. This mode removes the whole
+  local chat.
 - Both modes delete the chat, messages, reactions, edits, poll definitions and
   Chatwoot message links for that device, including known PN/LID aliases, in one
   transaction. Chat media is removed when `delete_media` is true, with the legacy
@@ -834,7 +837,9 @@ routes. The path JID is the target. `delete_media` defaults to `true`;
   uses 500 with `code: "INTERNAL_SERVER_ERROR"`.
 - The MCP `whatsapp_chat` action `delete` takes the same options plus `chat_jid`.
   A delete received from the phone or another linked device also purges this
-  device's local copy. No new webhook event is sent.
+  device's messages up to its message-range timestamp (or the event timestamp when
+  the range is absent). Older full-sync deletes cannot remove newer messages. No new
+  webhook event is sent.
 
 **Notes:**
 

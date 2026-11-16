@@ -46,6 +46,10 @@ func (r *deleteChatUsecaseRepo) DeleteChatByDevice(device, jid string, aliases .
 	r.purged = true
 	return r.purgeErr
 }
+func (r *deleteChatUsecaseRepo) DeleteChatByDeviceBefore(device string, bound time.Time, jids ...string) (bool, error) {
+	return true, r.DeleteChatByDevice(device, jids[0], jids[1:]...)
+}
+
 func deleteChatTestContext(client *whatsmeow.Client) context.Context {
 	return whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999@s.whatsapp.net", client, nil))
 }
@@ -224,6 +228,10 @@ func (r *deleteChatAliasRepo) DeleteChatByDevice(device, jid string, aliases ...
 	r.deleted = append([]string{jid}, aliases...)
 	return nil
 }
+func (r *deleteChatAliasRepo) DeleteChatByDeviceBefore(device string, bound time.Time, jids ...string) (bool, error) {
+	return true, r.DeleteChatByDevice(device, jids[0], jids[1:]...)
+}
+
 func TestDeleteChatUsesNewestAnchorAcrossPNAndLID(t *testing.T) {
 	pn, lid := types.NewJID("628111", types.DefaultUserServer), types.NewJID("999111", types.HiddenUserServer)
 	client := deleteChatTestClient()
@@ -275,4 +283,48 @@ func TestDeleteChatMediaFailureCodes(t *testing.T) {
 		}
 		require.Equal(t, want, coded.ErrCode())
 	}
+}
+
+func TestDeleteChatPreservesMessageReceivedAfterAnchorRead(t *testing.T) {
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chat.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := chatstorage.NewStorageRepository(db)
+	require.NoError(t, repo.InitializeSchema())
+	old := config.PathMedia
+	config.PathMedia = t.TempDir()
+	t.Cleanup(func() { config.PathMedia = old })
+	device, jid := "628999@s.whatsapp.net", "628111@s.whatsapp.net"
+	bound := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.StoreChat(&domainChatStorage.Chat{DeviceID: device, JID: jid}))
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{DeviceID: device, ChatJID: jid, ID: "anchor", Timestamp: bound, Content: "old"}))
+	media := filepath.Join(config.PathMedia, "628111")
+	require.NoError(t, os.Mkdir(media, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(media, "download"), []byte("media"), 0600))
+	service := serviceChat{chatStorageRepo: repo, sendDeleteChatPatch: func(_ context.Context, p appstate.PatchInfo) error {
+		require.Equal(t, bound.Unix(), p.Mutations[0].Value.GetDeleteChatAction().GetMessageRange().GetLastMessageTimestamp())
+		return repo.StoreMessage(&domainChatStorage.Message{DeviceID: device, ChatJID: jid, ID: "new", Timestamp: bound.Add(time.Minute), Content: "new"})
+	}}
+	_, err = service.DeleteChat(deleteChatTestContext(deleteChatTestClient()), domainChat.DeleteChatRequest{ChatJID: jid})
+	require.NoError(t, err)
+	anchor, err := repo.GetMessageByIDChatAndDevice(device, jid, "anchor")
+	require.NoError(t, err)
+	require.Nil(t, anchor)
+	newer, err := repo.GetMessageByIDChatAndDevice(device, jid, "new")
+	require.NoError(t, err)
+	require.NotNil(t, newer)
+	kept, err := repo.GetChatByDevice(device, jid)
+	require.NoError(t, err)
+	require.NotNil(t, kept)
+	require.FileExists(t, filepath.Join(media, "download"))
+	// A replayed range also keeps the newer message and media.
+	require.NoError(t, whatsapp.PurgeLocalChat(repo, device, []string{jid}, true, &bound))
+	require.FileExists(t, filepath.Join(media, "download"))
+	// Once the range covers the newer message, the chat and its media are removed.
+	through := bound.Add(time.Minute)
+	require.NoError(t, whatsapp.PurgeLocalChat(repo, device, []string{jid}, true, &through))
+	removed, err := repo.GetChatByDevice(device, jid)
+	require.NoError(t, err)
+	require.Nil(t, removed)
+	require.NoDirExists(t, media)
 }

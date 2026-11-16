@@ -80,6 +80,10 @@ func (r *deviceChatStorage) DeleteChatByDevice(deviceID, jid string, aliases ...
 	return r.base.DeleteChatByDevice(deviceID, jid, aliases...)
 }
 
+func (r *deviceChatStorage) DeleteChatByDeviceBefore(deviceID string, bound time.Time, jids ...string) (bool, error) {
+	return r.base.DeleteChatByDeviceBefore(deviceID, bound, jids...)
+}
+
 func (r *deviceChatStorage) IsChatMediaDirectoryReferenced(directory string) (bool, error) {
 	return r.base.IsChatMediaDirectoryReferenced(directory)
 }

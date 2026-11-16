@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -38,14 +39,21 @@ func ChatDeleteJIDs(ctx context.Context, client *whatsmeow.Client, jid types.JID
 }
 
 // PurgeLocalChat is shared by API deletes and deletions received from WhatsApp.
-func PurgeLocalChat(repo domainChatStorage.IChatStorageRepository, deviceID string, jids []string, deleteMedia bool) error {
+func PurgeLocalChat(repo domainChatStorage.IChatStorageRepository, deviceID string, jids []string, deleteMedia bool, bound *time.Time) error {
 	if repo == nil || deviceID == "" || len(jids) == 0 {
 		return fmt.Errorf("chat storage, device ID and chat JID are required")
 	}
-	if err := repo.DeleteChatByDevice(deviceID, jids[0], jids[1:]...); err != nil {
+	fullyRemoved := true
+	var err error
+	if bound == nil {
+		err = repo.DeleteChatByDevice(deviceID, jids[0], jids[1:]...)
+	} else {
+		fullyRemoved, err = repo.DeleteChatByDeviceBefore(deviceID, *bound, jids...)
+	}
+	if err != nil {
 		return err
 	}
-	if !deleteMedia {
+	if !deleteMedia || !fullyRemoved {
 		return nil
 	}
 	root, err := os.OpenRoot(config.PathMedia)
@@ -78,9 +86,17 @@ func PurgeLocalChat(repo domainChatStorage.IChatStorageRepository, deviceID stri
 }
 
 func handleDeleteChat(ctx context.Context, evt *events.DeleteChat, repo domainChatStorage.IChatStorageRepository, deviceID string, client *whatsmeow.Client) {
+	bound := evt.Timestamp
+	if timestamp := evt.Action.GetMessageRange().GetLastMessageTimestamp(); timestamp > 0 {
+		bound = time.Unix(timestamp, 0)
+	}
+	if bound.IsZero() {
+		log.Warnf("Skipping deleted chat %s without a message range or event timestamp", evt.JID)
+		return
+	}
 	jids, err := ChatDeleteJIDs(ctx, client, evt.JID)
 	if err == nil {
-		err = PurgeLocalChat(repo, deviceID, jids, evt.DeleteMedia)
+		err = PurgeLocalChat(repo, deviceID, jids, evt.DeleteMedia, &bound)
 	}
 	if err != nil {
 		log.Errorf("Failed to purge deleted chat %s for device %s: %v", evt.JID, deviceID, err)
