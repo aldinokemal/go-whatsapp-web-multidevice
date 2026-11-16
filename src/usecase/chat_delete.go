@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
@@ -10,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -35,13 +37,16 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 	var bound *time.Time
 	if !request.LocalOnly {
 		var latest *domainChatStorage.Message
+		// shortcut: sample 20 text-sorted rows per alias, use instant-ordered storage if a wider range is needed
 		for _, jid := range jids {
-			messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{DeviceID: deviceID, ChatJID: jid, Limit: 1})
+			messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{DeviceID: deviceID, ChatJID: jid, Limit: 20})
 			if err != nil {
 				return response, err
 			}
-			if len(messages) > 0 && (latest == nil || messages[0].Timestamp.After(latest.Timestamp)) {
-				latest = messages[0]
+			for _, message := range messages {
+				if latest == nil || message.Timestamp.After(latest.Timestamp) {
+					latest = message
+				}
 			}
 		}
 		if latest == nil || latest.ID == "" || latest.Timestamp.IsZero() {
@@ -67,7 +72,11 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 			sender = client.SendAppState
 		}
 		if err := sender(ctx, appstate.BuildDeleteChat(target, latest.Timestamp, key, deleteMedia)); err != nil {
-			return response, err
+			// shortcut: matches whatsmeow's untyped error text at the pinned version, switch to a typed error if upstream adds one
+			if !strings.HasPrefix(err.Error(), "failed to fetch app state after sending update") {
+				return response, err
+			}
+			logrus.Warnf("Chat deletion accepted, but app state refresh failed: %v", err)
 		}
 	}
 	if err := whatsapp.PurgeLocalChat(service.chatStorageRepo, deviceID, jids, deleteMedia, bound); err != nil {

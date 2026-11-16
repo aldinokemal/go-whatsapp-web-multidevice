@@ -161,3 +161,16 @@ func TestHandleChatDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, *cs.deleted.DeleteMedia)
 }
+
+func TestHandleChatDeleteRejectsNonBooleanFlags(t *testing.T) {
+	for _, field := range []string{"local_only", "delete_media"} {
+		for _, value := range []any{"false", 0, 1, nil, []any{}, map[string]any{}} {
+			cs := &stubChatService{}
+			h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+			result, err := h.handleChat(deviceCtx(), callReq(map[string]any{"action": "delete", "chat_jid": "628111@s.whatsapp.net", field: value}))
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			require.Nil(t, cs.deleted)
+		}
+	}
+}

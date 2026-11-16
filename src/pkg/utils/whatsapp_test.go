@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow"
@@ -1075,5 +1076,40 @@ func TestExtractContextInfoOtherMessageTypes(t *testing.T) {
 		if got := ExtractContextInfo(msg).GetStanzaID(); got != "ABC123" {
 			t.Errorf("%s: StanzaID = %q, want %q", name, got, "ABC123")
 		}
+	}
+}
+
+func TestStoreExtractedMediaWaitsForRemovalLock(t *testing.T) {
+	dir := t.TempDir()
+	ChatMediaMutex.Lock()
+	done := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_, err := storeExtractedMedia(dir, &waE2E.ImageMessage{}, []byte("image"))
+		done <- err
+	}()
+	<-started
+	select {
+	case err := <-done:
+		ChatMediaMutex.Unlock()
+		t.Fatalf("write completed during removal: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	files, err := os.ReadDir(dir)
+	ChatMediaMutex.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatal("file written during removal")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("write did not resume")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,9 @@ import (
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 )
+
+// ChatMediaMutex keeps cache removal and extracted-media writes mutually exclusive.
+var ChatMediaMutex sync.RWMutex
 
 var knownDocumentMIMEByExtension = map[string]string{
 	".doc":  "application/msword",
@@ -1008,7 +1012,9 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
+	ChatMediaMutex.RLock()
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
+	ChatMediaMutex.RUnlock()
 	if err != nil {
 		return extractedMedia, err
 	}

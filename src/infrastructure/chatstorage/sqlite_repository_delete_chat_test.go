@@ -2,16 +2,25 @@ package chatstorage
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/stretchr/testify/require"
 )
 
-var deletedChatTables = []struct{ name, column string }{
-	{"messages", "chat_jid"}, {"message_reactions", "chat_jid"}, {"message_edits", "chat_jid"},
-	{"poll_definitions", "chat_jid"}, {"chatwoot_message_links", "wa_chat_jid"}, {"chats", "jid"},
+var deletedChatTables = []struct{ name, scopedCount, totalCount, aliasesCount string }{
+	{"messages", "SELECT COUNT(*) FROM messages WHERE device_id = ? AND chat_jid = ?", "SELECT COUNT(*) FROM messages", "SELECT COUNT(*) FROM messages WHERE device_id = ? AND chat_jid IN (?,?)"},
+	{"message_reactions", "SELECT COUNT(*) FROM message_reactions WHERE device_id = ? AND chat_jid = ?", "SELECT COUNT(*) FROM message_reactions", "SELECT COUNT(*) FROM message_reactions WHERE device_id = ? AND chat_jid IN (?,?)"},
+	{"message_edits", "SELECT COUNT(*) FROM message_edits WHERE device_id = ? AND chat_jid = ?", "SELECT COUNT(*) FROM message_edits", "SELECT COUNT(*) FROM message_edits WHERE device_id = ? AND chat_jid IN (?,?)"},
+	{"poll_definitions", "SELECT COUNT(*) FROM poll_definitions WHERE device_id = ? AND chat_jid = ?", "SELECT COUNT(*) FROM poll_definitions", "SELECT COUNT(*) FROM poll_definitions WHERE device_id = ? AND chat_jid IN (?,?)"},
+	{"chatwoot_message_links", "SELECT COUNT(*) FROM chatwoot_message_links WHERE device_id = ? AND wa_chat_jid = ?", "SELECT COUNT(*) FROM chatwoot_message_links", "SELECT COUNT(*) FROM chatwoot_message_links WHERE device_id = ? AND wa_chat_jid IN (?,?)"},
+	{"chats", "SELECT COUNT(*) FROM chats WHERE device_id = ? AND jid = ?", "SELECT COUNT(*) FROM chats", "SELECT COUNT(*) FROM chats WHERE device_id = ? AND jid IN (?,?)"},
 }
 
 func seedDeleteChat(t *testing.T, repo *SQLiteRepository, device, jid string, messageID ...string) {
@@ -51,7 +60,7 @@ func TestDeleteChatByDevicePurgesAliasesAndPreservesOthers(t *testing.T) {
 					want = 0
 				}
 				var got int
-				require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name+" WHERE device_id = ? AND "+table.column+" = ?", device, jid).Scan(&got))
+				require.NoError(t, repo.db.QueryRow(table.scopedCount, device, jid).Scan(&got))
 				require.Equal(t, want, got, "%s %s %s", table.name, device, jid)
 			}
 		}
@@ -69,7 +78,7 @@ func TestDeleteChatByDeviceRollsBackAllAliases(t *testing.T) {
 	require.Error(t, repo.DeleteChatByDevice("device-a", "chat-a", "chat-b"))
 	for _, table := range deletedChatTables {
 		var got int
-		require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name).Scan(&got))
+		require.NoError(t, repo.db.QueryRow(table.totalCount).Scan(&got))
 		require.Equal(t, 2, got, table.name)
 	}
 }
@@ -109,7 +118,7 @@ func TestDeleteChatByDeviceBeforeKeepsNewerMessagesAndDependencies(t *testing.T)
 		for _, device := range []string{"device-a", "device-b"} {
 			for _, jid := range []string{pn, lid, other} {
 				var count int
-				require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name+" WHERE device_id = ? AND "+table.column+" = ?", device, jid).Scan(&count))
+				require.NoError(t, repo.db.QueryRow(table.scopedCount, device, jid).Scan(&count))
 				want := 2
 				if table.name == "chats" || (device == "device-a" && jid != other) {
 					want = 1
@@ -128,7 +137,7 @@ func TestDeleteChatByDeviceBeforeKeepsNewerMessagesAndDependencies(t *testing.T)
 	require.True(t, removed)
 	for _, table := range deletedChatTables {
 		var count int
-		require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name+" WHERE device_id = ? AND "+table.column+" IN (?,?)", "device-a", pn, lid).Scan(&count))
+		require.NoError(t, repo.db.QueryRow(table.aliasesCount, "device-a", pn, lid).Scan(&count))
 		require.Zero(t, count, table.name)
 	}
 	require.NoError(t, repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: pn}))
@@ -154,7 +163,7 @@ func TestDeleteChatByDeviceBeforeRollsBackAllAliases(t *testing.T) {
 	require.False(t, removed)
 	for _, table := range deletedChatTables {
 		var count int
-		require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM "+table.name).Scan(&count))
+		require.NoError(t, repo.db.QueryRow(table.totalCount).Scan(&count))
 		require.Equal(t, 2, count, table.name)
 	}
 }
@@ -164,7 +173,7 @@ func TestDeleteChatByDeviceBeforeUsesInstantAcrossZones(t *testing.T) {
 	base := time.Date(2026, 11, 12, 22, 4, 12, 0, time.UTC)
 	for i, offset := range []time.Duration{-5 * time.Hour, -time.Second, 0, time.Second, 5 * time.Hour} {
 		require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{
-			DeviceID: "device-a", ChatJID: "chat-a", ID: fmt.Sprintf("m%d", i), Content: "hello", Timestamp: base.Add(offset),
+			DeviceID: "device-a", ChatJID: "chat-a", ID: fmt.Sprintf("m%d", i), Content: "hello", Timestamp: base.Add(offset).In(time.FixedZone([]string{"PET", "UTC", "JST"}[i%3], []int{-5 * 3600, 0, 9 * 3600}[i%3])),
 		}))
 	}
 	removed, err := repo.DeleteChatByDeviceBefore("device-a", base.In(time.FixedZone("PET", -5*3600)), "chat-a")
@@ -181,4 +190,104 @@ func TestDeleteChatByDeviceBeforeUsesInstantAcrossZones(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{"m3", "m4"}, kept)
+}
+
+func TestBoundedDeletePollOrphansAndSameSecond(t *testing.T) {
+	for _, survivors := range []bool{false, true} {
+		t.Run(fmt.Sprint(survivors), func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			bound := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+			seedDeleteChat(t, repo, "device", "chat", "same-second")
+			require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{ID: "same-second", DeviceID: "device", ChatJID: "chat", Content: "hello", Timestamp: bound.Add(900 * time.Millisecond)}))
+			if survivors {
+				require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{ID: "new", DeviceID: "device", ChatJID: "chat", Content: "hello", Timestamp: bound.Add(time.Second)}))
+			}
+			for _, tc := range []struct {
+				id string
+				ts time.Time
+			}{{"before", bound.Add(-time.Second)}, {"at", bound}, {"after", bound.Add(time.Second)}} {
+				_, err := repo.db.Exec("INSERT INTO poll_definitions(device_id,chat_jid,poll_message_id,created_at) VALUES (?,?,?,?)", "device", "chat", tc.id, tc.ts.In(time.FixedZone("JST", 9*3600)))
+				require.NoError(t, err)
+			}
+			// Orphan dependencies must also be cleared when no messages survive.
+			seedDeleteChat(t, repo, "device", "chat", "orphan")
+			_, err := repo.db.Exec("DELETE FROM messages WHERE id = ?", "orphan")
+			require.NoError(t, err)
+			_, err = repo.db.Exec("UPDATE poll_definitions SET created_at = ? WHERE poll_message_id = ?", bound, "orphan")
+			require.NoError(t, err)
+			removed, err := repo.DeleteChatByDeviceBefore("device", bound, "chat")
+			require.NoError(t, err)
+			require.Equal(t, !survivors, removed)
+			var count int
+			require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM messages WHERE id = ?", "same-second").Scan(&count))
+			require.Zero(t, count, "the bound includes all messages in its second")
+			require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM poll_definitions").Scan(&count))
+			require.Equal(t, 1, count)
+			var id string
+			require.NoError(t, repo.db.QueryRow("SELECT poll_message_id FROM poll_definitions").Scan(&id))
+			require.Equal(t, "after", id)
+			if !survivors {
+				for _, q := range []string{"SELECT COUNT(*) FROM message_reactions", "SELECT COUNT(*) FROM message_edits", "SELECT COUNT(*) FROM chatwoot_message_links"} {
+					require.NoError(t, repo.db.QueryRow(q).Scan(&count))
+					require.Zero(t, count)
+				}
+			}
+		})
+	}
+}
+
+func TestBoundedDeleteInvalidTimestampRollsBack(t *testing.T) {
+	for _, query := range []string{
+		"UPDATE messages SET timestamp = 'not-a-time'",
+		"DELETE FROM messages; UPDATE poll_definitions SET created_at = 'not-a-time'",
+	} {
+		t.Run(query, func(t *testing.T) {
+			repo := newTestSQLiteRepository(t)
+			seedDeleteChat(t, repo, "device", "chat")
+			_, err := repo.db.Exec(query)
+			require.NoError(t, err)
+			removed, err := repo.DeleteChatByDeviceBefore("device", time.Now(), "chat")
+			require.Error(t, err)
+			require.False(t, removed)
+			var count int
+			require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM chats").Scan(&count))
+			require.Equal(t, 1, count)
+			require.NoError(t, repo.db.QueryRow("SELECT COUNT(*) FROM poll_definitions").Scan(&count))
+			require.Equal(t, 1, count)
+		})
+	}
+}
+
+func TestChatMediaReferenceQueryUsesIndexes(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	rows, err := repo.db.Query("EXPLAIN QUERY PLAN "+chatMediaReferencesQuery, "120", "120\xff", "120", "120\xff")
+	require.NoError(t, err)
+	defer rows.Close()
+	var plans []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+		plans = append(plans, detail)
+		if strings.Contains(detail, "chats") || strings.Contains(detail, "messages") {
+			require.Contains(t, detail, "SEARCH")
+			require.Contains(t, detail, "INDEX")
+		}
+	}
+	require.NoError(t, rows.Err())
+	require.NotEmpty(t, plans)
+}
+
+func TestPurgeLocalChatKeepsLegacyGroupMedia(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	old := config.PathMedia
+	config.PathMedia = t.TempDir()
+	t.Cleanup(func() { config.PathMedia = old })
+	dir := filepath.Join(config.PathMedia, "120")
+	require.NoError(t, os.Mkdir(dir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "group.jpg"), []byte("keep"), 0600))
+	seedDeleteChat(t, repo, "device", "120@s.whatsapp.net")
+	require.NoError(t, repo.StoreChat(&domainChatStorage.Chat{DeviceID: "other", JID: "120-456@g.us"}))
+	require.NoError(t, whatsapp.PurgeLocalChat(repo, "device", []string{"120@s.whatsapp.net"}, true, nil))
+	require.FileExists(t, filepath.Join(dir, "group.jpg"))
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -167,4 +168,60 @@ func TestDeleteChatEventUsesMessageRangeBoundForLiveAndFullSync(t *testing.T) {
 	repo = &boundedDeleteRepo{fullyRemoved: true, referenced: true}
 	handler(context.Background(), NewDeviceInstance("slot", client, repo), &events.DeleteChat{JID: types.NewJID("628111", types.DefaultUserServer), Timestamp: eventTime, DeleteMedia: true})
 	require.DirExists(t, filepath.Join(root, "628111"), "shared media directory must remain")
+}
+
+func TestChatDeleteJIDsUsesOfflineContainer(t *testing.T) {
+	old := db
+	db = newTestSQLStore(t)
+	t.Cleanup(func() { db = old })
+	pn, lid := types.NewJID("628111", types.DefaultUserServer), types.NewJID("999111", types.HiddenUserServer)
+	require.NoError(t, db.LIDMap.PutLIDMapping(context.Background(), lid, pn))
+	for _, client := range []*whatsmeow.Client{nil, {}, {Store: &store.Device{}}} {
+		for _, jid := range []types.JID{pn, lid} {
+			got, err := ChatDeleteJIDs(context.Background(), client, jid)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{pn.String(), lid.String()}, got)
+		}
+	}
+	db = nil
+	got, err := ChatDeleteJIDs(context.Background(), nil, lid)
+	require.NoError(t, err)
+	require.Equal(t, []string{lid.String()}, got)
+}
+
+type lockedMediaDeleteRepo struct {
+	deleteChatRepoSpy
+	checked chan struct{}
+	release chan struct{}
+}
+
+func (r *lockedMediaDeleteRepo) IsChatMediaDirectoryReferenced(string) (bool, error) {
+	close(r.checked)
+	<-r.release
+	return false, nil
+}
+func TestPurgeLocalChatLocksReferenceCheckAndRemoval(t *testing.T) {
+	old := config.PathMedia
+	config.PathMedia = t.TempDir()
+	t.Cleanup(func() { config.PathMedia = old })
+	dir := filepath.Join(config.PathMedia, "111")
+	require.NoError(t, os.Mkdir(dir, 0700))
+	repo := &lockedMediaDeleteRepo{checked: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() { done <- PurgeLocalChat(repo, "device", []string{"111@s.whatsapp.net"}, true, nil) }()
+	select {
+	case <-repo.checked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reference check did not start")
+	}
+	available := utils.ChatMediaMutex.TryRLock()
+	if available {
+		utils.ChatMediaMutex.RUnlock()
+	}
+	close(repo.release)
+	require.NoError(t, <-done)
+	require.False(t, available, "media writes must be blocked during reference check and removal")
+	require.NoDirExists(t, dir)
+	require.True(t, utils.ChatMediaMutex.TryRLock())
+	utils.ChatMediaMutex.RUnlock()
 }

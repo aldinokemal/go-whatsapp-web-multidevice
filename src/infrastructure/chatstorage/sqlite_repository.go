@@ -283,8 +283,6 @@ func (r *SQLiteRepository) DeleteChatByDeviceBefore(deviceID string, bound time.
 	if bound.IsZero() {
 		return false, fmt.Errorf("chat deletion bound is required")
 	}
-	// Stored timestamps are UTC text and SQLite compares text, so bind the same zone.
-	bound = bound.UTC()
 	return r.deleteChatByDevice(deviceID, jids, &bound)
 }
 
@@ -298,41 +296,123 @@ func (r *SQLiteRepository) deleteChatByDevice(deviceID string, jids []string, bo
 	}
 	defer tx.Rollback()
 
-	for _, chatJID := range jids {
-		for _, table := range []struct{ name, chatColumn, messageColumn string }{
-			{"message_reactions", "chat_jid", "message_id"}, {"message_edits", "chat_jid", "original_message_id"},
-			{"chatwoot_message_links", "wa_chat_jid", "wa_message_id"}, {"poll_definitions", "chat_jid", "poll_message_id"},
-		} {
-			query := "DELETE FROM " + table.name + " WHERE " + table.chatColumn + " = ? AND device_id = ?"
-			args := []any{chatJID, deviceID}
-			if bound != nil {
-				query += " AND " + table.messageColumn + " IN (SELECT id FROM messages WHERE chat_jid = ? AND device_id = ? AND timestamp <= ?)"
-				args = append(args, chatJID, deviceID, *bound)
-			}
-			if _, err := tx.Exec(query, args...); err != nil {
-				return false, err
-			}
-		}
-		query := "DELETE FROM messages WHERE chat_jid = ? AND device_id = ?"
-		args := []any{chatJID, deviceID}
-		if bound != nil {
-			query += " AND timestamp <= ?"
-			args = append(args, *bound)
-		}
-		if _, err := tx.Exec(query, args...); err != nil {
-			return false, err
-		}
-	}
 	fullyRemoved := true
-	if bound != nil {
-		for _, chatJID := range jids {
-			var remaining bool
-			if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM messages WHERE chat_jid = ? AND device_id = ?)", chatJID, deviceID).Scan(&remaining); err != nil {
+	for _, chatJID := range jids {
+		var ids, orphanPolls []string
+		allRemoved := true
+		if bound != nil {
+			rows, err := tx.Query("SELECT id, timestamp FROM messages WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID)
+			if err != nil {
 				return false, err
 			}
-			if remaining {
-				fullyRemoved = false
-				break
+			for rows.Next() {
+				var id string
+				var ts time.Time
+				if err := rows.Scan(&id, &ts); err != nil {
+					rows.Close()
+					return false, err
+				}
+				if ts.IsZero() {
+					rows.Close()
+					return false, fmt.Errorf("invalid message timestamp for %s", id)
+				}
+				// WhatsApp ranges and our echoed DeleteChat event include the whole bound second.
+				if ts.Unix() <= bound.Unix() {
+					ids = append(ids, id)
+				} else {
+					allRemoved = false
+				}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return false, err
+			}
+			rows.Close()
+			// A definition can outlive its message, but a newer orphan is outside this range.
+			rows, err = tx.Query(`SELECT poll_message_id, created_at FROM poll_definitions p
+				WHERE chat_jid = ? AND device_id = ? AND NOT EXISTS
+				(SELECT 1 FROM messages m WHERE m.id = p.poll_message_id AND m.chat_jid = p.chat_jid AND m.device_id = p.device_id)`, chatJID, deviceID)
+			if err != nil {
+				return false, err
+			}
+			for rows.Next() {
+				var id string
+				var ts time.Time
+				if err := rows.Scan(&id, &ts); err != nil {
+					rows.Close()
+					return false, err
+				}
+				if ts.IsZero() {
+					rows.Close()
+					return false, fmt.Errorf("invalid poll timestamp for %s", id)
+				}
+				if ts.Unix() <= bound.Unix() {
+					orphanPolls = append(orphanPolls, id)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return false, err
+			}
+			rows.Close()
+		}
+		if !allRemoved {
+			fullyRemoved = false
+		}
+		if allRemoved {
+			for _, query := range []string{
+				"DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?",
+				"DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ?",
+				"DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ?",
+			} {
+				if _, err := tx.Exec(query, chatJID, deviceID); err != nil {
+					return false, err
+				}
+			}
+		}
+		if bound == nil {
+			if _, err := tx.Exec("DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID); err != nil {
+				return false, err
+			}
+		} else {
+			deletes := []struct {
+				query string
+				ids   []string
+			}{
+				{"DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ? AND poll_message_id = ?", append(orphanPolls, ids...)},
+			}
+			if !allRemoved {
+				deletes = []struct {
+					query string
+					ids   []string
+				}{
+					{"DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ? AND message_id = ?", ids},
+					{"DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ? AND original_message_id = ?", ids},
+					{"DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ? AND wa_message_id = ?", ids},
+					deletes[0],
+					{"DELETE FROM messages WHERE chat_jid = ? AND device_id = ? AND id = ?", ids},
+				}
+			}
+			for _, deletion := range deletes {
+				if len(deletion.ids) == 0 {
+					continue
+				}
+				stmt, err := tx.Prepare(deletion.query)
+				if err != nil {
+					return false, err
+				}
+				for _, id := range deletion.ids {
+					if _, err := stmt.Exec(chatJID, deviceID, id); err != nil {
+						stmt.Close()
+						return false, err
+					}
+				}
+				stmt.Close()
+			}
+		}
+		if allRemoved {
+			if _, err := tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID); err != nil {
+				return false, err
 			}
 		}
 	}
@@ -3472,10 +3552,13 @@ func (r *SQLiteRepository) getMigrations() []string {
 	}
 }
 
+const chatMediaReferencesQuery = `SELECT jid FROM chats WHERE jid >= ? AND jid < ?
+	UNION SELECT chat_jid FROM messages WHERE chat_jid >= ? AND chat_jid < ?`
+
 // IsChatMediaDirectoryReferenced is a global, internal cache-ownership check:
 // legacy media directories are shared across devices and use only the first JID digits.
 func (r *SQLiteRepository) IsChatMediaDirectoryReferenced(directory string) (bool, error) {
-	rows, err := r.db.Query("SELECT jid FROM chats UNION SELECT chat_jid FROM messages")
+	rows, err := r.db.Query(chatMediaReferencesQuery, directory, directory+"\xff", directory, directory+"\xff")
 	if err != nil {
 		return false, err
 	}

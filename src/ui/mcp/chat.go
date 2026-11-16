@@ -99,6 +99,13 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		}
 		return mcpg.NewToolResultStructuredOnly(resp), nil
 	case "delete":
+		for _, field := range []string{"local_only", "delete_media"} {
+			if value, present := request.GetArguments()[field]; present {
+				if _, ok := value.(bool); !ok {
+					return mcpg.NewToolResultError(field + " must be a boolean"), nil
+				}
+			}
+		}
 		deleteMedia := request.GetBool("delete_media", true)
 		resp, err := h.chatService.DeleteChat(ctx, domainChat.DeleteChatRequest{
 			ChatJID: request.GetString("chat_jid", ""), DeleteMedia: &deleteMedia, LocalOnly: request.GetBool("local_only", false),

@@ -31,7 +31,7 @@ type deleteChatUsecaseRepo struct {
 }
 
 func (r *deleteChatUsecaseRepo) GetMessages(f *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
-	if f.DeviceID != "628999@s.whatsapp.net" || f.ChatJID != "628111@s.whatsapp.net" || f.Limit != 1 {
+	if f.DeviceID != "628999@s.whatsapp.net" || f.ChatJID != "628111@s.whatsapp.net" || f.Limit != 20 {
 		return nil, errors.New("incorrect lookup scope")
 	}
 	if r.message == nil {
@@ -71,6 +71,7 @@ func TestDeleteChatPhoneFirstAndErrors(t *testing.T) {
 		wantSend, wantPurge bool
 	}{
 		{name: "success", wantSend: true, wantPurge: true},
+		{name: "post-send fetch failure", sendErr: errors.New("failed to fetch app state after sending update: timeout"), wantSend: true, wantPurge: true},
 		{name: "send failure", sendErr: sendErr, wantSend: true},
 		{name: "local failure", purgeErr: purgeErr, wantCode: "LOCAL_DELETE_FAILED", wantSend: true, wantPurge: true},
 		{name: "missing anchor", noMessage: true, wantCode: "VALIDATION_ERROR"},
@@ -103,7 +104,7 @@ func TestDeleteChatPhoneFirstAndErrors(t *testing.T) {
 					require.Equal(t, 500, coded.StatusCode())
 					require.Contains(t, err.Error(), "deleted on WhatsApp but the local copy was not fully removed")
 				}
-			case tc.sendErr != nil:
+			case tc.sendErr != nil && !tc.wantPurge:
 				require.ErrorIs(t, err, tc.sendErr)
 			default:
 				require.NoError(t, err)
@@ -213,7 +214,7 @@ type deleteChatAliasRepo struct {
 }
 
 func (r *deleteChatAliasRepo) GetMessages(f *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
-	if f.DeviceID != "628999@s.whatsapp.net" || f.Limit != 1 {
+	if f.DeviceID != "628999@s.whatsapp.net" || f.Limit != 20 {
 		return nil, errors.New("incorrect device scope")
 	}
 	if m := r.messages[f.ChatJID]; m != nil {
@@ -327,4 +328,30 @@ func TestDeleteChatPreservesMessageReceivedAfterAnchorRead(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, removed)
 	require.NoDirExists(t, media)
+}
+
+func TestDeleteChatSelectsAnchorByInstantWithinAlias(t *testing.T) {
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chat.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := chatstorage.NewStorageRepository(db)
+	require.NoError(t, repo.InitializeSchema())
+	base := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		id string
+		ts time.Time
+	}{
+		{"text-first", base.Add(-time.Hour).In(time.FixedZone("JST", 9*3600))},
+		{"newest", base.In(time.FixedZone("PET", -5*3600))},
+	} {
+		require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{ID: tc.id, Timestamp: tc.ts, Content: "hello", ChatJID: "628111@s.whatsapp.net", DeviceID: "628999@s.whatsapp.net"}))
+	}
+	service := serviceChat{chatStorageRepo: repo, sendDeleteChatPatch: func(_ context.Context, p appstate.PatchInfo) error {
+		r := p.Mutations[0].Value.GetDeleteChatAction().GetMessageRange()
+		require.Equal(t, base.Unix(), r.GetLastMessageTimestamp())
+		require.Equal(t, "newest", r.GetMessages()[0].GetKey().GetID())
+		return nil
+	}}
+	_, err = service.DeleteChat(deleteChatTestContext(deleteChatTestClient()), domainChat.DeleteChatRequest{ChatJID: "628111@s.whatsapp.net", DeleteMedia: new(false)})
+	require.NoError(t, err)
 }

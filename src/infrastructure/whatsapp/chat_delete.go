@@ -10,6 +10,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -18,16 +19,23 @@ import (
 func ChatDeleteJIDs(ctx context.Context, client *whatsmeow.Client, jid types.JID) ([]string, error) {
 	jid = jid.ToNonAD()
 	jids := []string{jid.String()}
-	if client == nil || client.Store == nil || client.Store.LIDs == nil {
+	var lids store.LIDStore
+	if client != nil && client.Store != nil {
+		lids = client.Store.LIDs
+	}
+	if lids == nil && db != nil && db.LIDMap != nil {
+		lids = db.LIDMap
+	}
+	if lids == nil {
 		return jids, nil
 	}
 	var alias types.JID
 	var err error
 	switch jid.Server {
 	case types.HiddenUserServer:
-		alias, err = client.Store.LIDs.GetPNForLID(ctx, jid)
+		alias, err = lids.GetPNForLID(ctx, jid)
 	case types.DefaultUserServer:
-		alias, err = client.Store.LIDs.GetLIDForPN(ctx, jid)
+		alias, err = lids.GetLIDForPN(ctx, jid)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve chat alias: %w", err)
@@ -64,6 +72,8 @@ func PurgeLocalChat(repo domainChatStorage.IChatStorageRepository, deviceID stri
 		return err
 	}
 	defer root.Close()
+	utils.ChatMediaMutex.Lock()
+	defer utils.ChatMediaMutex.Unlock()
 	for _, jid := range jids {
 		directory := utils.ExtractPhoneNumber(jid)
 		if directory == "" {
@@ -81,6 +91,7 @@ func PurgeLocalChat(repo domainChatStorage.IChatStorageRepository, deviceID stri
 			return fmt.Errorf("remove chat media: %w", err)
 		}
 	}
+	// Newsletter downloads have no DB row, so their directory ownership cannot be checked.
 	// Flat webhook downloads have no stored chat owner and cannot be removed safely.
 	return nil
 }
