@@ -408,3 +408,62 @@ func TestBoundedDeleteChunksMessageIDs(t *testing.T) {
 		require.Equal(t, 1, count, table.name)
 	}
 }
+
+func TestGetLatestMessageByDeviceUsesInstantAcrossZonesAndAliases(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	device, pn, lid := "device-a", "628111@s.whatsapp.net", "999111@lid"
+	jst, pet := time.FixedZone("JST", 9*3600), time.FixedZone("PET", -5*3600)
+	store := func(device, jid, id string, ts time.Time) {
+		t.Helper()
+		require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{DeviceID: device, ChatJID: jid, ID: id, Content: "hello", Timestamp: ts, Sender: "999111@lid"}))
+	}
+	// Twenty +09:00 rows (14:00..14:19 UTC) and three UTC rows sort ahead of the newer -05:00 row as text.
+	for i := range 20 {
+		store(device, pn, fmt.Sprintf("jst-%02d", i), time.Date(2026, 11, 1, 23, i, 0, 0, jst))
+	}
+	for i := range 3 {
+		store(device, pn, fmt.Sprintf("utc-%d", i), time.Date(2026, 11, 1, 20, i, 0, 0, time.UTC))
+	}
+	store(device, pn, "pet-old", time.Date(2026, 11, 1, 9, 0, 0, 0, pet))
+	newest := time.Date(2026, 11, 1, 18, 30, 0, 0, pet)
+	store(device, lid, "newest", newest)
+	// Newer rows of another device or chat are out of scope.
+	store("device-b", pn, "other-device", newest.Add(time.Hour))
+	store(device, "628222@s.whatsapp.net", "other-chat", newest.Add(time.Hour))
+
+	sample, err := repo.GetMessages(&domainChatStorage.MessageFilter{DeviceID: device, ChatJID: lid})
+	require.NoError(t, err)
+	require.Len(t, sample, 1)
+	top, err := repo.GetMessages(&domainChatStorage.MessageFilter{DeviceID: device, ChatJID: pn, Limit: 20})
+	require.NoError(t, err)
+	require.Len(t, top, 20)
+	for _, m := range top {
+		require.True(t, strings.HasPrefix(m.ID, "jst-"), "text order puts %s in the top 20", m.ID)
+	}
+
+	got, err := repo.GetLatestMessageByDevice(device, pn, lid)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "newest", got.ID)
+	require.Equal(t, lid, got.ChatJID)
+	require.Equal(t, newest.Unix(), got.Timestamp.Unix())
+	require.False(t, got.IsFromMe)
+	require.Equal(t, "999111@lid", got.Sender)
+
+	// Same second: the later stored row wins.
+	store(device, pn, "same-second", newest.Add(500*time.Millisecond).UTC())
+	got, err = repo.GetLatestMessageByDevice(device, pn, lid)
+	require.NoError(t, err)
+	require.Equal(t, "same-second", got.ID)
+
+	none, err := repo.GetLatestMessageByDevice(device, "absent@s.whatsapp.net")
+	require.NoError(t, err)
+	require.Nil(t, none)
+	_, err = repo.GetLatestMessageByDevice("", pn)
+	require.Error(t, err)
+
+	_, err = repo.db.Exec("UPDATE messages SET timestamp = 'not a time' WHERE id = ?", "pet-old")
+	require.NoError(t, err)
+	_, err = repo.GetLatestMessageByDevice(device, pn, lid)
+	require.Error(t, err, "an unreadable timestamp must fail closed")
+}

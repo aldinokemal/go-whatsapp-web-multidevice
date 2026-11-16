@@ -155,6 +155,14 @@ func (r *deviceChatStorage) GetOldestMessageByDevice(deviceID, chatJID string) (
 	return r.base.GetOldestMessageByDevice(targetDeviceID, chatJID)
 }
 
+func (r *deviceChatStorage) GetLatestMessageByDevice(deviceID string, chatJIDs ...string) (*domainChatStorage.Message, error) {
+	targetDeviceID := deviceID
+	if targetDeviceID == "" {
+		targetDeviceID = r.deviceID
+	}
+	return r.base.GetLatestMessageByDevice(targetDeviceID, chatJIDs...)
+}
+
 func (r *deviceChatStorage) SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*domainChatStorage.Message, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

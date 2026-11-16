@@ -2,6 +2,8 @@ package chatstorage
 
 import (
 	"database/sql"
+	"fmt"
+	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
@@ -53,4 +55,49 @@ func (r *SQLiteRepository) GetOldestMessageByDevice(deviceID, chatJID string) (*
 		return nil, nil
 	}
 	return message, err
+}
+
+// GetLatestMessageByDevice returns the newest stored message by instant across
+// the given chat JIDs (for example the PN and LID forms of one chat), scoped to
+// the device. Stored timestamps can carry different UTC offsets, so text order
+// is not instant order: every candidate row is compared in Go. Only id,
+// chat_jid, timestamp, is_from_me, and sender are set. Returns (nil, nil) when
+// no message is stored, and an error for an unreadable timestamp.
+func (r *SQLiteRepository) GetLatestMessageByDevice(deviceID string, chatJIDs ...string) (*domainChatStorage.Message, error) {
+	if deviceID == "" || len(chatJIDs) == 0 {
+		return nil, fmt.Errorf("device_id and chat JIDs are required for latest message lookup")
+	}
+	var latest *domainChatStorage.Message
+	var latestRow int64
+	for _, chatJID := range chatJIDs {
+		// Bare columns, so both SQLite drivers scan the timestamp as time.Time.
+		rows, err := r.db.Query("SELECT rowid, id, chat_jid, timestamp, is_from_me, sender FROM messages WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var rowID int64
+			var ts time.Time
+			message := &domainChatStorage.Message{DeviceID: deviceID}
+			if err := rows.Scan(&rowID, &message.ID, &message.ChatJID, &ts, &message.IsFromMe, &message.Sender); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if ts.IsZero() {
+				rows.Close()
+				return nil, fmt.Errorf("invalid message timestamp for %s", message.ID)
+			}
+			message.Timestamp = ts
+			// Same second: prefer the later stored row, so the choice is stable.
+			if latest == nil || ts.Unix() > latest.Timestamp.Unix() || (ts.Unix() == latest.Timestamp.Unix() && rowID > latestRow) {
+				latest, latestRow = message, rowID
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return latest, nil
 }

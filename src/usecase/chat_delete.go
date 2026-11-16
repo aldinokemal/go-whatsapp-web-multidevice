@@ -36,18 +36,9 @@ func (service serviceChat) DeleteChat(ctx context.Context, request domainChat.De
 	deleteMedia := request.DeleteMedia == nil || *request.DeleteMedia
 	var bound *time.Time
 	if !request.LocalOnly {
-		var latest *domainChatStorage.Message
-		// shortcut: sample 20 text-sorted rows per alias, use instant-ordered storage if a wider range is needed
-		for _, jid := range jids {
-			messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{DeviceID: deviceID, ChatJID: jid, Limit: 20})
-			if err != nil {
-				return response, err
-			}
-			for _, message := range messages {
-				if latest == nil || message.Timestamp.After(latest.Timestamp) {
-					latest = message
-				}
-			}
+		latest, err := service.chatStorageRepo.GetLatestMessageByDevice(deviceID, jids...)
+		if err != nil {
+			return response, err
 		}
 		if latest == nil || latest.ID == "" || latest.Timestamp.IsZero() {
 			return response, pkgError.ValidationError("chat has no stored message to anchor deletion")

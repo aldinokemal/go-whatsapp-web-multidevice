@@ -51,6 +51,10 @@ type IChatStorageRepository interface {
 	// used to anchor on-demand history sync requests. Returns nil (no error)
 	// when the chat has no stored messages.
 	GetOldestMessageByDevice(deviceID, chatJID string) (*Message, error)
+	// GetLatestMessageByDevice returns the newest stored message by instant across
+	// the chat JIDs (PN and LID forms), with only id, chat_jid, timestamp,
+	// is_from_me, and sender set. Returns nil (no error) when none is stored.
+	GetLatestMessageByDevice(deviceID string, chatJIDs ...string) (*Message, error)
 	SearchMessages(deviceID, chatJID, searchText string, limit int) ([]*Message, error) // Database-level search with device isolation
 	DeleteMessage(id, chatJID string) error
 	DeleteMessageByDevice(deviceID, id, chatJID string) error
