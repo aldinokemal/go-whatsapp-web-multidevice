@@ -383,7 +383,10 @@ type pnLIDMapper interface {
 //     derived from a LID;
 //   - lid is set only for a phone-number key the LID store maps; a lookup
 //     error leaves it empty;
-//   - each name is kept verbatim unless blank, without precedence or merging.
+//   - each name is kept verbatim unless blank, without precedence or merging;
+//   - keys that differ only in the device part give one row: the key without
+//     device part wins, otherwise the lowest device, so the output does not
+//     depend on map iteration order.
 //
 // A contact store error is returned instead of an empty list.
 func buildDetailedContacts(ctx context.Context, contacts contactLister, lids pnLIDMapper) ([]domainUser.MyListContactsDetailedData, error) {
@@ -391,12 +394,19 @@ func buildDetailedContacts(ctx context.Context, contacts contactLister, lids pnL
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]domainUser.MyListContactsDetailedData, 0, len(all))
-	for key, info := range all {
+	chosen := make(map[types.JID]types.JID, len(all))
+	for key := range all {
 		jid := key.ToNonAD()
 		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
 			continue
 		}
+		if current, ok := chosen[jid]; !ok || key.Device < current.Device {
+			chosen[jid] = key
+		}
+	}
+	rows := make([]domainUser.MyListContactsDetailedData, 0, len(chosen))
+	for jid, key := range chosen {
+		info := all[key]
 		row := domainUser.MyListContactsDetailedData{
 			JID:          jid.String(),
 			FullName:     nonBlank(info.FullName),

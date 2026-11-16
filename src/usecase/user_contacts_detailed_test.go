@@ -57,6 +57,31 @@ func TestBuildDetailedContactsKeepsEveryNameSeparate(t *testing.T) {
 	}, got)
 }
 
+func TestBuildDetailedContactsCollapsesKeysWithTheSameJID(t *testing.T) {
+	bare := types.NewJID("628123456789", types.DefaultUserServer)
+	device3 := types.JID{User: "628123456789", Server: types.DefaultUserServer, Device: 3}
+	device7 := types.JID{User: "628123456789", Server: types.DefaultUserServer, Device: 7}
+	lidDevice2 := types.JID{User: "100000000002", Server: types.HiddenUserServer, Device: 2}
+	lidDevice5 := types.JID{User: "100000000002", Server: types.HiddenUserServer, Device: 5}
+
+	contacts := &chatContactStoreStub{contacts: map[types.JID]types.ContactInfo{
+		bare:       {Found: true, FullName: "Alice Example"},
+		device3:    {Found: true, PushName: "Device 3"},
+		device7:    {Found: true, PushName: "Device 7"},
+		lidDevice2: {Found: true, PushName: "Carol 2"},
+		lidDevice5: {Found: true, PushName: "Carol 5"},
+	}}
+
+	for i := 0; i < 20; i++ {
+		got, err := buildDetailedContacts(context.Background(), contacts, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []domainUser.MyListContactsDetailedData{
+			{JID: lidDevice2.ToNonAD().String(), PushName: "Carol 2"},
+			{JID: bare.String(), FullName: "Alice Example"},
+		}, got)
+	}
+}
+
 func TestBuildDetailedContactsDropsBlankNames(t *testing.T) {
 	pn := types.NewJID("628123456789", types.DefaultUserServer)
 	got, err := buildDetailedContacts(context.Background(),
