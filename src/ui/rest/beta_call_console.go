@@ -258,7 +258,7 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
     silent.connect(ctx.destination);
     speakerNode.connect(ctx.destination);
 
-    var scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var scheme = (location.protocol === 'https:' ? 'wss' : 'ws') + '://';
     var query = '?call_id=' + encodeURIComponent(id) +
       '&device_id=' + encodeURIComponent(currentDevice());
     var ws = new WebSocket(scheme + location.host + base + '/call/audio' + query);
@@ -331,7 +331,7 @@ const betaCallConsoleTemplate = `<script data-gowa-beta-call>
 
   function connectIncomingSocket() {
     if (incomingWS) return;
-    var scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var scheme = (location.protocol === 'https:' ? 'wss' : 'ws') + '://';
     var ws = new WebSocket(scheme + location.host + base + '/ws');
     incomingWS = ws;
     ws.onmessage = function (event) {

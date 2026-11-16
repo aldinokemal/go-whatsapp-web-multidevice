@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -526,11 +527,12 @@ func (c *Caller) forget(callID string) {
 }
 
 // resolveCallMediaPath confines a client-supplied call media path to
-// config.PathStorages. Absolute paths and relative paths that normalize outside
-// the directory are rejected.
+// config.PathStorages. Absolute paths, relative paths that normalize outside
+// the directory, and symlinks that resolve outside it are all rejected.
 //
-// ponytail: symlinks inside the directory can still point elsewhere; add
-// EvalSymlinks if untrusted writers can create files under PathStorages.
+// ponytail: the path is checked before it is opened, so a symlink swapped in
+// between can still race the check; add openat-style no-follow opens if
+// untrusted writers can race this.
 func resolveCallMediaPath(raw string) (string, error) {
 	if raw == "" {
 		return "", ErrCallMediaPath
@@ -542,13 +544,51 @@ func resolveCallMediaPath(raw string) (string, error) {
 	if err != nil {
 		return "", ErrCallMediaPath
 	}
-	resolved := filepath.Clean(filepath.Join(base, raw))
-	relative, err := filepath.Rel(base, resolved)
+	// The storages root itself may be a symlink (container mounts commonly
+	// are), so compare both sides in their canonical form.
+	base, err = filepath.EvalSymlinks(base)
+	if err != nil {
+		logrus.WithError(err).Warn("[CALL] call storage directory is unavailable")
+		return "", ErrCallMediaPath
+	}
+	resolved := filepath.Join(base, filepath.Clean(raw))
+	canonical, err := canonicalMediaPath(resolved)
+	if err != nil {
+		logrus.WithError(err).WithField("path", raw).Warn("[CALL] failed to resolve call media path")
+		return "", ErrCallMediaPath
+	}
+	relative, err := filepath.Rel(base, canonical)
 	escapes := relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
 	if err != nil || relative == "." || escapes {
 		return "", ErrCallMediaPath
 	}
-	return resolved, nil
+	return canonical, nil
+}
+
+// canonicalMediaPath resolves symlinks in the longest existing prefix of p and
+// re-appends the missing tail. A recorder target does not exist yet, so only
+// its parent can be resolved; the appended names cannot be symlinks.
+func canonicalMediaPath(p string) (string, error) {
+	existing := p
+	missing := []string{}
+	for {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(existing))
+		existing = parent
+	}
 }
 
 // openCallRecorder opens an optional WAV recorder for the peer's audio. It is nil

@@ -103,6 +103,66 @@ func TestOpenCallAudioSourceValidatesInput(t *testing.T) {
 	})
 }
 
+func TestOpenCallAudioSourceRejectsSymlinkEscape(t *testing.T) {
+	storageDir := useTempStorages(t)
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.mp3")
+	require.NoError(t, os.WriteFile(outsideFile, []byte("id3"), 0o600))
+
+	require.NoError(t, os.Symlink(outsideFile, filepath.Join(storageDir, "escape.mp3")))
+	_, err := openCallAudioSource("escape.mp3")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+
+	require.NoError(t, os.Symlink(outsideDir, filepath.Join(storageDir, "media")))
+	_, err = openCallAudioSource("media/secret.mp3")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+}
+
+func TestOpenCallRecorderRejectsSymlinkEscape(t *testing.T) {
+	storageDir := useTempStorages(t)
+	outsideDir := t.TempDir()
+	require.NoError(t, os.Symlink(outsideDir, filepath.Join(storageDir, "recordings")))
+
+	_, err := openCallRecorder("recordings/call.wav")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+	require.NoFileExists(t, filepath.Join(outsideDir, "call.wav"))
+}
+
+func TestOpenCallMediaAllowsSymlinkInsideStorages(t *testing.T) {
+	storageDir := useTempStorages(t)
+	realDir := filepath.Join(storageDir, "real")
+	require.NoError(t, os.MkdirAll(realDir, 0o700))
+	require.NoError(t, os.Symlink(realDir, filepath.Join(storageDir, "alias")))
+
+	// A minimal 16 kHz mono WAV header; the decoder accepts it even with no samples.
+	wav := make([]byte, 44)
+	copy(wav[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(wav[4:8], 36)
+	copy(wav[8:12], "WAVE")
+	copy(wav[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(wav[16:20], 16)
+	binary.LittleEndian.PutUint16(wav[20:22], 1)
+	binary.LittleEndian.PutUint16(wav[22:24], 1)
+	binary.LittleEndian.PutUint32(wav[24:28], 16000)
+	binary.LittleEndian.PutUint32(wav[28:32], 32000)
+	binary.LittleEndian.PutUint16(wav[32:34], 2)
+	binary.LittleEndian.PutUint16(wav[34:36], 16)
+	copy(wav[36:40], "data")
+	binary.LittleEndian.PutUint32(wav[40:44], 0)
+	require.NoError(t, os.WriteFile(filepath.Join(realDir, "voice.wav"), wav, 0o600))
+
+	// A symlink that stays inside the storage root is still allowed.
+	source, err := openCallAudioSource("alias/voice.wav")
+	require.NoError(t, err)
+	require.NotNil(t, source)
+	require.NoError(t, source.Close())
+
+	recorder, err := openCallRecorder("alias/call.wav")
+	require.NoError(t, err)
+	require.NoError(t, recorder.Close())
+	require.FileExists(t, filepath.Join(realDir, "call.wav"))
+}
+
 func TestNewCallerRequiresBetaFlagAndClient(t *testing.T) {
 	previous := config.WhatsappBetaCallEnabled
 	t.Cleanup(func() { config.WhatsappBetaCallEnabled = previous })
