@@ -380,7 +380,8 @@ type pnLIDMapper interface {
 
 // buildDetailedContacts returns one row per person contact, sorted by JID:
 //   - keys on servers other than s.whatsapp.net and lid (groups, broadcast
-//     lists, newsletters, bots) are skipped;
+//     lists, newsletters, bots) are skipped, and so are bot JIDs on
+//     s.whatsapp.net such as Meta AI;
 //   - jid is the store key without device part; a phone number is never
 //     derived from a LID;
 //   - lid is set only for a phone-number key the LID store maps; a lookup
@@ -399,7 +400,7 @@ func buildDetailedContacts(ctx context.Context, contacts contactLister, lids pnL
 	chosen := make(map[types.JID]types.JID, len(all))
 	for key := range all {
 		jid := key.ToNonAD()
-		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+		if (jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer) || jid.IsBot() {
 			continue
 		}
 		if current, ok := chosen[jid]; !ok || key.Device < current.Device {

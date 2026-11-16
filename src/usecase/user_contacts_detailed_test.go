@@ -82,6 +82,25 @@ func TestBuildDetailedContactsCollapsesKeysWithTheSameJID(t *testing.T) {
 	}
 }
 
+func TestBuildDetailedContactsSkipsBots(t *testing.T) {
+	person := types.NewJID("628123456789", types.DefaultUserServer)
+	metaAIDevice := types.MetaAIJID
+	metaAIDevice.Device = 2
+
+	contacts := &chatContactStoreStub{contacts: map[types.JID]types.ContactInfo{
+		person:             {Found: true, PushName: "Alice"},
+		types.MetaAIJID:    {Found: true, FullName: "Meta AI"},
+		metaAIDevice:       {Found: true, PushName: "Meta AI device"},
+		types.NewMetaAIJID: {Found: true, FullName: "Meta AI (bot server)"},
+	}}
+
+	got, err := buildDetailedContacts(context.Background(), contacts, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []domainUser.MyListContactsDetailedData{
+		{JID: person.String(), PushName: "Alice"},
+	}, got)
+}
+
 func TestBuildDetailedContactsDropsBlankNames(t *testing.T) {
 	pn := types.NewJID("628123456789", types.DefaultUserServer)
 	got, err := buildDetailedContacts(context.Background(),
