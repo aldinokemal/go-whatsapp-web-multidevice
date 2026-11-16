@@ -27,6 +27,9 @@ type UpdateMessageRequest struct {
 	Phone     string `json:"phone" form:"phone"`
 	// Link, when set, sends the edit with a rich link preview built from this URL.
 	Link string `json:"link,omitempty" form:"link"`
+	// MediaType, when "image" or "document", sends the edit as the new caption of
+	// that media message. Leave it empty to edit a text message.
+	MediaType string `json:"media_type,omitempty" form:"media_type"`
 }
 
 type MarkAsReadRequest struct {

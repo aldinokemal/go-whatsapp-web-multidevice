@@ -13,6 +13,8 @@ type IChatStorageRepository interface {
 	// Chat operations
 	CreateMessage(ctx context.Context, evt *events.Message) error
 	CreateReaction(ctx context.Context, evt *events.Message) error
+	// GetReactionForEvent returns the stored reaction addressed by an event, or nil if absent.
+	GetReactionForEvent(ctx context.Context, evt *events.Message) (*Reaction, error)
 	// CreateIncomingCallRecord persists an incoming call as a synthetic message (media_type "call") for chat history.
 	CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error
 	StoreChat(chat *Chat) error
@@ -28,6 +30,9 @@ type IChatStorageRepository interface {
 	StoreMessage(message *Message) error
 	StoreMessageEdit(edit *MessageEdit) error
 	StoreMessagesBatch(messages []*Message) error
+	// UpdateMessageMedia replaces only the media location and integrity fields of
+	// one device's stored message, leaving content and every other field as is.
+	UpdateMessageMedia(deviceID, chatJID, messageID string, media MessageMedia) error
 	// GetMessageByID matches an ID on any device and returns an arbitrary one of
 	// the rows. Each device stores its own copy (with its own "from me" flag and
 	// media keys), so user-facing flows must use the device-scoped lookups below.
@@ -54,7 +59,10 @@ type IChatStorageRepository interface {
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
-	GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*ChatwootMessageLink, error)
+	// ListChatwootMessageLinksByChatwootID returns every link of a Chatwoot
+	// message, oldest first: a reply with several attachments goes out as one
+	// WhatsApp message per attachment.
+	ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*ChatwootMessageLink, error)
 	// GetChatwootMessageLinkForReply returns the link of a quoted Chatwoot
 	// message within the filter's scope, or nil when there is none.
 	GetChatwootMessageLinkForReply(filter ChatwootReplyLinkFilter) (*ChatwootMessageLink, error)

@@ -430,6 +430,27 @@ func (r *SQLiteRepository) storeSentMessagePreservingEdits(message *domainChatSt
 	return insertErr
 }
 
+// UpdateMessageMedia replaces only the media location and integrity fields of
+// one device's stored message. It never rewrites content or other fields, so a
+// concurrent edit stored while the media was being recovered is preserved.
+func (r *SQLiteRepository) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" || chatJID == "" || messageID == "" {
+		return errors.New("device ID, chat JID and message ID are required")
+	}
+	result, err := r.db.Exec(`
+		UPDATE messages SET url = ?, direct_path = ?, file_sha256 = ?, file_enc_sha256 = ?, file_length = ?, updated_at = ?
+		WHERE id = ? AND chat_jid = ? AND device_id = ?
+	`, media.URL, media.DirectPath, media.FileSHA256, media.FileEncSHA256, media.FileLength, time.Now(),
+		messageID, chatJID, deviceID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return fmt.Errorf("message %s not found in chat %s for device %s", messageID, chatJID, deviceID)
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	if len(messages) == 0 {
 		return nil
@@ -1073,22 +1094,30 @@ func (r *SQLiteRepository) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessag
 	return link, err
 }
 
-func (r *SQLiteRepository) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
-	query := `
+func (r *SQLiteRepository) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
+	rows, err := r.db.Query(`
 		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
 			chatwoot_conversation_id, chatwoot_inbox_id,
 			chatwoot_contact_inbox_source_id, source_id, direction,
 			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
 		FROM chatwoot_message_links
 		WHERE device_id = ? AND chatwoot_message_id = ?
-		LIMIT 1
-	`
-
-	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, chatwootMessageID))
-	if err == sql.ErrNoRows {
-		return nil, nil
+		ORDER BY created_at, rowid
+	`, deviceID, chatwootMessageID)
+	if err != nil {
+		return nil, err
 	}
-	return link, err
+	defer rows.Close()
+
+	links := []*domainChatStorage.ChatwootMessageLink{}
+	for rows.Next() {
+		link, err := r.scanChatwootMessageLink(rows)
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
 }
 
 // GetChatwootMessageLinkForReply applies the whole scope before LIMIT 1, so a
@@ -2694,6 +2723,32 @@ func (r *SQLiteRepository) CreateReaction(ctx context.Context, evt *events.Messa
 		return nil
 	}
 	return r.StoreReaction(reaction)
+}
+
+// GetReactionForEvent returns the stored reaction addressed by an event, or nil if absent.
+func (r *SQLiteRepository) GetReactionForEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	target, err := r.reactionFromEvent(ctx, evt)
+	if err != nil || target == nil {
+		return nil, err
+	}
+
+	var stored domainChatStorage.Reaction
+	err = r.db.QueryRowContext(ctx, `
+		SELECT message_id, chat_jid, device_id, reactor_jid, emoji, is_from_me,
+			reaction_timestamp, created_at, updated_at
+		FROM message_reactions
+		WHERE message_id = ? AND chat_jid = ? AND reactor_jid = ? AND device_id = ?
+	`, target.MessageID, target.ChatJID, target.ReactorJID, target.DeviceID).Scan(
+		&stored.MessageID, &stored.ChatJID, &stored.DeviceID, &stored.ReactorJID,
+		&stored.Emoji, &stored.IsFromMe, &stored.Timestamp, &stored.CreatedAt, &stored.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &stored, nil
 }
 
 func (r *SQLiteRepository) reactionFromEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {

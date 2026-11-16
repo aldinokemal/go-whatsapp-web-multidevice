@@ -45,6 +45,10 @@ func (r *deviceChatStorage) CreateReaction(ctx context.Context, evt *events.Mess
 	return r.base.CreateReaction(ctx, evt)
 }
 
+func (r *deviceChatStorage) GetReactionForEvent(ctx context.Context, evt *events.Message) (*domainChatStorage.Reaction, error) {
+	return r.base.GetReactionForEvent(ctx, evt)
+}
+
 func (r *deviceChatStorage) CreateIncomingCallRecord(ctx context.Context, evt *events.CallOffer, autoRejected bool) error {
 	return r.base.CreateIncomingCallRecord(ctx, evt, autoRejected)
 }
@@ -89,6 +93,13 @@ func (r *deviceChatStorage) StoreMessageEdit(edit *domainChatStorage.MessageEdit
 
 func (r *deviceChatStorage) StoreMessagesBatch(messages []*domainChatStorage.Message) error {
 	return r.base.StoreMessagesBatch(messages)
+}
+
+func (r *deviceChatStorage) UpdateMessageMedia(deviceID, chatJID, messageID string, media domainChatStorage.MessageMedia) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.UpdateMessageMedia(deviceID, chatJID, messageID, media)
 }
 
 // GetMessageByID is scoped to this device, like every other read on the
@@ -167,12 +178,12 @@ func (r *deviceChatStorage) GetChatwootMessageLinkByWhatsAppID(deviceID, waMessa
 	return r.base.GetChatwootMessageLinkByWhatsAppID(targetDeviceID, waMessageID)
 }
 
-func (r *deviceChatStorage) GetChatwootMessageLinkByChatwootID(deviceID string, chatwootMessageID int) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *deviceChatStorage) ListChatwootMessageLinksByChatwootID(deviceID string, chatwootMessageID int) ([]*domainChatStorage.ChatwootMessageLink, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {
 		targetDeviceID = r.deviceID
 	}
-	return r.base.GetChatwootMessageLinkByChatwootID(targetDeviceID, chatwootMessageID)
+	return r.base.ListChatwootMessageLinksByChatwootID(targetDeviceID, chatwootMessageID)
 }
 
 func (r *deviceChatStorage) GetChatwootMessageLinkForReply(filter domainChatStorage.ChatwootReplyLinkFilter) (*domainChatStorage.ChatwootMessageLink, error) {

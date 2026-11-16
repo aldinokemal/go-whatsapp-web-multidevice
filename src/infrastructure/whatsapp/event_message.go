@@ -157,6 +157,11 @@ func buildEventPayload(ctx context.Context, client *whatsmeow.Client, evt *event
 	// Check for reaction message
 	if reactionMessage := msg.GetReactionMessage(); reactionMessage != nil {
 		payload["reaction"] = reactionMessage.GetText()
+		if reactionMessage.GetText() == "" {
+			if removed := removedReactionEmojiFromContext(ctx); removed != "" {
+				payload["removed_reaction"] = removed
+			}
+		}
 		if key := reactionMessage.GetKey(); key != nil {
 			payload["reacted_message_id"] = key.GetID()
 		}
@@ -212,6 +217,7 @@ func payloadHasNoRenderableContent(payload map[string]any) bool {
 		"contact", "contacts_array", "list", "live_location", "location", "order",
 		"template", "buttons", "product", "selection", "interactive",
 		"album",
+		"interactive_reply",
 	}
 	for _, key := range renderableKeys {
 		if _, ok := payload[key]; ok {
@@ -371,6 +377,8 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 
 	buildOtherMessageTypes(msg, payload)
 	buildAlbumFields(evt, msg, payload)
+
+	addMessageMetadataFields(ctx, client, msg, payload)
 
 	return nil
 }
