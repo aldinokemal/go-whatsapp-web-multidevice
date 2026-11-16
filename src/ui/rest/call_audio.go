@@ -6,27 +6,42 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/gofiber/contrib/v3/websocket"
 )
 
-// errAudioStreamClosed reports that the audio stream finished and its pooled
-// websocket connection can no longer be used.
+const (
+	// maxAudioMessageBytes bounds one browser microphone message so a client
+	// cannot make the server buffer an oversized allocation.
+	maxAudioMessageBytes int64 = 32 << 10
+	// maxAudioFrameBytes tolerates a browser batching a few worklet frames into
+	// one message. One 960-sample frame is 1920 bytes.
+	maxAudioFrameBytes = 4 * 960 * 2
+	// audioWriteTimeout bounds one peer-audio write so a stalled client cannot
+	// hold stream.mu and block call teardown behind it.
+	audioWriteTimeout = 5 * time.Second
+)
+
+// errAudioStreamClosed reports that the audio stream finished and its websocket
+// connection can no longer be used.
 var errAudioStreamClosed = errors.New("audio stream closed")
 
-// audioStreamConn guards the pooled websocket connection used by AudioStream.
-// The connection returns to the pool as soon as the handler returns, so
-// callbacks that outlive the handler must not touch it. The mutex guards the
+// audioStreamConn guards the websocket connection used by AudioStream. The
+// connection belongs to the request handler and cannot be used once it returns,
+// so callbacks that outlive the handler must not touch it. The mutex guards the
 // completion flag together with every write and close, so a frame is never
-// written to a released connection.
+// written to a finished connection.
 type audioStreamConn struct {
 	mu       sync.Mutex
 	conn     *websocket.Conn
 	finished bool
 }
 
-// Write sends a frame while the stream still owns the connection.
+// Write sends a frame while the stream still owns the connection. A write that
+// misses the deadline finishes the stream so call teardown never waits on a
+// client that stopped reading.
 func (stream *audioStreamConn) Write(messageType int, payload []byte) error {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
@@ -34,11 +49,19 @@ func (stream *audioStreamConn) Write(messageType int, payload []byte) error {
 		return errAudioStreamClosed
 	}
 
-	return stream.conn.WriteMessage(messageType, payload)
+	if err := stream.conn.SetWriteDeadline(time.Now().Add(audioWriteTimeout)); err != nil {
+		stream.finishLocked()
+		return err
+	}
+	if err := stream.conn.WriteMessage(messageType, payload); err != nil {
+		stream.finishLocked()
+		return err
+	}
+	return nil
 }
 
 // Close closes the connection while the stream still owns it. It is a no-op
-// once the stream finished, so a late callback cannot close a recycled conn.
+// once the stream finished, so a late callback cannot close it twice.
 func (stream *audioStreamConn) Close() {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
@@ -54,6 +77,12 @@ func (stream *audioStreamConn) Close() {
 func (stream *audioStreamConn) Finish() {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+	stream.finishLocked()
+}
+
+// finishLocked stops later callbacks from writing to or closing the connection,
+// then closes it. The caller holds the mutex.
+func (stream *audioStreamConn) finishLocked() {
 	stream.finished = true
 	stream.closeLocked()
 }
@@ -92,12 +121,13 @@ func (controller *Call) AudioStream(conn *websocket.Conn) {
 		stream.Close()
 	})
 
+	conn.SetReadLimit(maxAudioMessageBytes)
 	for {
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
-		if messageType != websocket.BinaryMessage {
+		if messageType != websocket.BinaryMessage || !validAudioFrame(payload) {
 			continue
 		}
 		select {
@@ -107,6 +137,12 @@ func (controller *Call) AudioStream(conn *websocket.Conn) {
 			// when the call's player falls behind.
 		}
 	}
+}
+
+// validAudioFrame accepts raw s16le mono chunks: at least one whole sample and
+// no more than a few worklet frames, so a client cannot retain a large buffer.
+func validAudioFrame(payload []byte) bool {
+	return len(payload) >= 2 && len(payload) <= maxAudioFrameBytes && len(payload)%2 == 0
 }
 
 func deviceFromConn(conn *websocket.Conn) *whatsapp.DeviceInstance {

@@ -41,7 +41,30 @@ func InitRestCall(app fiber.Router, service domainCall.ICallUsecase) Call {
 			}
 			return c.SendStatus(fiber.StatusUpgradeRequired)
 		})
-		app.Get("/call/audio", websocket.New(rest.AudioStream))
+		app.Get("/call/audio", func(c fiber.Ctx) error {
+			// Same origin allowlist as the dashboard hub: a foreign page must
+			// not establish the audio stream.
+			if !config.BrowserSourceAllowed(
+				c.Host(),
+				c.Get(fiber.HeaderOrigin),
+				c.Get(fiber.HeaderReferer),
+				c.Get("Sec-Fetch-Site"),
+			) {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"code":    "CROSS_SITE_REQUEST_BLOCKED",
+					"message": "browser request origin is not allowed",
+				})
+			}
+			origins := config.TrustedBrowserOrigins(c.Host())
+			if len(origins) == 0 {
+				// An empty list makes the adapter allow every origin.
+				origins = []string{"http://127.0.0.1"}
+			}
+			return websocket.New(rest.AudioStream, websocket.Config{
+				Origins:          origins,
+				AllowEmptyOrigin: true,
+			})(c)
+		})
 	}
 	return rest
 }

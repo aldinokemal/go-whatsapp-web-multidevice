@@ -57,12 +57,13 @@ require (
 	github.com/petermattis/goid v0.0.0-20261102161117-2a3fffa09998 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
-	github.com/pion/dtls/v3 v3.1.2 // indirect
+	github.com/pion/dtls/v3 v3.1.15 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/opus v0.1.0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.9.4 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
+	github.com/pion/transport/v5 v5.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/savsgio/gotils v0.0.0-20250924091648-bce9a52d7761 // indirect

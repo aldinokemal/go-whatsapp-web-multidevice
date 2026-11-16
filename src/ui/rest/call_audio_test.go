@@ -2,10 +2,14 @@ package rest
 
 import (
 	"encoding/binary"
+	"io"
 	"math"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,5 +50,55 @@ func TestPCMToS16LERoundTripsFullScale(t *testing.T) {
 	for i, want := range samples {
 		got := int16(binary.LittleEndian.Uint16(out[i*2:]))
 		require.Equal(t, want, got, "sample %d must round-trip unchanged", want)
+	}
+}
+
+func TestCallAudioRejectsForeignOrigin(t *testing.T) {
+	prevBeta := config.WhatsappBetaCallEnabled
+	config.WhatsappBetaCallEnabled = true
+	t.Cleanup(func() { config.WhatsappBetaCallEnabled = prevBeta })
+
+	prevOrigins := config.AppTrustedOrigins
+	config.AppTrustedOrigins = []string{}
+	t.Cleanup(func() { config.AppTrustedOrigins = prevOrigins })
+
+	app := fiber.New()
+	InitRestCall(app, nil)
+
+	req := httptest.NewRequest(fiber.MethodGet, "http://gowa.example/call/audio?call_id=c&device_id=d", nil)
+	req.Host = "gowa.example"
+	req.Header.Set(fiber.HeaderOrigin, "https://evil.example")
+	req.Header.Set(fiber.HeaderConnection, "Upgrade")
+	req.Header.Set(fiber.HeaderUpgrade, "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusForbidden, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "CROSS_SITE_REQUEST_BLOCKED")
+}
+
+func TestValidAudioFrame(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    bool
+	}{
+		{name: "one worklet frame", payload: make([]byte, 960*2), want: true},
+		{name: "batched frames", payload: make([]byte, maxAudioFrameBytes), want: true},
+		{name: "empty", payload: []byte{}, want: false},
+		{name: "single byte", payload: []byte{0}, want: false},
+		{name: "odd length", payload: make([]byte, 3), want: false},
+		{name: "oversized", payload: make([]byte, maxAudioFrameBytes+2), want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, validAudioFrame(test.payload))
+		})
 	}
 }
