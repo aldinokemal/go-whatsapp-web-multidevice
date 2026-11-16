@@ -95,6 +95,16 @@ func TestHandleMessageDispatch(t *testing.T) {
 		assert.Equal(t, "https://example.com", svc.updated.Link)
 	})
 
+	t.Run("edit with media_type", func(t *testing.T) {
+		svc := &stubMessageService{}
+		h := InitMcpMessage(svc, &stubResolver{})
+		_, err := h.handleMessage(deviceCtx(), callReq(withAction("edit", map[string]any{"message": "new caption", "media_type": "image"})))
+		require.NoError(t, err)
+		require.NotNil(t, svc.updated)
+		assert.Equal(t, "new caption", svc.updated.Message)
+		assert.Equal(t, "image", svc.updated.MediaType)
+	})
+
 	t.Run("revoke", func(t *testing.T) {
 		svc := &stubMessageService{}
 		h := InitMcpMessage(svc, &stubResolver{})

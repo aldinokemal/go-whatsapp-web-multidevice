@@ -29,6 +29,10 @@ This package owns clients, device lifecycle, JIDs, events, presence, and forward
   `sync.Once`; do not introduce a second scheduler.
 - Session keys: `key_cache.go` redirects selected key stores. Leave privacy tokens
   in durable primary WhatsApp storage rather than moving them to a volatile keys DB.
+- Expired media: `media_retry.go` routes `events.MediaRetry` to the downloads
+  waiting for it; `media_recovery.go` is the recovery shared by stored-media
+  download paths. It waits up to `DefaultMediaRetryTimeout` for the phone, so call
+  it from request or worker goroutines, never from an event handler.
 - History: `history_sync.go` handles batches; preserve the same device and JID rules.
 
 Tests commonly exercise unexported helpers and replace package globals. Restore

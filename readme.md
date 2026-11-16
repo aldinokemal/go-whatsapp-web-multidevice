@@ -356,6 +356,7 @@ To use environment variables:
 | `CHATWOOT_FORWARD_DELETES`              | Mirror WhatsApp delete-for-everyone events into Chatwoot notes | `true`                                      | `CHATWOOT_FORWARD_DELETES=false`              |
 | `CHATWOOT_MESSAGE_READ`                 | Sync read state for linked WhatsApp/Chatwoot messages         | `false`                                      | `CHATWOOT_MESSAGE_READ=true`                  |
 | `CHATWOOT_MESSAGE_DELETE`               | Delete linked opposite-side messages when deletion is reported | `false`                                     | `CHATWOOT_MESSAGE_DELETE=true`                |
+| `CHATWOOT_REVOKE_ON_DELETE`             | Revoke on WhatsApp the messages deleted in Chatwoot only      | `false`                                      | `CHATWOOT_REVOKE_ON_DELETE=true`              |
 
 **Documentation:**
 
@@ -862,3 +863,4 @@ export CGO_CFLAGS_ALLOW="-Xpreprocessor"
 
 - This project is unofficial and not affiliated with WhatsApp.
 - Use the official WhatsApp Business Platform when you require a supported, production-grade integration.
+- This project follows the [Code of Conduct](./CODE_OF_CONDUCT.md).

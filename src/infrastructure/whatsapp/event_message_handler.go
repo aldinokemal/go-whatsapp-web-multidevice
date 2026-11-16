@@ -37,6 +37,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
 
 	if isReactionMessage(evt) {
+		ctx = withRemovedReactionEmoji(ctx, evt, chatStorageRepo)
 		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
 			log.Errorf("Failed to store incoming reaction %s: %v", sanitizeLogText(evt.Info.ID), err)
 		}
