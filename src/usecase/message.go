@@ -700,14 +700,9 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
 	}
 
-	// Create directory structure for organized storage
+	// Build the directory path for organized storage.
 	chatDir := filepath.Join(config.PathMedia, utils.ExtractPhoneNumber(message.ChatJID))
 	dateDir := filepath.Join(chatDir, message.Timestamp.Format("2006-01-02"))
-
-	err = os.MkdirAll(dateDir, 0755)
-	if err != nil {
-		return response, fmt.Errorf("failed to create directory: %v", err)
-	}
 
 	downloadableMsg, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {

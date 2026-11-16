@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -1080,30 +1082,49 @@ func TestExtractContextInfoOtherMessageTypes(t *testing.T) {
 }
 
 func TestStoreExtractedMediaWaitsForRemovalLock(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "removed", "date")
 	ChatMediaMutex.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			ChatMediaMutex.Unlock()
+		}
+	}()
 	done := make(chan error, 1)
-	started := make(chan struct{})
 	go func() {
-		close(started)
 		_, err := storeExtractedMedia(dir, &waE2E.ImageMessage{}, []byte("image"))
 		done <- err
 	}()
-	<-started
-	select {
-	case err := <-done:
-		ChatMediaMutex.Unlock()
-		t.Fatalf("write completed during removal: %v", err)
-	case <-time.After(50 * time.Millisecond):
+	// Observe the writer at RLock, rather than assuming it ran during a sleep.
+	deadline := time.Now().Add(5 * time.Second)
+	buf := make([]byte, 64<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		blocked := false
+		for _, stack := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(stack, "TestStoreExtractedMediaWaitsForRemovalLock") && strings.Contains(stack, "storeExtractedMedia") && strings.Contains(stack, "sync.(*RWMutex).RLock") {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("write completed during removal: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("writer did not block at the media lock")
+		}
+		runtime.Gosched()
 	}
-	files, err := os.ReadDir(dir)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("directory created during removal: %v", err)
+	}
 	ChatMediaMutex.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) != 0 {
-		t.Fatal("file written during removal")
-	}
+	locked = false
 	select {
 	case err := <-done:
 		if err != nil {
@@ -1111,5 +1132,12 @@ func TestStoreExtractedMediaWaitsForRemovalLock(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("write did not resume")
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("got %d files after removal, want 1", len(files))
 	}
 }

@@ -1,9 +1,11 @@
 package chatstorage
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/stretchr/testify/require"
 )
 
@@ -290,4 +293,118 @@ func TestPurgeLocalChatKeepsLegacyGroupMedia(t *testing.T) {
 	require.NoError(t, repo.StoreChat(&domainChatStorage.Chat{DeviceID: "other", JID: "120-456@g.us"}))
 	require.NoError(t, whatsapp.PurgeLocalChat(repo, "device", []string{"120@s.whatsapp.net"}, true, nil))
 	require.FileExists(t, filepath.Join(dir, "group.jpg"))
+}
+
+func TestBoundedDeleteWaitsForConcurrentWriter(t *testing.T) {
+	db, err := sql.Open(sqlite.DriverName, sqlite.FormatChatStorageURI("file:"+filepath.Join(t.TempDir(), "chat.db"), true, true))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(5)
+	repo := &SQLiteRepository{db: db}
+	require.NoError(t, repo.InitializeSchema())
+	bound := time.Now().Truncate(time.Second)
+	require.NoError(t, repo.StoreMessage(&domainChatStorage.Message{ID: "old", DeviceID: "device", ChatJID: "chat", Content: "old", Timestamp: bound}))
+	writer, err := db.Begin()
+	require.NoError(t, err)
+	defer writer.Rollback()
+	_, err = writer.Exec("INSERT INTO messages(id,device_id,chat_jid,content,timestamp,sender) VALUES (?,?,?,?,?,'sender')", "new", "device", "chat", "new", bound.Add(time.Second))
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { _, err := repo.DeleteChatByDeviceBefore("device", bound, "chat"); done <- err }()
+	deadline := time.Now().Add(5 * time.Second)
+	for db.Stats().InUse < 2 {
+		select {
+		case err := <-done:
+			t.Fatalf("purge did not wait for writer: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("purge did not acquire a second connection")
+		}
+		runtime.Gosched()
+	}
+	require.NoError(t, writer.Commit())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("purge did not finish")
+	}
+	var id string
+	require.NoError(t, db.QueryRow("SELECT id FROM messages").Scan(&id))
+	require.Equal(t, "new", id)
+}
+
+func TestBoundedDeleteOrphanChatwootLinksWithSurvivors(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	bound := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	seedDeleteChat(t, repo, "device", "chat", "old")
+	seedDeleteChat(t, repo, "device", "chat", "survivor")
+	_, err := repo.db.Exec("UPDATE messages SET timestamp = ? WHERE id = ?", bound, "old")
+	require.NoError(t, err)
+	_, err = repo.db.Exec("UPDATE messages SET timestamp = ? WHERE id = ?", bound.Add(time.Second), "survivor")
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		id, device, chat string
+		ts               time.Time
+	}{
+		{"before", "device", "chat", bound.Add(-time.Second).In(time.FixedZone("JST", 9*3600))},
+		{"at", "device", "chat", bound.In(time.FixedZone("PET", -5*3600))},
+		{"after", "device", "chat", bound.Add(time.Second)},
+		{"other-device", "other", "chat", bound},
+		{"other-chat", "device", "other", bound},
+	} {
+		_, err := repo.db.Exec("INSERT INTO chatwoot_message_links(device_id,wa_chat_jid,wa_message_id,created_at) VALUES (?,?,?,?)", tc.device, tc.chat, tc.id, tc.ts)
+		require.NoError(t, err)
+	}
+	removed, err := repo.DeleteChatByDeviceBefore("device", bound, "chat")
+	require.NoError(t, err)
+	require.False(t, removed)
+	rows, err := repo.db.Query("SELECT wa_message_id FROM chatwoot_message_links ORDER BY wa_message_id")
+	require.NoError(t, err)
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []string{"after", "other-chat", "other-device", "survivor"}, ids)
+}
+
+func TestBoundedDeleteChunksMessageIDs(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	bound := time.Now().Truncate(time.Second)
+	require.NoError(t, repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device", JID: "chat"}))
+	tx, err := repo.db.Begin()
+	require.NoError(t, err)
+	defer tx.Rollback()
+	for i := 0; i < 1002; i++ {
+		id := fmt.Sprintf("m%d", i)
+		ts := bound
+		if i == 1001 {
+			ts = bound.Add(time.Second)
+		}
+		_, err = tx.Exec("INSERT INTO messages(device_id,chat_jid,id,content,timestamp,sender) VALUES (?,?,?,'hello',?,'sender')", "device", "chat", id, ts)
+		require.NoError(t, err)
+		for _, query := range []string{
+			"INSERT INTO message_reactions(device_id,chat_jid,message_id,reactor_jid,reaction_timestamp) VALUES (?,?,?,'sender',CURRENT_TIMESTAMP)",
+			"INSERT INTO message_edits(device_id,chat_jid,original_message_id,edit_event_id,edited_at) VALUES (?,?,?,'edit',CURRENT_TIMESTAMP)",
+			"INSERT INTO poll_definitions(device_id,chat_jid,poll_message_id) VALUES (?,?,?)",
+			"INSERT INTO chatwoot_message_links(device_id,wa_chat_jid,wa_message_id) VALUES (?,?,?)",
+		} {
+			_, err = tx.Exec(query, "device", "chat", id)
+			require.NoError(t, err)
+		}
+	}
+	require.NoError(t, tx.Commit())
+	removed, err := repo.DeleteChatByDeviceBefore("device", bound, "chat")
+	require.NoError(t, err)
+	require.False(t, removed)
+	for _, table := range deletedChatTables {
+		var count int
+		require.NoError(t, repo.db.QueryRow(table.totalCount).Scan(&count))
+		require.Equal(t, 1, count, table.name)
+	}
 }

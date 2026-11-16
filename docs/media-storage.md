@@ -96,8 +96,8 @@ an open media-root handle, so symbolic links and traversal cannot remove files
 outside that root. A directory still referenced by any other stored chat or device
 is kept because this legacy cache has no device namespace and different JIDs can
 share the same first digits. This includes legacy group JIDs such as
-`<phone>-<timestamp>@g.us`. File writes are blocked during the reference check
-and directory removal. Newsletter downloads have no stored message row, so their
+`<phone>-<timestamp>@g.us`. Directory creation and file writes are blocked during
+the reference check and directory removal. Newsletter downloads have no stored message row, so their
 use of a directory cannot be checked.
 
 Webhook downloads use flat timestamp/UUID names with no stored chat owner. These
@@ -110,8 +110,9 @@ per-chat delete API for message secrets or chat settings, so those rows are kept
 A WhatsApp-first deletion and a deletion event from another linked device delete
 only messages at or before their timestamp bound, including the whole bound
 second. Poll definitions for deleted messages are removed. Orphan poll definitions
-are removed only when their creation time is within the bound. Chat media is
-removed only when no messages remain for any known alias. Local-only deletion removes the whole
-local chat. The operation does not prevent a later incoming message or
+are removed only when their creation time is within the bound. If messages
+survive, orphan Chatwoot links are removed only when their creation time is
+within the bound. Chat media is removed only when no messages remain for any
+known alias. Local-only deletion removes the whole local chat. The operation does not prevent a later incoming message or
 history sync from creating the chat again. Local-only deletion does not remove
 anything from WhatsApp.

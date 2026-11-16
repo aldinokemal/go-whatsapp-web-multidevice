@@ -1013,8 +1013,11 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
 	ChatMediaMutex.RLock()
+	defer ChatMediaMutex.RUnlock()
+	if err = os.MkdirAll(filepath.Dir(extractedMedia.MediaPath), 0755); err != nil {
+		return extractedMedia, err
+	}
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
-	ChatMediaMutex.RUnlock()
 	if err != nil {
 		return extractedMedia, err
 	}

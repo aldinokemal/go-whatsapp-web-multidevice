@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -295,10 +296,14 @@ func (r *SQLiteRepository) deleteChatByDevice(deviceID string, jids []string, bo
 		return false, err
 	}
 	defer tx.Rollback()
+	// Take the write lock before reading, so another commit cannot invalidate a deferred read snapshot.
+	if _, err := tx.Exec("UPDATE chats SET jid = jid WHERE 0"); err != nil {
+		return false, err
+	}
 
 	fullyRemoved := true
 	for _, chatJID := range jids {
-		var ids, orphanPolls []string
+		var ids, orphanPolls, orphanLinks []string
 		allRemoved := true
 		if bound != nil {
 			rows, err := tx.Query("SELECT id, timestamp FROM messages WHERE chat_jid = ? AND device_id = ?", chatJID, deviceID)
@@ -328,33 +333,50 @@ func (r *SQLiteRepository) deleteChatByDevice(deviceID string, jids []string, bo
 				return false, err
 			}
 			rows.Close()
-			// A definition can outlive its message, but a newer orphan is outside this range.
-			rows, err = tx.Query(`SELECT poll_message_id, created_at FROM poll_definitions p
+			// Orphans have no message timestamp; compare their own creation time instead.
+			orphanQueries := []struct {
+				query string
+				ids   *[]string
+			}{
+				{`SELECT poll_message_id, created_at FROM poll_definitions p
 				WHERE chat_jid = ? AND device_id = ? AND NOT EXISTS
-				(SELECT 1 FROM messages m WHERE m.id = p.poll_message_id AND m.chat_jid = p.chat_jid AND m.device_id = p.device_id)`, chatJID, deviceID)
-			if err != nil {
-				return false, err
+				(SELECT 1 FROM messages m WHERE m.id = p.poll_message_id AND m.chat_jid = p.chat_jid AND m.device_id = p.device_id)`, &orphanPolls},
 			}
-			for rows.Next() {
-				var id string
-				var ts time.Time
-				if err := rows.Scan(&id, &ts); err != nil {
+			if !allRemoved {
+				orphanQueries = append(orphanQueries, struct {
+					query string
+					ids   *[]string
+				}{
+					`SELECT wa_message_id, created_at FROM chatwoot_message_links l
+					WHERE wa_chat_jid = ? AND device_id = ? AND NOT EXISTS
+					(SELECT 1 FROM messages m WHERE m.id = l.wa_message_id AND m.chat_jid = l.wa_chat_jid AND m.device_id = l.device_id)`, &orphanLinks})
+			}
+			for _, orphanQuery := range orphanQueries {
+				rows, err := tx.Query(orphanQuery.query, chatJID, deviceID)
+				if err != nil {
+					return false, err
+				}
+				for rows.Next() {
+					var id string
+					var ts time.Time
+					if err := rows.Scan(&id, &ts); err != nil {
+						rows.Close()
+						return false, err
+					}
+					if ts.IsZero() {
+						rows.Close()
+						return false, fmt.Errorf("invalid orphan timestamp for %s", id)
+					}
+					if ts.Unix() <= bound.Unix() {
+						*orphanQuery.ids = append(*orphanQuery.ids, id)
+					}
+				}
+				if err := rows.Err(); err != nil {
 					rows.Close()
 					return false, err
 				}
-				if ts.IsZero() {
-					rows.Close()
-					return false, fmt.Errorf("invalid poll timestamp for %s", id)
-				}
-				if ts.Unix() <= bound.Unix() {
-					orphanPolls = append(orphanPolls, id)
-				}
-			}
-			if err := rows.Err(); err != nil {
 				rows.Close()
-				return false, err
 			}
-			rows.Close()
 		}
 		if !allRemoved {
 			fullyRemoved = false
@@ -379,35 +401,37 @@ func (r *SQLiteRepository) deleteChatByDevice(deviceID string, jids []string, bo
 				query string
 				ids   []string
 			}{
-				{"DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ? AND poll_message_id = ?", append(orphanPolls, ids...)},
+				{"DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ? AND poll_message_id IN (", orphanPolls},
 			}
-			if !allRemoved {
+			if allRemoved {
+				// Every remaining message is in range; remove its poll definition in one statement.
+				if _, err := tx.Exec(`DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ? AND EXISTS
+					(SELECT 1 FROM messages m WHERE m.id = poll_definitions.poll_message_id AND m.chat_jid = poll_definitions.chat_jid AND m.device_id = poll_definitions.device_id)`, chatJID, deviceID); err != nil {
+					return false, err
+				}
+			} else {
 				deletes = []struct {
 					query string
 					ids   []string
 				}{
-					{"DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ? AND message_id = ?", ids},
-					{"DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ? AND original_message_id = ?", ids},
-					{"DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ? AND wa_message_id = ?", ids},
-					deletes[0],
-					{"DELETE FROM messages WHERE chat_jid = ? AND device_id = ? AND id = ?", ids},
+					{"DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ? AND message_id IN (", ids},
+					{"DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ? AND original_message_id IN (", ids},
+					{"DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ? AND wa_message_id IN (", append(orphanLinks, ids...)},
+					{"DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ? AND poll_message_id IN (", append(orphanPolls, ids...)},
+					{"DELETE FROM messages WHERE chat_jid = ? AND device_id = ? AND id IN (", ids},
 				}
 			}
 			for _, deletion := range deletes {
-				if len(deletion.ids) == 0 {
-					continue
-				}
-				stmt, err := tx.Prepare(deletion.query)
-				if err != nil {
-					return false, err
-				}
-				for _, id := range deletion.ids {
-					if _, err := stmt.Exec(chatJID, deviceID, id); err != nil {
-						stmt.Close()
+				for chunk := range slices.Chunk(deletion.ids, 500) {
+					args := []any{chatJID, deviceID}
+					for _, id := range chunk {
+						args = append(args, id)
+					}
+					query := deletion.query + strings.Repeat("?,", len(chunk)-1) + "?)"
+					if _, err := tx.Exec(query, args...); err != nil {
 						return false, err
 					}
 				}
-				stmt.Close()
 			}
 		}
 		if allRemoved {
@@ -3552,6 +3576,7 @@ func (r *SQLiteRepository) getMigrations() []string {
 	}
 }
 
+// The prefix range assumes a JID starts with its first digit run.
 const chatMediaReferencesQuery = `SELECT jid FROM chats WHERE jid >= ? AND jid < ?
 	UNION SELECT chat_jid FROM messages WHERE chat_jid >= ? AND chat_jid < ?`
 

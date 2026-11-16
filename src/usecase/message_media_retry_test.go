@@ -76,6 +76,9 @@ func (c *fakeMediaCDN) install(service *serviceMessage) {
 }
 
 func writeFakeMedia(storageLocation string) (utils.ExtractedMedia, error) {
+	if err := os.MkdirAll(storageLocation, 0755); err != nil {
+		return utils.ExtractedMedia{}, err
+	}
 	path := filepath.Join(storageLocation, "image.jpg")
 	return utils.ExtractedMedia{MediaPath: path, MimeType: "image/jpeg"}, os.WriteFile(path, []byte("jpeg"), 0o600)
 }
