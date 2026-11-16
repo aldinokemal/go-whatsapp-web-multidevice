@@ -31,6 +31,8 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	client := instance.GetClient()
 
 	switch evt := rawEvt.(type) {
+	case *events.DeleteChat:
+		handleDeleteChat(ctx, evt, chatStorageRepo, instance.JID(), client)
 	case *events.DeleteForMe:
 		handleDeleteForMe(ctx, evt, chatStorageRepo, instance.JID(), client)
 	case *events.AppStateSyncComplete:

@@ -23,6 +23,7 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
 	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
 	app.Post("/chat/:chat_jid/archive", rest.ArchiveChat)
+	app.Post("/chat/:chat_jid/delete", rest.DeleteChat)
 	app.Post("/chat/:chat_jid/history", rest.RequestChatHistory)
 
 	return rest
@@ -257,4 +258,21 @@ func chatJIDParam(c fiber.Ctx) (string, error) {
 		return "", err
 	}
 	return strings.Clone(decoded), nil
+}
+
+func (controller *Chat) DeleteChat(c fiber.Ctx) error {
+	var request domainChat.DeleteChatRequest
+	if len(c.Body()) > 0 {
+		if err := c.Bind().Body(&request); err != nil {
+			return c.Status(400).JSON(utils.ResponseData{Status: 400, Code: "BAD_REQUEST", Message: "Invalid request body"})
+		}
+	}
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return c.Status(400).JSON(utils.ResponseData{Status: 400, Code: "BAD_REQUEST", Message: "invalid chat_jid path parameter: " + err.Error()})
+	}
+	request.ChatJID = chatJID
+	response, err := controller.Service.DeleteChat(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+	return c.JSON(utils.ResponseData{Status: 200, Code: "SUCCESS", Message: response.Message, Results: response})
 }

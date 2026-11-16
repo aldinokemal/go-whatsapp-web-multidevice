@@ -17,6 +17,7 @@ type stubChatService struct {
 	listed   *domainChat.ListChatsRequest
 	fetched  *domainChat.GetChatMessagesRequest
 	archived *domainChat.ArchiveChatRequest
+	deleted  *domainChat.DeleteChatRequest
 	listResp domainChat.ListChatsResponse
 	msgResp  domainChat.GetChatMessagesResponse
 }
@@ -134,4 +135,29 @@ func TestHandleChatDispatch(t *testing.T) {
 		require.NotNil(t, cs.archived)
 		assert.True(t, cs.archived.Archived)
 	})
+}
+
+func (s *stubChatService) DeleteChat(_ context.Context, r domainChat.DeleteChatRequest) (domainChat.DeleteChatResponse, error) {
+	s.deleted = &r
+	return domainChat.DeleteChatResponse{Message: "Deleted"}, nil
+}
+
+func TestHandleChatDelete(t *testing.T) {
+	for _, localOnly := range []bool{false, true} {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		result, err := h.handleChat(deviceCtx(), callReq(map[string]any{"action": "delete", "chat_jid": "628111@s.whatsapp.net", "local_only": localOnly}))
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+		require.NotNil(t, cs.deleted)
+		require.Equal(t, "628111@s.whatsapp.net", cs.deleted.ChatJID)
+		require.Equal(t, localOnly, cs.deleted.LocalOnly)
+		require.NotNil(t, cs.deleted.DeleteMedia)
+		require.True(t, *cs.deleted.DeleteMedia)
+	}
+	cs := &stubChatService{}
+	h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+	_, err := h.handleChat(deviceCtx(), callReq(map[string]any{"action": "delete", "chat_jid": "628111@s.whatsapp.net", "delete_media": false}))
+	require.NoError(t, err)
+	require.False(t, *cs.deleted.DeleteMedia)
 }

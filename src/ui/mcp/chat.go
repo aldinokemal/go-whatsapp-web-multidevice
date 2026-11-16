@@ -24,10 +24,10 @@ func InitMcpChat(chatService domainChat.IChatUsecase, userService domainUser.IUs
 
 func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_chat",
-		mcpg.WithDescription("Query WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), or archive/unarchive a chat."),
+		mcpg.WithDescription("Query WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive a chat, or delete a chat (WhatsApp and local, or local_only)."),
 		mcpg.WithTitleAnnotation("Chat Queries"),
 		mcpg.WithReadOnlyHintAnnotation(false),
-		mcpg.WithDestructiveHintAnnotation(false),
+		mcpg.WithDestructiveHintAnnotation(true),
 		mcpg.WithIdempotentHintAnnotation(true),
 		mcpg.WithRawInputSchema(json.RawMessage(chatSchema)),
 	)
@@ -98,6 +98,15 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		return mcpg.NewToolResultStructuredOnly(resp), nil
+	case "delete":
+		deleteMedia := request.GetBool("delete_media", true)
+		resp, err := h.chatService.DeleteChat(ctx, domainChat.DeleteChatRequest{
+			ChatJID: request.GetString("chat_jid", ""), DeleteMedia: &deleteMedia, LocalOnly: request.GetBool("local_only", false),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
 	case "archive":
 		req := domainChat.ArchiveChatRequest{
 			ChatJID:  request.GetString("chat_jid", ""),

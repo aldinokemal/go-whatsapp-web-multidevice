@@ -32,8 +32,8 @@ var (
 	db            *sqlstore.Container // Add global database reference for cleanup
 	keysDB        *sqlstore.Container
 	deviceManager *DeviceManager
-	log           waLog.Logger
-	startupTime   = time.Now().Unix()
+	log           waLog.Logger = waLog.Noop
+	startupTime                = time.Now().Unix()
 )
 
 func syncKeysDevice(ctx context.Context, db, keysDB *sqlstore.Container, jid types.JID) {

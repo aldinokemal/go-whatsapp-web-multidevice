@@ -24,7 +24,10 @@ type IChatStorageRepository interface {
 	GetChatByDevice(deviceID, jid string) (*Chat, error)
 	GetChats(filter *ChatFilter) ([]*Chat, error)
 	DeleteChat(jid string) error
-	DeleteChatByDevice(deviceID, jid string) error
+	// DeleteChatByDevice atomically purges a chat and its known JID aliases.
+	DeleteChatByDevice(deviceID, jid string, aliases ...string) error
+	// IsChatMediaDirectoryReferenced checks all devices before shared-cache cleanup.
+	IsChatMediaDirectoryReferenced(directory string) (bool, error)
 
 	// Message operations
 	StoreMessage(message *Message) error

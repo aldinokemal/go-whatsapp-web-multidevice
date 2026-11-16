@@ -2,10 +2,12 @@ package validations
 
 import (
 	"context"
+	"strings"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"go.mau.fi/whatsmeow/types"
 )
 
 func ValidateListChats(ctx context.Context, request *domainChat.ListChatsRequest) error {
@@ -122,5 +124,23 @@ func ValidateArchiveChat(ctx context.Context, request *domainChat.ArchiveChatReq
 		return pkgError.ValidationError(err.Error())
 	}
 
+	return nil
+}
+
+func ValidateDeleteChat(ctx context.Context, request *domainChat.DeleteChatRequest) error {
+	if err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	); err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+	jid, err := types.ParseJID(request.ChatJID)
+	if err != nil || strings.Count(request.ChatJID, "@") != 1 || jid.User == "" || strings.ContainsAny(jid.User, "/\\\x00 \t\r\n") || jid.User == "." || jid.User == ".." {
+		return pkgError.InvalidJID("chat_jid must be a valid chat JID")
+	}
+	switch jid.Server {
+	case types.DefaultUserServer, types.HiddenUserServer, types.GroupServer, types.BroadcastServer, types.NewsletterServer:
+	default:
+		return pkgError.InvalidJID("unsupported chat_jid server")
+	}
 	return nil
 }

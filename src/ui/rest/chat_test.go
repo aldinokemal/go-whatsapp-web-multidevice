@@ -104,6 +104,10 @@ func (s *requestChatHistorySpy) SetDisappearingTimer(context.Context, domainChat
 	return domainChat.SetDisappearingTimerResponse{}, nil
 }
 
+func (s *requestChatHistorySpy) DeleteChat(context.Context, domainChat.DeleteChatRequest) (domainChat.DeleteChatResponse, error) {
+	return domainChat.DeleteChatResponse{}, nil
+}
+
 func (s *requestChatHistorySpy) ArchiveChat(context.Context, domainChat.ArchiveChatRequest) (domainChat.ArchiveChatResponse, error) {
 	return domainChat.ArchiveChatResponse{}, nil
 }

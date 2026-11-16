@@ -474,7 +474,7 @@ operation:
 | `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
 | `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
-| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
+| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`, `delete`                                                                                                      |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 | `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
@@ -793,6 +793,7 @@ You may also fork or modify the source code.
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
+| Yes      | Delete Chat (WhatsApp or Local Only)   | POST   | /chat/:chat_jid/delete              |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 | ✅       | Request Chat History (Load Older Msgs) | POST   | /chat/:chat_jid/history             |
 | ✅       | Chatwoot Sync History                  | POST   | /chatwoot/sync                      |
@@ -805,6 +806,35 @@ You may also fork or modify the source code.
 | ✅       | Device Chatwoot Reply Webhook          | POST   | /chatwoot/webhook/:device_id        |
 
 `✅` = available. `*` = has known limitations; see the notes below.
+
+### Delete a chat
+
+`POST /chat/:chat_jid/delete` accepts an optional JSON body:
+
+```json
+{"delete_media": true, "local_only": false}
+```
+
+It uses the same authentication and `X-Device-Id` selection as the other chat
+routes. The path JID is the target. `delete_media` defaults to `true`;
+`local_only` defaults to `false`.
+
+- Default: delete on WhatsApp first, then purge the device's local copy. The latest
+  stored message anchors the WhatsApp request. If no message is stored, the API
+  returns 400 without changes. A failed send also leaves local data intact.
+- `local_only: true`: purge only local data. No WhatsApp connection, stored message,
+  or app-state send is needed. WhatsApp is not changed.
+- Both modes delete the chat, messages, reactions, edits, poll definitions and
+  Chatwoot message links for that device, including known PN/LID aliases, in one
+  transaction. Chat media is removed when `delete_media` is true, with the legacy
+  cache limits in [Media storage and cleanup](docs/media-storage.md#delete-chat-cleanup).
+- Success returns 200 with `code: "SUCCESS"`. If WhatsApp accepted the delete but
+  local cleanup failed, the API returns 500 with `code: "LOCAL_DELETE_FAILED"` and
+  explains that the local copy was not fully removed. A local-only purge failure
+  uses 500 with `code: "INTERNAL_SERVER_ERROR"`.
+- The MCP `whatsapp_chat` action `delete` takes the same options plus `chat_jid`.
+  A delete received from the phone or another linked device also purges this
+  device's local copy. No new webhook event is sent.
 
 **Notes:**
 

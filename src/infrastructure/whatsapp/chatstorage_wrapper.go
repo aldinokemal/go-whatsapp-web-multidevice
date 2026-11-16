@@ -76,8 +76,12 @@ func (r *deviceChatStorage) DeleteChat(jid string) error {
 	return r.base.DeleteChatByDevice(r.deviceID, jid)
 }
 
-func (r *deviceChatStorage) DeleteChatByDevice(deviceID, jid string) error {
-	return r.base.DeleteChatByDevice(deviceID, jid)
+func (r *deviceChatStorage) DeleteChatByDevice(deviceID, jid string, aliases ...string) error {
+	return r.base.DeleteChatByDevice(deviceID, jid, aliases...)
+}
+
+func (r *deviceChatStorage) IsChatMediaDirectoryReferenced(directory string) (bool, error) {
+	return r.base.IsChatMediaDirectoryReferenced(directory)
 }
 
 func (r *deviceChatStorage) StoreMessage(message *domainChatStorage.Message) error {

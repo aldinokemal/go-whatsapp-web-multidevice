@@ -42,3 +42,10 @@ func (e ContextError) ErrCode() string {
 func (e ContextError) StatusCode() int {
 	return http.StatusRequestTimeout
 }
+
+// LocalDeleteFailed reports a partial success after WhatsApp accepted the deletion.
+type LocalDeleteFailed string
+
+func (e LocalDeleteFailed) Error() string   { return string(e) }
+func (e LocalDeleteFailed) ErrCode() string { return "LOCAL_DELETE_FAILED" }
+func (e LocalDeleteFailed) StatusCode() int { return http.StatusInternalServerError }

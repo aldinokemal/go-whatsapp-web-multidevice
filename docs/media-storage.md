@@ -1,7 +1,7 @@
 # Media storage and cleanup
 
-GOWA currently has no age-based retention setting or cleanup endpoint for received
-media. Operators can remove old downloaded files manually without deleting the
+GOWA has no age-based retention setting or bulk cleanup endpoint for received
+media. The delete-chat endpoint has the scoped cleanup described below. Operators can remove old downloaded files manually without deleting the
 WhatsApp session or chat databases.
 
 ## Storage locations
@@ -82,3 +82,29 @@ this setting.
 If you only want to skip status media, use `WHATSAPP_IGNORE_STATUS_MEDIA=true` or
 `--ignore-status-media=true`. Chat/message records and history-sync dumps can still
 grow independently of media downloads.
+
+## Delete-chat cleanup
+
+`POST /chat/:chat_jid/delete` supports WhatsApp-first deletion (the default) and
+local-only deletion (`local_only: true`). Both modes remove downloaded chat media
+when `delete_media` is true (the default). `delete_media: false` keeps local files.
+The WhatsApp-first mode also passes this flag to WhatsApp.
+
+REST/MCP message downloads use `statics/media/<first-digits-of-chat-jid>/<date>/`.
+Cleanup removes those directories for the chat's known PN and LID forms. It uses
+an open media-root handle, so symbolic links and traversal cannot remove files
+outside that root. A directory still referenced by any other stored chat or device
+is kept because this legacy cache has no device namespace and different JIDs can
+share the same first digits.
+
+Webhook downloads use flat timestamp/UUID names with no stored chat owner. These
+files cannot be assigned to one chat safely, so delete-chat cleanup keeps them.
+The extra incoming-image copies in `storages/` are also kept. Use the manual
+retention procedure for these untracked files. No contacts, identity keys,
+sessions, or LID mappings are deleted. The pinned whatsmeow store has no safe
+per-chat delete API for message secrets or chat settings, so those rows are kept.
+
+A deletion event from another linked device uses the same local cleanup and its
+`DeleteMedia` flag. The operation does not prevent a later incoming message or
+history sync from creating the chat again. Local-only deletion does not remove
+anything from WhatsApp.

@@ -17,7 +17,8 @@ import (
 )
 
 type serviceChat struct {
-	chatStorageRepo domainChatStorage.IChatStorageRepository
+	sendDeleteChatPatch func(context.Context, appstate.PatchInfo) error
+	chatStorageRepo     domainChatStorage.IChatStorageRepository
 }
 
 func NewChatService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainChat.IChatUsecase {

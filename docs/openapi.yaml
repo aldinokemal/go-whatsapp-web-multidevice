@@ -3300,6 +3300,91 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /chat/{chat_jid}/delete:
+    post:
+      operationId: deleteChat
+      tags:
+        - chat
+      summary: Delete a chat on WhatsApp and locally, or locally only
+      description: |
+        Uses the same authentication and device selection as other chat actions.
+        By default, reads the latest stored message for this device and sends a
+        WhatsApp delete-chat app-state patch before any local changes. A chat with
+        no stored message returns 400. A failed send leaves the local copy intact.
+        With local_only=true, no WhatsApp connection or stored message is needed,
+        and no app-state patch is built or sent. Both modes purge both known PN/LID
+        forms in one device-scoped database transaction. delete_media controls the
+        WhatsApp media flag (when sent) and local chat media cleanup. Shared legacy
+        media directories and flat webhook downloads without chat ownership are
+        retained. WhatsApp session keys, contacts and LID mappings are not deleted.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID. Percent-encoded values are accepted. The path overrides any chat_jid in the body.
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delete_media:
+                  type: boolean
+                  default: true
+                  description: Remove the chat media as well.
+                local_only:
+                  type: boolean
+                  default: false
+                  description: Delete only the local copy, without sending to WhatsApp.
+            example:
+              delete_media: true
+              local_only: false
+      responses:
+        '200':
+          description: Chat deletion completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteChatResponse'
+        '400':
+          description: Invalid JID or request, or no stored message for a WhatsApp deletion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized, not connected, or not logged in for a WhatsApp deletion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: |
+            LOCAL_DELETE_FAILED means WhatsApp accepted the deletion but the local
+            copy was not fully removed. A local_only purge failure uses
+            INTERNAL_SERVER_ERROR, never LOCAL_DELETE_FAILED. Other send/storage
+            failures use the normal GOWA error envelope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+              examples:
+                localPurgeAfterWhatsAppDelete:
+                  value:
+                    status: 500
+                    code: LOCAL_DELETE_FAILED
+                    message: Chat was deleted on WhatsApp but the local copy was not fully removed.
+                localOnlyPurgeFailure:
+                  value:
+                    status: 500
+                    code: INTERNAL_SERVER_ERROR
+                    message: Local chat deletion failed.
+
   /group/info:
     get:
       operationId: groupInfo
@@ -6762,6 +6847,33 @@ components:
             archived:
               type: boolean
               example: true
+    DeleteChatResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat deleted on WhatsApp and locally
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat deleted on WhatsApp and locally
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            local_only:
+              type: boolean
+              example: false
     GroupInfoResponse:
       type: object
       properties:

@@ -274,36 +274,26 @@ func (r *SQLiteRepository) DeleteChat(jid string) error {
 }
 
 // DeleteChatByDevice deletes a chat and all its messages for a specific device
-func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string) error {
+func (r *SQLiteRepository) DeleteChatByDevice(deviceID, jid string, aliases ...string) error {
+	if deviceID == "" {
+		return fmt.Errorf("device_id is required for chat deletion")
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM message_reactions WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM message_edits WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM chatwoot_message_links WHERE wa_chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM poll_definitions WHERE chat_jid = ? AND device_id = ?", jid, deviceID); err != nil {
-		return err
-	}
-
-	// Delete messages after dependent rows to keep cleanup explicit.
-	_, err = tx.Exec("DELETE FROM messages WHERE chat_jid = ? AND device_id = ?", jid, deviceID)
-	if err != nil {
-		return err
-	}
-
-	// Delete chat
-	_, err = tx.Exec("DELETE FROM chats WHERE jid = ? AND device_id = ?", jid, deviceID)
-	if err != nil {
-		return err
+	for _, chatJID := range append([]string{jid}, aliases...) {
+		for _, table := range []struct{ name, column string }{
+			{"message_reactions", "chat_jid"}, {"message_edits", "chat_jid"},
+			{"chatwoot_message_links", "wa_chat_jid"}, {"poll_definitions", "chat_jid"},
+			{"messages", "chat_jid"}, {"chats", "jid"},
+		} {
+			if _, err := tx.Exec("DELETE FROM "+table.name+" WHERE "+table.column+" = ? AND device_id = ?", chatJID, deviceID); err != nil {
+				return err
+			}
+		}
 	}
 
 	return tx.Commit()
@@ -3430,4 +3420,24 @@ func (r *SQLiteRepository) getMigrations() []string {
 		// Migration 54: Poll retries must reuse the secret as well as the ID.
 		`ALTER TABLE scheduled_sends ADD COLUMN pending_poll_secret BLOB`,
 	}
+}
+
+// IsChatMediaDirectoryReferenced is a global, internal cache-ownership check:
+// legacy media directories are shared across devices and use only the first JID digits.
+func (r *SQLiteRepository) IsChatMediaDirectoryReferenced(directory string) (bool, error) {
+	rows, err := r.db.Query("SELECT jid FROM chats UNION SELECT chat_jid FROM messages")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var jid string
+		if err := rows.Scan(&jid); err != nil {
+			return false, err
+		}
+		if utils.ExtractPhoneNumber(jid) == directory {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }

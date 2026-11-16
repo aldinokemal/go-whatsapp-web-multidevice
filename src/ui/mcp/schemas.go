@@ -101,9 +101,9 @@ const chatSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive"], "description": "Chat/contact query or archive toggle"},
+    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive","delete"], "description": "Chat/contact query, archive toggle or delete"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
-    "chat_jid": {"type": "string", "description": "get_messages/archive: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
+    "chat_jid": {"type": "string", "description": "get_messages/archive/delete: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "list_chats (default 25) / get_messages (default 50): max rows, 1 to 100"},
     "offset": {"type": "integer", "minimum": 0, "description": "list_chats/get_messages: rows to skip (default 0)"},
     "search": {"type": "string", "description": "list_chats: filter by chat name; get_messages: full-text search"},
@@ -112,11 +112,14 @@ const chatSchema = `{
     "end_time": {"type": "string", "description": "get_messages: only messages before this RFC3339 timestamp"},
     "media_only": {"type": "boolean", "description": "get_messages: only media messages"},
     "is_from_me": {"type": "boolean", "description": "get_messages: filter by sender (true = sent by me)"},
-    "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"}
+    "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"},
+    "delete_media": {"type": "boolean", "default": true, "description": "delete: remove chat media as well"},
+    "local_only": {"type": "boolean", "default": false, "description": "delete: purge local copy only, without a WhatsApp connection"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "get_messages"}}}, "then": {"required": ["chat_jid"]}},
-    {"if": {"properties": {"action": {"const": "archive"}}},      "then": {"required": ["chat_jid", "archived"]}}
+    {"if": {"properties": {"action": {"const": "archive"}}},      "then": {"required": ["chat_jid", "archived"]}},
+    {"if": {"properties": {"action": {"const": "delete"}}}, "then": {"required": ["chat_jid"]}}
   ]
 }`
 
