@@ -1743,6 +1743,13 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		return nil
 	}
 
+	if poll := chatwootPollFromPayload(data); eventName == EventTypeMessage && poll != nil && poll.Type == "vote" {
+		// In WhatsApp a vote only updates the tally on the poll, so one Chatwoot
+		// message per vote floods the conversation. Webhooks still get every vote.
+		logrus.Debugf("Chatwoot: Skipping poll vote %v", data["id"])
+		return nil
+	}
+
 	switch eventName {
 	case "message.ack":
 		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, resolved.ConfigID, data)

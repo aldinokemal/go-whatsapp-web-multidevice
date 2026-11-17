@@ -625,6 +625,35 @@ func TestOneLineExcerpt(t *testing.T) {
 	}
 }
 
+// A poll vote only updates the tally in WhatsApp, so it must not become its own
+// Chatwoot message (#948).
+func TestSyncPayloadToChatwoot_SkipsPollVote(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected Chatwoot request for a poll vote: %s %s", r.Method, r.URL.String())
+		http.Error(w, "unexpected request", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	cw := &chatwoot.Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 1, HTTPClient: server.Client()}
+	orig := getChatwootClientFn
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{Client: cw}, nil
+	}
+	t.Cleanup(func() { getChatwootClientFn = orig })
+
+	payload := map[string]any{"payload": map[string]any{
+		"id":        "VOTE-ID-1",
+		"from":      "628123456789@s.whatsapp.net",
+		"chat_id":   "628123456789@s.whatsapp.net",
+		"from_name": "Alice",
+		"body":      "Poll vote: Saturday",
+		"poll":      map[string]any{"type": "vote"},
+	}}
+	if err := syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, "", nil); err != nil {
+		t.Fatalf("syncPayloadToChatwoot: %v", err)
+	}
+}
+
 func TestSyncPayloadToChatwoot_ReactionEchoStampsSourceID(t *testing.T) {
 	var capturedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -654,6 +654,7 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Stickers | ✅ | Displayed as image attachments |
 | Location | ✅ | Shown as text with coordinates |
 | Contacts | ✅ | vCard information preserved |
+| Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
 **Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
 
