@@ -304,17 +304,31 @@ func conversationStatusForNew() int {
 	return conversationStatusOpen
 }
 
-// findOrCreateConversation returns the id of the most recent conversation for
-// (account, inbox, contact), opening a fresh one if none exists, and whether
-// that conversation was reused in the resolved state. We match regardless of
-// `status` so that a conversation resolved by an agent is reused rather than
-// duplicated.
+// findOrCreateConversation returns the id of the most recent conversation
+// for (account, inbox, contact), opening a fresh one if none exists, and
+// whether it reused a *resolved* one. We
+// match regardless of `status` so that a conversation resolved by an agent
+// and then re-imported from WhatsApp reuses the same row instead of
+// creating a duplicate (the live REST path hits the same row for new
+// inbound messages, so the two paths agree). It never changes the status of
+// the reused row: ImportChat reopens a resolved one only after it writes a
+// message, so a replay that skips every row leaves the thread as the agent
+// left it. (When reopen is
+// disabled the REST path opens a brand-new conversation instead; the importer
+// still reuses the row here to avoid duplicate threads, leaving its status
+// untouched. This is a deliberate, narrow asymmetry: the live REST path opens
+// a fresh thread when reopen is off, while this importer reuses any existing
+// conversation regardless of status and never spawns a second one — keeping a
+// backfilled history in a single thread.)
 //
-// It never changes the status of a reused conversation. Reopening a resolved
-// thread is a side effect that must wait until ImportChat knows a message was
-// actually written: deciding it here, before the per-message idempotency
-// probe, reopened threads on replays that then skipped every row. The caller
-// reopens via reopenConversation only after a write, and only when wasResolved.
+// We deliberately do NOT supply `display_id`. Chatwoot installs a
+// BEFORE INSERT trigger `conversations_before_insert_row_tr` that
+// unconditionally assigns `NEW.display_id := nextval('conv_dpid_seq_' || account_id)`,
+// so any value we pass would be thrown away. Letting the trigger fill it
+// avoids racing the per-account sequence with the live Rails path.
+//
+// `gen_random_uuid()` is guaranteed present: Chatwoot's schema.rb calls
+// `enable_extension "pgcrypto"` at the top.
 func (i *Importer) findOrCreateConversation(
 	ctx context.Context,
 	tx *sql.Tx,
