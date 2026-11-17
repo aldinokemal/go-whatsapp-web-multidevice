@@ -386,14 +386,20 @@ func TestHTTPStatusError_Message(t *testing.T) {
 	}
 }
 
-// syncChatsRepo serves a fixed chat list to SyncHistory.
+// syncChatsRepo serves a fixed chat list, and the same messages for every
+// chat, to SyncHistory.
 type syncChatsRepo struct {
 	domainChatStorage.IChatStorageRepository
-	chats []*domainChatStorage.Chat
+	chats    []*domainChatStorage.Chat
+	messages []*domainChatStorage.Message
 }
 
 func (r syncChatsRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
 	return r.chats, nil
+}
+
+func (r syncChatsRepo) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	return r.messages, nil
 }
 
 // syncTestLIDs is a WhatsApp LID store holding phone JID -> LID mappings.
@@ -464,8 +470,9 @@ func TestSyncHistoryWildcardIgnoresOnlyStoredAddress(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// A chat reaches Chatwoot only with a message to post, so give it one.
 	svc := NewSyncService(&Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: server.Client()},
-		syncChatsRepo{chats: []*domainChatStorage.Chat{{JID: pn.String()}}})
+		syncChatsRepo{chats: []*domainChatStorage.Chat{{JID: pn.String()}}, messages: []*domainChatStorage.Message{{Content: "hello"}}})
 	if _, err := svc.SyncHistory(context.Background(), "device-a@s.whatsapp.net", waClient, SyncOptions{DaysLimit: 1}); err != nil {
 		t.Fatalf("SyncHistory: %v", err)
 	}

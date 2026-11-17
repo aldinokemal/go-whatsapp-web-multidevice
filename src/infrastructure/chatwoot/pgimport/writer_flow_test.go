@@ -558,7 +558,7 @@ func TestImportChat_ResolvedConversationStaysResolvedWhenEveryRowSkips(t *testin
 	// Probe HIT -> skip. No INSERT, no touch, and -- the point -- no reopen.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-orphan").
+		WithArgs(imp.inboxID, "WAID:wa-orphan", imp.accountID, 100).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -615,7 +615,7 @@ func TestImportChat_ReopensResolvedConversationOnlyAfterAWrite(t *testing.T) {
 	// Probe miss -> INSERT.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-new").
+		WithArgs(imp.inboxID, "WAID:wa-new", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
