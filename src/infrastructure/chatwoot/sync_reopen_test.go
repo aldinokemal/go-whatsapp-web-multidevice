@@ -390,11 +390,15 @@ func TestSyncChatFailsWithoutPostingWhenReopenFails(t *testing.T) {
 	svc, events := chatwootResolvedConversationStub(t, repo, msg.ChatJID, http.StatusInternalServerError)
 	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
 
-	if err := svc.syncChat(context.Background(), msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), NewSyncProgress(msg.DeviceID)); err == nil {
+	progress := NewSyncProgress(msg.DeviceID)
+	if err := svc.syncChat(context.Background(), msg.DeviceID, chat, time.Time{}, nil, DefaultSyncOptions(), progress); err == nil {
 		t.Fatal("syncChat: expected an error when the conversation stays resolved")
 	}
 	if ev := events(); countEvents(ev, "/messages") != 0 {
 		t.Fatalf("a message was posted into the still-resolved conversation\n%v", ev)
+	}
+	if progress.FailedMessages != 1 {
+		t.Fatalf("FailedMessages = %d, want 1; the pending message must not vanish from the totals", progress.FailedMessages)
 	}
 }
 

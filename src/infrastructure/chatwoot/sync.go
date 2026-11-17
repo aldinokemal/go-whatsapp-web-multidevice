@@ -344,6 +344,7 @@ func (s *SyncService) syncChat(
 	// 4. Find or create contact and conversation
 	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
 	if err != nil {
+		progress.AddFailedMessages(len(pending))
 		return err
 	}
 	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
