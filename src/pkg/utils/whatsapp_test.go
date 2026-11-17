@@ -2,8 +2,11 @@ package utils
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -569,6 +572,51 @@ func TestAudioDownloadMP3FrameValidation(t *testing.T) {
 				t.Errorf("download MIME = %q, want %q", got.MimeType, tt.wantMime)
 			}
 		})
+	}
+}
+
+// A document announced above the cap is refused before any download, so it is
+// never fetched just to be rejected, and nothing is left on disk.
+func TestExtractMediaRefusesAnnouncedOversizeBeforeDownload(t *testing.T) {
+	dir := t.TempDir()
+	doc := &waE2E.DocumentMessage{FileLength: proto.Uint64(2 << 30), DirectPath: proto.String("/v/doc")}
+
+	// A nil client would fail any download with ErrClientIsNil.
+	_, err := ExtractMedia(context.Background(), nil, dir, doc)
+	if err == nil || !strings.Contains(err.Error(), "exceeds the maximum limit") {
+		t.Fatalf("ExtractMedia error = %v, want the size limit error", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("storage dir has %d entries, want none", len(entries))
+	}
+}
+
+// A failed download must not leave its partial file behind.
+func TestExtractMediaRemovesPartialFileOnDownloadFailure(t *testing.T) {
+	dir := t.TempDir()
+	doc := &waE2E.DocumentMessage{FileLength: proto.Uint64(10), DirectPath: proto.String("/v/doc")}
+
+	_, err := ExtractMedia(context.Background(), nil, dir, doc)
+	if !errors.Is(err, whatsmeow.ErrClientIsNil) {
+		t.Fatalf("ExtractMedia error = %v, want ErrClientIsNil", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("storage dir has %d entries, want none", len(entries))
+	}
+}
+
+// ExtractMedia sniffs only the first mediaSniffLength bytes of a downloaded
+// file; that must give the same MIME type as the whole file.
+func TestDescribeExtractedMediaSniffsFromHead(t *testing.T) {
+	mp3, err := os.ReadFile("testdata/no-id3.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := bytes.Repeat(mp3[:192], mediaSniffLength/192+10)
+	whole := describeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{}, long)
+	head := describeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{}, long[:mediaSniffLength])
+	if whole.MimeType != "audio/mpeg" || head.MimeType != whole.MimeType {
+		t.Fatalf("MIME from head = %q, from whole file = %q; want both audio/mpeg", head.MimeType, whole.MimeType)
 	}
 }
 

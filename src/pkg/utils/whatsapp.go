@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -951,12 +952,57 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, nil
 	}
 
-	data, err := client.Download(ctx, mediaFile)
+	// Refuse by the size the message announces before downloading anything, so
+	// an oversized document is not fetched in full only to be rejected.
+	maxFileSize := config.WhatsappSettingMaxDownloadSize
+	if sized, ok := mediaFile.(interface{ GetFileLength() uint64 }); ok && sized.GetFileLength() > uint64(maxFileSize) {
+		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+	}
+
+	// Decrypt straight to disk: Download holds the whole file in memory.
+	// DownloadToFile checks the MAC and the SHA-256 like Download does.
+	file, err := os.CreateTemp(storageLocation, ".download-*")
 	if err != nil {
 		return extractedMedia, err
 	}
-	return storeExtractedMedia(storageLocation, mediaFile, data)
+	defer func() {
+		if err != nil {
+			_ = os.Remove(file.Name())
+		}
+	}()
+	err = client.DownloadToFile(ctx, mediaFile, file)
+	head := make([]byte, mediaSniffLength)
+	var n int
+	if err == nil {
+		n, err = file.ReadAt(head, 0)
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+	}
+	var info os.FileInfo
+	if err == nil {
+		info, err = file.Stat()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return extractedMedia, err
+	}
+	// The announced size can be missing or wrong.
+	if info.Size() > maxFileSize {
+		err = fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+		return extractedMedia, err
+	}
+
+	extractedMedia = describeExtractedMedia(storageLocation, mediaFile, head[:n])
+	err = os.Rename(file.Name(), extractedMedia.MediaPath)
+	return extractedMedia, err
 }
+
+// mediaSniffLength is enough of a file for describeExtractedMedia's audio
+// sniffing: the longest ADTS or MP3 frame plus the header of the next one.
+const mediaSniffLength = 16 << 10
 
 func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
 	// Validate file size before writing to disk
@@ -965,6 +1011,19 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
 	}
 
+	extractedMedia = describeExtractedMedia(storageLocation, mediaFile, data)
+	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
+	if err != nil {
+		return extractedMedia, err
+	}
+	return extractedMedia, nil
+}
+
+// describeExtractedMedia returns the MIME type, caption and a new storage path
+// for mediaFile. data is the decrypted file, or at least its first
+// mediaSniffLength bytes; an audio message without a MIME type is sniffed
+// from it.
+func describeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia) {
 	var originalFilename string
 
 	switch media := mediaFile.(type) {
@@ -1008,11 +1067,7 @@ func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.Downloadabl
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
-	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
-	if err != nil {
-		return extractedMedia, err
-	}
-	return extractedMedia, nil
+	return extractedMedia
 }
 
 // isADTSAudio checks the ADTS syncword, sampling index, and first-frame bounds.
