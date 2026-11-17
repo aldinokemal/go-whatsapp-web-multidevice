@@ -354,6 +354,7 @@ To use environment variables:
 | `CHATWOOT_SIGN_DELIMITER`               | Delimiter between Chatwoot agent signature and message body   | `\n\n`                                       | `CHATWOOT_SIGN_DELIMITER=" - "`               |
 | `CHATWOOT_FORWARD_EDITS`                | Mirror WhatsApp edits into Chatwoot threaded notes            | `true`                                       | `CHATWOOT_FORWARD_EDITS=false`                |
 | `CHATWOOT_FORWARD_DELETES`              | Mirror WhatsApp delete-for-everyone events into Chatwoot notes | `true`                                      | `CHATWOOT_FORWARD_DELETES=false`              |
+| `CHATWOOT_EVENTS`                       | Events forwarded to Chatwoot (empty = follow `WHATSAPP_WEBHOOK_EVENTS`) | -                                   | `CHATWOOT_EVENTS=message`                     |
 | `CHATWOOT_MESSAGE_READ`                 | Sync read state for linked WhatsApp/Chatwoot messages         | `false`                                      | `CHATWOOT_MESSAGE_READ=true`                  |
 | `CHATWOOT_MESSAGE_DELETE`               | Delete linked opposite-side messages when deletion is reported | `false`                                     | `CHATWOOT_MESSAGE_DELETE=true`                |
 | `CHATWOOT_REVOKE_ON_DELETE`             | Revoke on WhatsApp the messages deleted in Chatwoot only      | `false`                                      | `CHATWOOT_REVOKE_ON_DELETE=true`              |
