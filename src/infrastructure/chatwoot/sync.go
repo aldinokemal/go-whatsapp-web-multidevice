@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -505,10 +506,12 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 	// the still-resolved thread would hide it, and once the messages are linked
 	// no later sync would reopen it, so fail the chat and retry next sync.
 	if conversation.Status == "resolved" {
-		return nil, fmt.Errorf("conversation %d is still resolved after the reopen attempt", conversation.ID)
+		return nil, fmt.Errorf("conversation %d: %w", conversation.ID, errConversationStillResolved)
 	}
 	return conversation, nil
 }
+
+var errConversationStillResolved = errors.New("conversation is still resolved after the reopen attempt")
 
 // splitAlreadyLinkedMessages returns the messages not yet linked to a Chatwoot
 // message and how many were. A failed lookup aborts instead of treating the
@@ -536,8 +539,8 @@ func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.M
 // restMediaPrePass uploads the chat's media still missing from Chatwoot through
 // REST before the Postgres import writes the rest. Media already linked is left
 // out first: resolving the conversation reopens a resolved one. A failed link
-// lookup is returned so the chat is retried rather than imported with
-// placeholders in place of its media.
+// lookup or a failed reopen is returned so the chat is retried rather than
+// imported with placeholders in place of its media.
 func (s *SyncService) restMediaPrePass(
 	ctx context.Context,
 	chat *domainChatStorage.Chat,
@@ -554,6 +557,9 @@ func (s *SyncService) restMediaPrePass(
 		return nil
 	}
 	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
+	if errors.Is(err, errConversationStillResolved) {
+		return err
+	}
 	if err != nil {
 		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
 		return nil

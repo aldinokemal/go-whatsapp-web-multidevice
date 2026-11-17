@@ -397,3 +397,30 @@ func TestSyncChatFailsWithoutPostingWhenReopenFails(t *testing.T) {
 		t.Fatalf("a message was posted into the still-resolved conversation\n%v", ev)
 	}
 }
+
+// The media pre-pass must fail the chat too when the reopen fails. Skipping it
+// would let the Postgres import store the media as a placeholder and link it,
+// so the attachment would never be retried.
+func TestRESTMediaPrePassFailsWhenReopenFails(t *testing.T) {
+	prevMedia := config.ChatwootImportMediaWithREST
+	prevReopen := config.ChatwootReopenConversation
+	defer func() {
+		config.ChatwootImportMediaWithREST = prevMedia
+		config.ChatwootReopenConversation = prevReopen
+	}()
+	config.ChatwootImportMediaWithREST = true
+	config.ChatwootReopenConversation = true
+
+	msg := chatwootSyncChatMediaMessage("wa-media-new")
+	repo := newChatwootSyncChatRepo(msg)
+	svc, events := chatwootResolvedConversationStub(t, repo, msg.ChatJID, http.StatusInternalServerError)
+	chat := &domainChatStorage.Chat{JID: msg.ChatJID, Name: "Contact"}
+
+	err := svc.restMediaPrePass(context.Background(), chat, []*domainChatStorage.Message{msg}, nil, DefaultSyncOptions(), false)
+	if !errors.Is(err, errConversationStillResolved) {
+		t.Fatalf("restMediaPrePass error = %v, want errConversationStillResolved", err)
+	}
+	if ev := events(); countEvents(ev, "/toggle_status") != 1 || countEvents(ev, "/messages") != 0 {
+		t.Fatalf("want one failed toggle and no message POST\n%v", ev)
+	}
+}
