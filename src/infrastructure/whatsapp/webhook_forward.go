@@ -804,11 +804,18 @@ func shouldForwardEventToChatwoot(eventName string) bool {
 	}
 }
 
+// isEventWhitelistedForChatwoot uses CHATWOOT_EVENTS when set, so a webhook
+// limited to other events does not starve Chatwoot; otherwise it follows
+// WHATSAPP_WEBHOOK_EVENTS.
 func isEventWhitelistedForChatwoot(eventName string) bool {
-	if len(config.WhatsappWebhookEvents) == 0 {
+	events := config.ChatwootEvents
+	if len(events) == 0 {
+		events = config.WhatsappWebhookEvents
+	}
+	if len(events) == 0 {
 		return true
 	}
-	if isEventWhitelisted(eventName) {
+	if eventInList(events, eventName) {
 		return true
 	}
 	// Derived message sub-events (reactions, edits, deletes) ride along when the
@@ -816,9 +823,15 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	// every sub-event to get them mirrored to Chatwoot.
 	switch eventName {
 	case "message.reaction", "message.ack", "message.edited", "message.revoked", "message.deleted":
-		return isEventWhitelisted("message")
+		return eventInList(events, "message")
 	}
 	return false
+}
+
+// ChatwootReceivesMessages reports whether the event filter lets WhatsApp
+// messages through to Chatwoot.
+func ChatwootReceivesMessages() bool {
+	return isEventWhitelistedForChatwoot(EventTypeMessage)
 }
 
 // buildReactionChatwootContent renders the note posted for a reaction event.
@@ -1986,7 +1999,11 @@ func buildEditDeleteChatwootContent(eventName string, data map[string]any, isGro
 
 // isEventWhitelisted checks if the given event name is in the configured whitelist
 func isEventWhitelisted(eventName string) bool {
-	for _, allowed := range config.WhatsappWebhookEvents {
+	return eventInList(config.WhatsappWebhookEvents, eventName)
+}
+
+func eventInList(events []string, eventName string) bool {
+	for _, allowed := range events {
 		if strings.EqualFold(strings.TrimSpace(allowed), eventName) {
 			return true
 		}

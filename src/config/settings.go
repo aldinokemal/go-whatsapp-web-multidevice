@@ -179,6 +179,10 @@ var (
 	ChatwootForwardEdits   = true
 	ChatwootForwardDeletes = true
 
+	// ChatwootEvents is the event whitelist for Chatwoot forwarding. Empty means
+	// Chatwoot follows WhatsappWebhookEvents.
+	ChatwootEvents []string
+
 	// Chatwoot Evolution-compatible state propagation. Read sync updates
 	// Chatwoot last-seen from WhatsApp receipts and marks WhatsApp messages read
 	// after agent replies. Delete sync removes the linked Chatwoot/WhatsApp
