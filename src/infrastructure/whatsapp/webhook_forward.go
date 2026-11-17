@@ -1698,6 +1698,15 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 }
 
 func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
+	// In WhatsApp a vote only updates the tally on the poll, so one Chatwoot
+	// message per vote floods the conversation. Webhooks still get every vote.
+	// Checked before the client lookup so a lookup failure never queues a vote.
+	voteData, _ := payload["payload"].(map[string]any)
+	if poll := chatwootPollFromPayload(voteData); eventName == EventTypeMessage && poll != nil && poll.Type == "vote" {
+		logrus.Debugf("Chatwoot: Skipping poll vote %v", voteData["id"])
+		return nil
+	}
+
 	resolved, err := getChatwootClientFn(deviceID)
 	if err != nil {
 		// Transient resolution failure (e.g. storage error): let the caller retry.
