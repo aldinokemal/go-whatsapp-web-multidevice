@@ -560,6 +560,8 @@ Set it to `false` and the two paths intentionally differ. The REST path opens a 
 
 With `CHATWOOT_CONVERSATION_PENDING=true`, newly-created conversations land in `pending` (the unassigned queue) instead of `open` on both paths.
 
+History sync only touches a conversation when it has a message to add, so a restart does not reopen threads that agents resolved. The REST path reopens a resolved conversation before posting into it; if that fails, the chat is skipped and retried on the next sync. The direct-DB importer reopens it in the same transaction, once a message is written.
+
 ### Agent signature
 
 With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline).
