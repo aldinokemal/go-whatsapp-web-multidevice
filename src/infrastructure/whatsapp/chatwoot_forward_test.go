@@ -626,18 +626,13 @@ func TestOneLineExcerpt(t *testing.T) {
 }
 
 // A poll vote only updates the tally in WhatsApp, so it must not become its own
-// Chatwoot message (#948).
+// Chatwoot message (#948). It is skipped before the client lookup, so a lookup
+// failure cannot queue it for retry either.
 func TestSyncPayloadToChatwoot_SkipsPollVote(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("unexpected Chatwoot request for a poll vote: %s %s", r.Method, r.URL.String())
-		http.Error(w, "unexpected request", http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	cw := &chatwoot.Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 1, HTTPClient: server.Client()}
 	orig := getChatwootClientFn
 	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
-		return &chatwoot.ResolvedConfig{Client: cw}, nil
+		t.Error("Chatwoot client resolved for a poll vote")
+		return nil, errors.New("chat storage unavailable")
 	}
 	t.Cleanup(func() { getChatwootClientFn = orig })
 
