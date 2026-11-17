@@ -312,7 +312,7 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_forward_deletes") {
 		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
 	}
-	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" {
+	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" && !rootCmd.PersistentFlags().Changed("chatwoot-events") {
 		config.ChatwootEvents = splitCommaTrimmed(envChatwootEvents)
 	}
 	if viper.IsSet("chatwoot_message_read") {
