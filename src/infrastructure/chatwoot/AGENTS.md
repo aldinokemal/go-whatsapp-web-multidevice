@@ -10,8 +10,9 @@ Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
 - Preserve device context on Chatwoot-to-WhatsApp sends. Once per-device configs
   exist, `ClientRegistry` must not fall back to the global env inbox for an unmapped
   or disabled device. Numeric account/inbox IDs differ from API-channel identifiers.
-- Webhooks in `../../ui/rest/chatwoot.go` bypass app Basic Auth and check
-  `CHATWOOT_WEBHOOK_SECRET` when configured. Only outgoing messages send back to
+- Webhooks in `../../ui/rest/chatwoot.go` bypass app Basic Auth and reject an
+  empty effective secret unless `CHATWOOT_WEBHOOK_ALLOW_UNSIGNED` is set. A routed device's own `webhook_secret`
+  takes its place, on the shared endpoint too (`chatwootWebhookRouteGate`). Only outgoing messages send back to
   WhatsApp; preserve `source_id = WAID:<message_id>` and sent-message echo guards.
 - Persistent links support idempotency, replies, read/delete sync, and reverse
   routing. Preserve device/account/config scope; separate servers can reuse numeric
@@ -29,6 +30,11 @@ Direct Postgres changes have a [scoped guide](pgimport/AGENTS.md).
   `CHATWOOT_IMPORT_MEDIA_WITH_REST`, downloadable media first goes through REST for
   attachments; shared source IDs prevent duplicate import. Preserve configurable
   placeholders for media that cannot be downloaded.
+- Media that expired on WhatsApp's servers is re-requested from the phone through
+  `SyncOptions.RecoverExpiredMedia`. This package cannot import `../whatsapp`, so
+  callers pass `whatsapp.NewBulkMediaRecovery(repo).Recover`, a new one per run. It
+  waits for an answer that arrives on the device event loop: keep `SyncHistory` on
+  its own goroutine.
 - `SyncService.Close()` closes its importer pool; preserve cleanup of cached sync
   services on shutdown. Use sync/registry tests for routing changes and `pgimport`
   sqlmock tests for direct SQL behavior.

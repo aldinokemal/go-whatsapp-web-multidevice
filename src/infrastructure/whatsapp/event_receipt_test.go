@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -13,6 +14,9 @@ import (
 )
 
 func TestShouldForwardReceipt(t *testing.T) {
+	original := config.WhatsappWebhookAllDeviceReceipts
+	defer func() { config.WhatsappWebhookAllDeviceReceipts = original }()
+	config.WhatsappWebhookAllDeviceReceipts = false
 	contact := types.NewJID("628123456789", types.DefaultUserServer)
 	own := types.NewJID("628111111111", types.DefaultUserServer)
 	ownLID := types.NewJID("251556368777322", types.HiddenUserServer)
@@ -84,4 +88,40 @@ func TestCreateReceiptPayloadOwnLinkedDeviceReadSelf(t *testing.T) {
 	assert.Equal(t, contact.String(), payload["chat_id"])
 	assert.Equal(t, own.String(), payload["from"], "device suffix must be stripped from the sender")
 	assert.Equal(t, "read-self", payload["receipt_type"])
+}
+
+func receiptFromDevice(device uint16) *events.Receipt {
+	return &events.Receipt{
+		MessageSource: types.MessageSource{
+			Sender: types.JID{User: "6289685028129", Device: device, Server: types.DefaultUserServer},
+		},
+	}
+}
+
+func TestShouldForwardReceipt_PrimaryDeviceOnlyByDefault(t *testing.T) {
+	original := config.WhatsappWebhookAllDeviceReceipts
+	defer func() { config.WhatsappWebhookAllDeviceReceipts = original }()
+
+	config.WhatsappWebhookAllDeviceReceipts = false
+
+	if !shouldForwardReceipt(receiptFromDevice(0)) {
+		t.Error("receipt from the primary device (Device == 0) should be forwarded by default")
+	}
+	if shouldForwardReceipt(receiptFromDevice(2)) {
+		t.Error("receipt from a linked device should be skipped by default")
+	}
+}
+
+func TestShouldForwardReceipt_AllDevicesWhenEnabled(t *testing.T) {
+	original := config.WhatsappWebhookAllDeviceReceipts
+	defer func() { config.WhatsappWebhookAllDeviceReceipts = original }()
+
+	config.WhatsappWebhookAllDeviceReceipts = true
+
+	if !shouldForwardReceipt(receiptFromDevice(0)) {
+		t.Error("receipt from the primary device should be forwarded when all-device forwarding is enabled")
+	}
+	if !shouldForwardReceipt(receiptFromDevice(5)) {
+		t.Error("receipt from a linked device should be forwarded when all-device forwarding is enabled")
+	}
 }

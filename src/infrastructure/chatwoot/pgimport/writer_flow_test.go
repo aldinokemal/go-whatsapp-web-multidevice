@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
@@ -93,7 +94,7 @@ func TestImportChat_HappyPath(t *testing.T) {
 	// msg1 — savepoint, probe miss, insert, release.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -101,7 +102,7 @@ func TestImportChat_HappyPath(t *testing.T) {
 	// msg2 — same shape.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-2").
+		WithArgs(imp.inboxID, "WAID:wa-2", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -166,7 +167,7 @@ func TestImportChat_HappyPathExistingContactFastPath(t *testing.T) {
 	// single message written.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -217,7 +218,7 @@ func TestImportChat_IdempotentSkip(t *testing.T) {
 	// Savepoint + probe HIT -> RELEASE, but no INSERT and no touchConversation.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-dup").
+		WithArgs(imp.inboxID, "WAID:wa-dup", imp.accountID, 100).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -274,7 +275,7 @@ func TestImportChat_PerMessageFailureCountedNotFatal(t *testing.T) {
 	// msg1 fails the INSERT -> ROLLBACK TO SAVEPOINT, not fatal.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-bad").
+		WithArgs(imp.inboxID, "WAID:wa-bad", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnError(errors.New("constraint boom"))
 	mock.ExpectExec(regexp.QuoteMeta("ROLLBACK TO SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -282,7 +283,7 @@ func TestImportChat_PerMessageFailureCountedNotFatal(t *testing.T) {
 	// msg2 succeeds.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-good").
+		WithArgs(imp.inboxID, "WAID:wa-good", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -495,7 +496,7 @@ func TestImportChat_GroupSkipsTouchWhenAllZeroTimestampsFallBackToNow(t *testing
 
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -511,6 +512,125 @@ func TestImportChat_GroupSkipsTouchWhenAllZeroTimestampsFallBackToNow(t *testing
 		ChatName: "Team",
 		Messages: msgs,
 	})
+	if err != nil {
+		t.Fatalf("ImportChat: %v", err)
+	}
+	if res.MessagesWrote != 1 {
+		t.Errorf("MessagesWrote = %d, want 1", res.MessagesWrote)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestImportChat_ResolvedConversationStaysResolvedWhenEveryRowSkips(t *testing.T) {
+	// The durability gap on the direct-Postgres path: the Chatwoot transaction
+	// commits before the local message links are persisted, so a crash in
+	// between leaves the message in Chatwoot with no local link. The next
+	// history sync then treats the row as pending and calls ImportChat, which
+	// used to reopen the resolved conversation *before* its idempotency probe
+	// skipped the row -- zero new messages, thread reopened. Reopening must
+	// wait for an actual write: with every row skipped there is no UPDATE.
+	imp, mock, cleanup := newUpsertContactTestImporter(t)
+	defer cleanup()
+
+	prevReopen := config.ChatwootReopenConversation
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
+	config.ChatwootReopenConversation = true
+
+	const jid = "6281234567890@s.whatsapp.net"
+	ts := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	// DeviceID is required for the skipped row to yield a link; without it
+	// buildMessageLink returns nil and there is nothing to repair with.
+	msgs := []*domainChatStorage.Message{{ID: "wa-orphan", DeviceID: "device-a@s.whatsapp.net", ChatJID: jid, Content: "hi", Timestamp: ts}}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(upsertContactByJIDSQL)).
+		WithArgs(imp.accountID, jid).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(100))
+	mock.ExpectQuery(regexp.QuoteMeta(selectContactInboxSQL)).
+		WithArgs(100, imp.inboxID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(200))
+	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
+		WithArgs(imp.accountID, imp.inboxID, 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(300, conversationStatusResolved))
+
+	// Probe HIT -> skip. No INSERT, no touch, and -- the point -- no reopen.
+	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
+		WithArgs(imp.inboxID, "WAID:wa-orphan", imp.accountID, 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
+	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
+
+	mock.ExpectCommit()
+
+	res, err := imp.ImportChat(context.Background(), ImportChatRequest{ChatJID: jid, ChatName: "Alice", Messages: msgs})
+	if err != nil {
+		t.Fatalf("ImportChat: %v", err)
+	}
+	if res.MessagesWrote != 0 || res.MessagesSkipped != 1 {
+		t.Errorf("Wrote/Skipped = %d/%d, want 0/1", res.MessagesWrote, res.MessagesSkipped)
+	}
+	// The skipped row still yields a link, so the caller can repair the
+	// missing local link without the import having reopened anything.
+	if len(res.Links) != 1 {
+		t.Errorf("len(Links) = %d, want 1 (the skipped row's link, for local repair)", len(res.Links))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestImportChat_ReopensResolvedConversationOnlyAfterAWrite(t *testing.T) {
+	// The other direction: a genuinely new message into a resolved thread must
+	// still reopen it, and the UPDATE must come after the INSERT and the touch,
+	// inside the same transaction -- never before the probe.
+	imp, mock, cleanup := newUpsertContactTestImporter(t)
+	defer cleanup()
+
+	prevReopen := config.ChatwootReopenConversation
+	prevPending := config.ChatwootConversationPending
+	defer func() {
+		config.ChatwootReopenConversation = prevReopen
+		config.ChatwootConversationPending = prevPending
+	}()
+	config.ChatwootReopenConversation = true
+	config.ChatwootConversationPending = false
+
+	const jid = "6281234567890@s.whatsapp.net"
+	ts := time.Date(2026, 5, 9, 10, 0, 0, 0, time.UTC)
+	msgs := []*domainChatStorage.Message{{ID: "wa-new", Content: "hi again", Timestamp: ts}}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(upsertContactByJIDSQL)).
+		WithArgs(imp.accountID, jid).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(100))
+	mock.ExpectQuery(regexp.QuoteMeta(selectContactInboxSQL)).
+		WithArgs(100, imp.inboxID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(200))
+	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
+		WithArgs(imp.accountID, imp.inboxID, 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(300, conversationStatusResolved))
+
+	// Probe miss -> INSERT.
+	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
+		WithArgs(imp.inboxID, "WAID:wa-new", imp.accountID, 100).
+		WillReturnError(noRowsError())
+	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
+	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// Touch first, then reopen -- both gated on the write, in this order.
+	mock.ExpectExec(regexp.QuoteMeta(touchConversationSQL)).
+		WithArgs(300, ts).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(reopenConversationSQL)).
+		WithArgs(conversationStatusOpen, 300, imp.accountID, conversationStatusResolved).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectCommit()
+
+	res, err := imp.ImportChat(context.Background(), ImportChatRequest{ChatJID: jid, ChatName: "Alice", Messages: msgs})
 	if err != nil {
 		t.Fatalf("ImportChat: %v", err)
 	}
