@@ -227,6 +227,12 @@ func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any
 		addWebhookSessionID(payload)
 	}
 
+	// Start Chatwoot before the webhook legs: a down webhook spends ~15s in retry
+	// backoff, and Chatwoot must not wait for it.
+	if chatwootAllowed {
+		go forwardToChatwoot(ctx, payload, eventName)
+	}
+
 	// Run the two legs concurrently. They share the caller's deadline, and each URL
 	// can spend up to ~15s in retry backoff, so running the device leg first would
 	// let one slow endpoint consume the whole budget and leave the global leg a dead
@@ -263,10 +269,6 @@ func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any
 		default:
 			webhookErr = nil
 		}
-	}
-
-	if chatwootAllowed {
-		go forwardToChatwoot(ctx, payload, eventName)
 	}
 
 	return webhookErr
