@@ -312,6 +312,9 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_forward_deletes") {
 		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
 	}
+	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" && !rootCmd.PersistentFlags().Changed("chatwoot-events") {
+		config.ChatwootEvents = splitCommaTrimmed(envChatwootEvents)
+	}
 	if viper.IsSet("chatwoot_message_read") {
 		config.ChatwootMessageRead = viper.GetBool("chatwoot_message_read")
 	}
@@ -658,6 +661,12 @@ func initFlags() {
 		"chatwoot-forward-edits", "",
 		config.ChatwootForwardEdits,
 		`mirror WhatsApp message edits into the Chatwoot conversation as threaded notes --chatwoot-forward-edits <true/false> | example: --chatwoot-forward-edits=true`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootEvents,
+		"chatwoot-events", "",
+		config.ChatwootEvents,
+		`whitelist of events to forward to Chatwoot (empty = follow --webhook-events) --chatwoot-events <string> | example: --chatwoot-events="message"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootForwardDeletes,

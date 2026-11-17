@@ -28,6 +28,9 @@ func initChatwootForwarding(repo domainChatStorage.IChatStorageRepository) {
 	if !config.ChatwootEnabled {
 		return
 	}
+	if !whatsapp.ChatwootReceivesMessages() {
+		logrus.Warn(`Chatwoot is enabled but the "message" event is filtered out, so no WhatsApp messages will reach Chatwoot. Add "message" to CHATWOOT_EVENTS, or to WHATSAPP_WEBHOOK_EVENTS when CHATWOOT_EVENTS is unset.`)
+	}
 	if config.ChatwootAutoCreate {
 		count, err := repo.CountChatwootDeviceConfigs()
 		if err != nil {
