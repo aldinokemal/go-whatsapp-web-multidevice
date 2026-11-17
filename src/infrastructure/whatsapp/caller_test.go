@@ -163,6 +163,36 @@ func TestOpenCallMediaAllowsSymlinkInsideStorages(t *testing.T) {
 	require.FileExists(t, filepath.Join(realDir, "call.wav"))
 }
 
+func TestOpenCallRecorderRejectsDanglingSymlink(t *testing.T) {
+	storageDir := useTempStorages(t)
+	target := filepath.Join(t.TempDir(), "not-yet-created.wav")
+	require.NoError(t, os.Symlink(target, filepath.Join(storageDir, "record.wav")))
+
+	_, err := openCallRecorder("record.wav")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+	require.NoFileExists(t, target)
+}
+
+func TestOpenCallAudioSourceRejectsDanglingSymlink(t *testing.T) {
+	storageDir := useTempStorages(t)
+	target := filepath.Join(t.TempDir(), "not-yet-created.mp3")
+	require.NoError(t, os.Symlink(target, filepath.Join(storageDir, "voice.mp3")))
+
+	_, err := openCallAudioSource("voice.mp3")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+	require.NoFileExists(t, target)
+}
+
+func TestOpenCallRecorderRejectsDanglingDirectorySymlink(t *testing.T) {
+	storageDir := useTempStorages(t)
+	missingDir := filepath.Join(t.TempDir(), "missing")
+	require.NoError(t, os.Symlink(missingDir, filepath.Join(storageDir, "recordings")))
+
+	_, err := openCallRecorder("recordings/call.wav")
+	require.ErrorIs(t, err, ErrCallMediaPath)
+	require.NoDirExists(t, missingDir)
+}
+
 func TestNewCallerRequiresBetaFlagAndClient(t *testing.T) {
 	previous := config.WhatsappBetaCallEnabled
 	t.Cleanup(func() { config.WhatsappBetaCallEnabled = previous })

@@ -567,7 +567,9 @@ func resolveCallMediaPath(raw string) (string, error) {
 
 // canonicalMediaPath resolves symlinks in the longest existing prefix of p and
 // re-appends the missing tail. A recorder target does not exist yet, so only
-// its parent can be resolved; the appended names cannot be symlinks.
+// its parent can be resolved; the appended names cannot be symlinks. A path
+// whose symlink target is missing is rejected rather than treated as missing,
+// because following it on create would write outside the storage root.
 func canonicalMediaPath(p string) (string, error) {
 	existing := p
 	missing := []string{}
@@ -581,6 +583,13 @@ func canonicalMediaPath(p string) (string, error) {
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			return "", err
+		}
+		// The path exists, so a symlink in it points at a missing target:
+		// re-attaching its name would hand openCallRecorder the link itself.
+		if _, lstatErr := os.Lstat(existing); lstatErr == nil {
+			return "", err
+		} else if !errors.Is(lstatErr, fs.ErrNotExist) {
+			return "", lstatErr
 		}
 		parent := filepath.Dir(existing)
 		if parent == existing {
