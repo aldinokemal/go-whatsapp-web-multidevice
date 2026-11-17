@@ -3,10 +3,18 @@ package chatwoot
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // TestTriggerAutoSync_NoopWhenGated verifies the connect-path entrypoint is a
@@ -24,17 +32,95 @@ func TestTriggerAutoSync_NoopWhenGated(t *testing.T) {
 	// Disabled integration: no-op regardless of the import flag.
 	config.ChatwootEnabled = false
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled but import off: no-op.
 	config.ChatwootEnabled = true
 	config.ChatwootImportMessages = false
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
 
 	// Enabled + import on, but no logged-in client (nil) means no storage JID
 	// is available yet — must return without panicking or launching a sync.
 	config.ChatwootImportMessages = true
-	TriggerAutoSync(nil, nil)
+	TriggerAutoSync(nil, nil, nil)
+}
+
+// autoSyncRepo resolves the env Chatwoot config for any device (its config
+// table is empty) and holds a sync inside GetChats until released.
+type autoSyncRepo struct {
+	fakeConfigRepo
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *autoSyncRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	close(r.entered)
+	<-r.release
+	return nil, nil
+}
+
+// TestTriggerAutoSyncReturnsWhileTheSyncRuns: the whatsmeow Connected handler
+// calls TriggerAutoSync, and expired-media recovery waits for an answer that
+// arrives on that same event loop. The sync must therefore run on its own
+// goroutine and never hold the caller.
+func TestTriggerAutoSyncReturnsWhileTheSyncRuns(t *testing.T) {
+	jid := types.NewJID("628999000111", types.DefaultUserServer)
+	deviceID := jid.String()
+	repo := &autoSyncRepo{entered: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(repo.release) })
+	defer release()
+
+	prevEnabled, prevImport, prevDBURI := config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI
+	prevURL, prevToken, prevAccount, prevInbox := config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID
+	prevRegistry := GetClientRegistry()
+	syncServicesMu.Lock()
+	prevService, hadService := syncServices[legacySyncServiceKey]
+	syncServicesMu.Unlock()
+	t.Cleanup(func() {
+		config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI = prevEnabled, prevImport, prevDBURI
+		config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID = prevURL, prevToken, prevAccount, prevInbox
+		globalRegistryMu.Lock()
+		globalRegistry = prevRegistry
+		globalRegistryMu.Unlock()
+		syncServicesMu.Lock()
+		if hadService {
+			syncServices[legacySyncServiceKey] = prevService
+		} else {
+			delete(syncServices, legacySyncServiceKey)
+		}
+		syncServicesMu.Unlock()
+		autoSyncTriggered.Delete(deviceID)
+	})
+	config.ChatwootEnabled, config.ChatwootImportMessages, config.ChatwootImportDBURI = true, true, ""
+	config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID = "https://env.example.com", "env-tok", 1, 2
+	InitClientRegistry(repo)
+
+	returned := make(chan struct{})
+	go func() {
+		TriggerAutoSync(repo, &whatsmeow.Client{Store: &store.Device{ID: &jid}}, nil)
+		close(returned)
+	}()
+
+	select {
+	case <-repo.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("auto-sync did not start")
+	}
+	// The sync is now held inside GetChats.
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("TriggerAutoSync is waiting for the sync; it must return to the event loop")
+	}
+
+	// Let the run finish before the globals are restored.
+	release()
+	svc := LookupSyncServiceForDevice(legacySyncServiceKey)
+	for deadline := time.Now().Add(5 * time.Second); svc.IsRunning(deviceID); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("auto-sync did not finish")
+		}
+	}
 }
 
 func TestSyncProgress_SetRunning(t *testing.T) {
@@ -297,5 +383,93 @@ func TestHTTPStatusError_Message(t *testing.T) {
 	want := "chatwoot create message: status 429 body rate limited"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// syncChatsRepo serves a fixed chat list to SyncHistory.
+type syncChatsRepo struct {
+	domainChatStorage.IChatStorageRepository
+	chats []*domainChatStorage.Chat
+}
+
+func (r syncChatsRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	return r.chats, nil
+}
+
+// syncTestLIDs is a WhatsApp LID store holding phone JID -> LID mappings.
+type syncTestLIDs struct {
+	store.LIDStore
+	pnToLID map[types.JID]types.JID
+}
+
+func (s syncTestLIDs) GetLIDForPN(_ context.Context, pn types.JID) (types.JID, error) {
+	return s.pnToLID[pn], nil
+}
+
+func (s syncTestLIDs) GetPNForLID(_ context.Context, lid types.JID) (types.JID, error) {
+	for pn, mapped := range s.pnToLID {
+		if mapped == lid {
+			return pn, nil
+		}
+	}
+	return types.JID{}, nil
+}
+
+// TestSyncHistorySkipsChatIgnoredByOtherAddress: CHATWOOT_IGNORE_JIDS may name
+// a chat by its LID while history stores the phone JID, or the reverse.
+// Either form keeps the chat out of the import.
+func TestSyncHistorySkipsChatIgnoredByOtherAddress(t *testing.T) {
+	prevIgnore := config.ChatwootIgnoreJids
+	t.Cleanup(func() { config.ChatwootIgnoreJids = prevIgnore })
+
+	pn := types.NewJID("628111111111", types.DefaultUserServer)
+	lid := types.NewJID("111111111111111", types.HiddenUserServer)
+	waClient := &whatsmeow.Client{Store: &store.Device{LIDs: syncTestLIDs{pnToLID: map[types.JID]types.JID{pn: lid}}}}
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	for _, tt := range []struct{ stored, ignored types.JID }{{pn, lid}, {lid, pn}} {
+		config.ChatwootIgnoreJids = []string{tt.ignored.String()}
+		svc := NewSyncService(&Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: server.Client()},
+			syncChatsRepo{chats: []*domainChatStorage.Chat{{JID: tt.stored.String()}}})
+		progress, err := svc.SyncHistory(context.Background(), "device-a@s.whatsapp.net", waClient, SyncOptions{DaysLimit: 1})
+		if err != nil {
+			t.Fatalf("SyncHistory: %v", err)
+		}
+		if got := requests.Load(); got != 0 || progress.SyncedChats != 0 || progress.FailedChats != 0 {
+			t.Errorf("chat %s ignored as %s: Chatwoot got %d requests, synced/failed %d/%d; want it skipped",
+				tt.stored, tt.ignored, got, progress.SyncedChats, progress.FailedChats)
+		}
+	}
+}
+
+func TestSyncHistoryWildcardIgnoresOnlyStoredAddress(t *testing.T) {
+	prevIgnore := config.ChatwootIgnoreJids
+	t.Cleanup(func() { config.ChatwootIgnoreJids = prevIgnore })
+	config.ChatwootIgnoreJids = []string{"@lid"}
+
+	pn := types.NewJID("628111111111", types.DefaultUserServer)
+	lid := types.NewJID("111111111111111", types.HiddenUserServer)
+	waClient := &whatsmeow.Client{Store: &store.Device{LIDs: syncTestLIDs{pnToLID: map[types.JID]types.JID{pn: lid}}}}
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	svc := NewSyncService(&Client{BaseURL: server.URL, APIToken: "t", AccountID: 1, InboxID: 2, HTTPClient: server.Client()},
+		syncChatsRepo{chats: []*domainChatStorage.Chat{{JID: pn.String()}}})
+	if _, err := svc.SyncHistory(context.Background(), "device-a@s.whatsapp.net", waClient, SyncOptions{DaysLimit: 1}); err != nil {
+		t.Fatalf("SyncHistory: %v", err)
+	}
+	if requests.Load() == 0 {
+		t.Error("@lid skipped a phone-stored chat because of its LID alias")
 	}
 }

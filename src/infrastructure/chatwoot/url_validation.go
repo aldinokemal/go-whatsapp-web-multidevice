@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 )
 
 // maxChatwootURLLen caps the stored Chatwoot URL length.
@@ -76,12 +77,12 @@ func chatwootHostAllowlisted(host string) bool {
 }
 
 // isDisallowedSSRFIP reports whether an IP is one we refuse to let a per-device
-// Chatwoot client talk to: loopback, RFC1918/ULA private, link-local (which
-// includes the cloud metadata address 169.254.169.254), or the unspecified
-// address.
+// Chatwoot client talk to. It uses the same non-public list as caller-selected
+// media and preview fetches: loopback, private, link-local (including
+// 169.254.169.254), CGNAT (including 100.100.100.200), reserved ranges, and
+// IPv6 forms that embed those addresses.
 func isDisallowedSSRFIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	return utils.IsBlockedFetchIP(ip)
 }
 
 // ValidateChatwootURL canonicalizes the URL and rejects it on SSRF grounds.

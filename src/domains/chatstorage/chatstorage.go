@@ -33,9 +33,20 @@ type Message struct {
 	FileEncSHA256    []byte     `db:"file_enc_sha256"`
 	FileLength       uint64     `db:"file_length"`
 	ReferralMetadata string     `db:"referral_metadata"`
+	ContextMetadata  string     `db:"context_metadata"`
 	Reactions        []Reaction `db:"-"`
 	CreatedAt        time.Time  `db:"created_at"`
 	UpdatedAt        time.Time  `db:"updated_at"`
+}
+
+// MessageMedia is the location and integrity metadata of a stored message's
+// media file. It changes when the phone re-uploads expired media.
+type MessageMedia struct {
+	URL           string
+	DirectPath    string
+	FileSHA256    []byte
+	FileEncSHA256 []byte
+	FileLength    uint64
 }
 
 // MessageEdit represents a single edit applied to an existing WhatsApp message.
@@ -96,6 +107,19 @@ type ChatwootMessageLink struct {
 	ChatwootAccountID int `db:"chatwoot_account_id"`
 }
 
+// ChatwootReplyLinkFilter scopes the lookup of the link behind a quoted
+// Chatwoot message. Every field must match; AllowLegacyAccountZero also lets
+// account 0 (legacy) rows match when ChatwootConfigID is 0.
+type ChatwootReplyLinkFilter struct {
+	DeviceID               string
+	ChatwootMessageID      int
+	ChatwootConversationID int
+	ChatwootAccountID      int
+	ChatwootInboxID        int
+	ChatwootConfigID       int64
+	AllowLegacyAccountZero bool
+}
+
 // ChatwootDeviceConfig is the per-device Chatwoot destination (URL + account +
 // inbox + token). It enables routing each WhatsApp device to its own Chatwoot
 // inbox. DeviceID is the user-facing device id; DeviceJID mirrors the WhatsApp
@@ -112,6 +136,9 @@ type ChatwootDeviceConfig struct {
 	Enabled     bool      `db:"enabled"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
+	// WebhookSecret authenticates Chatwoot's webhooks on this device's own
+	// endpoint. Empty means the global CHATWOOT_WEBHOOK_SECRET applies.
+	WebhookSecret string `db:"webhook_secret"`
 }
 
 // ChatwootForwardEvent is a durable retry record for a live WhatsApp event

@@ -1,6 +1,7 @@
 package chatwoot
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -182,6 +183,106 @@ func TestClientRegistryInvalidatePurgesEnvFallbackEntries(t *testing.T) {
 	reg2.Invalidate("busine")
 	if rc, _ := reg2.Resolve("999@s.whatsapp.net"); rc != nil {
 		t.Fatalf("unmapped device must fail-fast after first config write, got %+v", rc)
+	}
+}
+
+type blockingConfigRepo struct {
+	domainChatStorage.IChatStorageRepository
+	mu      sync.Mutex
+	current *domainChatStorage.ChatwootDeviceConfig
+	calls   int
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingConfigRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
+	b.mu.Lock()
+	b.calls++
+	call := b.calls
+	cfg := b.current
+	b.mu.Unlock()
+	if call == 1 {
+		b.once.Do(func() { close(b.entered) })
+		<-b.release
+		return cfg, nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.current, nil
+}
+
+func (b *blockingConfigRepo) CountChatwootDeviceConfigs() (int, error) { return 1, nil }
+
+func TestClientRegistryDoesNotCacheClientInvalidatedDuringLoad(t *testing.T) {
+	oldCfg := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 1, DeviceID: "d", ChatwootURL: "https://old.example.com", AccountID: 1, InboxID: 1, APIToken: "t", Enabled: true,
+	}
+	newCfg := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 1, DeviceID: "d", ChatwootURL: "https://new.example.com", AccountID: 1, InboxID: 9, APIToken: "t", Enabled: true,
+	}
+	repo := &blockingConfigRepo{current: oldCfg, entered: make(chan struct{}), release: make(chan struct{})}
+	reg := NewClientRegistry(repo)
+
+	type result struct {
+		rc  *ResolvedConfig
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rc, err := reg.Resolve("d")
+		done <- result{rc, err}
+	}()
+	<-repo.entered
+	repo.mu.Lock()
+	repo.current = newCfg
+	repo.mu.Unlock()
+	reg.Invalidate("d")
+	close(repo.release)
+
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("resolve: %v", got.err)
+	}
+	if got.rc == nil || got.rc.Client == nil || got.rc.Client.BaseURL != "https://new.example.com" || got.rc.Client.InboxID != 9 {
+		t.Fatalf("in-flight resolve kept the pre-invalidation client: %+v", got.rc)
+	}
+	again, err := reg.Resolve("d")
+	if err != nil || again == nil || again.Client == nil || again.Client.BaseURL != "https://new.example.com" {
+		t.Fatalf("later resolve is stale: %+v err=%v", again, err)
+	}
+}
+
+func TestClientRegistryDisabledDuringLoadIsNotCached(t *testing.T) {
+	oldCfg := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 1, DeviceID: "d", ChatwootURL: "https://old.example.com", AccountID: 1, InboxID: 1, APIToken: "t", Enabled: true,
+	}
+	disabled := &domainChatStorage.ChatwootDeviceConfig{
+		ID: 1, DeviceID: "d", ChatwootURL: "https://old.example.com", AccountID: 1, InboxID: 1, APIToken: "t", Enabled: false,
+	}
+	repo := &blockingConfigRepo{current: oldCfg, entered: make(chan struct{}), release: make(chan struct{})}
+	reg := NewClientRegistry(repo)
+
+	done := make(chan *ResolvedConfig, 1)
+	go func() {
+		rc, err := reg.Resolve("d")
+		if err != nil {
+			t.Errorf("resolve: %v", err)
+		}
+		done <- rc
+	}()
+	<-repo.entered
+	repo.mu.Lock()
+	repo.current = disabled
+	repo.mu.Unlock()
+	reg.Invalidate("d")
+	close(repo.release)
+
+	if rc := <-done; rc != nil {
+		t.Fatalf("disabled config was returned: %+v", rc)
+	}
+	if rc, err := reg.Resolve("d"); err != nil || rc != nil {
+		t.Fatalf("disabled config was cached: %+v err=%v", rc, err)
 	}
 }
 

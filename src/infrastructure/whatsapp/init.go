@@ -2,13 +2,15 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
-	"github.com/sirupsen/logrus"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -107,7 +109,12 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	client := whatsmeow.NewClient(device, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %v", redactProxyURL(proxyURL), err)
+			// url.Parse errors include the raw URL, so log only its scheme and host.
+			reason := err.Error()
+			if errors.As(err, new(*url.Error)) {
+				reason = utils.FormatProxyParseFailure(proxyURL)
+			}
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q: %s", redactProxyURL(proxyURL), reason)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY")
 		}
@@ -118,26 +125,9 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	deviceRepo := newDeviceChatStorage(instanceID, chatStorageRepo)
 	instance := NewDeviceInstance(instanceID, client, deviceRepo)
 
-	client.AddEventHandler(func(rawEvt any) {
-		handler(ctx, instance, rawEvt)
-	})
-
-	// Register device instance in the manager for multi-device awareness
-	// Use EnsureDefault to avoid creating duplicates when a device with matching JID already exists
-	if device.ID != nil {
-		instanceID = device.ID.String()
-	}
 	dm := InitializeDeviceManager(storeContainer, keysStoreContainer, deviceRepo)
-	if dm != nil && instanceID != "" {
-		dm.EnsureDefault(instance)
-		instance.SetOnLoggedOut(func(deviceID string) {
-			// Route the startup path through the same keep-slot cleanup as the lazy
-			// EnsureClient path, so a remote logout never deletes the device slot.
-			if err := dm.keepSlotLogout(context.Background(), deviceID); err != nil {
-				logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
-			}
-		})
-	}
+	dm.EnsureDefault(instance)
+	client.AddEventHandler(dm.eventHandler(client))
 
 	globalStateMu.Lock()
 	cli = client

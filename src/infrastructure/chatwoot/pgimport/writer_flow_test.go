@@ -94,7 +94,7 @@ func TestImportChat_HappyPath(t *testing.T) {
 	// msg1 — savepoint, probe miss, insert, release.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -102,7 +102,7 @@ func TestImportChat_HappyPath(t *testing.T) {
 	// msg2 — same shape.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-2").
+		WithArgs(imp.inboxID, "WAID:wa-2", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -167,7 +167,7 @@ func TestImportChat_HappyPathExistingContactFastPath(t *testing.T) {
 	// single message written.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -218,7 +218,7 @@ func TestImportChat_IdempotentSkip(t *testing.T) {
 	// Savepoint + probe HIT -> RELEASE, but no INSERT and no touchConversation.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-dup").
+		WithArgs(imp.inboxID, "WAID:wa-dup", imp.accountID, 100).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -275,7 +275,7 @@ func TestImportChat_PerMessageFailureCountedNotFatal(t *testing.T) {
 	// msg1 fails the INSERT -> ROLLBACK TO SAVEPOINT, not fatal.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-bad").
+		WithArgs(imp.inboxID, "WAID:wa-bad", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnError(errors.New("constraint boom"))
 	mock.ExpectExec(regexp.QuoteMeta("ROLLBACK TO SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -283,7 +283,7 @@ func TestImportChat_PerMessageFailureCountedNotFatal(t *testing.T) {
 	// msg2 succeeds.
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-good").
+		WithArgs(imp.inboxID, "WAID:wa-good", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -496,7 +496,7 @@ func TestImportChat_GroupSkipsTouchWhenAllZeroTimestampsFallBackToNow(t *testing
 
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-1").
+		WithArgs(imp.inboxID, "WAID:wa-1", imp.accountID, 100).
 		WillReturnError(noRowsError())
 	mock.ExpectQuery(`INSERT INTO messages`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT cw_msg")).WillReturnResult(sqlmock.NewResult(0, 0))

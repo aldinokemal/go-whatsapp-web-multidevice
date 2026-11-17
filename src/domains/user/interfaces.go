@@ -9,6 +9,7 @@ type IUserInfo interface {
 	Info(ctx context.Context, request InfoRequest) (response InfoResponse, err error)
 	IsOnWhatsApp(ctx context.Context, request CheckRequest) (response CheckResponse, err error)
 	BusinessProfile(ctx context.Context, request BusinessProfileRequest) (response BusinessProfileResponse, err error)
+	SubscribePresence(ctx context.Context, request SubscribePresenceRequest) (response SubscribePresenceResponse, err error)
 }
 
 // IUserProfile handles user profile operations

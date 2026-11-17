@@ -2,6 +2,11 @@ name: Build Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      check_only:
+        description: "Check 1Password access and registry login without building or publishing images"
+        type: boolean
+        default: false
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
@@ -9,8 +14,40 @@ on:
       - "*"
 
 jobs:
+  check-registry-access:
+    name: Check 1Password and registry access
+    if: github.event_name == 'workflow_dispatch' && inputs.check_only
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Load Docker Hub credentials from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          REGISTRY_USERNAME: op://GOWA-OSS/RegistryGithub/username
+          REGISTRY_PASSWORD: op://GOWA-OSS/RegistryGithub/token
+      - name: Login Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+      - name: Login GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Report successful checks
+        run: |
+          echo "1Password access and Docker Hub/GHCR login succeeded. No images were built or published." >> "$GITHUB_STEP_SUMMARY"
+
   build-and-push-amd:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && !inputs.check_only
     environment: production
     runs-on: ubuntu-latest
     permissions:
@@ -18,11 +55,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - name: Load Docker Hub credentials from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          REGISTRY_USERNAME: op://GOWA-OSS/RegistryGithub/username
+          REGISTRY_PASSWORD: op://GOWA-OSS/RegistryGithub/token
       - name: Login Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
       - name: Login GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -39,11 +84,11 @@ jobs:
           file: ./docker/golang.Dockerfile
           platforms: linux/amd64
           tags: |
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
+            ${{ env.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
             ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd
 
   build-and-push-arm:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && !inputs.check_only
     name: Build and Push ARM (${{ matrix.suffix }})
     environment: production
     runs-on: ubuntu-24.04-arm
@@ -62,11 +107,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - name: Load Docker Hub credentials from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          REGISTRY_USERNAME: op://GOWA-OSS/RegistryGithub/username
+          REGISTRY_PASSWORD: op://GOWA-OSS/RegistryGithub/token
       - name: Login Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
       - name: Login GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -88,22 +141,31 @@ jobs:
           file: ./docker/golang.Dockerfile
           platforms: ${{ matrix.platform }}
           tags: |
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-${{ matrix.suffix }}
+            ${{ env.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-${{ matrix.suffix }}
             ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-${{ matrix.suffix }}
 
   merge-manifest:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    environment: production
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && !inputs.check_only
     runs-on: ubuntu-latest
     needs: [build-and-push-amd, build-and-push-arm]
     permissions:
       contents: read
       packages: write
     steps:
+      - name: Load Docker Hub credentials from 1Password
+        uses: 1password/load-secrets-action@v5
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          REGISTRY_USERNAME: op://GOWA-OSS/RegistryGithub/username
+          REGISTRY_PASSWORD: op://GOWA-OSS/RegistryGithub/token
       - name: Login Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
       - name: Login GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -114,10 +176,10 @@ jobs:
         uses: docker/setup-buildx-action@v4
       - name: Create Versioned Manifest (${{ github.ref_name }})
         run: |
-          docker buildx imagetools create -t ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }} \
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd \
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm \
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}-armv7
+          docker buildx imagetools create -t ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:${{ github.ref_name }} \
+            ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:${{ github.ref_name }}-amd \
+            ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:${{ github.ref_name }}-arm \
+            ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:${{ github.ref_name }}-armv7
       - name: Create Versioned Manifest (GHCR) (${{ github.ref_name }})
         run: |
           docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/go-whatsapp-web-multidevice:${{ github.ref_name }} \
@@ -127,8 +189,8 @@ jobs:
       - name: Create Latest Manifest (Docker Hub)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          docker buildx imagetools create -t ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:latest \
-            ${{ secrets.REGISTRY_USERNAME }}/go-whatsapp-web-multidevice:${{ github.ref_name }}
+          docker buildx imagetools create -t ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:latest \
+            ${REGISTRY_USERNAME}/go-whatsapp-web-multidevice:${{ github.ref_name }}
       - name: Create Latest Manifest (GHCR)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
