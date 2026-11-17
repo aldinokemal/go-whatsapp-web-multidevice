@@ -1300,6 +1300,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/contacts/detailed:
+    get:
+      operationId: userMyContactsDetailed
+      tags:
+        - user
+      summary: Get list of user contacts with every contact name separate
+      description: |
+        Lists the person contacts in the device's contact store. Unlike `/user/my/contacts`,
+        which returns one preferred display name, each name (`full_name`, `first_name`,
+        `push_name`, `business_name`) is returned as stored in its own field and omitted when
+        blank. `lid` is set only when the device's LID store maps the contact's phone-number JID.
+        Groups, broadcast lists and newsletters are excluded. Rows are sorted by `jid`.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyListContactsDetailedResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/check:
     get:
       operationId: userCheck
@@ -6323,6 +6350,51 @@ components:
         name:
           type: string
           example: "Aldino Kemal"
+    MyListContactsDetailedResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get detailed contacts"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyListContactsDetailed'
+    MyListContactsDetailed:
+      type: object
+      required:
+        - jid
+      properties:
+        jid:
+          type: string
+          description: Contact-store key (`@s.whatsapp.net` or `@lid`), without device part.
+          example: "628123123123123@s.whatsapp.net"
+        lid:
+          type: string
+          description: LID mapped from the phone-number JID by the device's LID store; omitted when unknown.
+          example: "123456789012345@lid"
+        full_name:
+          type: string
+          description: Name saved in the address book; omitted when blank.
+          example: "Aldino Kemal"
+        first_name:
+          type: string
+          description: First name from the address book; omitted when blank.
+          example: "Aldino"
+        push_name:
+          type: string
+          description: The contact's own WhatsApp push name; omitted when blank.
+          example: "Aldino"
+        business_name:
+          type: string
+          description: Verified business name; omitted when blank.
+          example: "Aldino Store"
 
 
     GroupParticipantRequestItem:

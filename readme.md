@@ -730,6 +730,7 @@ You may also fork or modify the source code.
 | ✅       | List My Newsletters                    | GET    | /user/my/newsletters                |
 | ✅       | Get My Privacy Settings                | GET    | /user/my/privacy                    |
 | ✅       | List My Contacts                       | GET    | /user/my/contacts                   |
+| ✅       | List My Contacts (detailed names)      | GET    | /user/my/contacts/detailed          |
 | ✅       | Check WhatsApp User                    | GET    | /user/check                         |
 | ✅       | Get Business Profile                   | GET    | /user/business-profile              |
 | ✅       | Send Message                           | POST   | /send/message                       |
