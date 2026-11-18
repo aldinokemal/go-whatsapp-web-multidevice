@@ -173,6 +173,10 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
   - `available` — Mark the account as online (suppresses phone notifications).
   - `unavailable` — Register the push name without going online (default; preserves phone notifications).
   - `none` — Skip presence entirely (the push name is not registered, so contacts may see `-` as the name).
+- Full message history on pairing:
+  - `--full-history-sync=true` or `WHATSAPP_FULL_HISTORY_SYNC=true` asks the phone for the full history when a device
+    pairs (new pairings only). `--full-history-days` / `WHATSAPP_FULL_HISTORY_DAYS` and `WHATSAPP_FULL_HISTORY_SIZE_MB`
+    bound the request.
 - Daily presence pulse:
   - `--presence-pulse-enabled=true` or `WHATSAPP_PRESENCE_PULSE_ENABLED=true` (default: `true`).
   - `--presence-pulse-interval=24h` controls how often each connected device is pulsed.
@@ -325,6 +329,9 @@ To use environment variables:
 | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL`  | Per-device webhook adds to the global URLs instead of replacing them | `false`                               | `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true`   |
 | `WHATSAPP_ACCOUNT_VALIDATION`           | Enable account validation                                     | `true`                                       | `WHATSAPP_ACCOUNT_VALIDATION=false`           |
 | `WHATSAPP_PRESENCE_ON_CONNECT`          | Presence on connect: `available`, `unavailable`, or `none`    | `unavailable`                                | `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`    |
+| `WHATSAPP_FULL_HISTORY_SYNC`            | Pair as Desktop and ask the phone for the FULL history (new pairings only) | `false`                                      | `WHATSAPP_FULL_HISTORY_SYNC=true`             |
+| `WHATSAPP_FULL_HISTORY_DAYS`            | Days of history requested when full history sync is on        | `3650`                                       | `WHATSAPP_FULL_HISTORY_DAYS=365`              |
+| `WHATSAPP_FULL_HISTORY_SIZE_MB`         | Size limit (MB) requested when full history sync is on        | `10240`                                      | `WHATSAPP_FULL_HISTORY_SIZE_MB=2048`          |
 | `WHATSAPP_PROXY`                        | Outbound proxy for the WhatsApp WebSocket (SOCKS5/HTTP/HTTPS) | -                                            | `WHATSAPP_PROXY=socks5://user:pass@host:1080` |
 | `WHATSAPP_PRESENCE_PULSE_ENABLED`       | Enable daily available/unavailable presence pulse             | `true`                                       | `WHATSAPP_PRESENCE_PULSE_ENABLED=false`       |
 | `WHATSAPP_PRESENCE_PULSE_INTERVAL`      | Interval between presence pulses                              | `24h`                                        | `WHATSAPP_PRESENCE_PULSE_INTERVAL=24h`        |
