@@ -5186,7 +5186,10 @@ components:
           example: '6289987391723@s.whatsapp.net'
         phone_number:
           type: string
-          example: '6289987391723@s.whatsapp.net'
+          description: |
+            Phone digits of the participant, from the resolved `@s.whatsapp.net` JID or the phone number in the group response.
+            Empty when only `@lid` is known — the LID user part is not a phone number.
+          example: '6289987391723'
         lid:
           type: string
           nullable: true
