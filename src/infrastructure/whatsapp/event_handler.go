@@ -365,6 +365,9 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		sendReceipt = true
 		log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
+	case types.ReceiptTypePlayed:
+		sendReceipt = true
+		log.Infof("%v was played by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
 	case types.ReceiptTypeDelivered:
 		sendReceipt = true
 		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
