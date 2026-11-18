@@ -2,9 +2,6 @@ name: SignPath test signing (Windows x64)
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    types: [opened, reopened, synchronize]
 
 permissions:
   actions: read
@@ -12,12 +9,9 @@ permissions:
 
 jobs:
   test-signing:
-    if: >-
-      github.repository == 'aldinokemal/go-whatsapp-web-multidevice' &&
-      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.head_ref == 'feat/signpath-test-signing'))
+    # Only a manual run from main may use the production environment's
+    # 1Password token; pull request code could otherwise read it.
+    if: github.repository == 'aldinokemal/go-whatsapp-web-multidevice' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
@@ -90,13 +84,13 @@ jobs:
 
       - name: Load SignPath CI token from 1Password
         id: signpath-token
-        uses: 1password/load-secrets-action@v5
+        uses: 1password/load-secrets-action@70062d7a876d3eb6334754fa26efd2fbd90c32f2 # v5.0.1
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           SIGNPATH_API_TOKEN: op://GOWA-OSS/SignPath/token
 
       - name: Sign using the SignPath test certificate
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ steps.signpath-token.outputs.SIGNPATH_API_TOKEN }}
           organization-id: bf2a8ecf-fdb9-4d01-9cb2-7cbb79320525
