@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +85,16 @@ func init() {
 	})
 }
 
+// positiveUint32Setting parses a whole-number setting of at least 1 and stops
+// startup otherwise, instead of falling back to the default.
+func positiveUint32Setting(name, raw string) uint32 {
+	n, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 32)
+	if err != nil || n == 0 {
+		logrus.Fatalf("%s must be a whole number of at least 1, got %q", name, raw)
+	}
+	return uint32(n)
+}
+
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
 	// Key names stay visible; secret values and URL userinfo are masked.
@@ -101,14 +112,17 @@ func initEnvConfig() {
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
 	}
-	if viper.IsSet("whatsapp_full_history_sync") {
+	if !rootCmd.PersistentFlags().Changed("full-history-sync") && viper.IsSet("whatsapp_full_history_sync") {
 		config.WhatsappFullHistorySync = viper.GetBool("whatsapp_full_history_sync")
 	}
-	if envDays := viper.GetUint32("whatsapp_full_history_days"); envDays > 0 {
-		config.WhatsappFullHistoryDays = envDays
+	if raw := viper.GetString("whatsapp_full_history_days"); raw != "" && !rootCmd.PersistentFlags().Changed("full-history-days") {
+		config.WhatsappFullHistoryDays = positiveUint32Setting("WHATSAPP_FULL_HISTORY_DAYS", raw)
 	}
-	if envSize := viper.GetUint32("whatsapp_full_history_size_mb"); envSize > 0 {
-		config.WhatsappFullHistorySizeMB = envSize
+	if raw := viper.GetString("whatsapp_full_history_size_mb"); raw != "" {
+		config.WhatsappFullHistorySizeMB = positiveUint32Setting("WHATSAPP_FULL_HISTORY_SIZE_MB", raw)
+	}
+	if config.WhatsappFullHistoryDays == 0 {
+		logrus.Fatal("--full-history-days must be at least 1")
 	}
 	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
 		credential := strings.Split(envBasicAuth, ",")

@@ -1017,11 +1017,18 @@ func findStoreDeviceByJID(ctx context.Context, container *sqlstore.Container, ji
 	return nil, nil
 }
 
+var devicePropsOnce sync.Once
+
+// configureDeviceProps sets the process-wide properties whatsmeow sends when a
+// device pairs. It runs once, before the first client starts: devices are
+// created concurrently and whatsmeow marshals store.DeviceProps without a lock.
 func configureDeviceProps() {
-	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
-	store.DeviceProps.PlatformType = &config.AppPlatform
-	store.DeviceProps.Os = &osName
-	applyFullHistorySyncProps()
+	devicePropsOnce.Do(func() {
+		osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
+		store.DeviceProps.PlatformType = &config.AppPlatform
+		store.DeviceProps.Os = &osName
+		applyFullHistorySyncProps(store.DeviceProps)
+	})
 }
 
 // StoreInfo returns configured store URIs for observability.

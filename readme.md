@@ -170,10 +170,13 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
     [Webhook Payload](./docs/webhook-payload.md#call-events) for call events).
 - Configurable presence on connect:
   - `--presence-on-connect=unavailable` or `WHATSAPP_PRESENCE_ON_CONNECT=unavailable`
-  - `--full-history-sync=true` or `WHATSAPP_FULL_HISTORY_SYNC=true` (request the full message history when a device pairs)
   - `available` — Mark the account as online (suppresses phone notifications).
   - `unavailable` — Register the push name without going online (default; preserves phone notifications).
   - `none` — Skip presence entirely (the push name is not registered, so contacts may see `-` as the name).
+- Full message history on pairing:
+  - `--full-history-sync=true` or `WHATSAPP_FULL_HISTORY_SYNC=true` asks the phone for the full history when a device
+    pairs (new pairings only). `--full-history-days` / `WHATSAPP_FULL_HISTORY_DAYS` and `WHATSAPP_FULL_HISTORY_SIZE_MB`
+    bound the request.
 - Daily presence pulse:
   - `--presence-pulse-enabled=true` or `WHATSAPP_PRESENCE_PULSE_ENABLED=true` (default: `true`).
   - `--presence-pulse-interval=24h` controls how often each connected device is pulsed.
