@@ -361,7 +361,7 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 // privateReplyRemoteJID returns the group JID of a quoted group message when
 // the reply is sent to a different chat. Replies inside the same chat, and
 // quotes from 1:1 chats (stored under either the phone or the LID JID), keep
-// RemoteJID empty as before.
+// RemoteJID empty.
 func privateReplyRemoteJID(quotedChatJID string, recipient types.JID) string {
 	quoted, err := types.ParseJID(quotedChatJID)
 	if err != nil || quoted.Server != types.GroupServer {
