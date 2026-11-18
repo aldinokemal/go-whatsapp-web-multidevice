@@ -100,12 +100,21 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
 }
 
-// shouldForwardReceipt suppresses duplicate contact receipts from linked devices
-// unless explicitly enabled. Own-device reads always pass because only the device
-// where the account owner opened the chat emits them.
+// shouldForwardReceipt suppresses duplicate delivery receipts from linked devices
+// unless explicitly enabled: every device of a user acknowledges delivery. Read and
+// played receipts pass from any device, the contact's or the account's own, because
+// only the device where the chat was opened or the media was played sends them.
+// read-self passes only from the account's own devices.
 func shouldForwardReceipt(evt *events.Receipt) bool {
 	if config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0 {
 		return true
 	}
-	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
+	switch evt.Type {
+	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
+		return true
+	case types.ReceiptTypeReadSelf:
+		return evt.IsFromMe
+	default:
+		return false
+	}
 }
