@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -138,11 +139,6 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 		// messages collapse into one conversation). With no client in context
 		// getGroupName returns "", so Name falls back to "Group: <extracted phone>".
 		groupJID := "120363999000111@g.us"
-		// Seed the cache with an empty name so the fallback is deterministic even
-		// if another test in this package has set a global WhatsApp client. A
-		// cached "" still flows to the "Group: <phone>" fallback. This is a fresh
-		// entry (TTL in the future), so no timing dependency is introduced.
-		setCachedGroupName(groupJID, "")
 		info, err := extractChatwootContactInfo(ctx, map[string]any{
 			"from":      "628111@s.whatsapp.net",
 			"chat_id":   groupJID,
@@ -170,7 +166,6 @@ func TestExtractChatwootContactInfo(t *testing.T) {
 
 	t.Run("group fallback prefix even when from_name empty", func(t *testing.T) {
 		groupJID := "120363222333444@g.us"
-		setCachedGroupName(groupJID, "")
 		info, err := extractChatwootContactInfo(ctx, map[string]any{
 			"from":    "628111@s.whatsapp.net",
 			"chat_id": groupJID,
@@ -489,6 +484,104 @@ func TestBuildChatwootMessageContent(t *testing.T) {
 		}
 		if len(atts) != 0 {
 			t.Fatalf("expected no attachments, got %v", atts)
+		}
+	})
+
+	t.Run("poll creation renders question and options", func(t *testing.T) {
+		poll := &webhookPollPayload{
+			Type:     "creation",
+			Question: "Best day?",
+			Options:  []webhookPollOptionPayload{{Name: "Saturday"}, {Name: "Sunday"}},
+		}
+		// The live payload carries the struct; the retry queue replays it as JSON.
+		raw, err := json.Marshal(map[string]any{"body": "Poll: Best day?", "poll": poll})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed map[string]any
+		if err := json.Unmarshal(raw, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string]map[string]any{
+			"live":   {"body": "Poll: Best day?", "poll": poll},
+			"replay": replayed,
+		} {
+			content, atts := buildChatwootMessageContent(data, true, "Alice")
+			if content != "Alice: 📊 Poll: Best day?\n• Saturday\n• Sunday" {
+				t.Fatalf("%s: unexpected poll content: %q", name, content)
+			}
+			if len(atts) != 0 {
+				t.Fatalf("%s: expected no attachments, got %v", name, atts)
+			}
+		}
+	})
+
+	t.Run("poll creation keeps WhatsApp formatting", func(t *testing.T) {
+		poll := &webhookPollPayload{
+			Type:     "creation",
+			Question: "*Best* day?",
+			Options:  []webhookPollOptionPayload{{Name: "_Saturday_"}, {Name: "Sunday*"}},
+		}
+		want := "📊 Poll: " + utils.WhatsAppToChatwootMarkdown("*Best* day?") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("_Saturday_") +
+			"\n• " + utils.WhatsAppToChatwootMarkdown("Sunday*")
+		if want == "📊 Poll: *Best* day?\n• _Saturday_\n• Sunday*" {
+			t.Fatal("test input must exercise a conversion")
+		}
+		raw, err := json.Marshal(map[string]any{"poll": poll})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed map[string]any
+		if err := json.Unmarshal(raw, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string]map[string]any{
+			"live":   {"poll": poll},
+			"replay": replayed,
+		} {
+			if content, _ := buildChatwootMessageContent(data, false, ""); content != want {
+				t.Fatalf("%s: got %q, want %q", name, content, want)
+			}
+		}
+	})
+
+	t.Run("poll vote keeps its body", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll vote: Saturday",
+			"poll": &webhookPollPayload{Type: "vote", Question: "Best day?"},
+		}, false, "")
+		if content != "Poll vote: Saturday" {
+			t.Fatalf("expected the vote body unchanged, got %q", content)
+		}
+	})
+
+	t.Run("poll edit renders the new options", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:     "edit",
+				Question: "Best day?",
+				Options:  []webhookPollOptionPayload{{Name: "Monday"}, {Name: "Sunday"}},
+			},
+		}, false, "")
+		if content != "📊 Poll edited: Best day?\n• Monday\n• Sunday" {
+			t.Fatalf("unexpected poll edit content: %q", content)
+		}
+	})
+
+	t.Run("undecrypted poll edit keeps its body", func(t *testing.T) {
+		content, _ := buildChatwootMessageContent(map[string]any{
+			"body": "Poll edited: Best day?",
+			"poll": &webhookPollPayload{
+				Type:             "edit",
+				Question:         "Best day?",
+				Options:          []webhookPollOptionPayload{{Name: "Saturday"}},
+				ResolutionStatus: pollResolutionDecryptFailed,
+			},
+		}, false, "")
+		if content != "Poll edited: Best day?" {
+			t.Fatalf("expected the edit body unchanged, got %q", content)
 		}
 	})
 
@@ -1003,19 +1096,20 @@ func TestIsEventWhitelisted(t *testing.T) {
 // expiry timing. setCachedGroupName stores with a future TTL, so a subsequent load
 // returns (name, true); an unknown key returns ("", false).
 func TestGroupNameCache(t *testing.T) {
+	const groupNameCacheTestDevice = "15550000001@s.whatsapp.net"
 	t.Run("store then load returns cached name", func(t *testing.T) {
 		// Use a JID unlikely to collide with other tests so a leftover entry from a
 		// prior run can't mask a regression.
 		jid := "cachetest-store@g.us"
-		setCachedGroupName(jid, "My Group")
-		name, ok := getCachedGroupName(jid)
+		setCachedGroupName(groupNameCacheTestDevice, jid, "My Group")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, jid)
 		if !ok || name != "My Group" {
 			t.Fatalf("expected ('My Group', true), got (%q, %v)", name, ok)
 		}
 	})
 
 	t.Run("unknown key returns empty and false", func(t *testing.T) {
-		name, ok := getCachedGroupName("cachetest-missing@g.us")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, "cachetest-missing@g.us")
 		if ok || name != "" {
 			t.Fatalf("expected ('', false) for unknown key, got (%q, %v)", name, ok)
 		}
@@ -1025,8 +1119,8 @@ func TestGroupNameCache(t *testing.T) {
 		// Storing an empty name is meaningful (it records "we tried and got nothing")
 		// — load must still return ok=true so callers don't re-fetch.
 		jid := "cachetest-empty@g.us"
-		setCachedGroupName(jid, "")
-		name, ok := getCachedGroupName(jid)
+		setCachedGroupName(groupNameCacheTestDevice, jid, "")
+		name, ok := getCachedGroupName(groupNameCacheTestDevice, jid)
 		if !ok || name != "" {
 			t.Fatalf("expected ('', true) for empty cached name, got (%q, %v)", name, ok)
 		}

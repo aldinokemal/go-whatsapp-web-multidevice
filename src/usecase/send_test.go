@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -116,6 +117,36 @@ func TestPrepareImageForSendSelectsRequestedQuality(t *testing.T) {
 			assert.Equal(t, tt.wantProcessed, processed)
 		})
 	}
+}
+
+func TestPrepareImageForSendCompressCapsNarrowSource(t *testing.T) {
+	narrow := image.NewRGBA(image.Rect(0, 0, 1, 8192))
+	got, processed := prepareImageForSend(narrow, true, false)
+	require.True(t, processed)
+	require.LessOrEqual(t, got.Bounds().Dx(), compressedImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dy(), hdImageMaxEdge)
+	require.LessOrEqual(t, got.Bounds().Dx()*got.Bounds().Dy(), compressedImageMaxEdge*hdImageMaxEdge)
+
+	photo := image.NewRGBA(image.Rect(0, 0, 3000, 1500))
+	got, processed = prepareImageForSend(photo, true, false)
+	require.True(t, processed)
+	assert.Equal(t, 600, got.Bounds().Dx())
+	assert.Equal(t, 300, got.Bounds().Dy())
+
+	// A portrait screenshot keeps the 600 px width, as the fixed-width resize did.
+	portrait := image.NewRGBA(image.Rect(0, 0, 1080, 2340))
+	got, processed = prepareImageForSend(portrait, true, false)
+	require.True(t, processed)
+	assert.Equal(t, 600, got.Bounds().Dx())
+	assert.Equal(t, 1300, got.Bounds().Dy())
+}
+
+func TestVideoThumbnailFFmpegArgsFitInsideBox(t *testing.T) {
+	args := videoThumbnailFFmpegArgs("clip.mp4", "frame.png")
+	assert.Contains(t, args, "scale=100:512:force_original_aspect_ratio=decrease")
+	assert.NotContains(t, args, "scale=100:-1")
+	joined := strings.Join(args, " ")
+	assert.NotContains(t, joined, "100:0")
 }
 
 func TestBuildHDVideoFFmpegArgsUses1280BoundingBoxWithoutUpscaling(t *testing.T) {
@@ -406,7 +437,7 @@ func TestMergeReplyContextAddsQuoteFields(t *testing.T) {
 
 	deviceID := "6289605618749@s.whatsapp.net"
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(deviceID, nil, nil))
-	got := service.mergeReplyContext(ctx, contextInfo, &replyID)
+	got := service.mergeReplyContext(ctx, contextInfo, &replyID, types.JID{})
 
 	if got != contextInfo {
 		t.Fatal("expected existing context info to be reused")
@@ -428,6 +459,43 @@ func TestMergeReplyContextAddsQuoteFields(t *testing.T) {
 	}
 }
 
+func TestMergeReplyContextPrivateReplyCarriesGroupRemoteJID(t *testing.T) {
+	replyID := "3EB089B9D6ADD58153C561"
+	group := "120363025555555555@g.us"
+	author := types.NewJID("628123456789", types.DefaultUserServer)
+
+	tests := []struct {
+		name       string
+		chatJID    string
+		recipient  types.JID
+		wantRemote string
+	}{
+		{name: "group message quoted in the author's chat", chatJID: group, recipient: author, wantRemote: group},
+		{name: "group message quoted in the same group", chatJID: group, recipient: types.NewJID("120363025555555555", types.GroupServer)},
+		{name: "1:1 message stored under the LID", chatJID: "123456789012345@lid", recipient: author},
+		{name: "1:1 message in the same chat", chatJID: author.String(), recipient: author},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := serviceSend{chatStorageRepo: &replyMessageRepo{message: &domainChatStorage.Message{
+				ChatJID: tt.chatJID,
+				Sender:  author.String(),
+				Content: "quoted message body",
+			}}}
+
+			got := service.mergeReplyContext(context.Background(), nil, &replyID, tt.recipient)
+
+			if got.GetRemoteJID() != tt.wantRemote {
+				t.Fatalf("expected remote JID %q, got %q", tt.wantRemote, got.GetRemoteJID())
+			}
+			if got.GetStanzaID() != replyID {
+				t.Fatalf("expected stanza ID %q, got %q", replyID, got.GetStanzaID())
+			}
+		})
+	}
+}
+
 func TestMergeReplyContextPreservesExistingContext(t *testing.T) {
 	replyID := "3EB089B9D6ADD58153C561"
 	repo := &replyMessageRepo{
@@ -444,7 +512,7 @@ func TestMergeReplyContextPreservesExistingContext(t *testing.T) {
 		MentionedJID:    []string{"628999999999@s.whatsapp.net"},
 	}
 
-	got := service.mergeReplyContext(context.Background(), contextInfo, &replyID)
+	got := service.mergeReplyContext(context.Background(), contextInfo, &replyID, types.JID{})
 
 	if !got.GetIsForwarded() {
 		t.Fatal("expected forwarded flag to be preserved")
@@ -498,7 +566,7 @@ func TestMergeReplyContextLeavesExistingContextWhenReplyUnavailable(t *testing.T
 				err:     tt.err,
 			}}
 
-			got := service.mergeReplyContext(context.Background(), contextInfo, tt.replyID)
+			got := service.mergeReplyContext(context.Background(), contextInfo, tt.replyID, types.JID{})
 
 			if got != contextInfo {
 				t.Fatal("expected existing context info to be reused")
@@ -539,7 +607,7 @@ func TestSendForwardMessageNotFound(t *testing.T) {
 
 func TestForwardDurationOptionExplicitZero(t *testing.T) {
 	zero := 0
-	got := forwardDurationOption(serviceSend{}, domainSend.ForwardRequest{
+	got := forwardDurationOption(context.Background(), serviceSend{}, domainSend.ForwardRequest{
 		Phone:    "628123456789@s.whatsapp.net",
 		Duration: &zero,
 	})
@@ -589,7 +657,7 @@ func TestMergeReplyContextNormalizesALegacyDeviceSuffixedSender(t *testing.T) {
 
 	ctx := whatsapp.ContextWithDevice(context.Background(),
 		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
-	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID, types.JID{})
 
 	if got.GetParticipant() != "628123456789@s.whatsapp.net" {
 		t.Fatalf("expected the stored sender to be normalized, got %q", got.GetParticipant())
@@ -607,7 +675,7 @@ func TestMergeReplyContextPassesThroughAnUnparseableSender(t *testing.T) {
 
 	ctx := whatsapp.ContextWithDevice(context.Background(),
 		whatsapp.NewDeviceInstance("6289605618749@s.whatsapp.net", nil, nil))
-	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID)
+	got := service.mergeReplyContext(ctx, &waE2E.ContextInfo{}, &replyID, types.JID{})
 
 	if got.GetParticipant() != "not-a-jid" {
 		t.Fatalf("expected the raw sender to survive, got %q", got.GetParticipant())

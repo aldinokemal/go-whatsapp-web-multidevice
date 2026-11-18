@@ -2,10 +2,12 @@ package rest
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sysmetrics"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v3"
 	"go.mau.fi/whatsmeow/types"
@@ -34,6 +36,48 @@ func InitRestApp(app fiber.Router, service domainApp.IAppUsecase) App {
 // standalone UIs can read server metadata before any device exists.
 func InitRestAppInfo(app fiber.Router) {
 	app.Get("/app/info", AppInfo)
+	app.Get("/app/metrics", AppMetrics)
+}
+
+// AppMetrics reports the health of the instance itself — memory of the process and of
+// its container, disk used by media and storages, free space on the volume, and how
+// many devices are registered, logged in and connected — so a panel can show whether
+// the server needs attention before a phone stops receiving messages.
+func AppMetrics(c fiber.Ctx) error {
+	snapshot := sysmetrics.Collect(map[string]string{
+		"media":    config.PathMedia,
+		"storages": config.PathStorages,
+	}, config.PathStorages)
+
+	devices := map[string]int{"total": 0, "logged_in": 0, "connected": 0}
+	if dm := whatsapp.GetDeviceManager(); dm != nil {
+		for _, device := range dm.ListDevices() {
+			devices["total"]++
+			if device.IsLoggedIn() {
+				devices["logged_in"]++
+			}
+			if device.IsConnected() {
+				devices["connected"]++
+			}
+		}
+	}
+
+	sessionStore := "sqlite"
+	if strings.HasPrefix(strings.Trim(config.DBURI, "\"'"), "postgres:") {
+		sessionStore = "postgres"
+	}
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Fetch app metrics success",
+		Results: map[string]any{
+			"version":       config.AppVersion,
+			"session_store": sessionStore,
+			"devices":       devices,
+			"system":        snapshot,
+		},
+	})
 }
 
 func AppInfo(c fiber.Ctx) error {

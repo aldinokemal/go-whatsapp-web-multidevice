@@ -309,9 +309,9 @@ func TestScheduleProcessJobEndsOverdueSeriesPastEndAt(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr))
 }
 
-func TestScheduleProcessDueRecoversInterruptedJobsWithoutResending(t *testing.T) {
+func TestScheduleProcessDueRequeuesInterruptedJobs(t *testing.T) {
 	service, repo := newScheduleTestService(t, &scheduleSendStub{sendText: func() (domainSend.GenericResponse, error) {
-		t.Fatal("an interrupted occurrence must not be resent")
+		t.Fatal("the device is offline: nothing may be sent")
 		return domainSend.GenericResponse{}, nil
 	}})
 	for _, job := range []*domainChatStorage.ScheduledSend{
@@ -328,18 +328,17 @@ func TestScheduleProcessDueRecoversInterruptedJobsWithoutResending(t *testing.T)
 
 	service.processDue(context.Background())
 
-	once, err := repo.GetScheduledSend("device-a", "once")
-	require.NoError(t, err)
-	require.Equal(t, scheduleStatusFailed, once.Status)
-	_, statErr := os.Stat(filepath.Join(service.mediaRoot, "scheduled", "once"))
-	require.True(t, os.IsNotExist(statErr))
-
-	daily, err := repo.GetScheduledSend("device-a", "daily")
-	require.NoError(t, err)
-	require.Equal(t, scheduleStatusActive, daily.Status)
-	require.True(t, scheduleTestNow.Add(23*time.Hour).Equal(daily.NextRunAt))
-	_, statErr = os.Stat(filepath.Join(service.mediaRoot, "scheduled", "daily"))
-	require.NoError(t, statErr)
+	// Both are back in the queue for the same occurrence (here waiting for
+	// the device), not failed and not moved to the next slot.
+	for _, id := range []string{"once", "daily"} {
+		stored, err := repo.GetScheduledSend("device-a", id)
+		require.NoError(t, err)
+		require.Equal(t, scheduleStatusActive, stored.Status, id)
+		require.Zero(t, stored.OccurrenceCount, id)
+		require.True(t, scheduleTestNow.Add(30*time.Second).Equal(stored.NextRunAt), "%s next run %s", id, stored.NextRunAt)
+		_, statErr := os.Stat(filepath.Join(service.mediaRoot, "scheduled", id))
+		require.NoError(t, statErr, id)
+	}
 }
 
 func TestScheduleResumeOverdueJobs(t *testing.T) {

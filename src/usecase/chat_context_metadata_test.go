@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -118,7 +119,7 @@ func TestUpdateAndQuotePreserveDeviceScopedContextMetadata(t *testing.T) {
 	replyID := "message-1"
 	contextInfo := &waE2E.ContextInfo{Expiration: proto.Uint32(3600)}
 	sender := serviceSend{chatStorageRepo: repo}
-	quoted := sender.mergeReplyContext(ctx, contextInfo, &replyID)
+	quoted := sender.mergeReplyContext(ctx, contextInfo, &replyID, types.JID{})
 	require.Same(t, contextInfo, quoted)
 	assert.Equal(t, replyID, quoted.GetStanzaID())
 	assert.Equal(t, "device-a@s.whatsapp.net", quoted.GetParticipant())
