@@ -2,9 +2,7 @@ package whatsapp
 
 import (
 	"context"
-	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -345,30 +343,33 @@ func buildMessageBody(ctx context.Context, client *whatsmeow.Client, evt *events
 
 // replaceLIDMentions rewrites @<lid> tags in text to @<phone> where the LID
 // store knows the phone number, leaving any it cannot resolve as they are.
+// Each complete tag is replaced in place, so a resolved tag never rewrites the
+// prefix of a longer one.
 func replaceLIDMentions(ctx context.Context, client *whatsmeow.Client, text string) string {
 	if text == "" || client == nil || client.Store == nil || client.Store.LIDs == nil {
 		return text
 	}
-	tags := reMention.FindAllString(text, -1)
-	tagsMap := make(map[string]bool)
-	for _, tag := range tags {
-		tagsMap[tag] = true
-	}
-	for tag := range tagsMap {
+	resolved := make(map[string]string)
+	return reMention.ReplaceAllStringFunc(text, func(tag string) string {
+		if replacement, ok := resolved[tag]; ok {
+			return replacement
+		}
+		replacement := tag
 		lid, err := types.ParseJID(tag[1:] + "@lid")
 		if err != nil {
 			logrus.Errorf("Error when parse jid: %v", err)
-			continue
+		} else {
+			pn, err := client.Store.LIDs.GetPNForLID(ctx, lid)
+			if err != nil {
+				logrus.Errorf("Error when get pn for lid %s: %v", lid.ToNonAD().String(), err)
+			}
+			if !pn.IsEmpty() {
+				replacement = "@" + pn.User
+			}
 		}
-		pn, err := client.Store.LIDs.GetPNForLID(ctx, lid)
-		if err != nil {
-			logrus.Errorf("Error when get pn for lid %s: %v", lid.ToNonAD().String(), err)
-		}
-		if !pn.IsEmpty() {
-			text = strings.Replace(text, tag, fmt.Sprintf("@%s", pn.User), -1)
-		}
-	}
-	return text
+		resolved[tag] = replacement
+		return replacement
+	})
 }
 
 // addJIDField sets payload[key] to the JID with a LID resolved to its phone

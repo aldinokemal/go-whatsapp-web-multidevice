@@ -156,6 +156,25 @@ func TestBuildEventPayloadMentionsInMediaCaption(t *testing.T) {
 	assert.Equal(t, caption, payload["body"], "without a LID store the caption is left as sent")
 }
 
+// A resolved tag that is a prefix of a longer, unresolved one must leave the
+// longer tag alone, so the body never contradicts the mentions metadata.
+func TestBuildEventPayloadCaptionKeepsLongerUnresolvedTag(t *testing.T) {
+	quietLog(t)
+	oldAutoDownload := config.WhatsappAutoDownloadMedia
+	config.WhatsappAutoDownloadMedia = false
+	t.Cleanup(func() { config.WhatsappAutoDownloadMedia = oldAutoDownload })
+
+	longer := "@" + mentionLID.User + "6"
+	evt := groupMessage(&waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+		Caption:     protoString("@" + mentionLID.User + " please ask " + longer + " and @" + mentionLID.User),
+		ContextInfo: &waE2E.ContextInfo{MentionedJID: []string{mentionLID.String(), mentionLID.User + "6@lid"}},
+	}})
+
+	_, payload, err := buildEventPayload(context.Background(), mentionClient(), evt)
+	assert.NoError(t, err)
+	assert.Equal(t, "@"+mentionPhone.User+" please ask "+longer+" and @"+mentionPhone.User, payload["body"])
+}
+
 func TestBuildEventPayloadNoMentionFields(t *testing.T) {
 	quietLog(t)
 	_, payload, err := buildEventPayload(context.Background(), mentionClient(),
