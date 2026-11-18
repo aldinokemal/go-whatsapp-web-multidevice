@@ -393,7 +393,7 @@ func initFlags() {
 		&config.WhatsappFullHistorySync,
 		"full-history-sync", "",
 		config.WhatsappFullHistorySync,
-		`pair as Desktop and ask the phone for the FULL message history (new pairings only) --full-history-sync <true/false> | example: --full-history-sync=true`,
+		`pair as Desktop and ask the phone for the FULL message history (new pairings only) --full-history-sync=<true|false> | example: --full-history-sync=true`,
 	)
 	rootCmd.PersistentFlags().Uint32VarP(
 		&config.WhatsappFullHistoryDays,
