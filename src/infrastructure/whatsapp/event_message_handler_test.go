@@ -2,6 +2,8 @@ package whatsapp
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -71,6 +73,54 @@ func TestHandleMessageReactionStoresReactionAndForwardsWebhook(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for webhook submission")
+	}
+}
+
+func TestHandleMessageReactionRemovalCarriesRemovedEmoji(t *testing.T) {
+	originalWebhookURLs, originalWebhookEvents := config.WhatsappWebhook, config.WhatsappWebhookEvents
+	originalSubmit, originalLog := submitWebhookFn, log
+	defer func() {
+		config.WhatsappWebhook, config.WhatsappWebhookEvents = originalWebhookURLs, originalWebhookEvents
+		submitWebhookFn, log = originalSubmit, originalLog
+	}()
+	log = waLog.Noop
+	config.WhatsappWebhook = []string{"https://example.test/webhook"}
+	config.WhatsappWebhookEvents = nil
+	done := make(chan map[string]any, 1)
+	submitWebhookFn = func(_ context.Context, payload map[string]any, _ string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		done <- payload
+		return nil
+	}
+	repo := &messageHandlerRepoSpy{storedReaction: &domainChatStorage.Reaction{Emoji: "👍"}}
+	handleMessage(context.Background(), reactionEventForTest("removal", "msg-1", ""), repo, nil)
+	select {
+	case delivered := <-done:
+		payload := delivered["payload"].(map[string]any)
+		if payload["reaction"] != "" || payload["removed_reaction"] != "👍" {
+			t.Fatalf("unexpected removal payload: %+v", payload)
+		}
+		if got := buildReactionChatwootContent(payload, "Alice"); got != "Alice removed 👍" {
+			t.Fatalf("unexpected Chatwoot note: %q", got)
+		}
+		if repo.createReactionCount() != 1 || repo.storedReaction != nil {
+			t.Fatal("reaction was not deleted after lookup")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reaction webhook")
+	}
+}
+
+func TestReactionRemovalWithoutStoredEmoji(t *testing.T) {
+	ctx := withRemovedReactionEmoji(context.Background(), reactionEventForTest("removal", "msg-1", ""), &messageHandlerRepoSpy{})
+	_, payload, err := buildEventPayload(ctx, nil, reactionEventForTest("removal", "msg-1", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["removed_reaction"]; ok {
+		t.Fatalf("unexpected removed reaction: %+v", payload)
+	}
+	if got := buildReactionChatwootContent(payload, "Alice"); got != "Alice removed a reaction" {
+		t.Fatalf("unexpected Chatwoot note: %q", got)
 	}
 }
 
@@ -216,6 +266,7 @@ type messageHandlerRepoSpy struct {
 	createMessageCalls  int
 	createReactionCalls int
 	pollDefinition      *domainChatStorage.PollDefinition
+	storedReaction      *domainChatStorage.Reaction
 }
 
 func (r *messageHandlerRepoSpy) UpsertPollDefinition(definition *domainChatStorage.PollDefinition) error {
@@ -251,7 +302,14 @@ func (r *messageHandlerRepoSpy) CreateReaction(context.Context, *events.Message)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.createReactionCalls++
+	r.storedReaction = nil
 	return nil
+}
+
+func (r *messageHandlerRepoSpy) GetReactionForEvent(context.Context, *events.Message) (*domainChatStorage.Reaction, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.storedReaction, nil
 }
 
 func (r *messageHandlerRepoSpy) createMessageCount() int {
@@ -287,6 +345,96 @@ func reactionEventForTest(eventID, targetID, emoji string) *events.Message {
 				Text: protoString(emoji),
 			},
 		},
+	}
+}
+
+type captureLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *captureLogger) Infof(msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(msg, args...))
+}
+
+func (l *captureLogger) Errorf(msg string, args ...any) { l.Infof(msg, args...) }
+func (l *captureLogger) Warnf(msg string, args ...any)  { l.Infof(msg, args...) }
+func (l *captureLogger) Debugf(string, ...any)          {}
+func (l *captureLogger) Sub(string) waLog.Logger        { return l }
+
+func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
+	originalLog := log
+	originalAutoReply := config.WhatsappAutoReplyMessage
+	originalAutoMarkRead := config.WhatsappAutoMarkRead
+	originalWebhook := append([]string(nil), config.WhatsappWebhook...)
+	originalChatwoot := config.ChatwootEnabled
+	t.Cleanup(func() {
+		log = originalLog
+		config.WhatsappAutoReplyMessage = originalAutoReply
+		config.WhatsappAutoMarkRead = originalAutoMarkRead
+		config.WhatsappWebhook = originalWebhook
+		config.ChatwootEnabled = originalChatwoot
+	})
+
+	capture := &captureLogger{}
+	log = capture
+	config.WhatsappAutoReplyMessage = ""
+	config.WhatsappAutoMarkRead = false
+	config.WhatsappWebhook = nil
+	config.ChatwootEnabled = false
+
+	const forged = "INFO forged-entry"
+	pushName := "Alice\r\n" + forged + "\x1b[31m\u0085\u009b\u2028\u2029 …"
+	// A status broadcast chat returns from handleWebhookForward before it
+	// spawns the forwarding goroutine, which would race with t.Cleanup.
+	evt := textEventForTest("log-newline-1\nINFO forged-id", types.StatusBroadcastJID)
+	evt.Info.PushName = pushName
+	evt.Info.Sender = types.NewJID("62811\n999", types.DefaultUserServer)
+	// The protobuf text format keeps U+2028 and U+2029 in the body unescaped.
+	evt.Message.Conversation = protoString("body\u2028INFO forged-body\u2029")
+
+	handleMessage(context.Background(), evt, &messageHandlerRepoSpy{}, nil)
+
+	capture.mu.Lock()
+	lines := append([]string(nil), capture.lines...)
+	capture.mu.Unlock()
+
+	var received []string
+	for _, line := range lines {
+		if strings.Contains(line, "Received message") {
+			received = append(received, line)
+		}
+	}
+	if len(received) != 1 {
+		t.Fatalf("expected one received-message record, got %d: %#v", len(received), lines)
+	}
+	record := received[0]
+	// A stdout logger writes the formatted record plus one trailing newline.
+	// A CR/LF inside the sender name would show up as an extra line here.
+	written := record + "\n"
+	writtenLines := strings.Split(strings.TrimSuffix(written, "\n"), "\n")
+	if len(writtenLines) != 1 {
+		t.Fatalf("sender name forged an extra log line: %#v", writtenLines)
+	}
+	if strings.ContainsAny(record, "\r\n\u0085\u009b\u2028\u2029") || strings.Contains(record, "\x1b") {
+		t.Fatalf("log record still contains control characters: %q", record)
+	}
+	if !strings.Contains(record, "Alice") || !strings.Contains(record, forged) || !strings.Contains(record, `\x1b[31m\u0085\u009b\u2028\u2029 …`) {
+		t.Fatalf("sender name missing from the same log line: %q", record)
+	}
+	if !strings.Contains(record, `log-newline-1\nINFO forged-id`) {
+		t.Fatalf("message id was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `62811\n999`) {
+		t.Fatalf("sender jid was not escaped onto the same line: %q", record)
+	}
+	if !strings.Contains(record, `body\u2028INFO forged-body\u2029`) {
+		t.Fatalf("message body was not escaped onto the same line: %q", record)
+	}
+	if evt.Info.PushName != pushName {
+		t.Fatalf("push name was mutated: %q", evt.Info.PushName)
 	}
 }
 

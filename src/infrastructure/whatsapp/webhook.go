@@ -17,29 +17,19 @@ import (
 )
 
 func submitWebhook(ctx context.Context, payload map[string]any, url string, webhookConfig *chatstorage.DeviceWebhookConfig) error {
-	// Determine effective config - use device-specific if set, otherwise fall back to global
-	insecureSkipVerify := config.WhatsappWebhookInsecureSkipVerify
+	// Device TLS is resolved separately from the signing secret. A nil device
+	// config keeps the global bypass; an explicit device flag, including false,
+	// replaces it. Secret selection is unchanged.
 	webhookSecret := config.WhatsappWebhookSecret
 
 	if webhookConfig != nil {
-		if webhookConfig.WebhookInsecureSkipVerify {
-			insecureSkipVerify = true
-		}
 		if webhookConfig.WebhookSecret != "" {
 			webhookSecret = webhookConfig.WebhookSecret
 		}
 	}
 
-	// Configure HTTP client with optional TLS skip verification
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecureSkipVerify,
-		},
-	}
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: transport,
-	}
+	client := newWebhookHTTPClient(webhookConfig)
+	defer client.CloseIdleConnections()
 
 	postBody, err := json.Marshal(payload)
 	if err != nil {
@@ -102,4 +92,34 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	}
 
 	return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt, err))
+}
+
+// effectiveWebhookInsecureSkipVerify chooses the TLS bypass for one delivery.
+//
+// DeviceWebhookConfig.WebhookInsecureSkipVerify is a bool, so it cannot
+// represent "unset". Callers pass a nil config when the device did not
+// override webhook delivery (global URLs, or no stored device webhook). The
+// process-wide WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY value applies only in
+// that case. A non-nil config carries the stored device flag: false means
+// verify certificates and wins over a global bypass.
+func effectiveWebhookInsecureSkipVerify(webhookConfig *chatstorage.DeviceWebhookConfig) bool {
+	if webhookConfig != nil {
+		return webhookConfig.WebhookInsecureSkipVerify
+	}
+	return config.WhatsappWebhookInsecureSkipVerify
+}
+
+func webhookTLSConfig(webhookConfig *chatstorage.DeviceWebhookConfig) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify: effectiveWebhookInsecureSkipVerify(webhookConfig),
+	}
+}
+
+func newWebhookHTTPClient(webhookConfig *chatstorage.DeviceWebhookConfig) *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: webhookTLSConfig(webhookConfig),
+		},
+	}
 }

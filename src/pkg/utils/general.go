@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -91,6 +92,10 @@ const (
 	linkPreviewMaxJPEGDimension  = 400
 	linkPreviewImageQuality      = 85
 	linkPreviewJPEGQuality       = 80
+	// MaxPreviewHTMLBytes caps the decompressed preview document; only that
+	// prefix is parsed. Go's HTTP client gunzips before Body is read, so this
+	// limit applies to the decoded stream.
+	MaxPreviewHTMLBytes = 2 * 1024 * 1024
 )
 
 func resizeWithinBounds(src image.Image, maxDimension int) image.Image {
@@ -170,16 +175,9 @@ func isRetryableStatus(statusCode int) bool {
 }
 
 func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	// Caller-selected preview URLs cannot target loopback, private, or
+	// link-local addresses. The same client is used for the metadata image.
+	client := newUntrustedHTTPClient(15 * time.Second)
 
 	// Parse the base URL for resolving relative URLs later
 	baseURL, err := url.Parse(urlStr)
@@ -195,7 +193,7 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 		if err != nil {
 			return meta, err
 		}
-		response, err = client.Do(req)
+		response, err = doUntrusted(client, req)
 		if err != nil {
 			return meta, err
 		}
@@ -215,8 +213,10 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 		return meta, fmt.Errorf("HTTP request failed with status: %s", response.Status)
 	}
 
-	// Parse the HTML document
-	document, err := goquery.NewDocumentFromReader(response.Body)
+	// Parse only a prefix of the decompressed body. The HTTP transport gunzips
+	// before this read, so a small gzip payload cannot expand into an unbounded
+	// token, and the og: and title tags in <head> still yield a preview.
+	document, err := goquery.NewDocumentFromReader(io.LimitReader(response.Body, MaxPreviewHTMLBytes))
 	if err != nil {
 		return meta, err
 	}
@@ -272,7 +272,7 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 			logrus.Warnf("Failed to create image request: %v", err)
 		} else {
 			imgReq.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8")
-			imgResponse, err := client.Do(imgReq)
+			imgResponse, err := doUntrusted(client, imgReq)
 			if err != nil {
 				logrus.Warnf("Failed to download image: %v", err)
 			} else {
@@ -300,9 +300,8 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 						} else if int64(len(imageData)) > maxImageSize {
 							logrus.Warnf("Downloaded image exceeds max size: %d > %d", len(imageData), maxImageSize)
 						} else {
-							// Validate image by decoding it
-							imageReader := bytes.NewReader(imageData)
-							img, _, err := image.Decode(imageReader)
+							// Header dimensions are checked before the raster is allocated.
+							img, _, err := DecodeImageWithinBudget(bytes.NewReader(imageData))
 							if err != nil {
 								logrus.Warnf("Failed to decode image: %v", err)
 							} else {
@@ -344,17 +343,13 @@ func ContainsMention(message string) []string {
 	return phoneNumbers
 }
 
-func DownloadImageFromURL(url string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+func DownloadImageFromURL(ctx context.Context, url string) ([]byte, string, error) {
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
 	}
-	response, err := client.Get(url)
+	response, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -400,18 +395,13 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 // It validates that the content-type returned by the server starts with "audio/" and that the size is below
 // WhatsappSettingMaxDownloadSize limit to avoid memory exhaustion. Only the MIME types defined in audio validation
 // are allowed to ensure WhatsApp compatibility.
-func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+func DownloadAudioFromURL(ctx context.Context, audioURL string) ([]byte, string, error) {
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(audioURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -491,18 +481,13 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 // DownloadVideoFromURL downloads a video file from the provided URL and returns the bytes and sanitized filename.
 // It validates that the content-type returned by the server is one of the supported WhatsApp video formats and
 // that the size does not exceed WhatsappSettingMaxDownloadSize to avoid memory exhaustion.
-func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+func DownloadVideoFromURL(ctx context.Context, videoURL string) ([]byte, string, error) {
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(videoURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -607,18 +592,13 @@ func UniqueStrings(input []string) []string {
 
 // DownloadFileFromURL downloads a file from the provided URL and returns the bytes and sanitized filename.
 // It enforces max file size limit.
-func DownloadFileFromURL(fileURL string) ([]byte, string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+func DownloadFileFromURL(ctx context.Context, fileURL string) ([]byte, string, error) {
+	client := newUntrustedHTTPClient(30 * time.Second)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, "", err
 	}
-
-	resp, err := client.Get(fileURL)
+	resp, err := doUntrusted(client, req)
 	if err != nil {
 		return nil, "", err
 	}

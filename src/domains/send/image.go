@@ -12,4 +12,5 @@ type ImageRequest struct {
 	ViewOnce       bool                  `json:"view_once" form:"view_once"`
 	Compress       bool                  `json:"compress"`
 	HD             bool                  `json:"hd" form:"hd"`
+	AllowReshare   bool                  `json:"allow_reshare,omitempty" form:"allow_reshare"` // status@broadcast only: let viewers reshare the status
 }

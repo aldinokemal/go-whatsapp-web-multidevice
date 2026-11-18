@@ -151,6 +151,24 @@ func TestHandleSendDispatch(t *testing.T) {
 		assert.True(t, svc.lastVideo.HD)
 	})
 
+	t.Run("allow_reshare", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		for _, args := range []map[string]any{
+			{"type": "text", "message": "hi"},
+			{"type": "image", "image_url": "http://x/a.png"},
+			{"type": "video", "video_url": "http://x/a.mp4"},
+		} {
+			args["phone"] = "status@broadcast"
+			args["allow_reshare"] = true
+			_, err := h.handleSend(deviceCtx(), callReq(args))
+			require.NoError(t, err)
+		}
+		assert.True(t, svc.lastText.AllowReshare)
+		assert.True(t, svc.lastImage.AllowReshare)
+		assert.True(t, svc.lastVideo.AllowReshare)
+	})
+
 	t.Run("audio", func(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})

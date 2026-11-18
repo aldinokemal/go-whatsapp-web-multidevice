@@ -1,13 +1,16 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -94,13 +97,29 @@ func ExtractPhoneFromVCard(vcard string) string {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "TEL") {
-			if idx := strings.LastIndex(line, ":"); idx >= 0 {
-				return strings.TrimSpace(line[idx+1:])
-			}
+		if !isVCardTelProperty(line) {
+			continue
+		}
+		if idx := strings.LastIndex(line, ":"); idx >= 0 {
+			return strings.TrimSpace(line[idx+1:])
 		}
 	}
 	return ""
+}
+
+// isVCardTelProperty reports whether a vCard content line is a TEL property.
+// vCard allows any property name to carry a group prefix, and iOS exports every
+// phone that way ("item1.TEL;waid=...:+55 11 99999-0006"), so the group is
+// dropped before comparing the name.
+func isVCardTelProperty(line string) bool {
+	name := line
+	if idx := strings.IndexAny(name, ";:"); idx >= 0 {
+		name = name[:idx]
+	}
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return strings.EqualFold(strings.TrimSpace(name), "TEL")
 }
 
 // FormatLocationSummary builds a one-liner for an incoming location or live-location pin.
@@ -178,6 +197,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return ""
 	}
 
+	// History sync passes raw messages, still inside the ephemeral/view-once
+	// wrappers that whatsmeow strips from live events.
+	msg = UnwrapMessage(msg)
+
 	// Check for regular text message
 	if text := msg.GetConversation(); text != "" {
 		return text
@@ -210,19 +233,10 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 		return doc.GetCaption()
 	}
 
-	// Check for buttons response message
-	if buttonsResponse := msg.GetButtonsResponseMessage(); buttonsResponse != nil {
-		return buttonsResponse.GetSelectedDisplayText()
-	}
-
-	// Check for list response message
-	if listResponse := msg.GetListResponseMessage(); listResponse != nil {
-		return listResponse.GetTitle()
-	}
-
-	// Check for template button reply
-	if templateButtonReply := msg.GetTemplateButtonReplyMessage(); templateButtonReply != nil {
-		return templateButtonReply.GetSelectedDisplayText()
+	// Check for business messages (template, interactive, buttons, list,
+	// product, order) and the button/list replies to them
+	if text := extractBusinessMessageText(msg); text != "" {
+		return text
 	}
 
 	// Check for shared contact card
@@ -305,6 +319,10 @@ func ExtractMediaInfo(msg *waE2E.Message) (mediaType string, filename string, me
 	if msg == nil {
 		return "", "", "", "", nil, nil, nil, 0
 	}
+
+	// Unwrap like ExtractMessageTextFromProto, so a wrapped captioned media
+	// message is never stored as caption-only text.
+	msg = UnwrapMessage(msg)
 
 	// Check for image message
 	if img := msg.GetImageMessage(); img != nil {
@@ -460,23 +478,30 @@ func newForwardContextInfo(duration *int) *waE2E.ContextInfo {
 }
 
 // defaultForwardMimeType returns a mime type for stored media whose original
-// mime type was not persisted. WhatsApp transcodes media to fixed formats, so
-// per-type defaults are accurate except for documents, which are derived from
-// the stored filename.
+// mime type was not persisted.
 func defaultForwardMimeType(message *domainChatStorage.Message) string {
 	switch message.MediaType {
+	case "audio":
+		return "audio/mpeg"
+	case "ptt":
+		return "audio/ogg; codecs=opus"
+	}
+	return defaultStoredMediaMimeType(message.MediaType, message.Filename)
+}
+
+// defaultStoredMediaMimeType returns a mime type for stored media whose
+// original mime type was not persisted. Audio filenames are generated as .ogg
+// regardless of their original format, so audio must be detected after download.
+func defaultStoredMediaMimeType(mediaType, filename string) string {
+	switch mediaType {
 	case "image":
 		return "image/jpeg"
 	case "video", "video_note":
 		return "video/mp4"
-	case "ptt":
-		return "audio/ogg; codecs=opus"
-	case "audio":
-		return "audio/mpeg"
 	case "sticker":
 		return "image/webp"
 	case "document":
-		ext := strings.ToLower(filepath.Ext(message.Filename))
+		ext := strings.ToLower(filepath.Ext(filename))
 		if mimeType, ok := knownDocumentMIMEByExtension[ext]; ok {
 			return mimeType
 		}
@@ -543,6 +568,9 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 	mimeType := opts.MimeType
 	if mimeType == "" {
 		mimeType = defaultForwardMimeType(message)
+	}
+	if message.MediaType == "ptt" && mimeType == "audio/ogg" {
+		mimeType = "audio/ogg; codecs=opus"
 	}
 
 	switch message.MediaType {
@@ -647,6 +675,8 @@ func BuildForwardMessageFromStorage(message *domainChatStorage.Message, opts For
 // from stored chat media metadata.
 func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) (whatsmeow.DownloadableMessage, error) {
 	resolvedDirectPath := ResolveMediaDirectPath(directPath, mediaURL)
+	// Audio MIME is left unknown until ExtractMedia has the decrypted bytes.
+	mimeType := proto.String(defaultStoredMediaMimeType(mediaType, filename))
 
 	switch mediaType {
 	case "image":
@@ -657,6 +687,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "video", "video_note":
 		return &waE2E.VideoMessage{
@@ -666,6 +697,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "audio", "ptt":
 		return &waE2E.AudioMessage{
@@ -675,6 +707,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	case "document":
 		return &waE2E.DocumentMessage{
@@ -684,6 +717,7 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 			FileName:      proto.String(filename),
 		}, nil
 	case "sticker":
@@ -694,10 +728,26 @@ func BuildDownloadableMessage(mediaType, mediaURL, directPath, filename string, 
 			FileSHA256:    fileSHA256,
 			FileEncSHA256: fileEncSHA256,
 			FileLength:    proto.Uint64(fileLength),
+			Mimetype:      mimeType,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
 	}
+}
+
+// BuildStoredDownloadableMessage builds the whatsmeow media message for a
+// stored row, downloading from directPath.
+func BuildStoredDownloadableMessage(message *domainChatStorage.Message, directPath string) (whatsmeow.DownloadableMessage, error) {
+	return BuildDownloadableMessage(
+		message.MediaType,
+		message.URL,
+		directPath,
+		message.Filename,
+		message.MediaKey,
+		message.FileSHA256,
+		message.FileEncSHA256,
+		message.FileLength,
+	)
 }
 
 // ExtractContextInfo returns the ContextInfo from whichever message sub-type
@@ -729,6 +779,33 @@ func ExtractContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetLiveLocationMessage().GetContextInfo()
 	case msg.GetInteractiveMessage() != nil:
 		return msg.GetInteractiveMessage().GetContextInfo()
+	case msg.GetButtonsResponseMessage() != nil:
+		return msg.GetButtonsResponseMessage().GetContextInfo()
+	case msg.GetListResponseMessage() != nil:
+		return msg.GetListResponseMessage().GetContextInfo()
+	case msg.GetTemplateButtonReplyMessage() != nil:
+		return msg.GetTemplateButtonReplyMessage().GetContextInfo()
+	case msg.GetInteractiveResponseMessage() != nil:
+		return msg.GetInteractiveResponseMessage().GetContextInfo()
+	case msg.GetContactsArrayMessage() != nil:
+		return msg.GetContactsArrayMessage().GetContextInfo()
+	case msg.GetButtonsMessage() != nil:
+		return msg.GetButtonsMessage().GetContextInfo()
+	case msg.GetListMessage() != nil:
+		return msg.GetListMessage().GetContextInfo()
+	case msg.GetTemplateMessage() != nil:
+		return msg.GetTemplateMessage().GetContextInfo()
+	case msg.GetProductMessage() != nil:
+		return msg.GetProductMessage().GetContextInfo()
+	case msg.GetOrderMessage() != nil:
+		return msg.GetOrderMessage().GetContextInfo()
+	case msg.GetGroupInviteMessage() != nil:
+		return msg.GetGroupInviteMessage().GetContextInfo()
+	case msg.GetEventMessage() != nil:
+		return msg.GetEventMessage().GetContextInfo()
+	}
+	if poll, _ := ExtractPollCreationMessage(msg); poll != nil {
+		return poll.GetContextInfo()
 	}
 	return nil
 }
@@ -875,17 +952,95 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		return extractedMedia, nil
 	}
 
-	data, err := client.Download(ctx, mediaFile)
+	// Refuse by the size the message announces before downloading anything, so
+	// an oversized document is not fetched in full only to be rejected.
+	maxFileSize := config.WhatsappSettingMaxDownloadSize
+	if sized, ok := mediaFile.(interface{ GetFileLength() uint64 }); ok && sized.GetFileLength() > uint64(maxFileSize) {
+		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+	}
+
+	// Decrypt straight to disk: Download holds the whole file in memory.
+	// DownloadToFile checks the MAC and the SHA-256 like Download does.
+	file, err := os.CreateTemp(storageLocation, ".download-*")
 	if err != nil {
 		return extractedMedia, err
 	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(file.Name())
+		}
+	}()
+	err = client.DownloadToFile(ctx, mediaFile, downloadFile{file})
+	head := make([]byte, mediaSniffLength)
+	var n int
+	if err == nil {
+		n, err = file.ReadAt(head, 0)
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+	}
+	var info os.FileInfo
+	if err == nil {
+		info, err = file.Stat()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return extractedMedia, err
+	}
+	// The announced size can be missing or wrong.
+	if info.Size() > maxFileSize {
+		err = fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
+		return extractedMedia, err
+	}
 
+	extractedMedia = describeExtractedMedia(storageLocation, mediaFile, head[:n])
+	err = os.Rename(file.Name(), extractedMedia.MediaPath)
+	return extractedMedia, err
+}
+
+// mediaSniffLength is enough of a file for describeExtractedMedia's audio
+// sniffing: the longest ADTS or MP3 frame plus the header of the next one.
+const mediaSniffLength = 16 << 10
+
+// downloadFile is the file ExtractMedia hands to DownloadToFile. Not being an
+// *os.File, it skips whatsmeow's fallocate, which fails on filesystems that do
+// not support it. whatsmeow copies each download attempt into the file with
+// one io.Copy, which calls ReadFrom, but does not rewind the file when it falls
+// back to the next host; ReadFrom starts every attempt on an empty file.
+type downloadFile struct{ *os.File }
+
+func (f downloadFile) ReadFrom(r io.Reader) (int64, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	if err := f.Truncate(0); err != nil {
+		return 0, err
+	}
+	return f.File.ReadFrom(r)
+}
+
+func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
 	// Validate file size before writing to disk
 	maxFileSize := config.WhatsappSettingMaxDownloadSize
 	if int64(len(data)) > maxFileSize {
 		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
 	}
 
+	extractedMedia = describeExtractedMedia(storageLocation, mediaFile, data)
+	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
+	if err != nil {
+		return extractedMedia, err
+	}
+	return extractedMedia, nil
+}
+
+// describeExtractedMedia returns the MIME type, caption and a new storage path
+// for mediaFile. data is the decrypted file, or at least its first
+// mediaSniffLength bytes; an audio message without a MIME type is sniffed
+// from it.
+func describeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia) {
 	var originalFilename string
 
 	switch media := mediaFile.(type) {
@@ -894,6 +1049,27 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 		extractedMedia.Caption = media.GetCaption()
 	case *waE2E.AudioMessage:
 		extractedMedia.MimeType = media.GetMimetype()
+		if extractedMedia.MimeType == "" {
+			detected := http.DetectContentType(data)
+			switch {
+			case bytes.HasPrefix(data, []byte("#!AMR\n")):
+				extractedMedia.MimeType = "audio/amr"
+			case bytes.HasPrefix(data, []byte("#!AMR-WB\n")):
+				extractedMedia.MimeType = "audio/amr-wb"
+			case isADTSAudio(data):
+				extractedMedia.MimeType = "audio/aac"
+			case isMP3Audio(data):
+				extractedMedia.MimeType = "audio/mpeg"
+			case detected == "application/ogg":
+				extractedMedia.MimeType = "audio/ogg"
+			case detected == "video/mp4":
+				extractedMedia.MimeType = "audio/mp4"
+			case strings.HasPrefix(detected, "audio/"):
+				extractedMedia.MimeType = detected
+			default:
+				extractedMedia.MimeType = "application/octet-stream"
+			}
+		}
 	case *waE2E.VideoMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
@@ -908,11 +1084,62 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 	extension := determineMediaExtension(originalFilename, extractedMedia.MimeType)
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
-	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
-	if err != nil {
-		return extractedMedia, err
+	return extractedMedia
+}
+
+// isADTSAudio checks the ADTS syncword, sampling index, and first-frame bounds.
+func isADTSAudio(data []byte) bool {
+	if len(data) < 7 || data[0] != 0xff || data[1]&0xf6 != 0xf0 || (data[2]>>2)&0x0f > 12 {
+		return false
 	}
-	return extractedMedia, nil
+	headerSize := 7
+	if data[1]&1 == 0 {
+		headerSize = 9
+	}
+	frameSize := int(data[3]&3)<<11 | int(data[4])<<3 | int(data[5])>>5
+	return frameSize >= headerSize && frameSize <= len(data)
+}
+
+func isMP3Audio(data []byte) bool {
+	frameSize := mp3FrameSize(data)
+	if frameSize == 0 {
+		return false
+	}
+	next := data[frameSize:]
+	if len(next) == 0 || (len(next) == 128 && bytes.HasPrefix(next, []byte("TAG"))) {
+		return true
+	}
+	// MPEG version and sample rate stay constant, but bitrate may change for VBR.
+	return mp3FrameSize(next) != 0 && data[1]&0x1e == next[1]&0x1e && data[2]&0x0c == next[2]&0x0c
+}
+
+// mp3FrameSize returns zero for incomplete frames or unsupported MPEG Layer III headers.
+func mp3FrameSize(data []byte) int {
+	if len(data) < 4 || data[0] != 0xff || data[1]&0xe0 != 0xe0 || data[1]&0x06 != 0x02 {
+		return 0
+	}
+	version := (data[1] >> 3) & 3
+	bitrateIndex := data[2] >> 4
+	sampleRateIndex := (data[2] >> 2) & 3
+	if version == 1 || bitrateIndex == 0 || bitrateIndex == 15 || sampleRateIndex == 3 || data[3]&3 == 2 {
+		return 0
+	}
+	bitrates := [...]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+	sampleRate := [...]int{44100, 48000, 32000}[sampleRateIndex]
+	scale := 144000
+	if version != 3 {
+		bitrates = [...]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160}
+		sampleRate /= 2
+		scale = 72000
+		if version == 0 {
+			sampleRate /= 2
+		}
+	}
+	frameSize := scale*bitrates[bitrateIndex]/sampleRate + int((data[2]>>1)&1)
+	if frameSize > len(data) {
+		return 0
+	}
+	return frameSize
 }
 
 // SanitizePhone sanitizes phone number by adding appropriate WhatsApp suffix
@@ -1077,6 +1304,9 @@ type EvtMessage struct {
 	ID            string `json:"id"`
 	RepliedId     string `json:"replied_id"`
 	QuotedMessage string `json:"quoted_message"`
+	// RepliedSender is the author of the quoted message (ContextInfo.participant),
+	// as WhatsApp sent it: a phone JID or a LID. Empty when it is not a reply.
+	RepliedSender string `json:"replied_sender"`
 }
 
 // GetMessageDigestOrSignature generates HMAC signature for message
@@ -1137,17 +1367,41 @@ func BuildEventMessage(evt *events.Message) (message EvtMessage) {
 			if ci := ExtractContextInfo(editedMessage); ci != nil {
 				message.RepliedId = ci.GetStanzaID()
 				message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
+				message.RepliedSender = ci.GetParticipant()
 			}
 			return message
 		}
 	}
 
+	if message.Text == "" {
+		message.Text = extractBusinessMessageText(msg)
+	}
+
 	if ci := ExtractContextInfo(msg); ci != nil {
 		message.RepliedId = ci.GetStanzaID()
 		message.QuotedMessage = ExtractMessageTextFromProto(ci.GetQuotedMessage())
+		message.RepliedSender = ci.GetParticipant()
 	}
 
 	return message
+}
+
+// ExtractMentionedJIDs returns the JIDs a message @mentions
+// (ContextInfo.mentionedJID), as WhatsApp sent them: phone JIDs or LIDs. It
+// covers text and captioned media, including inside ephemeral/view-once
+// wrappers. Empty entries are skipped.
+func ExtractMentionedJIDs(msg *waE2E.Message) []string {
+	ci := ExtractContextInfo(UnwrapMessage(msg))
+	if ci == nil {
+		return nil
+	}
+	var out []string
+	for _, jid := range ci.GetMentionedJID() {
+		if jid != "" {
+			out = append(out, jid)
+		}
+	}
+	return out
 }
 
 func BuildForwarded(evt *events.Message) bool {

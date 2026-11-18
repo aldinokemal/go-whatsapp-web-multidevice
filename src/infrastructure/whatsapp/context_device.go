@@ -29,6 +29,27 @@ func DeviceFromContext(ctx context.Context) (*DeviceInstance, bool) {
 	return nil, false
 }
 
+type sendMessageIDContextKey struct{}
+
+// ContextWithSendMessageID asks the send path to use the given WhatsApp
+// message id for the next message sent with this context instead of a random
+// one. An empty id leaves the context unchanged.
+func ContextWithSendMessageID(ctx context.Context, messageID string) context.Context {
+	if ctx == nil || messageID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sendMessageIDContextKey{}, messageID)
+}
+
+// SendMessageIDFromContext returns the id set by ContextWithSendMessageID.
+func SendMessageIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(sendMessageIDContextKey{}).(string)
+	return id
+}
+
 // ClientFromContext returns the client stored in the device context.
 // If a device was explicitly set in context but has no client (not logged in), returns nil.
 // Only falls back to global client when no device was set in context (backward compatibility).
@@ -39,4 +60,24 @@ func ClientFromContext(ctx context.Context) *whatsmeow.Client {
 	}
 	// No device in context - fall back to global client for backward compatibility
 	return GetClient()
+}
+
+// pollSecretContextKey carries a durable scheduled occurrence's poll secret.
+type pollSecretContextKey struct{}
+
+// ContextWithPollSecret carries the persisted secret for a scheduled poll.
+func ContextWithPollSecret(ctx context.Context, secret []byte) context.Context {
+	if len(secret) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, pollSecretContextKey{}, append([]byte(nil), secret...))
+}
+
+// PollSecretFromContext returns a copy of the scheduled poll secret, if any.
+func PollSecretFromContext(ctx context.Context) []byte {
+	if ctx == nil {
+		return nil
+	}
+	secret, _ := ctx.Value(pollSecretContextKey{}).([]byte)
+	return append([]byte(nil), secret...)
 }
