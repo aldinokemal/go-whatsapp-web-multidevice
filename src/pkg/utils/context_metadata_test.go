@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -73,6 +74,24 @@ func TestExtractContextMetadataIncludesTheQuotedAuthor(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(ExtractContextMetadata(msg)), &metadata))
 			require.Equal(t, map[string]string{"replied_to_id": "QUOTED-1", "replied_to_sender": participant}, metadata,
 				"the author is stored as WhatsApp sent it")
+		})
+	}
+}
+
+// BuildEventMessage returns early for an edit, so the edited path carries the
+// quoted author on its own, like a plain reply.
+func TestBuildEventMessageCarriesTheQuotedAuthor(t *testing.T) {
+	ci := &waE2E.ContextInfo{StanzaID: proto.String("QUOTED-1"), Participant: proto.String("123456789012345@lid")}
+	reply := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("hi"), ContextInfo: ci}}
+	edited := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		EditedMessage: &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("hi, fixed"), ContextInfo: ci}},
+	}}
+	for name, msg := range map[string]*waE2E.Message{"reply": reply, "edited reply": edited} {
+		t.Run(name, func(t *testing.T) {
+			got := BuildEventMessage(&events.Message{Message: msg})
+			require.Equal(t, "QUOTED-1", got.RepliedId)
+			require.Equal(t, "123456789012345@lid", got.RepliedSender)
 		})
 	}
 }
