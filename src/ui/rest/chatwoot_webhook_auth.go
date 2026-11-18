@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
@@ -180,20 +181,14 @@ func chatwootWebhookVerify(c fiber.Ctx, secret string) (bool, error) {
 	return false, nativeErr
 }
 
-// chatwootRouteWebhookSecret returns the secret that protects a delivery
-// through the given route: the routed device's own webhook_secret when its
-// config has one (each Chatwoot API channel has its own secret), otherwise the
-// global CHATWOOT_WEBHOOK_SECRET. A route with no device (unroutable) and a
-// device without a config use the global secret.
-//
-// The device is looked up the way delivery resolves it (alias, JID, or the
-// default device for an empty id in legacy mode), under every identifier it is
-// known by, so a route that names the device by its storage JID finds a config
-// stored under the alias. A storage error is returned so the caller can refuse
-// the request instead of guessing.
-func (h *ChatwootHandler) chatwootRouteWebhookSecret(route chatwootWebhookRoute) (string, error) {
+// A route's config ID survives re-pairing. Looking it up by the historical
+// device JID could instead authenticate the new owner of that number.
+func (h *ChatwootHandler) chatwootRouteConfig(route chatwootWebhookRoute) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	if h == nil || h.ChatStorageRepo == nil || route.Unroutable {
-		return config.ChatwootWebhookSecret, nil
+		return nil, nil
+	}
+	if route.ConfigID != 0 {
+		return h.chatwootConfigByID(route.ConfigID)
 	}
 	identifiers := []string{route.DeviceID}
 	if h.DeviceManager != nil {
@@ -213,17 +208,28 @@ func (h *ChatwootHandler) chatwootRouteWebhookSecret(route chatwootWebhookRoute)
 		tried[identifier] = struct{}{}
 		cfg, err := h.ChatStorageRepo.GetChatwootDeviceConfigByIdentifier(identifier)
 		if err != nil {
-			return "", fmt.Errorf("load device config: %w", err)
+			return nil, fmt.Errorf("load device config: %w", err)
 		}
-		if cfg == nil {
-			continue
+		if cfg != nil {
+			return cfg, nil
 		}
-		if strings.TrimSpace(cfg.WebhookSecret) != "" {
-			return cfg.WebhookSecret, nil
-		}
-		break
 	}
-	return config.ChatwootWebhookSecret, nil
+	return nil, nil
+}
+
+func chatwootConfigWebhookSecret(cfg *domainChatStorage.ChatwootDeviceConfig) string {
+	if cfg != nil && strings.TrimSpace(cfg.WebhookSecret) != "" {
+		return cfg.WebhookSecret
+	}
+	return config.ChatwootWebhookSecret
+}
+
+func (h *ChatwootHandler) chatwootRouteWebhookSecret(route chatwootWebhookRoute) (string, error) {
+	cfg, err := h.chatwootRouteConfig(route)
+	if err != nil {
+		return "", err
+	}
+	return chatwootConfigWebhookSecret(cfg), nil
 }
 
 // anyChatwootDeviceWebhookSecret reports whether any device config carries its
@@ -265,14 +271,33 @@ func (h *ChatwootHandler) anyChatwootDeviceWebhookSecret() (bool, error) {
 // window is authentic but handled: it is acknowledged (200) and not acted on.
 // One whose identical copy is still being handled, and stays so for
 // chatwootReplayInFlightWait, is answered 503 and not acted on either.
-func (h *ChatwootHandler) chatwootWebhookRouteGate(c fiber.Ctx, route chatwootWebhookRoute) int {
-	secret, err := h.chatwootRouteWebhookSecret(route)
+func (h *ChatwootHandler) chatwootWebhookRouteGate(c fiber.Ctx, route *chatwootWebhookRoute) int {
+	cfg, err := h.chatwootRouteConfig(*route)
 	if err != nil {
 		// Fail closed: it is unknown whether the device has its own secret,
 		// and the global one may be empty.
 		logrus.Errorf("Chatwoot Webhook: cannot authenticate request: %v", err)
 		return fiber.StatusServiceUnavailable
 	}
+	if route.ConfigID != 0 {
+		if cfg == nil || cfg.AccountID != route.AccountID || cfg.InboxID != route.InboxID {
+			logrus.Warn("Chatwoot Webhook: route no longer matches its configuration")
+			return fiber.StatusUnauthorized
+		}
+		instance, _, resolveErr := h.DeviceManager.ResolveDevice(route.DeviceID)
+		if resolveErr == nil {
+			if instance.ID() != cfg.DeviceID {
+				logrus.Warn("Chatwoot Webhook: route resolves to a device owned by another configuration")
+				return fiber.StatusUnauthorized
+			}
+			// Keep delivery on the verified slot if its JID is rebound later.
+			route.DeviceID = instance.ID()
+		} else if route.DeviceID != cfg.DeviceID && route.DeviceID != cfg.DeviceJID {
+			logrus.Warn("Chatwoot Webhook: unresolved device does not belong to its configuration")
+			return fiber.StatusUnauthorized
+		}
+	}
+	secret := chatwootConfigWebhookSecret(cfg)
 	if strings.TrimSpace(secret) == "" && route.Unroutable {
 		protected, err := h.anyChatwootDeviceWebhookSecret()
 		if err != nil {

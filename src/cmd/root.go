@@ -197,6 +197,9 @@ func initEnvConfig() {
 		}
 		config.WhatsappWebhookIgnoreJids = jids
 	}
+	if !rootCmd.PersistentFlags().Changed("webhook-all-device-receipts") && viper.IsSet("whatsapp_webhook_all_device_receipts") {
+		config.WhatsappWebhookAllDeviceReceipts = viper.GetBool("whatsapp_webhook_all_device_receipts")
+	}
 	if viper.IsSet("whatsapp_webhook_device_merge_global") {
 		config.WhatsappWebhookDeviceMergeGlobal = viper.GetBool("whatsapp_webhook_device_merge_global")
 	}
@@ -309,11 +312,17 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_forward_deletes") {
 		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
 	}
+	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" && !rootCmd.PersistentFlags().Changed("chatwoot-events") {
+		config.ChatwootEvents = splitCommaTrimmed(envChatwootEvents)
+	}
 	if viper.IsSet("chatwoot_message_read") {
 		config.ChatwootMessageRead = viper.GetBool("chatwoot_message_read")
 	}
 	if viper.IsSet("chatwoot_message_delete") {
 		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
+	}
+	if !rootCmd.PersistentFlags().Changed("chatwoot-revoke-on-delete") && viper.IsSet("chatwoot_revoke_on_delete") {
+		config.ChatwootRevokeOnDelete = viper.GetBool("chatwoot_revoke_on_delete")
 	}
 }
 
@@ -484,6 +493,12 @@ func initFlags() {
 		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookAllDeviceReceipts,
+		"webhook-all-device-receipts", "",
+		config.WhatsappWebhookAllDeviceReceipts,
+		`forward receipts from all linked devices instead of only the primary device --webhook-all-device-receipts <true/false> | example: --webhook-all-device-receipts=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookDeviceMergeGlobal,
 		"webhook-device-merge-global", "",
 		config.WhatsappWebhookDeviceMergeGlobal,
@@ -647,6 +662,12 @@ func initFlags() {
 		config.ChatwootForwardEdits,
 		`mirror WhatsApp message edits into the Chatwoot conversation as threaded notes --chatwoot-forward-edits <true/false> | example: --chatwoot-forward-edits=true`,
 	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootEvents,
+		"chatwoot-events", "",
+		config.ChatwootEvents,
+		`whitelist of events to forward to Chatwoot (empty = follow --webhook-events) --chatwoot-events <string> | example: --chatwoot-events="message"`,
+	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootForwardDeletes,
 		"chatwoot-forward-deletes", "",
@@ -664,6 +685,12 @@ func initFlags() {
 		"chatwoot-message-delete", "",
 		config.ChatwootMessageDelete,
 		`delete linked Chatwoot/WhatsApp messages when deletion is reported by the opposite side --chatwoot-message-delete <true/false> | example: --chatwoot-message-delete=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootRevokeOnDelete,
+		"chatwoot-revoke-on-delete", "",
+		config.ChatwootRevokeOnDelete,
+		`revoke on WhatsApp the messages deleted in Chatwoot, without deleting in Chatwoot what WhatsApp deletes --chatwoot-revoke-on-delete <true/false> | example: --chatwoot-revoke-on-delete=true`,
 	)
 }
 

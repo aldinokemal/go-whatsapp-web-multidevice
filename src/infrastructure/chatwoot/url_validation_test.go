@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -242,7 +243,7 @@ func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
 
 	tokens := make(chan string, 1)
 	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		tokens <- r.Header.Get("api_access_token")
+		tokens <- r.Header.Get(apiTokenHeader)
 	}))
 	defer target.Close()
 	// The same listener under another host name.
@@ -268,16 +269,157 @@ func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req.Header.Set("api_access_token", "secret-token")
+			req.Header.Set(apiTokenHeader, "secret-token")
 			resp, err := tt.client().Do(req)
 			if err != nil {
 				t.Fatalf("redirect: %v", err)
 			}
 			resp.Body.Close()
 			if got := <-tokens; got != "" {
-				t.Fatalf("redirect target received api_access_token %q", got)
+				t.Fatalf("redirect target received the API token %q", got)
 			}
 		})
+	}
+}
+
+// TestChatwootRedirectToPlainHTTPDropsToken: a redirect from HTTPS to HTTP on
+// the same host must not send the API token in clear text.
+func TestChatwootRedirectToPlainHTTPDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client := origin.Client()
+	client.CheckRedirect = chatwootCheckRedirect
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(apiTokenHeader, "secret-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	resp.Body.Close()
+	if got := <-tokens; got != "" {
+		t.Fatalf("plain HTTP redirect target received the API token %q", got)
+	}
+}
+
+// TestEnvChatwootClientRedirectDropsToken: the global CHATWOOT_URL client is
+// not SSRF-guarded, but a redirect to another host must still not carry the
+// API token.
+func TestEnvChatwootClientRedirectDropsToken(t *testing.T) {
+	origURL := config.ChatwootURL
+	t.Cleanup(func() { config.ChatwootURL = origURL })
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	targetURL := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, targetURL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	config.ChatwootURL = origin.URL
+	client := NewClient().HTTPClient
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(apiTokenHeader, "secret-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	resp.Body.Close()
+	if got := <-tokens; got != "" {
+		t.Fatalf("env client redirect target received the API token %q", got)
+	}
+}
+
+// TestChatwootRedirectToOtherPortDropsToken: another port on the same host can
+// be another service, so the token stays behind. A redirect within the same
+// origin keeps it.
+func TestChatwootRedirectToOtherPortDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tokens := make(chan string, 1)
+	other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer other.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/other-port":
+			http.Redirect(w, r, other.URL, http.StatusFound)
+		case "/same-origin":
+			http.Redirect(w, r, "/landing", http.StatusFound)
+		default:
+			tokens <- r.Header.Get(apiTokenHeader)
+		}
+	}))
+	defer origin.Close()
+
+	for _, policy := range []struct {
+		name string
+		fn   func(*http.Request, []*http.Request) error
+	}{{"guarded", chatwootCheckRedirect}, {"env", chatwootTokenRedirect}} {
+		for _, tt := range []struct {
+			path string
+			want string
+		}{{"/other-port", ""}, {"/same-origin", "secret-token"}} {
+			t.Run(policy.name+tt.path, func(t *testing.T) {
+				client := &http.Client{CheckRedirect: policy.fn}
+				req, err := http.NewRequest(http.MethodGet, origin.URL+tt.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set(apiTokenHeader, "secret-token")
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatalf("redirect: %v", err)
+				}
+				resp.Body.Close()
+				if got := <-tokens; got != tt.want {
+					t.Fatalf("redirect target received token %q, want %q", got, tt.want)
+				}
+			})
+		}
+	}
+}
+
+func TestSameChatwootOriginEffectivePort(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"https://chat.example", "https://chat.example:443/x", true},
+		{"http://chat.example", "http://CHAT.example:80", true},
+		{"https://chat.example", "https://chat.example:8443", false},
+		{"https://chat.example", "http://chat.example", false},
+		{"https://chat.example", "https://other.example", false},
+	} {
+		a, _ := url.Parse(tt.a)
+		b, _ := url.Parse(tt.b)
+		if got := sameChatwootOrigin(a, b); got != tt.want {
+			t.Errorf("sameChatwootOrigin(%s, %s) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
 	}
 }
 

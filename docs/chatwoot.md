@@ -27,7 +27,7 @@ Before setting up the integration, ensure you have:
 |----------|----------|---------|----------|
 | `CHATWOOT_ENABLED` | Yes | `false` | Master switch. When `true`, the app registers the public `POST /chatwoot/webhook` route before basic auth, starts the Chatwoot live-forward retry worker, registers the authenticated `/chatwoot/sync` routes, and forwards WhatsApp messages to Chatwoot. If `false`, Chatwoot webhooks fall through to normal auth/routing and agent replies will not work. |
 | `CHATWOOT_URL` | Yes | - | Base URL of the Chatwoot instance, without a trailing slash, for REST API calls. Example: `https://chatwoot.example.com`. |
-| `CHATWOOT_API_TOKEN` | Yes | - | Chatwoot user API access token. The token is sent as `api_access_token` to create contacts, conversations, messages, inboxes, and attachments. Direct DB import also uses this token to resolve the Chatwoot user that should own imported outgoing messages. |
+| `CHATWOOT_API_TOKEN` | Yes | - | Chatwoot user API access token. The token is sent as the `api-access-token` header (Rails treats it the same as `api_access_token`; the hyphenated name is used because nginx discards request headers containing underscores unless `underscores_in_headers on` is set) to create contacts, conversations, messages, inboxes, and attachments. Direct DB import also uses this token to resolve the Chatwoot user that should own imported outgoing messages. |
 | `CHATWOOT_ACCOUNT_ID` | Yes | - | Numeric Chatwoot account ID. This is the number in `/app/accounts/<id>/...`, not an inbox identifier, hmac token, or random API-channel string. |
 | `CHATWOOT_INBOX_ID` | Yes\* | - | Numeric Chatwoot inbox ID for the API-channel inbox. Optional only when `CHATWOOT_AUTO_CREATE=true`, because startup can resolve it automatically. If set, it always wins and auto-provisioning is skipped. |
 | `CHATWOOT_DEVICE_ID` | Multi-device | - | WhatsApp device that should send Chatwoot agent replies. Use either the local device ID or the device JID. Required when more than one device is registered. If empty and exactly one device exists, that device is used automatically. |
@@ -48,8 +48,10 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_SIGN_DELIMITER` | No | `\n\n` | Delimiter inserted between the agent signature and reply body. Literal `\n` sequences are expanded to real newlines. |
 | `CHATWOOT_FORWARD_EDITS` | No | `true` | Mirror WhatsApp message edits into Chatwoot as private/threaded notes attached to the original message. |
 | `CHATWOOT_FORWARD_DELETES` | No | `true` | Mirror WhatsApp delete-for-everyone events into Chatwoot as private/threaded notes attached to the original message. |
+| `CHATWOOT_EVENTS` | No | - | Comma-separated events forwarded to Chatwoot, for example `message`. When unset, Chatwoot follows `WHATSAPP_WEBHOOK_EVENTS`, so a webhook limited to device events also stops messages reaching Chatwoot. `message` also lets its reactions, receipts, edits and deletes through. GOWA logs a warning at startup when `message` is filtered out. |
 | `CHATWOOT_MESSAGE_READ` | No | `false` | Evolution-compatible read sync. Updates Chatwoot last-seen from WhatsApp receipts and marks WhatsApp messages read after agent replies when durable message links exist. |
 | `CHATWOOT_MESSAGE_DELETE` | No | `false` | Evolution-compatible delete sync. Deletes/revokes the linked message on the opposite side when durable message links exist. Inbound customer messages are not revoked from WhatsApp because this device did not send them. |
+| `CHATWOOT_REVOKE_ON_DELETE` | No | `false` | The Chatwoot-to-WhatsApp half of `CHATWOOT_MESSAGE_DELETE` alone: a message deleted in Chatwoot is revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in Chatwoot. |
 
 ### Configuration Examples
 
@@ -422,7 +424,7 @@ curl "http://your-api:3000/chatwoot/sync/status?device_id=my-device-id"
 ### Notes
 
 - Group messages include the sender name: `John: Hello!`
-- Media older than ~2 weeks may be unavailable on WhatsApp servers
+- Media older than ~2 weeks may be unavailable on WhatsApp servers. The sync then asks the phone to re-upload the file, which needs the phone online and still holding it; otherwise the message is imported without its attachment. If the phone leaves a request unanswered for 30 seconds, the rest of that sync run stops asking.
 - The sync runs in the background and can be monitored via the status endpoint
 - Only one sync can run per device at a time
 - For correct timestamps, use the [Direct Database Import](#direct-database-import-recommended) (the REST path cannot set `created_at` on Chatwoot messages)
@@ -558,6 +560,8 @@ Set it to `false` and the two paths intentionally differ. The REST path opens a 
 
 With `CHATWOOT_CONVERSATION_PENDING=true`, newly-created conversations land in `pending` (the unassigned queue) instead of `open` on both paths.
 
+History sync only touches a conversation when it has a message to add, so a restart does not reopen threads that agents resolved. The REST path reopens a resolved conversation before posting into it; if that fails, the chat is skipped and retried on the next sync. The direct-DB importer reopens it in the same transaction, once a message is written.
+
 ### Agent signature
 
 With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline).
@@ -603,6 +607,7 @@ Chatwoot hands an API-channel inbox the agent's reply as stored Markdown, and Wh
 - **Edits**: when a WhatsApp user edits a message, the new text is mirrored into Chatwoot as a threaded `✏️ **Edited:** …` note (controlled by `CHATWOOT_FORWARD_EDITS`, default on).
 - **Deletions**: a delete-for-everyone is mirrored as a threaded `🗑️ This message was deleted.` note (controlled by `CHATWOOT_FORWARD_DELETES`, default on).
 - **Linked deletes**: with `CHATWOOT_MESSAGE_DELETE=true`, WhatsApp delete-for-everyone events delete the linked Chatwoot message when a durable link exists. Chatwoot `message_updated` delete webhooks revoke linked outgoing WhatsApp messages; inbound customer messages are not revoked because this device did not send them.
+- **Chatwoot deletes only**: with `CHATWOOT_REVOKE_ON_DELETE=true`, a message deleted in Chatwoot is revoked on WhatsApp — every WhatsApp message it went out as, one per attachment. Links are revoked only within the delete's Chatwoot config: config 0 (env) in legacy mode, otherwise the route's config (the per-device webhook's, or on the shared webhook the one that owns the payload's account and inbox), so config-0 links from the env era are not revoked in per-device mode. WhatsApp deletes still arrive as the note above and never delete the Chatwoot message. The same delete path also applies with `CHATWOOT_MESSAGE_DELETE=true`.
 
 Both are threaded onto the original message via Chatwoot's `in_reply_to_external_id` using the shared `WAID:<id>` source-id convention, so they appear as replies to the message they affect.
 
@@ -613,6 +618,19 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 ### Replies & reactions
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
+
+Reaction removal notes include the removed emoji when it is available in local chat storage; otherwise they say a reaction was removed.
+
+- A message sent by an agent from Chatwoot has no `WAID:` source-id. When GOWA stored a link for it (written when the agent reply was delivered), a WhatsApp reply or reaction to it also sets Chatwoot's native `in_reply_to`. Only links written for the current Chatwoot destination (same config, or for the legacy env client the same account) and for the conversation the new message lands in are used; with `CHATWOOT_REOPEN_CONVERSATION=false` a returning contact can get a new conversation, and Chatwoot does not accept a reference across conversations.
+- When no link can be used, a reply also starts with the quoted text as a one-line `> excerpt` (80 characters at most), so the context is visible even if Chatwoot cannot attach the reply.
+
+Mirrored reaction notes use the reaction event's own `WAID:<id>` as their source ID. This prevents outgoing reaction echoes from being sent back to WhatsApp when Chatwoot's webhook arrives before the sent-message cache is updated.
+
+Agent replies are quoted the other way: when an agent uses **Reply** in Chatwoot, the WhatsApp message quotes the original. The text and every attachment carry the quote, including the audio-to-file fallback; the caption stays on the first attachment only.
+
+- A message mirrored from WhatsApp (`in_reply_to_external_id` is `WAID:<id>`) is quoted only when it is in the sending device's local message store and belongs to the same chat. An `@lid` chat matches its phone JID when the sending device knows the mapping.
+- An earlier agent message has no `source_id` in Chatwoot, so only its numeric `in_reply_to` arrives. It is resolved through the link GOWA stored when it delivered that message, in the same device, conversation, account, inbox and config; the link and the WhatsApp message it points to, in the sending device's local message store, must belong to the same chat too. A message sent with several attachments is quoted by its first file. The numeric id is not used when a `WAID:` reference is present.
+- A quote that cannot be resolved is not an error: the reply is sent without it, as before, and no failure note is added.
 
 ### Ignoring chats
 
@@ -639,6 +657,7 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Stickers | ✅ | Displayed as image attachments |
 | Location | ✅ | Shown as text with coordinates |
 | Contacts | ✅ | vCard information preserved |
+| Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
 **Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
 
@@ -653,6 +672,7 @@ Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTT
 | Audio | ✅ | Sent as voice note (PTT) |
 | Video | ✅ | - |
 | Files | ✅ | Any file type supported |
+| Quoted replies | ✅ | Quotes the original message when it can be resolved (see [Replies & reactions](#replies--reactions)) |
 
 ### Group Support
 

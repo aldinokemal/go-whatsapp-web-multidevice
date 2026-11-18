@@ -106,23 +106,30 @@ func forwardStoredContent(message *domainChatStorage.Message) string {
 	}
 }
 
+// reuploadForwardMessage builds the forward of a stored media message from a
+// fresh upload: it downloads the stored media and uploads it again for the
+// recipient. Media that expired on WhatsApp's servers is re-requested from the
+// phone first, which waits up to whatsapp.DefaultMediaRetryTimeout.
 func (service serviceSend) reuploadForwardMessage(ctx context.Context, client *whatsmeow.Client, message *domainChatStorage.Message, recipient types.JID, opts utils.ForwardBuildOptions) (*waE2E.Message, error) {
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
-	downloadable, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadable, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
 		return nil, err
 	}
 
-	extracted, err := utils.ExtractMedia(ctx, client, config.PathSendItems, downloadable)
+	// Download the media; media expired on the server is re-requested from the phone.
+	extractMedia := service.extractMediaFn
+	if extractMedia == nil {
+		extractMedia = utils.ExtractMedia
+	}
+	extracted, err := extractMedia(ctx, client, config.PathSendItems, downloadable)
+	if utils.IsExpiredMediaError(err) {
+		extracted, err = whatsapp.ExpiredMediaRecovery{
+			Repo:            service.chatStorageRepo,
+			RequestReupload: service.requestMediaReuploadFn,
+			FetchReuploaded: service.fetchReuploadedMediaFn,
+		}.Recover(ctx, client, message, config.PathSendItems, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to download media for re-upload: %w", err)
 	}

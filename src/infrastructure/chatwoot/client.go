@@ -95,6 +95,20 @@ func (c *Client) resolveInboxIdentifier() (string, error) {
 	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
 }
 
+// apiTokenHeader carries the Chatwoot API access token. Chatwoot documents it
+// as "api_access_token". Rails exposes a request header to the application as
+// HTTP_<NAME> with hyphens turned into underscores, so "api-access-token"
+// reaches Chatwoot as the same HTTP_API_ACCESS_TOKEN and is equivalent.
+//
+// The hyphenated spelling is used because some reverse proxies discard header
+// names that contain an underscore. nginx does so by default:
+// "underscores_in_headers" defaults to "off", which marks such a header as
+// invalid, and "ignore_invalid_headers" defaults to "on", which drops it
+// (https://nginx.org/en/docs/http/ngx_http_core_module.html#underscores_in_headers).
+// Behind such a proxy every call would fail with a 401. Proxies that forward
+// headers unchanged (Caddy, for example) work with either spelling.
+const apiTokenHeader = "api-access-token"
+
 // HTTPStatusError is returned by every Client method that hits Chatwoot's
 // REST API when the response status is outside 2xx. It carries the HTTP
 // status code so callers (notably retrySyncOp in sync.go) can decide
@@ -204,7 +218,9 @@ func init() {
 // NewClient builds the Chatwoot client from the global CHATWOOT_* env config.
 // It is used for the legacy/env "single config" mode (no per-device config rows).
 // The env client is operator-trusted and may legitimately point at an internal
-// Chatwoot (e.g. the same Docker network), so it is NOT SSRF-guarded.
+// Chatwoot (e.g. the same Docker network), so it is NOT SSRF-guarded or held to
+// the per-device allowlist. Its redirects still drop the API token when they
+// leave the configured origin.
 func NewClient() *Client {
 	return newChatwootClient(config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID, false)
 }
@@ -253,6 +269,8 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	if ssrfGuard {
 		httpClient.Transport = cappedBodyTransport{ssrfGuardedTransport()}
 		httpClient.CheckRedirect = chatwootCheckRedirect
+	} else {
+		httpClient.CheckRedirect = chatwootTokenRedirect
 	}
 	return &Client{
 		BaseURL:    canonical,
@@ -338,15 +356,12 @@ func ssrfGuardedTransport() *http.Transport {
 
 // chatwootCheckRedirect applies the host allowlist to every redirect. An empty
 // allowlist keeps the default follow-redirects behavior (the connect-time
-// guard still blocks private addresses). A redirect to a different host or
-// scheme drops the Chatwoot API token, with or without an allowlist, so
-// credentials are not sent across origins.
+// guard still blocks private addresses). Like chatwootTokenRedirect, it drops
+// the Chatwoot API token on a redirect that leaves the original origin, with
+// or without an allowlist.
 func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("chatwoot: stopped after 10 redirects")
-	}
-	if len(via) > 0 && (!strings.EqualFold(via[0].URL.Hostname(), req.URL.Hostname()) || via[0].URL.Scheme != req.URL.Scheme) {
-		req.Header.Del("api_access_token")
+	if err := chatwootTokenRedirect(req, via); err != nil {
+		return err
 	}
 	if len(config.ChatwootAllowedHosts) == 0 {
 		return nil
@@ -355,6 +370,43 @@ func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
 		return fmt.Errorf("chatwoot: redirect host %q is not in the allowed hosts list", req.URL.Hostname())
 	}
 	return nil
+}
+
+// chatwootTokenRedirect is the redirect policy every Chatwoot client uses. It
+// caps the chain at 10 hops and removes the API token when the redirect target
+// is not the same origin (scheme, host and effective port) as the original
+// request. Go's client copies custom headers such as api-access-token to every
+// redirected request, so without this a 302 would hand the token to whichever
+// origin it names.
+func chatwootTokenRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("chatwoot: stopped after 10 redirects")
+	}
+	if len(via) > 0 && !sameChatwootOrigin(via[0].URL, req.URL) {
+		req.Header.Del(apiTokenHeader)
+	}
+	return nil
+}
+
+// sameChatwootOrigin compares scheme, host name and effective port, so
+// https://host and https://host:443 match while https://host:8443 does not.
+func sameChatwootOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	}
+	return ""
 }
 
 func readChatwootErrorBody(r io.Reader) string {
@@ -389,7 +441,7 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	q := req.URL.Query()
 	q.Add("q", searchTerm)
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -462,7 +514,7 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -562,7 +614,7 @@ func (c *Client) UpdateContactName(contactID int, name string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -593,7 +645,7 @@ func (c *Client) listContactConversations(contactID int) ([]conversationListItem
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -654,7 +706,7 @@ func (c *Client) ToggleConversationStatus(conversationID int, status string) err
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -706,7 +758,7 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -794,7 +846,7 @@ func (c *Client) ListInboxes() ([]Inbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -836,7 +888,7 @@ func (c *Client) CreateInbox(name, webhookURL string) (*Inbox, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -902,7 +954,7 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -932,7 +984,7 @@ func (c *Client) DeleteMessage(conversationID, messageID int) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -967,7 +1019,7 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -1094,7 +1146,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

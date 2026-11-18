@@ -554,6 +554,47 @@ func TestValidateUpdateMessage(t *testing.T) {
 			}},
 			err: pkgError.ValidationError("link: must be a valid URL."),
 		},
+		{
+			name: "should success with image media type",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update caption",
+				Phone:     "1728937129312@s.whatsapp.net",
+				MediaType: "image",
+			}},
+			err: nil,
+		},
+		{
+			name: "should success with document media type",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update caption",
+				Phone:     "1728937129312@s.whatsapp.net",
+				MediaType: "document",
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with unsupported media type",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update caption",
+				Phone:     "1728937129312@s.whatsapp.net",
+				MediaType: "sticker",
+			}},
+			err: pkgError.ValidationError("media_type: must be a valid value."),
+		},
+		{
+			name: "should error with media type and link together",
+			args: args{request: domainMessage.UpdateMessageRequest{
+				MessageID: "1382901271239781",
+				Message:   "some update caption",
+				Phone:     "1728937129312@s.whatsapp.net",
+				Link:      "https://example.com",
+				MediaType: "image",
+			}},
+			err: pkgError.ValidationError("link: cannot be combined with media_type."),
+		},
 	}
 
 	for _, tt := range tests {

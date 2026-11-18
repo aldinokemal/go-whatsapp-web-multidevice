@@ -64,7 +64,7 @@ func TestNewClient_TrimsTrailingSlashAndMapsConfig(t *testing.T) {
 		{"empty url stays empty", "", "tok-123", "", "tok-123"},
 		// Tokens/URLs from Docker secret files, .env lines, or shell heredocs
 		// commonly carry surrounding whitespace or a trailing newline. An
-		// untrimmed token yields a malformed "api_access_token" header and a
+		// untrimmed token yields a malformed "api-access-token" header and a
 		// 401 from Chatwoot (issue #674); a newline on the URL survives the
 		// slash trim and corrupts every endpoint. Both must be trimmed.
 		{"token with trailing newline", "https://chatwoot.example.com", "tok-123\n", "https://chatwoot.example.com", "tok-123"},
@@ -1010,7 +1010,7 @@ func TestDeleteMessage_SendsDelete(t *testing.T) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/accounts/1/conversations/5/messages/9" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
 		}
-		if got := r.Header.Get("api_access_token"); got != "token" {
+		if got := r.Header.Get("api-access-token"); got != "token" {
 			t.Fatalf("api token = %q, want token", got)
 		}
 		w.WriteHeader(http.StatusOK)

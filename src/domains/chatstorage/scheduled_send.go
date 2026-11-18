@@ -27,7 +27,15 @@ type ScheduledSend struct {
 	LeaseUntil      *time.Time
 	LastRunAt       *time.Time
 	LastMessageID   string
-	LastError       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// PendingMessageID identifies an occurrence across attempts, avoiding a
+	// fresh message identity after an ambiguous send outcome.
+	PendingMessageID string
+	// PendingPollSecret is persisted with the ID before dispatching a poll.
+	PendingPollSecret []byte
+	// LegacyAttemptUnknown marks pre-ID-protocol attempts whose outcome and
+	// message identity are unknown. Recovery conservatively skips them.
+	LegacyAttemptUnknown bool
+	LastError            string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }

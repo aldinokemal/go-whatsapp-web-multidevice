@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -46,6 +47,9 @@ type SyncService struct {
 	// configID is the chatwoot_device_configs row id this service syncs for (0 =
 	// legacy/env). Stamped onto message links so reverse routing is config-scoped.
 	configID int64
+
+	// downloadFn is a test seam; nil downloads through the WhatsApp client.
+	downloadFn func(ctx context.Context, waClient *whatsmeow.Client, media whatsmeow.DownloadableMessage) ([]byte, error)
 }
 
 // NewSyncService creates a new sync service instance
@@ -299,36 +303,7 @@ func (s *SyncService) syncChat(
 
 	logrus.Infof("Chatwoot Sync: Processing chat %s (%s)", chat.Name, chat.JID)
 
-	// 1. Find or create contact in Chatwoot
-	contactName := chat.Name
-	if contactName == "" {
-		contactName = utils.ExtractPhoneFromJID(chat.JID)
-	}
-
-	var contact *Contact
-	err := retrySyncOp(ctx, 3, func() error {
-		var createErr error
-		contact, createErr = s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
-		return createErr
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create contact: %w", err)
-	}
-	logrus.Debugf("Chatwoot Sync: Contact ID: %d", contact.ID)
-
-	// 2. Find or create conversation
-	var conversation *Conversation
-	err = retrySyncOp(ctx, 3, func() error {
-		var createErr error
-		conversation, createErr = s.client.FindOrCreateConversation(contact.ID, chat.JID)
-		return createErr
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create conversation: %w", err)
-	}
-	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
-
-	// 3. Get messages since time boundary
+	// 1. Get messages since time boundary
 	messages, err := s.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{
 		DeviceID:  deviceID,
 		ChatJID:   chat.JID,
@@ -347,13 +322,35 @@ func (s *SyncService) syncChat(
 	progress.AddMessages(len(messages))
 	logrus.Infof("Chatwoot Sync: Found %d messages for %s", len(messages), chat.JID)
 
-	// 4. Sort messages by timestamp (oldest first for proper ordering)
-	sort.Slice(messages, func(i, j int) bool {
-		return messages[i].Timestamp.Before(messages[j].Timestamp)
+	// 2. Drop the messages already in Chatwoot before touching the
+	// conversation: resolving it reopens a resolved one, and auto-sync runs on
+	// every restart. Linked messages still count as synced.
+	pending, linked, err := s.splitAlreadyLinkedMessages(messages)
+	progress.AddSyncedMessages(linked)
+	if err != nil {
+		progress.AddFailedMessages(len(messages) - linked)
+		return err
+	}
+	if len(pending) == 0 {
+		logrus.Debugf("Chatwoot Sync: All messages for %s are already in Chatwoot", chat.JID)
+		return nil
+	}
+
+	// 3. Sort messages by timestamp (oldest first for proper ordering)
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].Timestamp.Before(pending[j].Timestamp)
 	})
 
+	// 4. Find or create contact and conversation
+	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
+	if err != nil {
+		progress.AddFailedMessages(len(pending))
+		return err
+	}
+	logrus.Debugf("Chatwoot Sync: Conversation ID: %d", conversation.ID)
+
 	// 5. Sync each message
-	for i, msg := range messages {
+	for i, msg := range pending {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -434,13 +431,9 @@ func (s *SyncService) syncChatPG(
 		chatName = ""
 	}
 
-	if mediaMessages := chatwootRESTMediaCandidates(messages, opts); len(mediaMessages) > 0 {
-		conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
-		if err != nil {
-			logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
-		} else {
-			s.syncHybridMediaMessagesREST(ctx, conversation.ID, mediaMessages, waClient, opts, isGroup)
-		}
+	if err := s.restMediaPrePass(ctx, chat, messages, waClient, opts, isGroup); err != nil {
+		progress.AddFailedMessages(len(messages))
+		return err
 	}
 
 	result, err := importer.ImportChat(ctx, pgimport.ImportChatRequest{
@@ -498,7 +491,7 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 		return createErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create contact for REST media import: %w", err)
+		return nil, fmt.Errorf("failed to create contact: %w", err)
 	}
 
 	var conversation *Conversation
@@ -508,9 +501,72 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 		return createErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create conversation for REST media import: %w", err)
+		return nil, fmt.Errorf("failed to create conversation: %w", err)
+	}
+	// FindOrCreateConversation only logs a failed reopen. Posting history into
+	// the still-resolved thread would hide it, and once the messages are linked
+	// no later sync would reopen it, so fail the chat and retry next sync.
+	if conversation.Status == "resolved" {
+		return nil, fmt.Errorf("conversation %d: %w", conversation.ID, errConversationStillResolved)
 	}
 	return conversation, nil
+}
+
+var errConversationStillResolved = errors.New("conversation is still resolved after the reopen attempt")
+
+// splitAlreadyLinkedMessages returns the messages not yet linked to a Chatwoot
+// message and how many were. A failed lookup aborts instead of treating the
+// message as pending, which would reopen the conversation for a message that
+// syncMessageWithOptions then skips; the linked count so far is still returned.
+func (s *SyncService) splitAlreadyLinkedMessages(messages []*domainChatStorage.Message) ([]*domainChatStorage.Message, int, error) {
+	pending := make([]*domainChatStorage.Message, 0, len(messages))
+	linked := 0
+	for _, msg := range messages {
+		if msg.ID != "" && msg.DeviceID != "" {
+			existing, err := s.chatStorageRepo.GetChatwootMessageLinkByWhatsAppID(msg.DeviceID, msg.ID)
+			if err != nil {
+				return nil, linked, fmt.Errorf("failed to lookup chatwoot message link for %s: %w", msg.ID, err)
+			}
+			if existing != nil && existing.ChatwootMessageID != 0 {
+				linked++
+				continue
+			}
+		}
+		pending = append(pending, msg)
+	}
+	return pending, linked, nil
+}
+
+// restMediaPrePass uploads the chat's media still missing from Chatwoot through
+// REST before the Postgres import writes the rest. Media already linked is left
+// out first: resolving the conversation reopens a resolved one. A failed link
+// lookup or a failed reopen is returned so the chat is retried rather than
+// imported with placeholders in place of its media.
+func (s *SyncService) restMediaPrePass(
+	ctx context.Context,
+	chat *domainChatStorage.Chat,
+	messages []*domainChatStorage.Message,
+	waClient *whatsmeow.Client,
+	opts SyncOptions,
+	isGroup bool,
+) error {
+	mediaMessages, _, err := s.splitAlreadyLinkedMessages(chatwootRESTMediaCandidates(messages, opts))
+	if err != nil {
+		return err
+	}
+	if len(mediaMessages) == 0 {
+		return nil
+	}
+	conversation, err := s.findOrCreateHistoryConversation(ctx, chat, isGroup)
+	if errors.Is(err, errConversationStillResolved) {
+		return err
+	}
+	if err != nil {
+		logrus.Warnf("Chatwoot pgimport: REST media pre-pass skipped for %s: %v", chat.JID, err)
+		return nil
+	}
+	s.syncHybridMediaMessagesREST(ctx, conversation.ID, mediaMessages, waClient, opts, isGroup)
+	return nil
 }
 
 func (s *SyncService) syncHybridMediaMessagesREST(
@@ -556,6 +612,10 @@ func (s *SyncService) syncMessage(
 	return s.syncMessageWithOptions(ctx, conversationID, msg, waClient, opts, isGroup, false)
 }
 
+// syncMessageWithOptions imports one stored message into a Chatwoot
+// conversation and links it, skipping a message that is already linked. With
+// requireMediaAttachment it fails instead of importing the message without its
+// media, which the pgimport REST media pre-pass relies on.
 func (s *SyncService) syncMessageWithOptions(
 	ctx context.Context,
 	conversationID int,
@@ -597,8 +657,8 @@ func (s *SyncService) syncMessageWithOptions(
 	var attachments []string
 
 	// Handle media if enabled and present
-	if opts.IncludeMedia && msg.MediaType != "" && msg.URL != "" && len(msg.MediaKey) > 0 {
-		filePath, err := s.downloadMedia(ctx, msg, waClient)
+	if opts.IncludeMedia && hasDownloadableChatwootMedia(msg) {
+		filePath, err := s.downloadMedia(ctx, msg, waClient, opts.RecoverExpiredMedia)
 		if err != nil {
 			if requireMediaAttachment {
 				return fmt.Errorf("failed to download required media: %w", err)
@@ -669,8 +729,10 @@ func (s *SyncService) syncMessageWithOptions(
 	return nil
 }
 
-// downloadMedia downloads media for a message and returns the temp file path
-func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client) (string, error) {
+// downloadMedia downloads media for a message and returns the temp file path.
+// Media that expired on WhatsApp's servers is re-requested from the phone when
+// recoverMedia is set.
+func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.Message, waClient *whatsmeow.Client, recoverMedia ExpiredMediaRecoverer) (string, error) {
 	directPath := utils.ResolveMediaDirectPath(msg.DirectPath, msg.URL)
 	if directPath == "" || len(msg.MediaKey) == 0 {
 		return "", fmt.Errorf("missing media direct path or key")
@@ -680,22 +742,25 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 		return "", fmt.Errorf("WhatsApp client not available")
 	}
 
-	downloadable, err := utils.BuildDownloadableMessage(
-		msg.MediaType,
-		msg.URL,
-		directPath,
-		msg.Filename,
-		msg.MediaKey,
-		msg.FileSHA256,
-		msg.FileEncSHA256,
-		msg.FileLength,
-	)
+	downloadable, err := utils.BuildStoredDownloadableMessage(msg, directPath)
 	if err != nil {
 		return "", fmt.Errorf("unsupported media type: %s", msg.MediaType)
 	}
 
 	// Download
-	data, err := waClient.Download(ctx, downloadable)
+	var data []byte
+	if s.downloadFn != nil {
+		data, err = s.downloadFn(ctx, waClient, downloadable)
+	} else {
+		data, err = waClient.Download(ctx, downloadable)
+	}
+	if utils.IsExpiredMediaError(err) && recoverMedia != nil {
+		recovered, recoverErr := recoverMedia(ctx, waClient, msg, os.TempDir(), err)
+		if recoverErr != nil {
+			return "", fmt.Errorf("download failed: %w", recoverErr)
+		}
+		return recovered.MediaPath, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
@@ -892,7 +957,8 @@ var autoSyncTriggered sync.Map
 // event: it self-guards on configuration, requires a logged-in client (so the
 // storage JID is available), and latches per device so it runs only once per
 // process. The sync runs in the background and never blocks the caller.
-func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, waClient *whatsmeow.Client) {
+// recoverMedia becomes the run's SyncOptions.RecoverExpiredMedia.
+func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, waClient *whatsmeow.Client, recoverMedia ExpiredMediaRecoverer) {
 	if !config.ChatwootEnabled || !config.ChatwootImportMessages {
 		return
 	}
@@ -936,6 +1002,7 @@ func TriggerAutoSync(chatStorageRepo domainChatStorage.IChatStorageRepository, w
 	go func() {
 		opts := DefaultSyncOptions()
 		opts.DaysLimit = config.ChatwootDaysLimitImportMessages
+		opts.RecoverExpiredMedia = recoverMedia
 
 		logrus.Infof("Chatwoot Sync: Auto-sync triggered for device %s", storageDeviceID)
 

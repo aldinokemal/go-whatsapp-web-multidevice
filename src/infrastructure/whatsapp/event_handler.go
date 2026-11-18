@@ -45,8 +45,15 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.PairPasskeyError:
 		handlePairPasskeyError(instance, evt)
 	case *events.LoggedOut:
-		handleLoggedOut(instance)
-	case *events.Connected, *events.PushNameSetting:
+		handleLoggedOut(ctx, instance, evt)
+	case *events.TemporaryBan:
+		handleTemporaryBan(ctx, instance, evt)
+	case *events.NotifyAccountReachoutTimelock:
+		handleReachoutTimelock(ctx, instance, evt)
+	case *events.Connected:
+		handleConnectionEvents(ctx, client, instance)
+		newsletterLiveUpdates.renewDevice(instance.ID())
+	case *events.PushNameSetting:
 		handleConnectionEvents(ctx, client, instance)
 	case *events.StreamReplaced:
 		handleStreamReplaced(instance)
@@ -54,12 +61,14 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 		handleMessage(ctx, evt, chatStorageRepo, client)
 	case *events.UndecryptableMessage:
 		handleUndecryptableMessage(evt)
+	case *events.MediaRetry:
+		handleMediaRetry(ctx, client, evt)
 	case *events.Receipt:
 		handleReceipt(ctx, evt, instance.JID(), client)
 	case *events.Archive:
 		handleArchive(ctx, evt, chatStorageRepo, client)
 	case *events.Presence:
-		handlePresence(ctx, evt)
+		handlePresence(ctx, evt, instance.JID(), client)
 	case *events.ChatPresence:
 		handleChatPresence(ctx, evt, instance.JID(), client)
 	case *events.HistorySync:
@@ -236,8 +245,8 @@ func handlePairPasskeyError(instance *DeviceInstance, evt *events.PairPasskeyErr
 	}
 }
 
-func handleLoggedOut(instance *DeviceInstance) {
-	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s - user logged out from phone", instance.ID())
+func handleLoggedOut(ctx context.Context, instance *DeviceInstance, evt *events.LoggedOut) {
+	logrus.Warnf("[REMOTE_LOGOUT] Received LoggedOut event for device %s (reason %s)", instance.ID(), evt.Reason)
 	instance.ClearPasskeyState()
 
 	if client := instance.GetClient(); client != nil {
@@ -251,6 +260,9 @@ func handleLoggedOut(instance *DeviceInstance) {
 
 	deviceID := instance.ID()
 
+	// Before TriggerLoggedOut: the webhook is addressed by the JID it clears.
+	forwardDeviceEvent(ctx, EventTypeDeviceLoggedOut, instance, loggedOutPayload(evt))
+
 	// TriggerLoggedOut fires the manager's keep-slot callback (resets the in-memory
 	// client + clears the persisted JID, but keeps the slot id and display name).
 	instance.TriggerLoggedOut()
@@ -258,10 +270,13 @@ func handleLoggedOut(instance *DeviceInstance) {
 	websocket.Broadcast <- websocket.BroadcastMessage{
 		Code:    "DEVICE_LOGGED_OUT",
 		Message: "Device logged out (slot kept)",
-		Result:  map[string]string{"device_id": deviceID},
+		Result:  map[string]string{"device_id": deviceID, "reason": evt.Reason.String()},
 	}
 }
 
+// handleConnectionEvents runs when a device connects or its push name changes.
+// It refreshes the device's stored identity, starts the one-time Chatwoot
+// history auto-sync and sends the configured presence.
 func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instance *DeviceInstance) {
 	if client == nil {
 		return
@@ -271,7 +286,7 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 
 		// Persist updated JID/DisplayName to database after successful connection
 		// Skip if instance.ID looks like a JID (auto-created device) to avoid recreating deleted duplicates
-		if repo := instance.GetChatStorage(); repo != nil && !strings.Contains(instance.ID(), "@") {
+		if repo := instance.GetChatStorage(); repo != nil && instance.ID() != "" && !strings.Contains(instance.ID(), "@") {
 			jid := instance.JID()
 			displayName := instance.DisplayName()
 			if jid != "" {
@@ -310,7 +325,7 @@ func handleConnectionEvents(_ context.Context, client *whatsmeow.Client, instanc
 	// device may connect before its pushname is known.
 	if instance != nil {
 		if repo := instance.GetChatStorage(); repo != nil {
-			chatwoot.TriggerAutoSync(repo, client)
+			chatwoot.TriggerAutoSync(repo, client, NewBulkMediaRecovery(repo).Recover)
 		}
 	}
 
@@ -350,6 +365,9 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
 		sendReceipt = true
 		log.Infof("%v was read by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
+	case types.ReceiptTypePlayed:
+		sendReceipt = true
+		log.Infof("%v was played by %s at %s: %+v", evt.MessageIDs, evt.SourceString(), evt.Timestamp, evt)
 	case types.ReceiptTypeDelivered:
 		sendReceipt = true
 		log.Infof("%s was delivered to %s at %s: %+v", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp, evt)
@@ -365,18 +383,6 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 				logrus.Errorf("Failed to forward ack event to webhook: %v", err)
 			}
 		}(evt, client)
-	}
-}
-
-func handlePresence(_ context.Context, evt *events.Presence) {
-	if evt.Unavailable {
-		if evt.LastSeen.IsZero() {
-			log.Infof("%s is now offline", evt.From)
-		} else {
-			log.Infof("%s is now offline (last seen: %s)", evt.From, evt.LastSeen)
-		}
-	} else {
-		log.Infof("%s is now online", evt.From)
 	}
 }
 
@@ -420,6 +426,9 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 	}
 	if len(evt.Demote) > 0 {
 		log.Infof("Group %s: %d users demoted at %s", evt.JID, len(evt.Demote), evt.Timestamp)
+	}
+	if evt.Name != nil {
+		log.Infof("Group %s: name changed at %s", evt.JID, evt.Timestamp)
 	}
 
 	// Forward group info event to webhook

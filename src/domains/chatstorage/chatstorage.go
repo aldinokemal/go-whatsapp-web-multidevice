@@ -39,6 +39,16 @@ type Message struct {
 	UpdatedAt        time.Time  `db:"updated_at"`
 }
 
+// MessageMedia is the location and integrity metadata of a stored message's
+// media file. It changes when the phone re-uploads expired media.
+type MessageMedia struct {
+	URL           string
+	DirectPath    string
+	FileSHA256    []byte
+	FileEncSHA256 []byte
+	FileLength    uint64
+}
+
 // MessageEdit represents a single edit applied to an existing WhatsApp message.
 type MessageEdit struct {
 	OriginalMessageID string    `db:"original_message_id"`
@@ -95,6 +105,19 @@ type ChatwootMessageLink struct {
 	// ChatwootAccountID is the resolved Chatwoot account id, denormalized so the
 	// conversation lookup can be account-scoped without a join. 0 = legacy.
 	ChatwootAccountID int `db:"chatwoot_account_id"`
+}
+
+// ChatwootReplyLinkFilter scopes the lookup of the link behind a quoted
+// Chatwoot message. Every field must match; AllowLegacyAccountZero also lets
+// account 0 (legacy) rows match when ChatwootConfigID is 0.
+type ChatwootReplyLinkFilter struct {
+	DeviceID               string
+	ChatwootMessageID      int
+	ChatwootConversationID int
+	ChatwootAccountID      int
+	ChatwootInboxID        int
+	ChatwootConfigID       int64
+	AllowLegacyAccountZero bool
 }
 
 // ChatwootDeviceConfig is the per-device Chatwoot destination (URL + account +
