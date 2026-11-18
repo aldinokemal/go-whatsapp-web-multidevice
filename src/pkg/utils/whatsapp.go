@@ -970,7 +970,7 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 			_ = os.Remove(file.Name())
 		}
 	}()
-	err = client.DownloadToFile(ctx, mediaFile, file)
+	err = client.DownloadToFile(ctx, mediaFile, downloadFile{file})
 	head := make([]byte, mediaSniffLength)
 	var n int
 	if err == nil {
@@ -1003,6 +1003,23 @@ func ExtractMedia(ctx context.Context, client *whatsmeow.Client, storageLocation
 // mediaSniffLength is enough of a file for describeExtractedMedia's audio
 // sniffing: the longest ADTS or MP3 frame plus the header of the next one.
 const mediaSniffLength = 16 << 10
+
+// downloadFile is the file ExtractMedia hands to DownloadToFile. Not being an
+// *os.File, it skips whatsmeow's fallocate, which fails on filesystems that do
+// not support it. whatsmeow copies each download attempt into the file with
+// one io.Copy, which calls ReadFrom, but does not rewind the file when it falls
+// back to the next host; ReadFrom starts every attempt on an empty file.
+type downloadFile struct{ *os.File }
+
+func (f downloadFile) ReadFrom(r io.Reader) (int64, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	if err := f.Truncate(0); err != nil {
+		return 0, err
+	}
+	return f.File.ReadFrom(r)
+}
 
 func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
 	// Validate file size before writing to disk

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -602,6 +603,36 @@ func TestExtractMediaRemovesPartialFileOnDownloadFailure(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("storage dir has %d entries, want none", len(entries))
+	}
+}
+
+// whatsmeow retries a download, on the same host or the next one, by copying
+// into the same file again. A partial first attempt must not stay in front of
+// the second attempt's bytes.
+func TestDownloadFileStartsEachAttemptEmpty(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	f := downloadFile{file}
+
+	// The same io.Copy shape as whatsmeow: a TeeReader source, so the copy
+	// goes through the destination's ReadFrom.
+	for _, attempt := range []string{"partial bytes from the first host", "second"} {
+		if _, err := io.Copy(f, io.TeeReader(strings.NewReader(attempt), io.Discard)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "second" {
+		t.Fatalf("file = %q, want only the last attempt %q", got, "second")
+	}
+	if _, isOSFile := any(f).(*os.File); isOSFile {
+		t.Fatal("downloadFile must not be an *os.File, or whatsmeow preallocates it with fallocate")
 	}
 }
 
