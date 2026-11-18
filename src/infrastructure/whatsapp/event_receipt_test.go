@@ -113,7 +113,11 @@ func TestHandleReceiptForwardsLinkedDeviceReadAndPlayed(t *testing.T) {
 		}
 	}
 
-	handleReceipt(context.Background(), receipt(types.ReceiptTypeDelivered), "", client)
+	// Called directly rather than through handleReceipt: its goroutine would still
+	// read the config while the cleanup restores it.
+	if err := forwardReceiptToWebhook(context.Background(), receipt(types.ReceiptTypeDelivered), "", client); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case got := <-forwarded:
 		t.Fatalf("a contact's linked-device delivery receipt was forwarded as %q", got)
