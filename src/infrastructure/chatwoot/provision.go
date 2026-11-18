@@ -79,6 +79,6 @@ func applyResolvedInbox(client *Client, inbox Inbox) {
 	config.ChatwootInboxID = inbox.ID
 	client.InboxID = inbox.ID
 	if inbox.InboxIdentifier != "" {
-		client.InboxIdentifier = inbox.InboxIdentifier
+		client.setInboxIdentifier(inbox.InboxIdentifier)
 	}
 }

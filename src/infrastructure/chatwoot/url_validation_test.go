@@ -1,10 +1,16 @@
 package chatwoot
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -100,9 +106,10 @@ func TestValidateChatwootURL_SSRF(t *testing.T) {
 	}
 }
 
-// TestChatwootClientSSRFGuardWiring verifies per-device clients get the
-// connect-time SSRF guard by default, the env client does not, and an explicit
-// allowlist disables the guard (the operator opted into trusting those hosts).
+// TestChatwootClientSSRFGuardWiring verifies per-device clients keep the
+// connect-time guard whether or not an allowlist is set. The env client stays
+// unguarded so a private self-host on CHATWOOT_URL keeps working. A stored URL
+// that is no longer on the allowlist is not a usable client.
 func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	origHosts := config.ChatwootAllowedHosts
 	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
@@ -116,14 +123,31 @@ func TestChatwootClientSSRFGuardWiring(t *testing.T) {
 	}
 
 	config.ChatwootAllowedHosts = []string{"x.example.com"}
-	if c := NewClientFromConfig("https://x.example.com", "t", 1, 1); c.HTTPClient.Transport != nil {
-		t.Error("per-device client WITH allowlist should not be guarded (allowlist is the control)")
+	allowed := NewClientFromConfig("https://x.example.com", "t", 1, 1)
+	if allowed.HTTPClient == nil || allowed.HTTPClient.Transport == nil {
+		t.Error("per-device client with allowlist should still filter connections")
+	}
+	if !allowed.IsConfigured() {
+		t.Error("allowlisted stored URL should stay usable")
+	}
+	removed := NewClientFromConfig("https://old.example.net", "t", 1, 1)
+	if removed.IsConfigured() {
+		t.Error("stored URL removed from the allowlist must not be usable")
 	}
 
 	// Sanity: the guard transport is a real *http.Transport.
 	if _, ok := any(ssrfGuardedTransport()).(*http.Transport); !ok {
 		t.Error("ssrfGuardedTransport should return an *http.Transport")
 	}
+}
+
+func getWithContext(t *testing.T, c *http.Client, target string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Do(req)
 }
 
 // TestChatwootClientSSRFGuardBlocksConnect exercises the Dialer.Control guard
@@ -142,10 +166,14 @@ func TestChatwootClientSSRFGuardBlocksConnect(t *testing.T) {
 	defer srv.Close() // listens on 127.0.0.1
 
 	// Guarded per-device client: connect to the loopback server must be blocked.
+	// It is named by host, since Proxy already refuses the literal IP.
 	guarded := NewClientFromConfig(srv.URL, "t", 1, 1)
-	if _, err := guarded.HTTPClient.Get(srv.URL); err == nil {
+	blockedResp, err := getWithContext(t, guarded.HTTPClient, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1))
+	if err == nil {
+		blockedResp.Body.Close()
 		t.Fatal("guarded client connected to a loopback address, want block")
-	} else if !strings.Contains(err.Error(), "disallowed address") {
+	}
+	if !strings.Contains(err.Error(), "disallowed address") {
 		t.Fatalf("guarded client error = %v, want a disallowed-address block", err)
 	}
 
@@ -169,5 +197,342 @@ func TestValidateChatwootURL_Allowlist(t *testing.T) {
 	}
 	if err := ValidateChatwootURL("https://evil.example.com"); err == nil {
 		t.Error("non-allowlisted host accepted, want rejection")
+	}
+}
+
+func TestChatwootAllowlistPermitsPrivateHostAndRejectsRedirect(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"127.0.0.1"}
+
+	okSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer okSrv.Close()
+
+	allowed := NewClientFromConfig(okSrv.URL, "t", 1, 1)
+	resp, err := getWithContext(t, allowed.HTTPClient, okSrv.URL)
+	if err != nil {
+		t.Fatalf("allowlisted loopback should connect: %v", err)
+	}
+	resp.Body.Close()
+
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://evil.example/steal", http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	// CheckRedirect's own error: the transport would refuse the host too, but
+	// with another message, so this fails if CheckRedirect is not wired.
+	redirected := NewClientFromConfig(redirectSrv.URL, "t", 1, 1)
+	redirectResp, err := getWithContext(t, redirected.HTTPClient, redirectSrv.URL+"/v1")
+	if err == nil {
+		redirectResp.Body.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), `redirect host "evil.example" is not in the allowed hosts list`) {
+		t.Fatalf("redirect off the allowlist: err=%v", err)
+	}
+}
+
+// TestChatwootRedirectToAnotherHostDropsToken: the API token is for the
+// configured Chatwoot host only. A redirect to another host must not carry
+// it, with or without an allowlist.
+func TestChatwootRedirectToAnotherHostDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	// The same listener under another host name.
+	targetURL := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, targetURL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	for _, tt := range []struct {
+		name    string
+		allowed []string
+		client  func() *http.Client
+	}{
+		// The guarded transport refuses loopback without an allowlist, so this
+		// case runs the redirect policy on a plain transport.
+		{"empty allowlist", nil, func() *http.Client { return &http.Client{CheckRedirect: chatwootCheckRedirect} }},
+		{"both hosts allowlisted", []string{"127.0.0.1", "localhost"}, func() *http.Client { return NewClientFromConfig(origin.URL, "t", 1, 1).HTTPClient }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config.ChatwootAllowedHosts = tt.allowed
+			req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(apiTokenHeader, "secret-token")
+			resp, err := tt.client().Do(req)
+			if err != nil {
+				t.Fatalf("redirect: %v", err)
+			}
+			resp.Body.Close()
+			if got := <-tokens; got != "" {
+				t.Fatalf("redirect target received the API token %q", got)
+			}
+		})
+	}
+}
+
+// TestChatwootRedirectToPlainHTTPDropsToken: a redirect from HTTPS to HTTP on
+// the same host must not send the API token in clear text.
+func TestChatwootRedirectToPlainHTTPDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client := origin.Client()
+	client.CheckRedirect = chatwootCheckRedirect
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(apiTokenHeader, "secret-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	resp.Body.Close()
+	if got := <-tokens; got != "" {
+		t.Fatalf("plain HTTP redirect target received the API token %q", got)
+	}
+}
+
+// TestEnvChatwootClientRedirectDropsToken: the global CHATWOOT_URL client is
+// not SSRF-guarded, but a redirect to another host must still not carry the
+// API token.
+func TestEnvChatwootClientRedirectDropsToken(t *testing.T) {
+	origURL := config.ChatwootURL
+	t.Cleanup(func() { config.ChatwootURL = origURL })
+
+	tokens := make(chan string, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer target.Close()
+	targetURL := strings.Replace(target.URL, "127.0.0.1", "localhost", 1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, targetURL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	config.ChatwootURL = origin.URL
+	client := NewClient().HTTPClient
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(apiTokenHeader, "secret-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	resp.Body.Close()
+	if got := <-tokens; got != "" {
+		t.Fatalf("env client redirect target received the API token %q", got)
+	}
+}
+
+// TestChatwootRedirectToOtherPortDropsToken: another port on the same host can
+// be another service, so the token stays behind. A redirect within the same
+// origin keeps it.
+func TestChatwootRedirectToOtherPortDropsToken(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tokens := make(chan string, 1)
+	other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		tokens <- r.Header.Get(apiTokenHeader)
+	}))
+	defer other.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/other-port":
+			http.Redirect(w, r, other.URL, http.StatusFound)
+		case "/same-origin":
+			http.Redirect(w, r, "/landing", http.StatusFound)
+		default:
+			tokens <- r.Header.Get(apiTokenHeader)
+		}
+	}))
+	defer origin.Close()
+
+	for _, policy := range []struct {
+		name string
+		fn   func(*http.Request, []*http.Request) error
+	}{{"guarded", chatwootCheckRedirect}, {"env", chatwootTokenRedirect}} {
+		for _, tt := range []struct {
+			path string
+			want string
+		}{{"/other-port", ""}, {"/same-origin", "secret-token"}} {
+			t.Run(policy.name+tt.path, func(t *testing.T) {
+				client := &http.Client{CheckRedirect: policy.fn}
+				req, err := http.NewRequest(http.MethodGet, origin.URL+tt.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set(apiTokenHeader, "secret-token")
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatalf("redirect: %v", err)
+				}
+				resp.Body.Close()
+				if got := <-tokens; got != tt.want {
+					t.Fatalf("redirect target received token %q, want %q", got, tt.want)
+				}
+			})
+		}
+	}
+}
+
+func TestSameChatwootOriginEffectivePort(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"https://chat.example", "https://chat.example:443/x", true},
+		{"http://chat.example", "http://CHAT.example:80", true},
+		{"https://chat.example", "https://chat.example:8443", false},
+		{"https://chat.example", "http://chat.example", false},
+		{"https://chat.example", "https://other.example", false},
+	} {
+		a, _ := url.Parse(tt.a)
+		b, _ := url.Parse(tt.b)
+		if got := sameChatwootOrigin(a, b); got != tt.want {
+			t.Errorf("sameChatwootOrigin(%s, %s) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+// TestChatwootAllowlistChecksRequestHostNotDialedAddress: behind
+// HTTP(S)_PROXY the dialed address is the proxy, which is not on the
+// allowlist. The allowlist applies to the request's destination host.
+func TestChatwootAllowlistChecksRequestHostNotDialedAddress(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"chatwoot.example"}
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer proxy.Close()
+
+	tr := ssrfGuardedTransport()
+	conn, err := tr.DialContext(context.Background(), "tcp", proxy.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dialing a proxy that is not on the allowlist: %v", err)
+	}
+	conn.Close()
+
+	for host, wantErr := range map[string]bool{"chatwoot.example": false, "evil.example": true} {
+		req, err := http.NewRequest(http.MethodGet, "http://"+host+"/api/v1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.Proxy(req); (err != nil) != wantErr {
+			t.Errorf("Proxy(%s) err = %v, want error=%v", host, err, wantErr)
+		}
+	}
+}
+
+// TestChatwootProxyRejectsLiteralPrivateIPWithoutAllowlist: behind
+// HTTP(S)_PROXY the dial guard sees only the proxy, so a request or redirect
+// to a literal private or metadata IP must fail in Proxy, before the
+// environment's proxy is chosen.
+func TestChatwootProxyRejectsLiteralPrivateIPWithoutAllowlist(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = nil
+
+	tr := ssrfGuardedTransport()
+	for target, wantErr := range map[string]bool{
+		"http://169.254.169.254/latest/meta-data/": true,
+		"http://[fd00::1]/api/v1":                  true,
+		"http://203.0.113.10/api/v1":               false,
+		"http://chatwoot.example/api/v1":           false,
+	} {
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tr.Proxy(req); (err != nil) != wantErr {
+			t.Errorf("Proxy(%s) err = %v, want error=%v", target, err, wantErr)
+		}
+	}
+}
+
+// TestPerDeviceClientCapsDecompressedBody: a small gzip body from a
+// per-device URL must not expand past maxChatwootResponseBody when read.
+func TestPerDeviceClientCapsDecompressedBody(t *testing.T) {
+	origHosts := config.ChatwootAllowedHosts
+	t.Cleanup(func() { config.ChatwootAllowedHosts = origHosts })
+	config.ChatwootAllowedHosts = []string{"127.0.0.1"}
+
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := zw.Write(make([]byte, maxChatwootResponseBody+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(compressed.Bytes())
+	}))
+	defer srv.Close()
+
+	resp, err := getWithContext(t, NewClientFromConfig(srv.URL, "t", 1, 1).HTTPClient, srv.URL)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	var tooLarge *http.MaxBytesError
+	if _, err := io.Copy(io.Discard, resp.Body); !errors.As(err, &tooLarge) {
+		t.Fatalf("read err = %v, want the %d-byte response cap", err, maxChatwootResponseBody)
+	}
+}
+
+func TestFindContactByIdentifierCapsErrorBody(t *testing.T) {
+	const huge = 70 << 10
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("A", huge)))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		BaseURL:    srv.URL,
+		APIToken:   "t",
+		AccountID:  1,
+		InboxID:    1,
+		HTTPClient: srv.Client(),
+	}
+	_, err := c.FindContactByIdentifier("628123456789", false)
+	if err == nil {
+		t.Fatal("expected search error")
+	}
+	if strings.Contains(err.Error(), strings.Repeat("A", 1024)) {
+		t.Fatal("error included a large slice of the response body")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want the size cap", err)
 	}
 }

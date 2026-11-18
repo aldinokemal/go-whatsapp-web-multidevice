@@ -6,6 +6,7 @@ import (
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -31,6 +32,9 @@ func createDeletePayload(ctx context.Context, evt *events.DeleteForMe, message *
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, evt.SenderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
 	addSenderDisplayName(ctx, client, payload, false, "")
+	// The stored chat is often the phone. Keep the event's original LID and
+	// any alt so an ignore entry for that LID still matches.
+	addChatwootIdentityAliases(payload, evt.ChatJID, evt.SenderJID, types.EmptyJID, types.EmptyJID)
 
 	// Include original message information if available
 	if message != nil {

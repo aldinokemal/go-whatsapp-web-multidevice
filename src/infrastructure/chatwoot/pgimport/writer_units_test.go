@@ -63,9 +63,17 @@ const insertConversationSQL = `
 	`
 
 const idempotencyProbeSQL = `
-		SELECT id, conversation_id FROM messages
-		WHERE inbox_id = $1 AND source_id = $2
+		SELECT m.id, m.conversation_id FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.inbox_id = $1 AND m.source_id = $2
+			AND c.account_id = $3 AND c.inbox_id = $1 AND c.contact_id = $4
 		LIMIT 1
+	`
+
+const reopenConversationSQL = `
+		UPDATE conversations
+		SET status = $1, updated_at = now()
+		WHERE id = $2 AND account_id = $3 AND status = $4
 	`
 
 const touchConversationSQL = `
@@ -170,8 +178,10 @@ func TestInsertMessage_IdempotencyHitReturnsFalseNoInsert(t *testing.T) {
 	defer cleanup()
 
 	mock.ExpectBegin()
+	// Conversation 300 is not the caller's conversation (10). The probe only
+	// returns rows of this chat's contact (20), so it is a resolve/reopen.
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-dup").
+		WithArgs(imp.inboxID, "WAID:wa-dup", imp.accountID, 20).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id"}).AddRow(1, 300))
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
@@ -192,6 +202,62 @@ func TestInsertMessage_IdempotencyHitReturnsFalseNoInsert(t *testing.T) {
 	}
 }
 
+func TestInsertMessage_ForeignConversationIsNotLinked(t *testing.T) {
+	imp, mock, cleanup := newUpsertContactTestImporter(t)
+	defer cleanup()
+
+	now := time.Date(2026, time.June, 6, 12, 0, 0, 0, time.UTC)
+	msg := &domainChatStorage.Message{
+		ID:        "wa-foreign",
+		DeviceID:  "device-a@s.whatsapp.net",
+		ChatJID:   "628123456789@s.whatsapp.net",
+		Content:   "this chat",
+		Timestamp: now,
+	}
+
+	mock.ExpectBegin()
+	// The source_id exists only in another contact's conversation, which the
+	// contact filter in the probe leaves out.
+	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
+		WithArgs(imp.inboxID, "WAID:wa-foreign", imp.accountID, 20).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`INSERT INTO messages`).
+		WithArgs(
+			"this chat",
+			imp.accountID,
+			imp.inboxID,
+			10,
+			messageTypeIncoming,
+			now,
+			messageStatusDelivered,
+			"WAID:wa-foreign",
+			contentTypeText,
+			"Contact",
+			int64(20),
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(404))
+
+	tx, err := imp.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	link, wrote, err := imp.insertMessage(context.Background(), tx, 10, 20, msg, false)
+	if err != nil {
+		t.Fatalf("insertMessage: %v", err)
+	}
+	if !wrote {
+		t.Fatal("wrote = false, want a new row in this chat's conversation")
+	}
+	if link == nil || link.ChatwootConversationID != 10 || link.WhatsAppChatJID != msg.ChatJID {
+		t.Fatalf("foreign conversation was linked: %+v", link)
+	}
+	_ = tx.Rollback()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestInsertMessage_EmptyContentSkipsAfterProbeMiss(t *testing.T) {
 	// Probe misses (ErrNoRows) but the computed content is empty (no body, no
 	// media placeholder): insertMessage returns (false, nil) WITHOUT an INSERT
@@ -205,7 +271,7 @@ func TestInsertMessage_EmptyContentSkipsAfterProbeMiss(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-empty").
+		WithArgs(imp.inboxID, "WAID:wa-empty", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
@@ -236,7 +302,7 @@ func TestInsertMessage_ProbeQueryErrorPropagates(t *testing.T) {
 	probeErr := errors.New("probe boom")
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-err").
+		WithArgs(imp.inboxID, "WAID:wa-err", imp.accountID, 20).
 		WillReturnError(probeErr)
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
@@ -272,7 +338,7 @@ func TestInsertMessage_ReturnsChatwootLinkForInsertedMessage(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-linked").
+		WithArgs(imp.inboxID, "WAID:wa-linked", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WithArgs(
@@ -332,7 +398,7 @@ func TestInsertMessage_GroupIncomingContentGetsSenderPrefix(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:wa-grp").
+		WithArgs(imp.inboxID, "WAID:wa-grp", imp.accountID, 77).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WithArgs(
@@ -385,7 +451,7 @@ func TestInsertMessageSavepoint_Success(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-ok").
+		WithArgs(imp.inboxID, "WAID:sp-ok", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -423,7 +489,7 @@ func TestInsertMessageSavepoint_InsertErrorRollsBackToSavepoint(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-fail").
+		WithArgs(imp.inboxID, "WAID:sp-fail", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnError(insertErr)
@@ -501,7 +567,7 @@ func TestInsertMessageSavepoint_ReleaseErrorIsFatal(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-rel").
+		WithArgs(imp.inboxID, "WAID:sp-rel", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -544,7 +610,7 @@ func TestInsertMessageSavepoint_RollbackErrorBecomesFatal(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT cw_msg")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(idempotencyProbeSQL)).
-		WithArgs(imp.inboxID, "WAID:sp-rb").
+		WithArgs(imp.inboxID, "WAID:sp-rb", imp.accountID, 20).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO messages`).
 		WillReturnError(insertErr)
@@ -922,7 +988,7 @@ func TestFindOrCreateConversation_ExistingReturnsIDNoInsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -961,7 +1027,7 @@ func TestFindOrCreateConversation_CreatesWithFirstMessageTimestamp(t *testing.T)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -995,7 +1061,7 @@ func TestFindOrCreateConversation_EmptyMsgsUsesNowish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1031,7 +1097,7 @@ func TestFindOrCreateConversation_ZeroTimeFirstMsgUsesNowish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1059,7 +1125,7 @@ func TestFindOrCreateConversation_SelectErrorPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	_, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	_, _, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if !errors.Is(err, selErr) {
 		t.Errorf("err = %v, want conv select boom", err)
 	}
@@ -1091,7 +1157,7 @@ func TestFindOrCreateConversation_InsertErrorPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	_, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	_, _, err = imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if !errors.Is(err, insErr) {
 		t.Errorf("err = %v, want wrapped conv insert boom", err)
 	}
@@ -1126,7 +1192,7 @@ func TestFindOrCreateConversation_CreatesPendingWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
+	id, _, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, msgs)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
@@ -1139,40 +1205,38 @@ func TestFindOrCreateConversation_CreatesPendingWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestFindOrCreateConversation_ReopensResolvedReusedConversation(t *testing.T) {
-	// With CHATWOOT_REOPEN_CONVERSATION=true (default), reusing a *resolved*
-	// conversation flips it back to the new-status via an UPDATE so the returning
-	// customer's thread resurfaces in the agent queue — matching the REST path.
+func TestFindOrCreateConversation_ReusesResolvedWithoutReopening(t *testing.T) {
+	// Reusing a *resolved* conversation must not change its status here, even
+	// with CHATWOOT_REOPEN_CONVERSATION=true. Reopening waits for ImportChat to
+	// know a message was actually written; otherwise a replay whose every row
+	// hits the idempotency probe would reopen a thread the agent resolved and
+	// add nothing to it.
 	imp, mock, cleanup := newUpsertContactTestImporter(t)
 	defer cleanup()
 
 	prevReopen := config.ChatwootReopenConversation
-	prevPending := config.ChatwootConversationPending
-	defer func() {
-		config.ChatwootReopenConversation = prevReopen
-		config.ChatwootConversationPending = prevPending
-	}()
+	defer func() { config.ChatwootReopenConversation = prevReopen }()
 	config.ChatwootReopenConversation = true
-	config.ChatwootConversationPending = false
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
 		WithArgs(imp.accountID, imp.inboxID, 500).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(42, conversationStatusResolved))
-	mock.ExpectExec("UPDATE conversations").
-		WithArgs(conversationStatusOpen, 42, imp.accountID, conversationStatusResolved).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No UPDATE expected: sqlmock fails the test if one is issued.
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
+	id, wasResolved, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
 	if err != nil {
 		t.Fatalf("findOrCreateConversation: %v", err)
 	}
 	if id != 42 {
 		t.Errorf("id = %d, want 42", id)
+	}
+	if !wasResolved {
+		t.Error("wasResolved = false, want true so ImportChat can reopen after a write")
 	}
 	_ = tx.Rollback()
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1180,31 +1244,27 @@ func TestFindOrCreateConversation_ReopensResolvedReusedConversation(t *testing.T
 	}
 }
 
-func TestFindOrCreateConversation_NoReopenWhenDisabled(t *testing.T) {
-	// With CHATWOOT_REOPEN_CONVERSATION=false, a reused resolved conversation is
-	// returned as-is with no status UPDATE (no extra query is expected).
+func TestReopenConversation_IssuesGuardedUpdate(t *testing.T) {
+	// The reopen UPDATE flips only a still-resolved row to the new-message
+	// status; the WHERE status guard keeps it idempotent.
 	imp, mock, cleanup := newUpsertContactTestImporter(t)
 	defer cleanup()
 
-	prevReopen := config.ChatwootReopenConversation
-	defer func() { config.ChatwootReopenConversation = prevReopen }()
-	config.ChatwootReopenConversation = false
+	prevPending := config.ChatwootConversationPending
+	defer func() { config.ChatwootConversationPending = prevPending }()
+	config.ChatwootConversationPending = false
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(selectConversationSQL)).
-		WithArgs(imp.accountID, imp.inboxID, 500).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(42, conversationStatusResolved))
+	mock.ExpectExec(regexp.QuoteMeta(reopenConversationSQL)).
+		WithArgs(conversationStatusOpen, 42, imp.accountID, conversationStatusResolved).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	tx, err := imp.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	id, err := imp.findOrCreateConversation(context.Background(), tx, 500, 600, nil)
-	if err != nil {
-		t.Fatalf("findOrCreateConversation: %v", err)
-	}
-	if id != 42 {
-		t.Errorf("id = %d, want 42", id)
+	if err := imp.reopenConversation(context.Background(), tx, 42); err != nil {
+		t.Fatalf("reopenConversation: %v", err)
 	}
 	_ = tx.Rollback()
 	if err := mock.ExpectationsWereMet(); err != nil {

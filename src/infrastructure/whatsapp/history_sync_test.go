@@ -310,7 +310,7 @@ func (r *historyMessageBatchRepoSpy) StoreMessagesBatch(messages []*domainChatSt
 	return nil
 }
 
-func (r *historyMessageBatchRepoSpy) GetChatNameWithPushName(jid types.JID, _ string, _ string, pushName string) string {
+func (r *historyMessageBatchRepoSpy) GetChatNameWithPushNameByDevice(_ string, jid types.JID, _ string, _ string, pushName string) string {
 	if pushName != "" {
 		return pushName
 	}
@@ -333,7 +333,7 @@ func (r *historyPollRepoSpy) UpsertPollDefinition(definition *domainChatStorage.
 	return nil
 }
 
-func (r *historyPollRepoSpy) GetChatNameWithPushName(jid types.JID, _ string, _ string, pushName string) string {
+func (r *historyPollRepoSpy) GetChatNameWithPushNameByDevice(_ string, jid types.JID, _ string, _ string, pushName string) string {
 	if pushName != "" {
 		return pushName
 	}
@@ -346,7 +346,7 @@ func (r *historyReactionRepoSpy) CreateReaction(_ context.Context, evt *events.M
 	return nil
 }
 
-func (r *historyReactionRepoSpy) GetChatNameWithPushName(jid types.JID, _ string, _ string, pushName string) string {
+func (r *historyReactionRepoSpy) GetChatNameWithPushNameByDevice(_ string, jid types.JID, _ string, _ string, pushName string) string {
 	if pushName != "" {
 		return pushName
 	}

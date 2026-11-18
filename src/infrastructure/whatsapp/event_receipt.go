@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -44,19 +45,26 @@ func createReceiptPayload(ctx context.Context, evt *events.Receipt, deviceID str
 		payload["ids"] = evt.MessageIDs
 	}
 
-	// Add chat_id
-	payload["chat_id"] = evt.Chat.ToNonAD().String()
+	// Add chat_id. A LID chat keeps its original id beside the phone it resolves to.
+	chatJID := evt.Chat.ToNonAD()
+	if chatJID.Server == types.HiddenUserServer {
+		payload["chat_lid"] = chatJID.String()
+		chatJID = NormalizeJIDFromLID(ctx, chatJID, client).ToNonAD()
+	}
+	payload["chat_id"] = chatJID.String()
 
-	// Build from/from_lid fields from sender
+	// Build from/from_lid fields from sender. SenderAlt and RecipientAlt carry
+	// the other address when the primary JID was already normalized to a phone.
 	senderJID := evt.Sender
 
-	if senderJID.Server == "lid" {
+	if senderJID.Server == types.HiddenUserServer {
 		payload["from_lid"] = senderJID.ToNonAD().String()
 	}
 
 	// Resolve sender JID (convert LID to phone number if needed)
 	normalizedSenderJID := NormalizeJIDFromLID(ctx, senderJID, client)
 	payload["from"] = normalizedSenderJID.ToNonAD().String()
+	addChatwootIdentityAliases(payload, evt.Chat, senderJID, evt.SenderAlt, evt.RecipientAlt)
 	addSenderDisplayName(ctx, client, payload, false, "")
 
 	// Receipt type
@@ -92,31 +100,12 @@ func forwardReceiptToWebhook(ctx context.Context, evt *events.Receipt, deviceID 
 	return forwardPayloadToConfiguredWebhooks(ctx, payload, "message.ack")
 }
 
-// shouldForwardReceipt reports whether a receipt event should be forwarded.
-//
-// WhatsApp sends separate receipt events for each linked device (phone, web,
-// desktop, etc.) of a contact. For example, if a contact has 3 devices, you
-// would receive 3 "delivered" receipts for the same message. To avoid duplicate
-// webhooks we only forward the receipt from the primary device (Device == 0).
-//
-// The exceptions are read and played receipts. Unlike delivery receipts, only
-// the device where the chat was opened (or the media was played) sends them, so
-// they are not duplicated per device. Dropping them would hide reads that did
-// not happen on the phone:
-//   - a contact reading our message on WhatsApp Web, Desktop or another linked
-//     device (common for WhatsApp Business accounts that answer from a PC);
-//   - the current account reading a chat on one of its own linked devices
-//     ("read", or "read-self" when read receipts are disabled).
+// shouldForwardReceipt suppresses duplicate contact receipts from linked devices
+// unless explicitly enabled. Own-device reads always pass because only the device
+// where the account owner opened the chat emits them.
 func shouldForwardReceipt(evt *events.Receipt) bool {
-	if evt.Sender.Device == 0 {
+	if config.WhatsappWebhookAllDeviceReceipts || evt.Sender.Device == 0 {
 		return true
 	}
-	switch evt.Type {
-	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
-		return true
-	case types.ReceiptTypeReadSelf:
-		return evt.IsFromMe
-	default:
-		return false
-	}
+	return evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf)
 }
