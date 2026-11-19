@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSyncPayloadToChatwootFailFast verifies the forward path skips silently
@@ -723,5 +725,128 @@ func TestSyncPayloadToChatwoot_ReactionEchoStampsSourceID(t *testing.T) {
 	attributes, _ := capturedBody["content_attributes"].(map[string]any)
 	if got := attributes["in_reply_to_external_id"]; got != "WAID:ORIGINAL-ID-1" {
 		t.Errorf("in_reply_to_external_id = %v, want WAID:ORIGINAL-ID-1", got)
+	}
+}
+
+type chatwootRoutingTestTransport func(*http.Request) (*http.Response, error)
+
+func (f chatwootRoutingTestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type deliveredChatwootReplyTestRepo struct {
+	domainChatStorage.IChatStorageRepository
+	link        *domainChatStorage.ChatwootMessageLink
+	storedLink  *domainChatStorage.ChatwootMessageLink
+	lookupCalls int
+}
+
+func (r *deliveredChatwootReplyTestRepo) GetChatwootMessageLinkByWhatsAppID(string, string) (*domainChatStorage.ChatwootMessageLink, error) {
+	return nil, nil
+}
+
+func (r *deliveredChatwootReplyTestRepo) GetLatestOutgoingChatwootMessageLinkByChat(deviceID, jid string, configID int64, accountID, inboxID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	r.lookupCalls++
+	if link := r.link; link != nil && link.DeviceID == deviceID && link.WhatsAppChatJID == jid &&
+		link.ChatwootConfigID == configID && link.ChatwootAccountID == accountID && link.ChatwootInboxID == inboxID {
+		return link, nil
+	}
+	return nil, nil
+}
+
+func (r *deliveredChatwootReplyTestRepo) UpsertChatwootMessageLink(link *domainChatStorage.ChatwootMessageLink) error {
+	r.storedLink = link
+	return nil
+}
+
+func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *testing.T) {
+	const (
+		deviceID = "device-a"
+		chatJID  = "550012345678@s.whatsapp.net"
+		phone    = "+550012345678"
+		variant  = "+5500912345678"
+		api      = "/api/v1/accounts/1"
+	)
+	original := getChatwootClientFn
+	t.Cleanup(func() { getChatwootClientFn = original })
+
+	for _, tc := range []struct {
+		name                   string
+		exact, linked, fromMe  bool
+		linkConfigID           int64
+		wantLookup, wantCreate int
+		wantConversation       int
+	}{
+		{name: "unproven other spelling", wantLookup: 1, wantCreate: 1, wantConversation: 80},
+		{name: "delivered reply", linked: true, linkConfigID: 3, wantLookup: 1, wantConversation: 42},
+		{name: "different configuration", linked: true, linkConfigID: 4, wantLookup: 1, wantCreate: 1, wantConversation: 80},
+		{name: "exact contact wins", exact: true, linked: true, linkConfigID: 3, wantConversation: 70},
+		{name: "outgoing mirror cannot use fallback", linked: true, fromMe: true, linkConfigID: 3, wantCreate: 1, wantConversation: 80},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &deliveredChatwootReplyTestRepo{}
+			if tc.linked {
+				repo.link = &domainChatStorage.ChatwootMessageLink{
+					DeviceID: deviceID, WhatsAppChatJID: chatJID, Direction: "outgoing",
+					ChatwootConfigID: tc.linkConfigID, ChatwootAccountID: 1, ChatwootInboxID: 2,
+					ChatwootConversationID: 42, ChatwootMessageID: 10,
+				}
+			}
+			var searches, creates, posts int
+			transport := chatwootRoutingTestTransport(func(r *http.Request) (*http.Response, error) {
+				w := httptest.NewRecorder()
+				var body any
+				switch r.Method + " " + r.URL.Path {
+				case "GET " + api + "/contacts/search":
+					searches++
+					require.Equal(t, phone, r.URL.Query().Get("q"))
+					contacts := []chatwoot.Contact{{ID: 7, Name: "Other spelling", PhoneNumber: variant}}
+					if tc.exact {
+						contacts = append(contacts, chatwoot.Contact{ID: 9, Name: "Exact", PhoneNumber: phone})
+					}
+					body = map[string]any{"payload": contacts}
+				case "POST " + api + "/contacts":
+					creates++
+					var request chatwoot.CreateContactRequest
+					require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+					require.Equal(t, phone, request.PhoneNumber)
+					body = chatwoot.Contact{ID: 8}
+				case "GET " + api + "/contacts/8/conversations":
+					body = map[string]any{"payload": []any{}}
+				case "GET " + api + "/contacts/9/conversations":
+					body = map[string]any{"payload": []map[string]any{{"id": 70, "inbox_id": 2, "status": "open"}}}
+				case "POST " + api + "/conversations":
+					body = map[string]any{"id": 80}
+				case fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.wantConversation):
+					posts++
+					body = map[string]any{"id": 99}
+				default:
+					return nil, fmt.Errorf("unexpected Chatwoot request: %s %s", r.Method, r.URL)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				require.NoError(t, json.NewEncoder(w).Encode(body))
+				return w.Result(), nil
+			})
+			getChatwootClientFn = func(requestedDevice string) (*chatwoot.ResolvedConfig, error) {
+				require.Equal(t, deviceID, requestedDevice)
+				return &chatwoot.ResolvedConfig{
+					ConfigID: 3,
+					Client: &chatwoot.Client{
+						BaseURL: "https://chatwoot.example", APIToken: "token", AccountID: 1, InboxID: 2,
+						HTTPClient: &http.Client{Transport: transport},
+					},
+				}, nil
+			}
+			payload := map[string]any{"payload": map[string]any{
+				"id": "inbound-wa-id", "from": chatJID, "chat_id": chatJID, "body": "reply", "is_from_me": tc.fromMe,
+			}}
+			require.NoError(t, syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, deviceID, repo))
+			require.Equal(t, 1, searches)
+			require.Equal(t, tc.wantCreate, creates)
+			require.Equal(t, 1, posts)
+			require.Equal(t, tc.wantLookup, repo.lookupCalls)
+			require.NotNil(t, repo.storedLink)
+			require.Equal(t, tc.wantConversation, repo.storedLink.ChatwootConversationID)
+		})
 	}
 }

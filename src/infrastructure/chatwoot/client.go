@@ -562,6 +562,11 @@ func (c *Client) FindOrCreateContact(name, identifier string, isGroup bool) (*Co
 	if err != nil {
 		return nil, err
 	}
+	return c.ReuseOrCreateContact(name, identifier, isGroup, contact)
+}
+
+// ReuseOrCreateContact finishes contact resolution after an exact lookup.
+func (c *Client) ReuseOrCreateContact(name, identifier string, isGroup bool, contact *Contact) (*Contact, error) {
 	if contact != nil {
 		// Preserve manually edited 1:1 contact names; group subjects are
 		// expected to keep following WhatsApp-side name changes. Blank 1:1

@@ -1103,33 +1103,58 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 	return utils.FormatContactSummary(first.DisplayName, first.PhoneNumber, true)
 }
 
-// syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget) (*chatwootSyncResult, error) {
+func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) (int, error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
 	mu.Lock()
+	defer mu.Unlock()
 
-	contact, err := cw.FindOrCreateContact(info.Name, info.Identifier, info.IsGroup)
+	cw := resolved.Client
+	contact, err := cw.FindContactByIdentifier(info.Identifier, info.IsGroup)
 	if err != nil {
-		mu.Unlock()
-		return nil, fmt.Errorf("failed to find/create contact for %s: %w", info.Identifier, err)
+		return 0, fmt.Errorf("failed to find/create contact for %s: %w", info.Identifier, err)
+	}
+	if contact == nil && linkRepo != nil && deviceID != "" && !info.IsFromMe && !info.IsGroup &&
+		strings.HasSuffix(info.ChatJID, "@"+types.DefaultUserServer) && !strings.HasSuffix(info.Identifier, "@"+types.HiddenUserServer) {
+		// A delivered agent reply ties this exact WhatsApp chat to a conversation
+		// even when the Chatwoot contact uses a different phone spelling.
+		link, err := linkRepo.GetLatestOutgoingChatwootMessageLinkByChat(deviceID, info.ChatJID, resolved.ConfigID, cw.AccountID, cw.InboxID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up delivered Chatwoot reply: %w", err)
+		}
+		if link != nil {
+			return link.ChatwootConversationID, nil
+		}
+	}
+	contact, err = cw.ReuseOrCreateContact(info.Name, info.Identifier, info.IsGroup, contact)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find/create contact for %s: %w", info.Identifier, err)
 	}
 	logrus.Infof("Chatwoot: Contact ID: %d", contact.ID)
 
 	conversation, err := cw.FindOrCreateConversation(contact.ID, info.ChatJID)
-	mu.Unlock()
 	if err != nil {
-		return nil, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
+		return 0, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
-	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
-	content = reply.apply(conversation.ID, content, &opts)
+	return conversation.ID, nil
+}
+
+// syncMessageToChatwoot creates or finds contact/conversation and sends the message.
+func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) (*chatwootSyncResult, error) {
+	conversationID, err := findChatwootConversation(resolved, info, deviceID, linkRepo)
+	if err != nil {
+		return nil, err
+	}
+	logrus.Infof("Chatwoot: Conversation ID: %d", conversationID)
+	content = reply.apply(conversationID, content, &opts)
+	cw := resolved.Client
 
 	logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(content), len(attachments))
 	messageType := "incoming"
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, opts)
+	msgID, err := cw.CreateMessage(conversationID, content, messageType, attachments, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
@@ -1138,7 +1163,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	logrus.Infof("Chatwoot: Message synced successfully for %s", info.Identifier)
 	return &chatwootSyncResult{
 		MessageID:      msgID,
-		ConversationID: conversation.ID,
+		ConversationID: conversationID,
 		InboxID:        cw.InboxID,
 	}, nil
 }
@@ -1855,7 +1880,11 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 
-	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts, reply)
+	var deliveredLinkRepo domainChatStorage.IChatStorageRepository
+	if eventName == EventTypeMessage {
+		deliveredLinkRepo = linkRepo
+	}
+	result, err := syncMessageToChatwoot(resolved, info, content, attachments, msgOpts, reply, deviceID, deliveredLinkRepo)
 	if err != nil {
 		return err
 	}
