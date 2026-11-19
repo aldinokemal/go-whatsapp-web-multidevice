@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -1155,54 +1156,122 @@ func SanitizePhone(phone *string) {
 	}
 }
 
-// IsOnWhatsapp checks if a number is registered on WhatsApp
-func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
-	// only check if the jid is a user with @s.whatsapp.net
-	if strings.Contains(jid, "@s.whatsapp.net") {
-		// Extract phone number from JID and add + prefix for international format
-		phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
-		if phone == "" {
-			return false
+const (
+	userJIDSuffix    = "@" + types.DefaultUserServer
+	userJIDCacheTTL  = 10 * time.Minute
+	userJIDCacheSize = 4096
+)
+
+type userJIDCacheKey struct {
+	client *whatsmeow.Client
+	phone  string
+}
+
+type userJIDCacheEntry struct {
+	jid       types.JID
+	expiresAt time.Time
+}
+
+type userJIDCache struct {
+	mu      sync.Mutex
+	entries map[userJIDCacheKey]userJIDCacheEntry
+}
+
+var whatsappUserJIDs userJIDCache
+
+func canonicalUserJID(results []types.IsOnWhatsAppResponse) (types.JID, bool) {
+	if len(results) == 0 {
+		return types.JID{}, false
+	}
+	for _, result := range results {
+		if !result.IsIn {
+			return types.JID{}, false
 		}
-
-		// whatsmeow expects international format with + prefix
-		if !strings.HasPrefix(phone, "+") {
-			phone = "+" + phone
+	}
+	// pn_jid is the account's phone JID when jid uses LID addressing.
+	for _, jid := range [...]types.JID{results[0].PhoneNumber, results[0].JID} {
+		if jid.Server == types.DefaultUserServer && jid.User != "" {
+			return jid.ToNonAD(), true
 		}
+	}
+	return types.JID{}, true
+}
 
-		// Add timeout to prevent indefinite blocking
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		data, err := client.IsOnWhatsApp(ctx, []string{phone})
-		if err != nil {
-			logrus.Error("Failed to check if user is on whatsapp: ", err)
-			return false
-		}
-
-		// Empty response means number not found/invalid
-		if len(data) == 0 {
-			return false
-		}
-
-		// Check if any result indicates the number is NOT on WhatsApp
-		for _, v := range data {
-			if !v.IsIn {
-				return false
-			}
-		}
-
-		return true
+func (c *userJIDCache) resolve(client *whatsmeow.Client, phone string, now func() time.Time, lookup func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error)) (types.JID, bool) {
+	if phone == "" {
+		return types.JID{}, false
+	}
+	if !strings.HasPrefix(phone, "+") {
+		phone = "+" + phone
+	}
+	key := userJIDCacheKey{client, phone}
+	c.mu.Lock()
+	entry, ok := c.entries[key]
+	c.mu.Unlock()
+	if ok && now().Before(entry.expiresAt) {
+		return entry.jid, true
 	}
 
-	// For non-user JIDs (groups, newsletters), skip validation
-	return true
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	results, err := lookup(ctx, []string{phone})
+	if err != nil {
+		logrus.Error("Failed to check if user is on whatsapp: ", err)
+		return types.JID{}, false
+	}
+	jid, ok := canonicalUserJID(results)
+	if !ok {
+		return types.JID{}, false
+	}
+	entry = userJIDCacheEntry{jid: jid, expiresAt: now().Add(userJIDCacheTTL)}
+
+	c.mu.Lock()
+	// Scope results to the client whose LID store was populated by the lookup.
+	if c.entries == nil || len(c.entries) >= userJIDCacheSize {
+		c.entries = make(map[userJIDCacheKey]userJIDCacheEntry)
+	}
+	c.entries[key] = entry
+	c.mu.Unlock()
+	return jid, true
+}
+
+func resolveUserJID(client *whatsmeow.Client, phone string) (types.JID, bool) {
+	return whatsappUserJIDs.resolve(client, phone, time.Now, client.IsOnWhatsApp)
+}
+
+// IsOnWhatsapp checks if a number is registered on WhatsApp
+func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
+	// For non-user JIDs (groups, newsletters), skip validation.
+	if !strings.Contains(jid, userJIDSuffix) {
+		return true
+	}
+	_, ok := resolveUserJID(client, strings.TrimSuffix(jid, userJIDSuffix))
+	return ok
+}
+
+// CanonicalUserJID resolves a plain phone or user JID without changing it on failure.
+func CanonicalUserJID(client *whatsmeow.Client, jid string) string {
+	if !client.IsLoggedIn() {
+		return jid
+	}
+	phone := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(jid), "+"), userJIDSuffix)
+	if phone == "" || strings.IndexFunc(phone, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return jid
+	}
+	resolved, _ := resolveUserJID(client, phone)
+	if resolved.IsEmpty() {
+		return jid
+	}
+	return resolved.String()
 }
 
 // ValidateJidWithLogin validates JID with login check
 func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(client)
+	return validateJID(client, jid, resolveUserJID)
+}
 
+func validateJID(client *whatsmeow.Client, jid string, lookup func(*whatsmeow.Client, string) (types.JID, bool)) (types.JID, error) {
 	parsedJID, err := ParseJID(jid)
 	if err != nil {
 		return types.JID{}, err
@@ -1218,8 +1287,14 @@ func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, erro
 		return parsedJID, nil
 	}
 
-	if config.WhatsappAccountValidation && !IsOnWhatsapp(client, jid) {
-		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
+	if config.WhatsappAccountValidation && strings.Contains(jid, userJIDSuffix) {
+		resolved, ok := lookup(client, strings.TrimSuffix(jid, userJIDSuffix))
+		if !ok {
+			return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
+		}
+		if parsedJID.Server == types.DefaultUserServer && !resolved.IsEmpty() {
+			return resolved, nil
+		}
 	}
 
 	return parsedJID, nil
