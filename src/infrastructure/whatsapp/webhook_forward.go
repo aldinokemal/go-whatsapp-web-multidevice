@@ -1888,7 +1888,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
 	deviceID, linkRepo := chatwootLinkStorageFromContext(ctx)
 	if err := syncPayloadToChatwoot(ctx, payload, eventName, deviceID, linkRepo); err != nil {
-		logrus.Errorf("Chatwoot: %v", err)
+		logrus.Errorf("Chatwoot: Failed to forward WhatsApp message %s: %v", chatwootForwardMessageID(payload), utils.MediaErrorForLog(err))
 		enqueueChatwootForwardRetry(linkRepo, deviceID, eventName, payload, err)
 	}
 }
@@ -1948,7 +1948,7 @@ func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageReposit
 			if markErr := repo.MarkChatwootForwardEventFailed(event.ID, truncateChatwootForwardError(err), nextAttempt); markErr != nil {
 				logrus.Errorf("Chatwoot: Failed to reschedule retry job %d: %v", event.ID, markErr)
 			}
-			logrus.Warnf("Chatwoot: Retry job %d failed, next attempt at %s: %v", event.ID, nextAttempt.Format(time.RFC3339), err)
+			logrus.Warnf("Chatwoot: Retry job %d for WhatsApp message %s failed, next attempt at %s: %v", event.ID, event.WhatsAppMessageID, nextAttempt.Format(time.RFC3339), utils.MediaErrorForLog(err))
 			continue
 		}
 		if err := repo.MarkChatwootForwardEventDone(event.ID); err != nil {

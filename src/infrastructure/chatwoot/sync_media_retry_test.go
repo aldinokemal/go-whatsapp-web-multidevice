@@ -15,6 +15,8 @@ import (
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -28,6 +30,7 @@ type historyMediaFixture struct {
 	attachments []string
 	filename    string
 	contentType string
+	afterUpload func()
 }
 
 func newHistoryMediaFixture(t *testing.T, downloadErr error) *historyMediaFixture {
@@ -59,6 +62,9 @@ func newHistoryMediaFixture(t *testing.T, downloadErr error) *historyMediaFixtur
 				f.attachments = append(f.attachments, string(data))
 				f.filename = header.Filename
 				f.contentType = header.Header.Get("Content-Type")
+			}
+			if f.afterUpload != nil {
+				f.afterUpload()
 			}
 		} else {
 			var body CreateMessageRequest
@@ -116,6 +122,45 @@ func TestSyncMessageAttachesExpiredMediaRecoveredFromPhone(t *testing.T) {
 	if left, _ := os.ReadDir(f.tempDir); len(left) != 0 {
 		t.Fatalf("temp dir still holds %d file(s) after the upload", len(left))
 	}
+}
+
+func TestSyncMessageOmitsRecoveredAttachmentPathFromCleanupLog(t *testing.T) {
+	f := newHistoryMediaFixture(t, whatsmeow.ErrMediaDownloadFailedWith404)
+	path := filepath.Join(f.tempDir, "private-invoice.pdf")
+	f.afterUpload = func() {
+		if err := os.Remove(path); err != nil {
+			t.Errorf("remove recovered attachment before cleanup: %v", err)
+		}
+	}
+
+	logger := logrus.StandardLogger()
+	hook := &logrustest.Hook{}
+	hooks := make(logrus.LevelHooks)
+	hooks.Add(hook)
+	oldHooks, oldLevel := logger.ReplaceHooks(hooks), logger.GetLevel()
+	logger.SetLevel(logrus.DebugLevel)
+	t.Cleanup(func() {
+		logger.ReplaceHooks(oldHooks)
+		logger.SetLevel(oldLevel)
+	})
+
+	if err := f.sync(func(context.Context, *whatsmeow.Client, *domainChatStorage.Message, string, error) (utils.ExtractedMedia, error) {
+		return utils.ExtractedMedia{MediaPath: path}, os.WriteFile(path, []byte("phone copy"), 0o600)
+	}); err != nil {
+		t.Fatalf("syncMessage: %v", err)
+	}
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "Failed to remove temp file") {
+			if strings.Contains(entry.Message, filepath.Base(path)) ||
+				!strings.Contains(entry.Message, f.msg.ID) ||
+				!strings.Contains(entry.Message, "remove: ") {
+				t.Errorf("unexpected cleanup log: %q", entry.Message)
+			}
+			return
+		}
+	}
+	t.Error("no log for failed attachment cleanup")
 }
 
 // TestSyncMessageImportsPlaceholderWhenExpiredMediaCannotBeRecovered: a failed

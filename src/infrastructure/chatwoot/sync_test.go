@@ -336,7 +336,7 @@ func TestRetrySyncOp_DoesNotRetry4xx(t *testing.T) {
 	// 4xx is a validation/auth error — hitting it 3 times would waste
 	// backoff time and spam Chatwoot.
 	attempts := 0
-	err := retrySyncOp(context.Background(), 3, func() error {
+	err := retrySyncOp(context.Background(), 3, "", func() error {
 		attempts++
 		return &HTTPStatusError{StatusCode: 400, Op: "test", Body: "bad"}
 	})
@@ -350,7 +350,7 @@ func TestRetrySyncOp_DoesNotRetry4xx(t *testing.T) {
 
 func TestRetrySyncOp_Retries5xxUntilSuccess(t *testing.T) {
 	attempts := 0
-	err := retrySyncOp(context.Background(), 3, func() error {
+	err := retrySyncOp(context.Background(), 3, "", func() error {
 		attempts++
 		if attempts < 2 {
 			return &HTTPStatusError{StatusCode: 503, Op: "test", Body: "unavailable"}
@@ -368,7 +368,7 @@ func TestRetrySyncOp_Retries5xxUntilSuccess(t *testing.T) {
 func TestRetrySyncOp_RetriesUnknownErrors(t *testing.T) {
 	// Non-HTTP errors (network, timeout) should retry.
 	attempts := 0
-	_ = retrySyncOp(context.Background(), 3, func() error {
+	_ = retrySyncOp(context.Background(), 3, "", func() error {
 		attempts++
 		return fmt.Errorf("connection refused")
 	})

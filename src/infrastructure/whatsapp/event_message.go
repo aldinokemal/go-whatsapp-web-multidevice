@@ -431,7 +431,7 @@ func buildOptionalFields(ctx context.Context, client *whatsmeow.Client, evt *eve
 		payload["referral"] = referral
 	}
 
-	if err := buildMediaFields(ctx, client, msg, payload); err != nil {
+	if err := buildMediaFields(ctx, client, msg, payload, evt.Info.ID); err != nil {
 		return err
 	}
 
@@ -470,7 +470,7 @@ func buildAlbumFields(evt *events.Message, msg *waE2E.Message, payload map[strin
 	}
 }
 
-func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any) error {
+func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any, messageID string) error {
 	if audioMedia := msg.GetAudioMessage(); audioMedia != nil {
 		if config.WhatsappAutoDownloadMedia {
 			extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, audioMedia)
@@ -478,7 +478,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download audio: %v", err)
+				logrus.Errorf("Failed to download audio for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["audio"] = extracted.MediaPath
 			}
@@ -496,7 +496,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download document: %v", err)
+				logrus.Errorf("Failed to download document for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["document"] = buildAutoDownloadPayload(extracted)
 			}
@@ -515,7 +515,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download image: %v", err)
+				logrus.Errorf("Failed to download image for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["image"] = buildAutoDownloadPayload(extracted)
 			}
@@ -534,7 +534,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download sticker: %v", err)
+				logrus.Errorf("Failed to download sticker for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["sticker"] = extracted.MediaPath
 			}
@@ -552,7 +552,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download video: %v", err)
+				logrus.Errorf("Failed to download video for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["video"] = buildAutoDownloadPayload(extracted)
 			}
@@ -571,7 +571,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 				// Media expired/unavailable: skip the attachment but keep
 				// forwarding the message so its body/caption still reaches
 				// downstream consumers, instead of dropping the whole event.
-				logrus.Errorf("Failed to download video note: %v", err)
+				logrus.Errorf("Failed to download video note for message %s: %v", messageID, utils.MediaErrorForLog(err))
 			} else {
 				payload["video_note"] = buildAutoDownloadPayload(extracted)
 			}
@@ -583,7 +583,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 		}
 	}
 
-	if mediaPaths := collectInteractiveMedia(ctx, client, msg.GetInteractiveMessage()); len(mediaPaths) > 0 {
+	if mediaPaths := collectInteractiveMedia(ctx, client, msg.GetInteractiveMessage(), messageID); len(mediaPaths) > 0 {
 		// Stored separately from the singular image/video/document fields
 		// above (rather than reusing them) because a carousel can carry
 		// media on *every* card: reusing those fields would have each card's
@@ -610,20 +610,20 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 // nothing usable to attach (see extractMediaPath in webhook_forward.go).
 // header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
 // handled: no existing payload field/attachment path covers them here.
-func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage) []string {
+func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage, messageID string) []string {
 	if im == nil || !config.WhatsappAutoDownloadMedia {
 		return nil
 	}
 
 	var paths []string
-	paths = append(paths, extractInteractiveHeaderMediaPaths(ctx, client, im.GetHeader())...)
+	paths = append(paths, extractInteractiveHeaderMediaPaths(ctx, client, im.GetHeader(), messageID)...)
 	for _, card := range im.GetCarouselMessage().GetCards() {
-		paths = append(paths, collectInteractiveMedia(ctx, client, card)...)
+		paths = append(paths, collectInteractiveMedia(ctx, client, card, messageID)...)
 	}
 	return paths
 }
 
-func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header) []string {
+func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.Client, header *waE2E.InteractiveMessage_Header, messageID string) []string {
 	if header == nil {
 		return nil
 	}
@@ -631,21 +631,21 @@ func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.C
 	var paths []string
 	if imageMedia := header.GetImageMessage(); imageMedia != nil {
 		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, imageMedia); err != nil {
-			logrus.Errorf("Failed to download interactive header image: %v", err)
+			logrus.Errorf("Failed to download interactive header image for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
 			paths = append(paths, extracted.MediaPath)
 		}
 	}
 	if videoMedia := header.GetVideoMessage(); videoMedia != nil {
 		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, videoMedia); err != nil {
-			logrus.Errorf("Failed to download interactive header video: %v", err)
+			logrus.Errorf("Failed to download interactive header video for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
 			paths = append(paths, extracted.MediaPath)
 		}
 	}
 	if documentMedia := header.GetDocumentMessage(); documentMedia != nil {
 		if extracted, err := utils.ExtractMedia(ctx, client, config.PathMedia, documentMedia); err != nil {
-			logrus.Errorf("Failed to download interactive header document: %v", err)
+			logrus.Errorf("Failed to download interactive header document for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
 			paths = append(paths, extracted.MediaPath)
 		}

@@ -960,6 +960,18 @@ type ExtractedMedia struct {
 	Caption   string `json:"caption"`
 }
 
+// MediaErrorForLog keeps the file operation and cause but omits descriptive
+// paths. Use the original error for control flow and retry decisions.
+func MediaErrorForLog(err error) error {
+	if pathErr, ok := errors.AsType[*os.PathError](err); ok {
+		return fmt.Errorf("%s: %w", pathErr.Op, pathErr.Err)
+	}
+	if linkErr, ok := errors.AsType[*os.LinkError](err); ok {
+		return fmt.Errorf("%s: %w", linkErr.Op, linkErr.Err)
+	}
+	return err
+}
+
 // reUnsafeFilenameChars matches anything outside a conservative filename
 // allowlist: letters, combining marks and digits of any script, plus "._-".
 // Applied to sender-controlled names (e.g. a document's original filename)

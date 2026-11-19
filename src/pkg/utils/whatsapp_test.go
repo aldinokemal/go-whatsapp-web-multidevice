@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"os"
@@ -17,6 +18,29 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestMediaErrorForLogOmitsDescriptivePaths(t *testing.T) {
+	const descriptivePath = "/tmp/private-invoice.pdf"
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{
+			fmt.Errorf("open attachment %s: %w", descriptivePath, &os.PathError{Op: "open", Path: descriptivePath, Err: os.ErrNotExist}),
+			"open: " + os.ErrNotExist.Error(),
+		},
+		{
+			&os.LinkError{Op: "rename", Old: "/tmp/.download-123", New: descriptivePath, Err: os.ErrPermission},
+			"rename: " + os.ErrPermission.Error(),
+		},
+		{whatsmeow.ErrMediaDownloadFailedWith404, whatsmeow.ErrMediaDownloadFailedWith404.Error()},
+	}
+	for _, tt := range tests {
+		if got := MediaErrorForLog(tt.err).Error(); got != tt.want {
+			t.Errorf("MediaErrorForLog(%v) = %q, want %q", tt.err, got, tt.want)
+		}
+	}
+}
 
 func TestDetermineMediaExtension(t *testing.T) {
 	tests := []struct {
