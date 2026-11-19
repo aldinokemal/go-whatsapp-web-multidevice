@@ -907,6 +907,19 @@ func TestDescribeExtractedMediaSniffsFromHead(t *testing.T) {
 	}
 }
 
+func TestDescribeExtractedMediaUsesDescriptiveStorageName(t *testing.T) {
+	dir := t.TempDir()
+	msg := &waE2E.DocumentMessage{FileName: proto.String("合同.pdf(1)"), Mimetype: proto.String("application/pdf")}
+	first := describeExtractedMedia(dir, msg, nil)
+	second := describeExtractedMedia(dir, msg, nil)
+	if first.MediaPath == second.MediaPath || filepath.Dir(first.MediaPath) != dir {
+		t.Fatalf("want unique paths in %q, got %q and %q", dir, first.MediaPath, second.MediaPath)
+	}
+	if got := StoredMediaDisplayName(first.MediaPath); got != "合同.pdf_1_.pdf" {
+		t.Errorf("display name from %q = %q, want 合同.pdf_1_.pdf", first.MediaPath, got)
+	}
+}
+
 func TestBuildDownloadableMessageSetsDirectPath(t *testing.T) {
 	mediaKey := []byte("media-key")
 	fileSHA256 := []byte("file-sha")
