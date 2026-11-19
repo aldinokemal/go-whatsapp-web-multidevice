@@ -1197,7 +1197,7 @@ func canonicalUserJID(results []types.IsOnWhatsAppResponse) (types.JID, bool) {
 	return types.JID{}, true
 }
 
-func (c *userJIDCache) resolve(client *whatsmeow.Client, phone string, now func() time.Time, lookup func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error)) (types.JID, bool) {
+func (c *userJIDCache) resolve(client *whatsmeow.Client, phone string, now func() time.Time, retry bool, lookup func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error)) (types.JID, bool) {
 	if phone == "" {
 		return types.JID{}, false
 	}
@@ -1212,12 +1212,21 @@ func (c *userJIDCache) resolve(client *whatsmeow.Client, phone string, now func(
 		return entry.jid, true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	results, err := lookup(ctx, []string{phone})
-	if err != nil {
+	var results []types.IsOnWhatsAppResponse
+	for {
+		// A retry needs a fresh deadline if the first lookup timed out.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var err error
+		results, err = lookup(ctx, []string{phone})
+		cancel()
+		if err == nil {
+			break
+		}
 		logrus.Error("Failed to check if user is on whatsapp: ", err)
-		return types.JID{}, false
+		if !retry {
+			return types.JID{}, false
+		}
+		retry = false
 	}
 	jid, ok := canonicalUserJID(results)
 	if !ok {
@@ -1236,7 +1245,7 @@ func (c *userJIDCache) resolve(client *whatsmeow.Client, phone string, now func(
 }
 
 func resolveUserJID(client *whatsmeow.Client, phone string) (types.JID, bool) {
-	return whatsappUserJIDs.resolve(client, phone, time.Now, client.IsOnWhatsApp)
+	return whatsappUserJIDs.resolve(client, phone, time.Now, false, client.IsOnWhatsApp)
 }
 
 // IsOnWhatsapp checks if a number is registered on WhatsApp
@@ -1249,7 +1258,7 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
 	return ok
 }
 
-// CanonicalUserJID resolves a plain phone or user JID without changing it on failure.
+// CanonicalUserJID resolves a plain phone or user JID, retrying a failed lookup once.
 func CanonicalUserJID(client *whatsmeow.Client, jid string) string {
 	if !client.IsLoggedIn() {
 		return jid
@@ -1258,7 +1267,7 @@ func CanonicalUserJID(client *whatsmeow.Client, jid string) string {
 	if phone == "" || strings.IndexFunc(phone, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
 		return jid
 	}
-	resolved, _ := resolveUserJID(client, phone)
+	resolved, _ := whatsappUserJIDs.resolve(client, phone, time.Now, true, client.IsOnWhatsApp)
 	if resolved.IsEmpty() {
 		return jid
 	}

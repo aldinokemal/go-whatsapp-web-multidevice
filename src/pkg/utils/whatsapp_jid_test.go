@@ -52,13 +52,13 @@ func TestUserJIDCache(t *testing.T) {
 		return []types.IsOnWhatsAppResponse{{IsIn: true, PhoneNumber: pn}}, nil
 	}
 	for _, c := range []*whatsmeow.Client{client, client, otherClient} {
-		got, ok := cache.resolve(c, "5500912345678", clock, lookup)
+		got, ok := cache.resolve(c, "5500912345678", clock, false, lookup)
 		require.True(t, ok)
 		require.Equal(t, pn, got)
 	}
 	require.Equal(t, 2, calls)
 	now = now.Add(userJIDCacheTTL)
-	_, ok := cache.resolve(client, "+5500912345678", clock, lookup)
+	_, ok := cache.resolve(client, "+5500912345678", clock, false, lookup)
 	require.True(t, ok)
 	require.Equal(t, 3, calls)
 
@@ -66,7 +66,7 @@ func TestUserJIDCache(t *testing.T) {
 	for i := range userJIDCacheSize {
 		cache.entries[userJIDCacheKey{phone: time.Unix(int64(i), 0).String()}] = userJIDCacheEntry{}
 	}
-	_, ok = cache.resolve(&whatsmeow.Client{}, "5500912345678", clock, lookup)
+	_, ok = cache.resolve(&whatsmeow.Client{}, "5500912345678", clock, false, lookup)
 	require.True(t, ok)
 	require.Len(t, cache.entries, 1)
 }
@@ -85,13 +85,62 @@ func TestUserJIDCacheDoesNotCacheFailures(t *testing.T) {
 			var cache userJIDCache
 			calls := 0
 			for range 2 {
-				_, ok := cache.resolve(nil, "5500912345678", time.Now, func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error) {
+				_, ok := cache.resolve(nil, "5500912345678", time.Now, false, func(context.Context, []string) ([]types.IsOnWhatsAppResponse, error) {
 					calls++
 					return tc.results, tc.err
 				})
 				require.False(t, ok)
 			}
 			require.Equal(t, 2, calls)
+		})
+	}
+}
+
+func TestUserJIDCacheRetriesOnlyLookupErrors(t *testing.T) {
+	account := types.NewJID("550012345678", types.DefaultUserServer)
+	registered := []types.IsOnWhatsAppResponse{{IsIn: true, PhoneNumber: account}}
+	unregistered := []types.IsOnWhatsAppResponse{{IsIn: false}}
+	for _, tc := range []struct {
+		name      string
+		errors    []error
+		results   []types.IsOnWhatsAppResponse
+		want      types.JID
+		wantCalls int
+	}{
+		{"error then success", []error{errors.New("usync failed")}, registered, account, 2},
+		{"timeout then success", []error{context.DeadlineExceeded}, registered, account, 2},
+		{"error then not registered", []error{errors.New("usync failed")}, unregistered, types.JID{}, 2},
+		{"two errors then no more attempts", []error{errors.New("usync failed"), context.DeadlineExceeded}, registered, types.JID{}, 2},
+		{"not registered", nil, unregistered, types.JID{}, 1},
+		{"empty response", nil, nil, types.JID{}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cache userJIDCache
+			var previousCtx context.Context
+			calls := 0
+			got, ok := cache.resolve(nil, "5500912345678", time.Now, true, func(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
+				require.Equal(t, []string{"+5500912345678"}, phones)
+				_, hasDeadline := ctx.Deadline()
+				require.True(t, hasDeadline)
+				require.NoError(t, ctx.Err())
+				if previousCtx != nil {
+					require.ErrorIs(t, previousCtx.Err(), context.Canceled)
+				}
+				previousCtx = ctx
+				calls++
+				if calls <= len(tc.errors) {
+					return nil, tc.errors[calls-1]
+				}
+				return tc.results, nil
+			})
+			require.Equal(t, tc.wantCalls, calls)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, !tc.want.IsEmpty(), ok)
+			if ok {
+				require.Len(t, cache.entries, 1)
+			} else {
+				require.Empty(t, cache.entries)
+			}
 		})
 	}
 }
@@ -124,7 +173,7 @@ func TestValidateJidWithLoginAccountLookup(t *testing.T) {
 			var cache userJIDCache
 			calls := 0
 			got, err := validateJID(nil, input, func(client *whatsmeow.Client, phone string) (types.JID, bool) {
-				return cache.resolve(client, phone, time.Now, func(_ context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
+				return cache.resolve(client, phone, time.Now, false, func(_ context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
 					calls++
 					require.Equal(t, []string{"+" + asked.User}, phones)
 					return []types.IsOnWhatsAppResponse{{IsIn: true, PhoneNumber: account}}, nil
