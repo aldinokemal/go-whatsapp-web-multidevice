@@ -1049,18 +1049,15 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 // the same escaping has to be done by hand.
 var contentDispositionEscaper = strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\r", "", "\n", "")
 
-// escapeContentDispositionFilename makes fileName safe to embed inside a
-// quoted Content-Disposition filename parameter. Control characters are
-// dropped first: a NUL or DEL in the header makes the receiving multipart
-// parser reject the whole request.
-func escapeContentDispositionFilename(fileName string) string {
-	fileName = strings.Map(func(r rune) rune {
+// stripFilenameControls drops characters that make the receiving multipart
+// parser reject the whole request, including NUL and DEL.
+func stripFilenameControls(fileName string) string {
+	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
 		}
 		return r
 	}, fileName)
-	return contentDispositionEscaper.Replace(fileName)
 }
 
 // mimeTypeForExt returns the MIME type for a file extension, falling back to a
@@ -1174,13 +1171,14 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 		} else {
 			fileName = filepath.Base(fileName)
 		}
+		fileName = stripFilenameControls(fileName)
 		// The Content-Type below follows the path's extension, so the name
 		// must end with it too: a recovered history-sync file is stored with
 		// the MIME-resolved extension when the sender's suffix is unusable
 		// ("report.pdf(1)"), while FileName is still the sender's raw name.
 		ext := filepath.Ext(filePath)
 		if ext != "" && !strings.EqualFold(filepath.Ext(fileName), ext) {
-			fileName += ext
+			fileName += stripFilenameControls(ext)
 		}
 
 		mimeType := mimeTypeForExt(ext)
@@ -1190,7 +1188,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 		// are escaped before landing in the header value - otherwise a crafted name could break
 		// out of the quoted filename parameter and corrupt the multipart request.
 		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, escapeContentDispositionFilename(fileName)))
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="attachments[]"; filename="%s"`, contentDispositionEscaper.Replace(fileName)))
 		h.Set("Content-Type", mimeType)
 
 		part, err := writer.CreatePart(h)

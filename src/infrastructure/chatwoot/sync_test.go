@@ -290,7 +290,7 @@ func TestGetExtensionForMediaType(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := getExtensionForMediaType(tt.mediaType, tt.filename)
+		result := getExtensionForMediaType(tt.mediaType, tt.filename, "")
 		if result != tt.expected {
 			t.Errorf("getExtensionForMediaType(%s, %s) = %s, expected %s",
 				tt.mediaType, tt.filename, result, tt.expected)

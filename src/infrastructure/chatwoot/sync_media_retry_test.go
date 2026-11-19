@@ -26,6 +26,8 @@ type historyMediaFixture struct {
 	tempDir     string
 	content     string
 	attachments []string
+	filename    string
+	contentType string
 }
 
 func newHistoryMediaFixture(t *testing.T, downloadErr error) *historyMediaFixture {
@@ -55,6 +57,8 @@ func newHistoryMediaFixture(t *testing.T, downloadErr error) *historyMediaFixtur
 				file, _ := header.Open()
 				data, _ := io.ReadAll(file)
 				f.attachments = append(f.attachments, string(data))
+				f.filename = header.Filename
+				f.contentType = header.Header.Get("Content-Type")
 			}
 		} else {
 			var body CreateMessageRequest
@@ -177,6 +181,35 @@ func TestSyncMessageDownloadsMediaStoredWithDirectPathOnly(t *testing.T) {
 			}
 			if len(f.attachments) != 1 || f.attachments[0] != "direct" {
 				t.Fatalf("attachments = %q, want the downloaded file", f.attachments)
+			}
+		})
+	}
+}
+
+func TestSyncMessageUsesSafeHistoryAttachmentSuffix(t *testing.T) {
+	longSuffix := strings.Repeat("x", 256)
+	tests := []struct {
+		name, mediaType, filename, wantName, wantType string
+	}{
+		{"mismatched suffix", "video", "clip.mp4(1)", "clip.mp4(1).mp4", "video/mp4"},
+		{"NUL in suffix", "video", "clip.m\x00p4", "clip.mp4", "video/mp4"},
+		{"overlong suffix", "document", "report." + longSuffix, "report." + longSuffix + ".bin", "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newHistoryMediaFixture(t, nil)
+			f.msg.MediaType, f.msg.Filename = tt.mediaType, tt.filename
+			f.svc.downloadFn = func(context.Context, *whatsmeow.Client, whatsmeow.DownloadableMessage) ([]byte, error) {
+				return []byte("media"), nil
+			}
+			if err := f.sync(nil); err != nil {
+				t.Fatalf("syncMessage: %v", err)
+			}
+			if len(f.attachments) != 1 || f.attachments[0] != "media" {
+				t.Fatalf("attachments = %q (content %q), want the downloaded file", f.attachments, f.content)
+			}
+			if f.filename != tt.wantName || f.contentType != tt.wantType {
+				t.Errorf("attachment = (%q, %q), want (%q, %q)", f.filename, f.contentType, tt.wantName, tt.wantType)
 			}
 		})
 	}

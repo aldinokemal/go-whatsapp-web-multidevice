@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -769,7 +768,11 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	}
 
 	// Write to temp file
-	ext := getExtensionForMediaType(msg.MediaType, msg.Filename)
+	mimeType := ""
+	if typed, ok := downloadable.(interface{ GetMimetype() string }); ok {
+		mimeType = typed.GetMimetype()
+	}
+	ext := getExtensionForMediaType(msg.MediaType, msg.Filename, mimeType)
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("chatwoot-sync-*%s", ext))
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
@@ -785,11 +788,12 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 }
 
 // getExtensionForMediaType returns the file extension for a media type
-func getExtensionForMediaType(mediaType, filename string) string {
-	if filename != "" {
-		if ext := filepath.Ext(filename); ext != "" {
-			return ext
-		}
+func getExtensionForMediaType(mediaType, filename, mimeType string) string {
+	if mimeType == "application/octet-stream" {
+		mimeType = ""
+	}
+	if ext := utils.StorageExtension(filename, mimeType); ext != "" {
+		return ext
 	}
 	switch mediaType {
 	case "image":

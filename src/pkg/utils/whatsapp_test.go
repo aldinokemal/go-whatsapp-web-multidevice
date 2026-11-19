@@ -206,8 +206,8 @@ func TestStorageExtension(t *testing.T) {
 		{"m4a audio is not video", "", "audio/mp4; codecs=mp4a.40.2", ".m4a"},
 	}
 	for _, tt := range tests {
-		if got := storageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
-			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
+		if got := StorageExtension(tt.originalFilename, tt.mimeType); got != tt.want {
+			t.Errorf("%s: StorageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, tt.want)
 		}
 	}
 }
@@ -248,8 +248,8 @@ func TestStorageExtensionChecksEveryMIMEExtension(t *testing.T) {
 		{"unsafe sender suffix", "archive.bad ext", mimeType},
 	}
 	for _, tt := range tests {
-		if got := storageExtension(tt.originalFilename, tt.mimeType); got != ".gtst" {
-			t.Errorf("%s: storageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, ".gtst")
+		if got := StorageExtension(tt.originalFilename, tt.mimeType); got != ".gtst" {
+			t.Errorf("%s: StorageExtension(%q, %q) = %q, want %q", tt.name, tt.originalFilename, tt.mimeType, got, ".gtst")
 		}
 	}
 }

@@ -1238,6 +1238,7 @@ func TestCreateMessage_AttachmentFileNameEscapesQuotes(t *testing.T) {
 	tests := map[string]string{
 		`evil"; filename="injected.pdf`: `evil"; filename="injected.pdf`,
 		"bad\x00\x7f\r\n\t.pdf":         "bad.pdf",
+		"bad.p\x00df":                   "bad.pdf",
 		"合同.pdf":                        "合同.pdf",
 	}
 	for name, want := range tests {

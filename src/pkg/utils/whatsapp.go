@@ -982,14 +982,14 @@ func truncateUTF8(s string, n int) string {
 // a short alphanumeric suffix.
 var reStorageExtension = regexp.MustCompile(`^\.[a-zA-Z0-9]{1,10}$`)
 
-// storageExtension returns the first extension matching reStorageExtension
+// StorageExtension returns the first extension matching reStorageExtension
 // among, in order: what determineMediaExtension resolves from the sender's
 // filename, what it resolves from the MIME type alone, and every other
 // extension the MIME database lists for that type. A sender's filename can
 // carry anything after its last dot ("clip.mp4(1)", "a." followed by 150
 // characters), and the MIME database can list a compound extension such as
 // ".tar.gz" first while ".tgz" is registered too. Returns "" when none is safe.
-func storageExtension(originalFilename, mimeType string) string {
+func StorageExtension(originalFilename, mimeType string) string {
 	if ext := determineMediaExtension(originalFilename, mimeType); reStorageExtension.MatchString(ext) {
 		return ext
 	}
@@ -1213,7 +1213,7 @@ func describeExtractedMedia(storageLocation string, mediaFile whatsmeow.Download
 		mediaKind = "document"
 	}
 
-	extension := storageExtension(originalFilename, extractedMedia.MimeType)
+	extension := StorageExtension(originalFilename, extractedMedia.MimeType)
 
 	displayName := mediaDisplayName(originalFilename, mediaKind, extractedMedia.Caption, extension)
 
