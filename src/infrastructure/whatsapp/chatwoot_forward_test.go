@@ -737,11 +737,15 @@ func (f chatwootRoutingTestTransport) RoundTrip(r *http.Request) (*http.Response
 type deliveredChatwootReplyTestRepo struct {
 	domainChatStorage.IChatStorageRepository
 	link        *domainChatStorage.ChatwootMessageLink
+	quotedLink  *domainChatStorage.ChatwootMessageLink
 	storedLink  *domainChatStorage.ChatwootMessageLink
 	lookupCalls int
 }
 
-func (r *deliveredChatwootReplyTestRepo) GetChatwootMessageLinkByWhatsAppID(string, string) (*domainChatStorage.ChatwootMessageLink, error) {
+func (r *deliveredChatwootReplyTestRepo) GetChatwootMessageLinkByWhatsAppID(deviceID, messageID string) (*domainChatStorage.ChatwootMessageLink, error) {
+	if link := r.quotedLink; link != nil && link.DeviceID == deviceID && link.WhatsAppMessageID == messageID {
+		return link, nil
+	}
 	return nil, nil
 }
 
@@ -771,16 +775,31 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 	t.Cleanup(func() { getChatwootClientFn = original })
 
 	for _, tc := range []struct {
-		name                   string
-		exact, linked, fromMe  bool
-		linkConfigID           int64
-		wantLookup, wantCreate int
-		wantConversation       int
+		name                         string
+		exact, linked, fromMe, quote bool
+		linkConfigID                 int64
+		wantLookup, wantCreate       int
+		wantConversation             int
+		quoteChange                  func(*domainChatStorage.ChatwootMessageLink)
+		rejectedConversation         int
+		rejectStatus                 int
 	}{
 		{name: "unproven other spelling", wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "delivered reply", linked: true, linkConfigID: 3, wantLookup: 1, wantConversation: 42},
+		{name: "quoted older reply", linked: true, linkConfigID: 3, quote: true, wantConversation: 41},
+		{name: "quoted link from another chat", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
+			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.WhatsAppChatJID = "123@s.whatsapp.net" }},
+		{name: "quoted link from another account", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
+			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.ChatwootAccountID = 9 }},
+		{name: "quoted mirror", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
+			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.SourceID = "WAID:older-agent-wa-id" }},
+		{name: "deleted linked conversation", linked: true, linkConfigID: 3, wantLookup: 1, wantCreate: 1, wantConversation: 80, rejectedConversation: 42, rejectStatus: http.StatusNotFound},
+		{name: "deleted quoted conversation", linked: true, linkConfigID: 3, quote: true, wantCreate: 1, wantConversation: 80, rejectedConversation: 41, rejectStatus: http.StatusNotFound},
+		{name: "deleted latest conversation with inline quote", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantCreate: 1, wantConversation: 80, rejectedConversation: 42, rejectStatus: http.StatusNotFound,
+			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.SourceID = "WAID:older-agent-wa-id" }},
+		{name: "linked conversation transient failure", linked: true, linkConfigID: 3, wantLookup: 1, rejectedConversation: 42, rejectStatus: http.StatusServiceUnavailable},
 		{name: "different configuration", linked: true, linkConfigID: 4, wantLookup: 1, wantCreate: 1, wantConversation: 80},
-		{name: "exact contact wins", exact: true, linked: true, linkConfigID: 3, wantConversation: 70},
+		{name: "exact contact wins", exact: true, linked: true, quote: true, linkConfigID: 3, wantConversation: 70},
 		{name: "outgoing mirror cannot use fallback", linked: true, fromMe: true, linkConfigID: 3, wantCreate: 1, wantConversation: 80},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -792,7 +811,18 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					ChatwootConversationID: 42, ChatwootMessageID: 10,
 				}
 			}
-			var searches, creates, posts int
+			if tc.quote {
+				quote := *repo.link
+				quote.WhatsAppMessageID = "older-agent-wa-id"
+				quote.ChatwootConversationID, quote.ChatwootMessageID = 41, 11
+				if tc.quoteChange != nil {
+					tc.quoteChange(&quote)
+				}
+				repo.quotedLink = &quote
+			}
+			var searches, creates, conversationCreates int
+			var postConversations []int
+			var posts []chatwoot.CreateMessageRequest
 			transport := chatwootRoutingTestTransport(func(r *http.Request) (*http.Response, error) {
 				w := httptest.NewRecorder()
 				var body any
@@ -804,6 +834,9 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					if tc.exact {
 						contacts = append(contacts, chatwoot.Contact{ID: 9, Name: "Exact", PhoneNumber: phone})
 					}
+					if creates > 0 {
+						contacts = append(contacts, chatwoot.Contact{ID: 8, Name: "Created", PhoneNumber: phone})
+					}
 					body = map[string]any{"payload": contacts}
 				case "POST " + api + "/contacts":
 					creates++
@@ -813,12 +846,27 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					body = chatwoot.Contact{ID: 8}
 				case "GET " + api + "/contacts/8/conversations":
 					body = map[string]any{"payload": []any{}}
+					if conversationCreates > 0 {
+						body = map[string]any{"payload": []map[string]any{{"id": 80, "inbox_id": 2, "status": "open"}}}
+					}
 				case "GET " + api + "/contacts/9/conversations":
 					body = map[string]any{"payload": []map[string]any{{"id": 70, "inbox_id": 2, "status": "open"}}}
 				case "POST " + api + "/conversations":
+					conversationCreates++
 					body = map[string]any{"id": 80}
-				case fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.wantConversation):
-					posts++
+				case fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.wantConversation),
+					fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.rejectedConversation):
+					var conversationID int
+					_, err := fmt.Sscanf(r.URL.Path, api+"/conversations/%d/messages", &conversationID)
+					require.NoError(t, err)
+					var message chatwoot.CreateMessageRequest
+					require.NoError(t, json.NewDecoder(r.Body).Decode(&message))
+					postConversations = append(postConversations, conversationID)
+					posts = append(posts, message)
+					if conversationID == tc.rejectedConversation {
+						w.WriteHeader(tc.rejectStatus)
+						return w.Result(), nil
+					}
 					body = map[string]any{"id": 99}
 				default:
 					return nil, fmt.Errorf("unexpected Chatwoot request: %s %s", r.Method, r.URL)
@@ -837,16 +885,80 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					},
 				}, nil
 			}
-			payload := map[string]any{"payload": map[string]any{
+			data := map[string]any{
 				"id": "inbound-wa-id", "from": chatJID, "chat_id": chatJID, "body": "reply", "is_from_me": tc.fromMe,
-			}}
-			require.NoError(t, syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, deviceID, repo))
-			require.Equal(t, 1, searches)
+			}
+			if tc.quote {
+				data["replied_to_id"] = repo.quotedLink.WhatsAppMessageID
+				data["quoted_body"] = "agent text"
+			}
+			payload := map[string]any{"payload": data}
+			err := syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, deviceID, repo)
+			switch tc.rejectStatus {
+			case http.StatusNotFound:
+				require.NoError(t, err)
+				require.Equal(t, []int{tc.rejectedConversation, tc.wantConversation}, postConversations)
+				require.Equal(t, 2, searches)
+				require.Equal(t, "WAID:inbound-wa-id", posts[0].SourceID)
+				if tc.quote {
+					require.Equal(t, "WAID:older-agent-wa-id", posts[0].ContentAttributes["in_reply_to_external_id"])
+				}
+				switch {
+				case tc.rejectedConversation == 41:
+					require.Equal(t, "reply", posts[0].Content)
+					require.Equal(t, float64(11), posts[0].ContentAttributes["in_reply_to"])
+				case tc.quote:
+					require.NotContains(t, posts[0].ContentAttributes, "in_reply_to")
+					require.Equal(t, "> agent text\n\nreply", posts[0].Content)
+				default:
+					require.Equal(t, "reply", posts[0].Content)
+				}
+			case 0:
+				require.NoError(t, err)
+				require.Equal(t, []int{tc.wantConversation}, postConversations)
+				require.Equal(t, 1, searches)
+			default:
+				require.Error(t, err)
+				require.True(t, chatwoot.Retryable(err))
+				require.Equal(t, []int{tc.rejectedConversation}, postConversations)
+				require.Equal(t, 1, searches)
+				require.Zero(t, creates)
+				require.Nil(t, repo.storedLink)
+				require.Equal(t, tc.wantLookup, repo.lookupCalls)
+				return
+			}
 			require.Equal(t, tc.wantCreate, creates)
-			require.Equal(t, 1, posts)
 			require.Equal(t, tc.wantLookup, repo.lookupCalls)
 			require.NotNil(t, repo.storedLink)
 			require.Equal(t, tc.wantConversation, repo.storedLink.ChatwootConversationID)
+
+			message := posts[len(posts)-1]
+			require.Equal(t, "WAID:inbound-wa-id", message.SourceID)
+			if tc.quote {
+				require.Equal(t, "WAID:older-agent-wa-id", message.ContentAttributes["in_reply_to_external_id"])
+				if tc.wantConversation == 41 {
+					require.Equal(t, float64(11), message.ContentAttributes["in_reply_to"])
+					require.Equal(t, "reply", message.Content)
+				} else {
+					require.NotContains(t, message.ContentAttributes, "in_reply_to")
+					require.Equal(t, "> agent text\n\nreply", message.Content)
+				}
+			} else {
+				require.Equal(t, "reply", message.Content)
+			}
+			if tc.rejectStatus == http.StatusNotFound {
+				// The newly created exact contact keeps the next inbound message
+				// off the stale link without invalidating it in storage.
+				data["id"] = "next-wa-id"
+				delete(data, "replied_to_id")
+				delete(data, "quoted_body")
+				require.NoError(t, syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, deviceID, repo))
+				require.Equal(t, []int{tc.rejectedConversation, tc.wantConversation, tc.wantConversation}, postConversations)
+				require.Equal(t, 3, searches)
+				require.Equal(t, 1, creates)
+				require.Equal(t, 1, conversationCreates)
+				require.Equal(t, tc.wantLookup, repo.lookupCalls)
+			}
 		})
 	}
 }
