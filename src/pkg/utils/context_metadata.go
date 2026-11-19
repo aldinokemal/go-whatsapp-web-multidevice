@@ -16,9 +16,10 @@ func ExtractContextMetadata(msg *waE2E.Message) string {
 		return ""
 	}
 	metadata := struct {
-		RepliedToID string `json:"replied_to_id"`
-	}{RepliedToID: contextInfo.GetStanzaID()}
-	// A struct containing only a string is always JSON-marshalable.
+		RepliedToID     string `json:"replied_to_id"`
+		RepliedToSender string `json:"replied_to_sender,omitempty"`
+	}{RepliedToID: contextInfo.GetStanzaID(), RepliedToSender: contextInfo.GetParticipant()}
+	// A struct of strings is always JSON-marshalable.
 	encoded, _ := json.Marshal(metadata)
 	return string(encoded)
 }

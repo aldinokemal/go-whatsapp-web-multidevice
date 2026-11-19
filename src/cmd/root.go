@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +85,43 @@ func init() {
 	})
 }
 
+// loadFullHistoryConfig applies the full-history settings from the environment
+// unless the matching flag was passed, and rejects a limit below 1 instead of
+// falling back to the default.
+func loadFullHistoryConfig(cmd *cobra.Command) error {
+	flags := cmd.PersistentFlags()
+	if !flags.Changed("full-history-sync") && viper.IsSet("whatsapp_full_history_sync") {
+		config.WhatsappFullHistorySync = viper.GetBool("whatsapp_full_history_sync")
+	}
+	if raw := viper.GetString("whatsapp_full_history_days"); raw != "" && !flags.Changed("full-history-days") {
+		days, err := positiveUint32Setting("WHATSAPP_FULL_HISTORY_DAYS", raw)
+		if err != nil {
+			return err
+		}
+		config.WhatsappFullHistoryDays = days
+	}
+	if raw := viper.GetString("whatsapp_full_history_size_mb"); raw != "" {
+		size, err := positiveUint32Setting("WHATSAPP_FULL_HISTORY_SIZE_MB", raw)
+		if err != nil {
+			return err
+		}
+		config.WhatsappFullHistorySizeMB = size
+	}
+	if config.WhatsappFullHistoryDays == 0 {
+		return fmt.Errorf("--full-history-days must be at least 1")
+	}
+	return nil
+}
+
+// positiveUint32Setting parses a whole-number setting of at least 1.
+func positiveUint32Setting(name, raw string) (uint32, error) {
+	n, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 32)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
+	}
+	return uint32(n), nil
+}
+
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
 	// Key names stay visible; secret values and URL userinfo are masked.
@@ -100,6 +138,9 @@ func initEnvConfig() {
 	}
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
+	}
+	if err := loadFullHistoryConfig(rootCmd); err != nil {
+		logrus.Fatal(err)
 	}
 	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
 		credential := strings.Split(envBasicAuth, ",")
@@ -312,6 +353,9 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_forward_deletes") {
 		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
 	}
+	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" && !rootCmd.PersistentFlags().Changed("chatwoot-events") {
+		config.ChatwootEvents = splitCommaTrimmed(envChatwootEvents)
+	}
 	if viper.IsSet("chatwoot_message_read") {
 		config.ChatwootMessageRead = viper.GetBool("chatwoot_message_read")
 	}
@@ -344,6 +388,18 @@ func initFlags() {
 		"debug", "d",
 		config.AppDebug,
 		"hide or displaying log with --debug <true/false> | example: --debug=true",
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappFullHistorySync,
+		"full-history-sync", "",
+		config.WhatsappFullHistorySync,
+		`pair as Desktop and ask the phone for the FULL message history (new pairings only) --full-history-sync=<true|false> | example: --full-history-sync=true`,
+	)
+	rootCmd.PersistentFlags().Uint32VarP(
+		&config.WhatsappFullHistoryDays,
+		"full-history-days", "",
+		config.WhatsappFullHistoryDays,
+		`days of history requested when --full-history-sync is on | example: --full-history-days=3650`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppOs,
@@ -658,6 +714,12 @@ func initFlags() {
 		"chatwoot-forward-edits", "",
 		config.ChatwootForwardEdits,
 		`mirror WhatsApp message edits into the Chatwoot conversation as threaded notes --chatwoot-forward-edits <true/false> | example: --chatwoot-forward-edits=true`,
+	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootEvents,
+		"chatwoot-events", "",
+		config.ChatwootEvents,
+		`whitelist of events to forward to Chatwoot (empty = follow --webhook-events) --chatwoot-events <string> | example: --chatwoot-events="message"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootForwardDeletes,

@@ -256,8 +256,22 @@ func TestIsRetryableChatwootForwardEvent(t *testing.T) {
 }
 
 func TestIsEventWhitelistedForChatwoot(t *testing.T) {
-	originalEvents := config.WhatsappWebhookEvents
-	defer func() { config.WhatsappWebhookEvents = originalEvents }()
+	originalEvents, originalChatwootEvents := config.WhatsappWebhookEvents, config.ChatwootEvents
+	defer func() { config.WhatsappWebhookEvents, config.ChatwootEvents = originalEvents, originalChatwootEvents }()
+
+	t.Run("chatwoot events replace the webhook whitelist", func(t *testing.T) {
+		config.WhatsappWebhookEvents = []string{"device.logged_out"}
+		config.ChatwootEvents = []string{"message"}
+		if !isEventWhitelistedForChatwoot("message") || !isEventWhitelistedForChatwoot("message.reaction") {
+			t.Fatal("expected message and its sub-events to be allowed by CHATWOOT_EVENTS")
+		}
+		config.WhatsappWebhookEvents = nil
+		config.ChatwootEvents = []string{"message.ack"}
+		if isEventWhitelistedForChatwoot("message") {
+			t.Fatal("expected message to be blocked when CHATWOOT_EVENTS omits it")
+		}
+		config.ChatwootEvents = nil
+	})
 
 	t.Run("empty whitelist allows all", func(t *testing.T) {
 		config.WhatsappWebhookEvents = nil
@@ -622,6 +636,30 @@ func TestOneLineExcerpt(t *testing.T) {
 				t.Fatalf("oneLineExcerpt(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// A poll vote only updates the tally in WhatsApp, so it must not become its own
+// Chatwoot message (#948). It is skipped before the client lookup, so a lookup
+// failure cannot queue it for retry either.
+func TestSyncPayloadToChatwoot_SkipsPollVote(t *testing.T) {
+	orig := getChatwootClientFn
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		t.Error("Chatwoot client resolved for a poll vote")
+		return nil, errors.New("chat storage unavailable")
+	}
+	t.Cleanup(func() { getChatwootClientFn = orig })
+
+	payload := map[string]any{"payload": map[string]any{
+		"id":        "VOTE-ID-1",
+		"from":      "628123456789@s.whatsapp.net",
+		"chat_id":   "628123456789@s.whatsapp.net",
+		"from_name": "Alice",
+		"body":      "Poll vote: Saturday",
+		"poll":      map[string]any{"type": "vote"},
+	}}
+	if err := syncPayloadToChatwoot(context.Background(), payload, EventTypeMessage, "", nil); err != nil {
+		t.Fatalf("syncPayloadToChatwoot: %v", err)
 	}
 }
 

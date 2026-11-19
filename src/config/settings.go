@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	AppVersion             = "v9.9.0"
+	AppVersion             = "v9.10.0"
 	AppPort                = "3000"
 	AppHost                = "0.0.0.0"
 	AppDebug               = false
@@ -178,6 +178,10 @@ var (
 	// threaded notes referencing the original message.
 	ChatwootForwardEdits   = true
 	ChatwootForwardDeletes = true
+
+	// ChatwootEvents is the event whitelist for Chatwoot forwarding. Empty means
+	// Chatwoot follows WhatsappWebhookEvents.
+	ChatwootEvents []string
 
 	// Chatwoot Evolution-compatible state propagation. Read sync updates
 	// Chatwoot last-seen from WhatsApp receipts and marks WhatsApp messages read

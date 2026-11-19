@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +31,8 @@ type serviceUser struct {
 	validateJIDFn           func(client *whatsmeow.Client, phone string) (types.JID, error)
 	getProfilePictureInfoFn func(ctx context.Context, client *whatsmeow.Client, jid types.JID, params *whatsmeow.GetProfilePictureParams) (*types.ProfilePictureInfo, error)
 }
+
+var _ domainUser.IUserContactsDetailed = (*serviceUser)(nil)
 
 func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
 	return &serviceUser{
@@ -349,6 +353,86 @@ func (service serviceUser) MyListContacts(ctx context.Context) (response domainU
 	}
 
 	return response, nil
+}
+
+// MyListContactsDetailed lists the person contacts of the device carried by ctx
+// with every contact-store name in its own field.
+func (service serviceUser) MyListContactsDetailed(ctx context.Context) (response domainUser.MyListContactsDetailedResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	response.Data, err = buildDetailedContacts(ctx, client.Store.Contacts, client.Store.LIDs)
+	return response, err
+}
+
+// contactLister and pnLIDMapper are the parts of whatsmeow's store.ContactStore
+// and store.LIDStore that buildDetailedContacts reads.
+type contactLister interface {
+	GetAllContacts(ctx context.Context) (map[types.JID]types.ContactInfo, error)
+}
+
+type pnLIDMapper interface {
+	GetLIDForPN(ctx context.Context, pn types.JID) (types.JID, error)
+}
+
+// buildDetailedContacts returns one row per person contact, sorted by JID:
+//   - keys on servers other than s.whatsapp.net and lid (groups, broadcast
+//     lists, newsletters, bots) are skipped, and so are bot JIDs on
+//     s.whatsapp.net such as Meta AI;
+//   - jid is the store key without device part; a phone number is never
+//     derived from a LID;
+//   - lid is set only for a phone-number key the LID store maps; a lookup
+//     error leaves it empty;
+//   - each name is kept verbatim unless blank, without precedence or merging;
+//   - keys that differ only in the device part give one row: the key without
+//     device part wins, otherwise the lowest device, so the output does not
+//     depend on map iteration order.
+//
+// A contact store error is returned instead of an empty list.
+func buildDetailedContacts(ctx context.Context, contacts contactLister, lids pnLIDMapper) ([]domainUser.MyListContactsDetailedData, error) {
+	all, err := contacts.GetAllContacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chosen := make(map[types.JID]types.JID, len(all))
+	for key := range all {
+		jid := key.ToNonAD()
+		if (jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer) || jid.IsBot() {
+			continue
+		}
+		if current, ok := chosen[jid]; !ok || key.Device < current.Device {
+			chosen[jid] = key
+		}
+	}
+	rows := make([]domainUser.MyListContactsDetailedData, 0, len(chosen))
+	for jid, key := range chosen {
+		info := all[key]
+		row := domainUser.MyListContactsDetailedData{
+			JID:          jid.String(),
+			FullName:     nonBlank(info.FullName),
+			FirstName:    nonBlank(info.FirstName),
+			PushName:     nonBlank(info.PushName),
+			BusinessName: nonBlank(info.BusinessName),
+		}
+		if jid.Server == types.DefaultUserServer && lids != nil {
+			if lid, lookupErr := lids.GetLIDForPN(ctx, jid); lookupErr == nil && !lid.IsEmpty() {
+				row.LID = lid.ToNonAD().String()
+			}
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].JID < rows[j].JID })
+	return rows, nil
+}
+
+func nonBlank(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return value
 }
 
 func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {

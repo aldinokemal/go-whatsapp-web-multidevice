@@ -27,7 +27,7 @@ Before setting up the integration, ensure you have:
 |----------|----------|---------|----------|
 | `CHATWOOT_ENABLED` | Yes | `false` | Master switch. When `true`, the app registers the public `POST /chatwoot/webhook` route before basic auth, starts the Chatwoot live-forward retry worker, registers the authenticated `/chatwoot/sync` routes, and forwards WhatsApp messages to Chatwoot. If `false`, Chatwoot webhooks fall through to normal auth/routing and agent replies will not work. |
 | `CHATWOOT_URL` | Yes | - | Base URL of the Chatwoot instance, without a trailing slash, for REST API calls. Example: `https://chatwoot.example.com`. |
-| `CHATWOOT_API_TOKEN` | Yes | - | Chatwoot user API access token. The token is sent as `api_access_token` to create contacts, conversations, messages, inboxes, and attachments. Direct DB import also uses this token to resolve the Chatwoot user that should own imported outgoing messages. |
+| `CHATWOOT_API_TOKEN` | Yes | - | Chatwoot user API access token. The token is sent as the `api-access-token` header (Rails treats it the same as `api_access_token`; the hyphenated name is used because nginx discards request headers containing underscores unless `underscores_in_headers on` is set) to create contacts, conversations, messages, inboxes, and attachments. Direct DB import also uses this token to resolve the Chatwoot user that should own imported outgoing messages. |
 | `CHATWOOT_ACCOUNT_ID` | Yes | - | Numeric Chatwoot account ID. This is the number in `/app/accounts/<id>/...`, not an inbox identifier, hmac token, or random API-channel string. |
 | `CHATWOOT_INBOX_ID` | Yes\* | - | Numeric Chatwoot inbox ID for the API-channel inbox. Optional only when `CHATWOOT_AUTO_CREATE=true`, because startup can resolve it automatically. If set, it always wins and auto-provisioning is skipped. |
 | `CHATWOOT_DEVICE_ID` | Multi-device | - | WhatsApp device that should send Chatwoot agent replies. Use either the local device ID or the device JID. Required when more than one device is registered. If empty and exactly one device exists, that device is used automatically. |
@@ -48,6 +48,7 @@ Before setting up the integration, ensure you have:
 | `CHATWOOT_SIGN_DELIMITER` | No | `\n\n` | Delimiter inserted between the agent signature and reply body. Literal `\n` sequences are expanded to real newlines. |
 | `CHATWOOT_FORWARD_EDITS` | No | `true` | Mirror WhatsApp message edits into Chatwoot as private/threaded notes attached to the original message. |
 | `CHATWOOT_FORWARD_DELETES` | No | `true` | Mirror WhatsApp delete-for-everyone events into Chatwoot as private/threaded notes attached to the original message. |
+| `CHATWOOT_EVENTS` | No | - | Comma-separated events forwarded to Chatwoot, for example `message`. When unset, Chatwoot follows `WHATSAPP_WEBHOOK_EVENTS`, so a webhook limited to device events also stops messages reaching Chatwoot. `message` also lets its reactions, receipts, edits and deletes through. GOWA logs a warning at startup when `message` is filtered out. |
 | `CHATWOOT_MESSAGE_READ` | No | `false` | Evolution-compatible read sync. Updates Chatwoot last-seen from WhatsApp receipts and marks WhatsApp messages read after agent replies when durable message links exist. |
 | `CHATWOOT_MESSAGE_DELETE` | No | `false` | Evolution-compatible delete sync. Deletes/revokes the linked message on the opposite side when durable message links exist. Inbound customer messages are not revoked from WhatsApp because this device did not send them. |
 | `CHATWOOT_REVOKE_ON_DELETE` | No | `false` | The Chatwoot-to-WhatsApp half of `CHATWOOT_MESSAGE_DELETE` alone: a message deleted in Chatwoot is revoked on WhatsApp, and nothing deleted on WhatsApp is deleted in Chatwoot. |
@@ -562,6 +563,8 @@ Set it to `false` and the two paths intentionally differ. The REST path opens a 
 
 With `CHATWOOT_CONVERSATION_PENDING=true`, newly-created conversations land in `pending` (the unassigned queue) instead of `open` on both paths.
 
+History sync only touches a conversation when it has a message to add, so a restart does not reopen threads that agents resolved. The REST path reopens a resolved conversation before posting into it; if that fails, the chat is skipped and retried on the next sync. The direct-DB importer reopens it in the same transaction, once a message is written.
+
 ### Agent signature
 
 With `CHATWOOT_SIGN_MSG=true`, replies sent from Chatwoot are prefixed with the sending agent's name before delivery to WhatsApp, e.g. `*Jane*` followed by the body. The separator is `CHATWOOT_SIGN_DELIMITER` (default two newlines; a literal `\n` is expanded to a real newline).
@@ -657,6 +660,7 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Stickers | ✅ | Displayed as image attachments |
 | Location | ✅ | Shown as text with coordinates |
 | Contacts | ✅ | vCard information preserved |
+| Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
 **Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
 
