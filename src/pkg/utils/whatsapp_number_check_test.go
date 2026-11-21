@@ -78,6 +78,13 @@ func TestResolveOnWhatsapp(t *testing.T) {
 			want:   typed, wantOn: true, wantFallback: true,
 		},
 		{
+			// whatsmeow sends the JID without its device and keys the result the same way.
+			name:   "a device suffix is dropped",
+			jid:    types.JID{User: "5573912345678", Device: 7, Server: types.DefaultUserServer},
+			lookup: &fakeWhatsappLookup{userInfo: map[types.JID]types.UserInfo{typed: {LID: lid}}},
+			want:   typed, wantOn: true, wantFallback: true,
+		},
+		{
 			name:    "a failed lookup is an error, not a negative",
 			jid:     typed,
 			lookup:  &fakeWhatsappLookup{numberErr: errors.New("timed out")},

@@ -1167,6 +1167,7 @@ func ResolveOnWhatsapp(lookup whatsappLookup, jid types.JID) (types.JID, bool, e
 	if jid.Server != types.DefaultUserServer {
 		return jid, true, nil
 	}
+	jid = jid.ToNonAD()                          // a device is not a recipient, and lookups key on the bare JID
 	jid.User = strings.TrimPrefix(jid.User, "+") // group participants arrive as typed, E.164 included
 	if jid.User == "" {
 		return jid, false, nil
