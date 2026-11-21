@@ -593,6 +593,8 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 		return c.SendStatus(fiber.StatusOK)
 	}
 
+	// Use the account's phone JID for both delivery and inbound link lookups.
+	destination = utils.CanonicalUserJID(instance.GetClient(), destination)
 	linkChatJID := chatwootLinkChatJID(destination)
 
 	// Resolve the WhatsApp send target. Groups (@g.us) and privacy-masked (@lid)

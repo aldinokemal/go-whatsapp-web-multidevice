@@ -82,6 +82,8 @@ type IChatStorageRepository interface {
 	// Legacy config-id 0 rows are used only when they are the only matches.
 	GetLatestChatwootMessageLinkByConversation(conversationID, accountID int, allowLegacyZero bool, configID int64) (*ChatwootMessageLink, error)
 	GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*ChatwootMessageLink, error)
+	// GetLatestOutgoingChatwootMessageLinkByChat finds a delivered agent reply in the exact scope.
+	GetLatestOutgoingChatwootMessageLinkByChat(deviceID, waChatJID string, configID int64, accountID, inboxID int) (*ChatwootMessageLink, error)
 	CountChatwootMessageLinksByConfig(configID int64) (int, error)
 	// DeleteChatwootMessageLinksByConfig removes every link written under a
 	// device config. Called when the config is deleted so stale links cannot
