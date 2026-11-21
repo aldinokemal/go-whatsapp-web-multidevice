@@ -27,6 +27,10 @@ var (
 	AppBasePath           = ""
 	AppTrustedProxies     []string // Trusted proxy IP ranges (e.g., "0.0.0.0/0" for all, or specific CIDRs)
 	AppCORSAllowedOrigins []string // CORS allowed origins; empty means "*" (any origin)
+	// AppTimezone is the IANA zone for chat, message and newsletter timestamps in
+	// REST and MCP responses. Storage and webhooks stay in UTC.
+	AppTimezone = "UTC"
+	AppLocation = time.UTC // AppTimezone, resolved at startup
 
 	// Web UI (gowa-ui) runtime download settings. The dashboard is a separate
 	// project released as a single HTML file; gowa fetches the latest release
