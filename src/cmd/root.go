@@ -121,8 +121,9 @@ func loadTimezoneConfig(cmd *cobra.Command) error {
 	}
 	name := strings.TrimSpace(config.AppTimezone)
 	location, err := time.LoadLocation(name)
-	// "Local" would silently resolve to UTC, because init pins time.Local to UTC.
-	if err != nil || name == "Local" {
+	// "" and "Local" would silently resolve to UTC (init pins time.Local to UTC).
+	// Unset stays "UTC", the default, so only an explicitly blank value is rejected.
+	if err != nil || name == "" || name == "Local" {
 		return fmt.Errorf("invalid timezone %q (APP_TIMEZONE or --timezone): use an IANA name such as Europe/Paris", config.AppTimezone)
 	}
 	config.AppLocation = location
