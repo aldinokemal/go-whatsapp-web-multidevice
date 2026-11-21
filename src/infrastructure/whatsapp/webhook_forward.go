@@ -165,7 +165,7 @@ func getContactMutex(phone string) *sync.Mutex {
 // successful targets still receive the event.
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
-	webhookConfig, err := webhookConfigForPayload(ctx, payload)
+	record, err := resolveWebhookDeviceRecord(ctx, payload)
 	if errors.Is(err, errAmbiguousWebhookDevice) {
 		// Sibling companion slots share the bare account JID. Delivering with the
 		// global policy would replace the originating slot's event filter.
@@ -176,16 +176,25 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
-		webhookConfig = nil
+		record = nil
 	}
-	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, webhookConfig)
+	ignoreGroups := deviceIgnoreGroupsOverride(record)
+	if err != nil {
+		// A failed lookup hides the slot's webhook_ignore_groups, including an explicit
+		// true, so group events fail closed; other events keep the global fallback above.
+		// A device with no record has no override and follows the global list.
+		failClosed := true
+		ignoreGroups = &failClosed
+	}
+	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, webhookConfigFromRecord(record), ignoreGroups)
 }
 
 // forwardPayloadWithWebhookConfig is forwardPayloadToConfiguredWebhooks with the device's
 // webhook config already resolved, for callers that must look it up before the device
-// record changes.
-func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any, eventName string, webhookConfig *domainChatStorage.DeviceWebhookConfig) error {
-	jidAllowed := !shouldIgnoreWebhookJID(payload)
+// record changes. ignoreGroups is the device's webhook_ignore_groups override (nil
+// follows WHATSAPP_WEBHOOK_IGNORE_JIDS).
+func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any, eventName string, webhookConfig *domainChatStorage.DeviceWebhookConfig, ignoreGroups *bool) error {
+	jidAllowed := !shouldIgnoreWebhookJID(payload, ignoreGroups)
 	webhookAllowed := jidAllowed && isEventWhitelistedForDevice(eventName, webhookConfig)
 	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
@@ -293,13 +302,15 @@ func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, 
 // than one companion slot and the originating slot could not be selected.
 var errAmbiguousWebhookDevice = errors.New("webhook device identity is ambiguous across companion slots")
 
-// webhookConfigForPayload selects webhook policy for the originating device
+// resolveWebhookDeviceRecord selects the registration of the originating device
 // slot. payload["device_id"] stays the public account JID; policy uses the
 // companion AD JID from the device context when that slot is known. A bare
 // account JID that matches several in-memory slots does not fall back to the
-// global filter.
-func webhookConfigForPayload(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceWebhookConfig, error) {
+// global filter, and a record found by the bare JID is used only when it
+// belongs to the emitting slot.
+func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceRecord, error) {
 	payloadID, _ := payload["device_id"].(string)
+	emittingSlot := ""
 	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
 		ad := strings.TrimSpace(inst.ADJID())
 		if ad != "" && ad != payloadID {
@@ -308,8 +319,9 @@ func webhookConfigForPayload(ctx context.Context, payload map[string]any) (*doma
 				return nil, err
 			}
 			if rec != nil {
-				return webhookConfigFromRecord(rec), nil
+				return rec, nil
 			}
+			emittingSlot = inst.ID()
 			bare := inst.JID()
 			if bare == "" {
 				bare = payloadID
@@ -322,7 +334,19 @@ func webhookConfigForPayload(ctx context.Context, payload map[string]any) (*doma
 	if siblingCompanionCount(payloadID) > 1 {
 		return nil, errAmbiguousWebhookDevice
 	}
-	return getWebhookConfigForDevice(payloadID)
+	if payloadID == "" {
+		return nil, nil
+	}
+	record, err := getDeviceRecordForTest(payloadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device record: %w", err)
+	}
+	if record != nil && emittingSlot != "" && record.DeviceID != emittingSlot {
+		// The emitting slot's own row is missing and the bare number matched a
+		// sibling slot's row; its URL, secret and filters must not apply here.
+		return nil, errAmbiguousWebhookDevice
+	}
+	return record, nil
 }
 
 // siblingCompanionCount reports how many registered slots share a bare account
@@ -355,22 +379,18 @@ func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChat
 		WebhookSecret:             record.WebhookSecret,
 		WebhookEvents:             record.WebhookEvents,
 		WebhookInsecureSkipVerify: record.WebhookInsecureSkipVerify,
+		WebhookIgnoreGroups:       record.WebhookIgnoreGroups,
 	}
 }
 
-// getWebhookConfigForDevice returns the webhook configuration to use for a given device.
-// If the device has a custom webhook config, it returns that config.
-// Otherwise, it returns nil (caller should use global config).
-func getWebhookConfigForDevice(deviceJID string) (*domainChatStorage.DeviceWebhookConfig, error) {
-	if deviceJID == "" {
-		return nil, nil
+// deviceIgnoreGroupsOverride returns the per-device override for ignoring group messages
+// in webhook forwarding (webhook_ignore_groups), or nil when the device has never set it
+// -- the caller falls back to the global "@g.us" wildcard.
+func deviceIgnoreGroupsOverride(record *domainChatStorage.DeviceRecord) *bool {
+	if record == nil {
+		return nil
 	}
-
-	record, err := getDeviceRecordForTest(deviceJID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device record: %w", err)
-	}
-	return webhookConfigFromRecord(record), nil
+	return record.WebhookIgnoreGroups
 }
 
 // getWebhookURLsFromConfig extracts webhook URLs from the config.
@@ -422,9 +442,14 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 // empty, the inner payload is absent, or no JID matches — so events without a JID and the
 // default (no list configured) keep forwarding unchanged. This only gates the generic
 // webhook; the Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
-func shouldIgnoreWebhookJID(payload map[string]any) bool {
+//
+// ignoreGroups is the device's webhook_ignore_groups override. When set it replaces the
+// "@g.us" wildcard for group JIDs only: true drops every group, false neutralizes the
+// wildcard but a group listed by its exact JID stays ignored. Non-group JIDs always use
+// the global list.
+func shouldIgnoreWebhookJID(payload map[string]any, ignoreGroups *bool) bool {
 	ignore := config.WhatsappWebhookIgnoreJids
-	if len(ignore) == 0 {
+	if len(ignore) == 0 && ignoreGroups == nil {
 		return false
 	}
 	data, ok := payload["payload"].(map[string]any)
@@ -432,7 +457,14 @@ func shouldIgnoreWebhookJID(payload map[string]any) bool {
 		return false
 	}
 	for _, key := range payloadIdentityKeys {
-		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, ignore) {
+		jid, _ := data[key].(string)
+		if ignoreGroups != nil && strings.HasSuffix(jid, "@g.us") {
+			if *ignoreGroups || utils.MatchesExactIgnoredJID(jid, ignore) {
+				return true
+			}
+			continue
+		}
+		if utils.MatchesIgnoredJID(jid, ignore) {
 			return true
 		}
 	}

@@ -116,6 +116,11 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 - An `@`-prefixed entry is an address-space **wildcard** (`@g.us`, `@s.whatsapp.net`, `@lid`); any other
   entry is an **exact** JID match.
 - Empty/unset (default) forwards everything.
+- Per-device override: `PATCH /devices/{device_id}/webhook` accepts `webhook_ignore_groups`, which
+  replaces the global `@g.us` wildcard for that device only (`true` mutes its groups, `false` keeps
+  them even when `@g.us` is globally ignored). Omit the key to leave the stored value alone, or send
+  `null` to drop the override and follow the global list again. Exact group JIDs in the global list
+  are still honoured regardless of the override.
 - Independent from the Chatwoot integration, which keeps its own `CHATWOOT_IGNORE_JIDS`.
 - `WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL=true` (`--webhook-device-merge-global`) changes what a per-device
   `webhook_url` means: instead of replacing the global `WHATSAPP_WEBHOOK` targets it is added to them. The

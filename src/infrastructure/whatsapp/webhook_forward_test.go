@@ -118,7 +118,7 @@ func TestForwardPayloadWithWebhookConfig_ChatwootNotBlockedByWebhook(t *testing.
 	}
 
 	payload := map[string]any{"event": "message", "payload": map[string]any{"id": "MSG1"}}
-	if err := forwardPayloadWithWebhookConfig(context.Background(), payload, "message", nil); err != nil {
+	if err := forwardPayloadWithWebhookConfig(context.Background(), payload, "message", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -393,12 +393,22 @@ func TestExtractStructuredMessageContentWithContactsArrayPayload(t *testing.T) {
 	}
 }
 
-func TestGetWebhookConfigForDevice_NoDeviceID(t *testing.T) {
+// resolveWebhookConfigForJID runs the production lookup path the forwarder uses per event
+// for a payload that carries nothing but device_id.
+func resolveWebhookConfigForJID(deviceJID string) (*chatstorage.DeviceWebhookConfig, error) {
+	record, err := resolveWebhookDeviceRecord(context.Background(), map[string]any{"device_id": deviceJID})
+	if err != nil {
+		return nil, err
+	}
+	return webhookConfigFromRecord(record), nil
+}
+
+func TestResolveWebhookConfigForJID_NoDeviceID(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
 
-	config, err := getWebhookConfigForDevice("")
+	config, err := resolveWebhookConfigForJID("")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -407,7 +417,7 @@ func TestGetWebhookConfigForDevice_NoDeviceID(t *testing.T) {
 	}
 }
 
-func TestGetWebhookConfigForDevice_DeviceNotFound(t *testing.T) {
+func TestResolveWebhookConfigForJID_DeviceNotFound(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
@@ -418,7 +428,7 @@ func TestGetWebhookConfigForDevice_DeviceNotFound(t *testing.T) {
 	}
 	defer func() { webhookStorageForTest = originalStorageForTest }()
 
-	config, err := getWebhookConfigForDevice("unknown-device-jid@s.whatsapp.net")
+	config, err := resolveWebhookConfigForJID("unknown-device-jid@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -427,7 +437,7 @@ func TestGetWebhookConfigForDevice_DeviceNotFound(t *testing.T) {
 	}
 }
 
-func TestGetWebhookConfigForDevice_FallbackToGlobal(t *testing.T) {
+func TestResolveWebhookConfigForJID_FallbackToGlobal(t *testing.T) {
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
 	defer func() { config.WhatsappWebhook = originalWebhooks }()
@@ -442,7 +452,7 @@ func TestGetWebhookConfigForDevice_FallbackToGlobal(t *testing.T) {
 	}
 	defer func() { webhookStorageForTest = originalStorageForTest }()
 
-	config, err := getWebhookConfigForDevice("6289600000000@s.whatsapp.net")
+	config, err := resolveWebhookConfigForJID("6289600000000@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -451,7 +461,7 @@ func TestGetWebhookConfigForDevice_FallbackToGlobal(t *testing.T) {
 	}
 }
 
-func TestGetWebhookConfigForDevice_DeviceSpecificOverride(t *testing.T) {
+func TestResolveWebhookConfigForJID_DeviceSpecificOverride(t *testing.T) {
 	deviceWebhookURL := "https://device-specific-webhook.com"
 	originalWebhooks := config.WhatsappWebhook
 	config.WhatsappWebhook = []string{"https://global-webhook.com"}
@@ -466,7 +476,7 @@ func TestGetWebhookConfigForDevice_DeviceSpecificOverride(t *testing.T) {
 	}
 	defer func() { webhookStorageForTest = originalStorageForTest }()
 
-	config, err := getWebhookConfigForDevice("6289600000000@s.whatsapp.net")
+	config, err := resolveWebhookConfigForJID("6289600000000@s.whatsapp.net")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

@@ -126,7 +126,7 @@ func forwardDeviceEvent(ctx context.Context, eventName string, instance *DeviceI
 	go func() {
 		webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if err := forwardPayloadWithWebhookConfig(webhookCtx, body, eventName, webhookConfig); err != nil {
+		if err := forwardPayloadWithWebhookConfig(webhookCtx, body, eventName, webhookConfig, nil); err != nil {
 			logrus.Errorf("Failed to forward %s event to webhook: %v", eventName, err)
 		}
 	}()

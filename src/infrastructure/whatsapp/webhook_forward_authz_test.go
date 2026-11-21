@@ -754,7 +754,7 @@ func TestPayloadExclusionWildcardsApplyToDeliveredAddress(t *testing.T) {
 
 	config.WhatsappWebhookIgnoreJids = []string{"628555@s.whatsapp.net"}
 	receipt := map[string]any{"payload": map[string]any{"chat_id": "222@lid", "from": "222@lid", "sender_alt": "628555@s.whatsapp.net"}}
-	if !shouldIgnoreWebhookJID(receipt) {
+	if !shouldIgnoreWebhookJID(receipt, nil) {
 		t.Error("the webhook ignore list did not match sender_alt")
 	}
 }
