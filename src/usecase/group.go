@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -313,7 +314,10 @@ func (service serviceGroup) participantToJID(ctx context.Context, participants [
 		if !onWhatsapp {
 			return nil, pkgError.ErrUserNotRegistered
 		}
-		participantsJID = append(participantsJID, participantJID)
+		// Two spellings of one number resolve to the same JID.
+		if !slices.Contains(participantsJID, participantJID) {
+			participantsJID = append(participantsJID, participantJID)
+		}
 	}
 	return participantsJID, nil
 }

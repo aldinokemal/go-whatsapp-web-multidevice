@@ -15,7 +15,7 @@ type fakeWhatsappLookup struct {
 	numberErr     error
 	userInfo      map[types.JID]types.UserInfo
 	userInfoErr   error
-	userInfoCalls int
+	userInfoJIDs  []types.JID
 }
 
 func (f *fakeWhatsappLookup) IsOnWhatsApp(_ context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
@@ -23,8 +23,8 @@ func (f *fakeWhatsappLookup) IsOnWhatsApp(_ context.Context, phones []string) ([
 	return f.numberResults, f.numberErr
 }
 
-func (f *fakeWhatsappLookup) GetUserInfo(_ context.Context, _ []types.JID) (map[types.JID]types.UserInfo, error) {
-	f.userInfoCalls++
+func (f *fakeWhatsappLookup) GetUserInfo(_ context.Context, jids []types.JID) (map[types.JID]types.UserInfo, error) {
+	f.userInfoJIDs = jids
 	return f.userInfo, f.userInfoErr
 }
 
@@ -56,6 +56,13 @@ func TestResolveOnWhatsapp(t *testing.T) {
 			jid:    typed,
 			lookup: &fakeWhatsappLookup{userInfo: map[types.JID]types.UserInfo{typed: {LID: lid}}},
 			want:   typed, wantOn: true, wantFallback: true,
+		},
+		{
+			// A match without a phone JID says nothing about the typed spelling.
+			name:   "a match without a phone JID is checked like a send",
+			jid:    typed,
+			lookup: &fakeWhatsappLookup{numberResults: []types.IsOnWhatsAppResponse{{IsIn: true, JID: lid}}, userInfo: map[types.JID]types.UserInfo{typed: {}}},
+			want:   typed, wantOn: false, wantFallback: true,
 		},
 		{
 			name:   "not on WhatsApp",
@@ -103,11 +110,17 @@ func TestResolveOnWhatsapp(t *testing.T) {
 			if got != tc.want || on != tc.wantOn {
 				t.Errorf("ResolveOnWhatsapp() = %v, %v; want %v, %v", got, on, tc.want, tc.wantOn)
 			}
-			if fellBack := tc.lookup.userInfoCalls > 0; fellBack != tc.wantFallback {
-				t.Errorf("JID lookup called = %v, want %v", fellBack, tc.wantFallback)
+			if tc.wantFallback && (len(tc.lookup.userInfoJIDs) != 1 || tc.lookup.userInfoJIDs[0] != tc.want) {
+				t.Errorf("JID lookup got %v, want [%v]", tc.lookup.userInfoJIDs, tc.want)
+			} else if !tc.wantFallback && tc.lookup.userInfoJIDs != nil {
+				t.Errorf("JID lookup got %v, want no call", tc.lookup.userInfoJIDs)
 			}
 			wantPhone := "+" + strings.TrimPrefix(tc.jid.User, "+")
-			if tc.jid.Server == types.DefaultUserServer && (len(tc.lookup.phones) != 1 || tc.lookup.phones[0] != wantPhone) {
+			if tc.jid.Server != types.DefaultUserServer {
+				if tc.lookup.phones != nil {
+					t.Errorf("phone-number lookup got %q, want no call", tc.lookup.phones)
+				}
+			} else if len(tc.lookup.phones) != 1 || tc.lookup.phones[0] != wantPhone {
 				t.Errorf("phone-number lookup got %q, want [%s]", tc.lookup.phones, wantPhone)
 			}
 		})

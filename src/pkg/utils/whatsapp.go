@@ -1191,7 +1191,6 @@ func ResolveOnWhatsapp(lookup whatsappLookup, jid types.JID) (types.JID, bool, e
 		if result.JID.Server == types.DefaultUserServer {
 			return result.JID.ToNonAD(), true, nil
 		}
-		return jid, true, nil
 	}
 
 	// The phone-number lookup misses some valid numbers (short Indonesian ones).

@@ -610,7 +610,7 @@ func TestForwardDurationOptionExplicitZero(t *testing.T) {
 	got := forwardDurationOption(context.Background(), serviceSend{}, domainSend.ForwardRequest{
 		Phone:    "628123456789@s.whatsapp.net",
 		Duration: &zero,
-	})
+	}, types.NewJID("628123456789", types.DefaultUserServer))
 	if got == nil || *got != 0 {
 		t.Fatalf("expected explicit duration 0 to be honored, got %v", got)
 	}
