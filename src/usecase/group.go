@@ -301,15 +301,19 @@ func (service serviceGroup) participantToJID(ctx context.Context, participants [
 
 	var participantsJID []types.JID
 	for _, participant := range participants {
-		formattedParticipant := participant + config.WhatsappTypeUser
-
-		if !utils.IsOnWhatsapp(client, formattedParticipant) {
+		participantJID, err := types.ParseJID(participant + config.WhatsappTypeUser)
+		if err != nil {
 			return nil, pkgError.ErrUserNotRegistered
 		}
 
-		if participantJID, err := types.ParseJID(formattedParticipant); err == nil {
-			participantsJID = append(participantsJID, participantJID)
+		participantJID, onWhatsapp, err := utils.ResolveOnWhatsapp(client, participantJID)
+		if err != nil {
+			return nil, err
 		}
+		if !onWhatsapp {
+			return nil, pkgError.ErrUserNotRegistered
+		}
+		participantsJID = append(participantsJID, participantJID)
 	}
 	return participantsJID, nil
 }

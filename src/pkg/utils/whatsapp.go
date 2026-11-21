@@ -1155,48 +1155,51 @@ func SanitizePhone(phone *string) {
 	}
 }
 
-// IsOnWhatsapp checks if a number is registered on WhatsApp
-func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
-	// only check if the jid is a user with @s.whatsapp.net
-	if strings.Contains(jid, "@s.whatsapp.net") {
-		// Extract phone number from JID and add + prefix for international format
-		phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
-		if phone == "" {
-			return false
-		}
+// whatsappLookup is the part of *whatsmeow.Client that ResolveOnWhatsapp uses.
+type whatsappLookup interface {
+	IsOnWhatsApp(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error)
+	GetUserInfo(ctx context.Context, jids []types.JID) (map[types.JID]types.UserInfo, error)
+}
 
-		// whatsmeow expects international format with + prefix
-		if !strings.HasPrefix(phone, "+") {
-			phone = "+" + phone
-		}
-
-		// Add timeout to prevent indefinite blocking
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		data, err := client.IsOnWhatsApp(ctx, []string{phone})
-		if err != nil {
-			logrus.Error("Failed to check if user is on whatsapp: ", err)
-			return false
-		}
-
-		// Empty response means number not found/invalid
-		if len(data) == 0 {
-			return false
-		}
-
-		// Check if any result indicates the number is NOT on WhatsApp
-		for _, v := range data {
-			if !v.IsIn {
-				return false
-			}
-		}
-
-		return true
+// ResolveOnWhatsapp reports whether a phone JID is on WhatsApp and returns the JID
+// to message. Other JIDs (groups, newsletters, LIDs) are returned unchecked.
+func ResolveOnWhatsapp(lookup whatsappLookup, jid types.JID) (types.JID, bool, error) {
+	if jid.Server != types.DefaultUserServer {
+		return jid, true, nil
+	}
+	if jid.User == "" {
+		return jid, false, nil
 	}
 
-	// For non-user JIDs (groups, newsletters), skip validation
-	return true
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// WhatsApp matches a phone number the way a phone book does, so it can answer with
+	// the spelling the account registered (Brazil's ninth digit, Mexico's 521 vs 52).
+	results, err := lookup.IsOnWhatsApp(ctx, []string{"+" + jid.User})
+	if err != nil {
+		return jid, false, fmt.Errorf("failed to check %s on WhatsApp: %w", jid.User, err)
+	}
+	for _, result := range results {
+		if !result.IsIn {
+			continue
+		}
+		if result.PhoneNumber.Server == types.DefaultUserServer {
+			return result.PhoneNumber.ToNonAD(), true, nil
+		}
+		if result.JID.Server == types.DefaultUserServer {
+			return result.JID.ToNonAD(), true, nil
+		}
+		return jid, true, nil
+	}
+
+	// The phone-number lookup misses some valid numbers (short Indonesian ones).
+	// Sending looks the JID up directly, so ask the same way before rejecting it.
+	info, err := lookup.GetUserInfo(ctx, []types.JID{jid})
+	if err != nil {
+		return jid, false, fmt.Errorf("failed to check %s on WhatsApp: %w", jid.User, err)
+	}
+	return jid, !info[jid].LID.IsEmpty(), nil
 }
 
 // ValidateJidWithLogin validates JID with login check
@@ -1218,8 +1221,15 @@ func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, erro
 		return parsedJID, nil
 	}
 
-	if config.WhatsappAccountValidation && !IsOnWhatsapp(client, jid) {
-		return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
+	if config.WhatsappAccountValidation {
+		resolved, onWhatsapp, err := ResolveOnWhatsapp(client, parsedJID)
+		if err != nil {
+			return types.JID{}, err
+		}
+		if !onWhatsapp {
+			return types.JID{}, pkgError.InvalidJID(fmt.Sprintf("Phone %s is not on whatsapp", jid))
+		}
+		parsedJID = resolved
 	}
 
 	return parsedJID, nil
