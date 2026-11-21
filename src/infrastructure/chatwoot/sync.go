@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -357,7 +356,7 @@ func (s *SyncService) syncChat(
 
 		err := s.syncMessage(ctx, conversation.ID, msg, waClient, opts, isGroup)
 		if err != nil {
-			logrus.Warnf("Chatwoot Sync: Failed to sync message %s: %v", msg.ID, err)
+			logrus.Warnf("Chatwoot Sync: Failed to sync message %s: %v", msg.ID, utils.MediaErrorForLog(err))
 			progress.IncrementFailedMessages()
 			// Continue with other messages
 		} else {
@@ -485,7 +484,7 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 	}
 
 	var contact *Contact
-	err := retrySyncOp(ctx, 3, func() error {
+	err := retrySyncOp(ctx, 3, "", func() error {
 		var createErr error
 		contact, createErr = s.client.FindOrCreateContact(contactName, chat.JID, isGroup)
 		return createErr
@@ -495,7 +494,7 @@ func (s *SyncService) findOrCreateHistoryConversation(ctx context.Context, chat 
 	}
 
 	var conversation *Conversation
-	err = retrySyncOp(ctx, 3, func() error {
+	err = retrySyncOp(ctx, 3, "", func() error {
 		var createErr error
 		conversation, createErr = s.client.FindOrCreateConversation(contact.ID, chat.JID)
 		return createErr
@@ -582,7 +581,7 @@ func (s *SyncService) syncHybridMediaMessagesREST(
 			return
 		}
 		if err := s.syncMessageWithOptions(ctx, conversationID, msg, waClient, opts, isGroup, true); err != nil {
-			logrus.Warnf("Chatwoot pgimport: REST media pre-pass failed for message %s: %v", msg.ID, err)
+			logrus.Warnf("Chatwoot pgimport: REST media pre-pass failed for message %s: %v", msg.ID, utils.MediaErrorForLog(err))
 		}
 	}
 }
@@ -654,7 +653,7 @@ func (s *SyncService) syncMessageWithOptions(
 		content = fmt.Sprintf("%s: %s", senderName, content)
 	}
 
-	var attachments []string
+	var attachments []MessageAttachment
 
 	// Handle media if enabled and present
 	if opts.IncludeMedia && hasDownloadableChatwootMedia(msg) {
@@ -663,11 +662,14 @@ func (s *SyncService) syncMessageWithOptions(
 			if requireMediaAttachment {
 				return fmt.Errorf("failed to download required media: %w", err)
 			}
-			logrus.Debugf("Chatwoot Sync: Failed to download media for message %s: %v", msg.ID, err)
+			logrus.Debugf("Chatwoot Sync: Failed to download media for message %s: %v", msg.ID, utils.MediaErrorForLog(err))
 			// Continue without media - it might be expired
 			content += " [media unavailable]"
 		} else if filePath != "" {
-			attachments = append(attachments, filePath)
+			// msg.Filename is the original document name or a descriptive
+			// generated name (see ExtractMediaInfo) - use it as the display
+			// name instead of the throwaway temp file's random basename.
+			attachments = append(attachments, MessageAttachment{Path: filePath, FileName: msg.Filename})
 		}
 	}
 	if requireMediaAttachment && len(attachments) == 0 {
@@ -685,15 +687,15 @@ func (s *SyncService) syncMessageWithOptions(
 	}
 
 	var msgID int
-	err := retrySyncOp(ctx, 3, func() error {
+	err := retrySyncOp(ctx, 3, msg.ID, func() error {
 		var createErr error
 		msgID, createErr = s.client.CreateMessage(conversationID, content, messageType, attachments, msgOpts)
 		return createErr
 	})
 
-	for _, fp := range attachments {
-		if err := os.Remove(fp); err != nil {
-			logrus.Debugf("Chatwoot Sync: Failed to remove temp file %s: %v", fp, err)
+	for _, att := range attachments {
+		if err := os.Remove(att.Path); err != nil {
+			logrus.Debugf("Chatwoot Sync: Failed to remove temp file for message %s: %v", msg.ID, utils.MediaErrorForLog(err))
 		}
 	}
 
@@ -766,7 +768,11 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 	}
 
 	// Write to temp file
-	ext := getExtensionForMediaType(msg.MediaType, msg.Filename)
+	mimeType := ""
+	if typed, ok := downloadable.(interface{ GetMimetype() string }); ok {
+		mimeType = typed.GetMimetype()
+	}
+	ext := getExtensionForMediaType(msg.MediaType, msg.Filename, mimeType)
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("chatwoot-sync-*%s", ext))
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
@@ -782,11 +788,12 @@ func (s *SyncService) downloadMedia(ctx context.Context, msg *domainChatStorage.
 }
 
 // getExtensionForMediaType returns the file extension for a media type
-func getExtensionForMediaType(mediaType, filename string) string {
-	if filename != "" {
-		if ext := filepath.Ext(filename); ext != "" {
-			return ext
-		}
+func getExtensionForMediaType(mediaType, filename, mimeType string) string {
+	if mimeType == "application/octet-stream" {
+		mimeType = ""
+	}
+	if ext := utils.StorageExtension(filename, mimeType); ext != "" {
+		return ext
 	}
 	switch mediaType {
 	case "image":
@@ -808,7 +815,7 @@ func getExtensionForMediaType(mediaType, filename string) string {
 // (1s, 2s, 4s). Retries only transient errors — Retryable() returns true
 // for network/IO failures and for HTTP 429 / 5xx responses, and false for
 // 4xx validation errors so we don't hammer Chatwoot on misconfiguration.
-func retrySyncOp(ctx context.Context, maxAttempts int, fn func() error) error {
+func retrySyncOp(ctx context.Context, maxAttempts int, messageID string, fn func() error) error {
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -823,7 +830,11 @@ func retrySyncOp(ctx context.Context, maxAttempts int, fn func() error) error {
 		}
 		if attempt < maxAttempts-1 {
 			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			logrus.Debugf("Chatwoot Sync: retry attempt %d/%d after %v: %v", attempt+1, maxAttempts, backoff, lastErr)
+			if messageID != "" {
+				logrus.Debugf("Chatwoot Sync: retry attempt %d/%d for message %s after %v: %v", attempt+1, maxAttempts, messageID, backoff, utils.MediaErrorForLog(lastErr))
+			} else {
+				logrus.Debugf("Chatwoot Sync: retry attempt %d/%d after %v: %v", attempt+1, maxAttempts, backoff, utils.MediaErrorForLog(lastErr))
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
