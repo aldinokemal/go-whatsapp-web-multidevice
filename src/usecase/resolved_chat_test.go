@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -20,6 +21,27 @@ func storeChatWithTimer(t *testing.T, f *scopeFixture, jid types.JID, timer uint
 	require.NoError(t, f.repo.StoreChat(&domainChatStorage.Chat{
 		DeviceID: scopeDeviceA, JID: jid.String(), Name: "Ana", LastMessageTime: time.Now(), EphemeralExpiration: timer,
 	}))
+}
+
+type failingFirstChatRepo struct {
+	domainChatStorage.IChatStorageRepository
+	keys []string
+}
+
+func (r *failingFirstChatRepo) GetChatByDevice(_, jid string) (*domainChatStorage.Chat, error) {
+	r.keys = append(r.keys, jid)
+	if len(r.keys) == 1 {
+		return nil, errors.New("database is locked")
+	}
+	return &domainChatStorage.Chat{JID: jid, EphemeralExpiration: 3600}, nil
+}
+
+func TestStoredChatStopsAtAFailedRead(t *testing.T) {
+	repo := &failingFirstChatRepo{}
+
+	// A failed read of the registered JID must not fall through to the stale typed spelling.
+	require.Nil(t, storedChat(repo, scopeDeviceA, "557312345678@s.whatsapp.net", "5573912345678@s.whatsapp.net"))
+	require.Len(t, repo.keys, 1)
 }
 
 func TestForwardDurationOptionReadsTheResolvedChat(t *testing.T) {

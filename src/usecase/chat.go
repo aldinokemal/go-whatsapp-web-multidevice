@@ -294,10 +294,15 @@ func chatKeys(requested string, resolved types.JID) []string {
 	return []string{resolved.String(), requested}
 }
 
-// storedChat returns the device's chat under the first key that has one.
+// storedChat returns the device's chat under the first key that has one. A failed
+// read ends the lookup, since a later key's row is the stale one.
 func storedChat(repo domainChatStorage.IChatStorageRepository, deviceID string, keys ...string) *domainChatStorage.Chat {
 	for _, key := range keys {
-		if chat, err := repo.GetChatByDevice(deviceID, key); err == nil && chat != nil {
+		chat, err := repo.GetChatByDevice(deviceID, key)
+		if err != nil {
+			return nil
+		}
+		if chat != nil {
 			return chat
 		}
 	}
