@@ -87,12 +87,12 @@ jobs:
         uses: 1password/load-secrets-action@70062d7a876d3eb6334754fa26efd2fbd90c32f2 # v5.0.1
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SIGNPATH_API_TOKEN: op://GOWA-OSS/SignPath/token
+          SIGNPATH_API_KEY: op://GOWA-OSS/SignPath/token
 
       - name: Sign using the SignPath test certificate
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
-          api-token: ${{ steps.signpath-token.outputs.SIGNPATH_API_TOKEN }}
+          api-token: ${{ steps.signpath-token.outputs.SIGNPATH_API_KEY }}
           organization-id: bf2a8ecf-fdb9-4d01-9cb2-7cbb79320525
           project-slug: go-whatsapp-web-multidevice
           signing-policy-slug: test-signing
