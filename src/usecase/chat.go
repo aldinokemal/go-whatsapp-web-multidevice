@@ -282,6 +282,18 @@ func storageDeviceID(ctx context.Context) string {
 	return ""
 }
 
+// storedChat returns the device's chat under the first key that has one. Callers pass
+// the resolved JID, then the requested key: a chat saved under @lid before its phone
+// was known keeps the @lid key.
+func storedChat(repo domainChatStorage.IChatStorageRepository, deviceID string, keys ...string) *domainChatStorage.Chat {
+	for _, key := range keys {
+		if chat, err := repo.GetChatByDevice(deviceID, key); err == nil && chat != nil {
+			return chat
+		}
+	}
+	return nil
+}
+
 func deviceIDFromContext(ctx context.Context) string {
 	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
 		if jid := inst.JID(); jid != "" {
@@ -365,7 +377,7 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 	}
 
 	// Update local storage immediately for consistency
-	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceIDFromContext(ctx), targetJID.String()); existingChat != nil {
+	if existingChat := storedChat(service.chatStorageRepo, deviceIDFromContext(ctx), targetJID.String(), request.ChatJID); existingChat != nil {
 		existingChat.EphemeralExpiration = request.TimerSeconds
 		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}
@@ -429,7 +441,7 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	}
 
 	// Update local storage immediately for consistency
-	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceIDFromContext(ctx), targetJID.String()); existingChat != nil {
+	if existingChat := storedChat(service.chatStorageRepo, deviceIDFromContext(ctx), targetJID.String(), request.ChatJID); existingChat != nil {
 		existingChat.Archived = request.Archived
 		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}
