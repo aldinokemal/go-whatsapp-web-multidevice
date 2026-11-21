@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -70,10 +71,10 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 		chatInfo := domainChat.ChatInfo{
 			JID:                 chat.JID,
 			Name:                chatDisplayNameResolver.Resolve(ctx, chat.JID, chat.Name),
-			LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
+			LastMessageTime:     formatTimestamp(chat.LastMessageTime),
 			EphemeralExpiration: chat.EphemeralExpiration,
-			CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
+			CreatedAt:           formatTimestamp(chat.CreatedAt),
+			UpdatedAt:           formatTimestamp(chat.UpdatedAt),
 			Archived:            chat.Archived,
 		}
 		chatInfos = append(chatInfos, chatInfo)
@@ -152,6 +153,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		if err != nil {
 			return response, fmt.Errorf("invalid start_time format: %v", err)
 		}
+		startTime = startTime.UTC() // stored timestamps are UTC text, compared as strings
 		filter.StartTime = &startTime
 	}
 
@@ -160,6 +162,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		if err != nil {
 			return response, fmt.Errorf("invalid end_time format: %v", err)
 		}
+		endTime = endTime.UTC() // stored timestamps are UTC text, compared as strings
 		filter.EndTime = &endTime
 	}
 
@@ -207,7 +210,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 			SenderJID:         message.Sender,
 			SenderDisplayName: senderDisplayNameCache.Resolve(ctx, message.Sender, message.IsFromMe, ""),
 			Content:           message.Content,
-			Timestamp:         message.Timestamp.Format(time.RFC3339),
+			Timestamp:         formatTimestamp(message.Timestamp),
 			IsFromMe:          message.IsFromMe,
 			MediaType:         message.MediaType,
 			CallMetadata:      message.CallMetadata,
@@ -216,8 +219,8 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 			Filename:          message.Filename,
 			URL:               message.URL,
 			FileLength:        message.FileLength,
-			CreatedAt:         message.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:         message.UpdatedAt.Format(time.RFC3339),
+			CreatedAt:         formatTimestamp(message.CreatedAt),
+			UpdatedAt:         formatTimestamp(message.UpdatedAt),
 		}
 		if len(message.Reactions) > 0 {
 			messageInfo.Reactions = make([]domainChat.ReactionInfo, 0, len(message.Reactions))
@@ -227,7 +230,7 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 					SenderJID:         reaction.ReactorJID,
 					SenderDisplayName: senderDisplayNameCache.Resolve(ctx, reaction.ReactorJID, reaction.IsFromMe, ""),
 					IsFromMe:          reaction.IsFromMe,
-					Timestamp:         reaction.Timestamp.Format(time.RFC3339),
+					Timestamp:         formatTimestamp(reaction.Timestamp),
 				})
 			}
 		}
@@ -238,10 +241,10 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 	chatInfo := domainChat.ChatInfo{
 		JID:                 chat.JID,
 		Name:                chatDisplayNameResolver.Resolve(ctx, chat.JID, chat.Name),
-		LastMessageTime:     chat.LastMessageTime.Format(time.RFC3339),
+		LastMessageTime:     formatTimestamp(chat.LastMessageTime),
 		EphemeralExpiration: chat.EphemeralExpiration,
-		CreatedAt:           chat.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:           chat.UpdatedAt.Format(time.RFC3339),
+		CreatedAt:           formatTimestamp(chat.CreatedAt),
+		UpdatedAt:           formatTimestamp(chat.UpdatedAt),
 		Archived:            chat.Archived,
 	}
 
@@ -504,7 +507,7 @@ func (service serviceChat) RequestChatHistory(ctx context.Context, request domai
 	response.ChatJID = request.ChatJID
 	response.RequestedCount = request.Count
 	response.AnchorMessageID = oldest.ID
-	response.AnchorTimestamp = oldest.Timestamp.Format(time.RFC3339)
+	response.AnchorTimestamp = formatTimestamp(oldest.Timestamp)
 
 	logrus.WithFields(logrus.Fields{
 		"chat_jid":          request.ChatJID,
@@ -513,4 +516,13 @@ func (service serviceChat) RequestChatHistory(ctx context.Context, request domai
 	}).Info("Requested on-demand chat history successfully")
 
 	return response, nil
+}
+
+// formatTimestamp renders a response timestamp as RFC3339 in config.AppLocation.
+// A zero time keeps its UTC form instead of turning into a local-mean-time offset.
+func formatTimestamp(t time.Time) string {
+	if t.IsZero() {
+		return t.Format(time.RFC3339)
+	}
+	return t.In(config.AppLocation).Format(time.RFC3339)
 }

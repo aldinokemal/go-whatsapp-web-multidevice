@@ -113,6 +113,20 @@ func loadFullHistoryConfig(cmd *cobra.Command) error {
 	return nil
 }
 
+// loadTimezoneConfig applies APP_TIMEZONE unless --timezone was passed and
+// resolves it, rejecting an unknown zone instead of falling back to UTC.
+func loadTimezoneConfig(cmd *cobra.Command) error {
+	if raw := viper.GetString("app_timezone"); raw != "" && !cmd.PersistentFlags().Changed("timezone") {
+		config.AppTimezone = raw
+	}
+	location, err := time.LoadLocation(strings.TrimSpace(config.AppTimezone))
+	if err != nil {
+		return fmt.Errorf("invalid timezone %q (APP_TIMEZONE or --timezone): use an IANA name such as Europe/Paris", config.AppTimezone)
+	}
+	config.AppLocation = location
+	return nil
+}
+
 // positiveUint32Setting parses a whole-number setting of at least 1.
 func positiveUint32Setting(name, raw string) (uint32, error) {
 	n, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 32)
@@ -140,6 +154,9 @@ func initEnvConfig() {
 		config.AppOs = envOs
 	}
 	if err := loadFullHistoryConfig(rootCmd); err != nil {
+		logrus.Fatal(err)
+	}
+	if err := loadTimezoneConfig(rootCmd); err != nil {
 		logrus.Fatal(err)
 	}
 	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
@@ -400,6 +417,12 @@ func initFlags() {
 		"full-history-days", "",
 		config.WhatsappFullHistoryDays,
 		`days of history requested when --full-history-sync is on | example: --full-history-days=3650`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppTimezone,
+		"timezone", "",
+		config.AppTimezone,
+		`IANA timezone for chat, message and newsletter timestamps in REST and MCP responses --timezone <string> | example: --timezone="Europe/Paris"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppOs,

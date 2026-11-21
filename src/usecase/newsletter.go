@@ -234,8 +234,8 @@ func liveUpdatesStatusToDomain(status whatsapp.LiveUpdatesStatus) domainNewslett
 	return domainNewsletter.LiveUpdatesSubscription{
 		NewsletterID:    status.NewsletterJID.String(),
 		DurationSeconds: int(status.Duration / time.Second),
-		ExpiresAt:       status.ExpiresAt.Format(time.RFC3339),
-		RenewedAt:       status.RenewedAt.Format(time.RFC3339),
+		ExpiresAt:       formatTimestamp(status.ExpiresAt),
+		RenewedAt:       formatTimestamp(status.RenewedAt),
 		LastError:       status.LastError,
 	}
 }
@@ -250,7 +250,7 @@ func newsletterMessagesToDomain(messages []*types.NewsletterMessage) []domainNew
 		// and timestamp, so keep them empty instead of formatting a zero time.
 		timestamp := ""
 		if !msg.Timestamp.IsZero() {
-			timestamp = msg.Timestamp.Format(time.RFC3339)
+			timestamp = formatTimestamp(msg.Timestamp)
 		}
 		result = append(result, domainNewsletter.Message{
 			ServerID:       int(msg.MessageServerID),
