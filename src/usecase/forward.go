@@ -78,7 +78,7 @@ func forwardDurationOption(ctx context.Context, service serviceSend, request dom
 	if request.Duration != nil {
 		return request.Duration
 	}
-	expiration := service.getDefaultEphemeralExpiration(ctx, recipient.String(), request.Phone)
+	expiration := service.getDefaultEphemeralExpiration(ctx, request.Phone, recipient.String())
 	if expiration == 0 {
 		return nil
 	}
