@@ -428,7 +428,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Set disappearing message duration if provided
-	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+	if request.BaseRequest.Duration != nil { // an explicit 0 turns expiry off
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, chatKeys(request.BaseRequest.Phone, dataWaRecipient)...))
