@@ -3,6 +3,8 @@ package chatwoot
 type Contact struct {
 	ID               int            `json:"id"`
 	Name             string         `json:"name"`
+	AvailableName    string         `json:"available_name"`
+	DisplayName      string         `json:"display_name"`
 	Email            string         `json:"email"`
 	PhoneNumber      string         `json:"phone_number"`
 	Identifier       string         `json:"identifier"`
@@ -97,6 +99,13 @@ type ConversationWebhook struct {
 	ID      int              `json:"id"`
 	InboxID int              `json:"inbox_id"`
 	Meta    ConversationMeta `json:"meta"`
+	// The matching webhook message carries the agent's public display name.
+	Messages []ConversationWebhookMessage `json:"messages"`
+}
+
+type ConversationWebhookMessage struct {
+	ID     int     `json:"id"`
+	Sender Contact `json:"sender"`
 }
 
 type ConversationMeta struct {
