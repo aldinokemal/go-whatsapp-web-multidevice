@@ -367,7 +367,8 @@ func (s *serviceDevice) SetDeviceStorageSettings(ctx context.Context, deviceID s
 		Code:    "DEVICE_STORAGE_SETTINGS_UPDATED",
 		Message: fmt.Sprintf("Device %s storage settings updated", deviceID),
 		Result: map[string]any{
-			"device_id": deviceID,
+			// The hub serializes after this send returns; a Fiber param would be reused by then.
+			"device_id": strings.Clone(deviceID),
 		},
 	}
 
