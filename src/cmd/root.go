@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,11 +47,13 @@ var (
 	callUsecase       domainCall.ICallUsecase
 	chatUsecase       domainChat.IChatUsecase
 	sendUsecase       domainSend.ISendUsecase
+	scheduleUsecase   domainSend.IScheduleUsecase
 	userUsecase       domainUser.IUserUsecase
 	messageUsecase    domainMessage.IMessageUsecase
 	groupUsecase      domainGroup.IGroupUsecase
 	newsletterUsecase domainNewsletter.INewsletterUsecase
 	deviceUsecase     domainDevice.IDeviceUsecase
+	scheduleStop      func()
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -71,13 +74,75 @@ func init() {
 	// Initialize flags first, before any subcommands are added
 	initFlags()
 
-	// Then initialize other components
-	cobra.OnInitialize(initEnvConfig, initApp)
+	// Then initialize other components. Cobra marks the target command as called
+	// before running initializers, so `version` can skip config and storage setup.
+	cobra.OnInitialize(func() {
+		if versionCmd.CalledAs() != "" {
+			return
+		}
+		initEnvConfig()
+		initApp()
+	})
+}
+
+// loadFullHistoryConfig applies the full-history settings from the environment
+// unless the matching flag was passed, and rejects a limit below 1 instead of
+// falling back to the default.
+func loadFullHistoryConfig(cmd *cobra.Command) error {
+	flags := cmd.PersistentFlags()
+	if !flags.Changed("full-history-sync") && viper.IsSet("whatsapp_full_history_sync") {
+		config.WhatsappFullHistorySync = viper.GetBool("whatsapp_full_history_sync")
+	}
+	if raw := viper.GetString("whatsapp_full_history_days"); raw != "" && !flags.Changed("full-history-days") {
+		days, err := positiveUint32Setting("WHATSAPP_FULL_HISTORY_DAYS", raw)
+		if err != nil {
+			return err
+		}
+		config.WhatsappFullHistoryDays = days
+	}
+	if raw := viper.GetString("whatsapp_full_history_size_mb"); raw != "" {
+		size, err := positiveUint32Setting("WHATSAPP_FULL_HISTORY_SIZE_MB", raw)
+		if err != nil {
+			return err
+		}
+		config.WhatsappFullHistorySizeMB = size
+	}
+	if config.WhatsappFullHistoryDays == 0 {
+		return fmt.Errorf("--full-history-days must be at least 1")
+	}
+	return nil
+}
+
+// loadTimezoneConfig applies APP_TIMEZONE unless --timezone was passed and
+// resolves it, rejecting an unknown zone instead of falling back to UTC.
+func loadTimezoneConfig(cmd *cobra.Command) error {
+	if raw := viper.GetString("app_timezone"); raw != "" && !cmd.PersistentFlags().Changed("timezone") {
+		config.AppTimezone = raw
+	}
+	name := strings.TrimSpace(config.AppTimezone)
+	location, err := time.LoadLocation(name)
+	// "" and "Local" would silently resolve to UTC (init pins time.Local to UTC).
+	// Unset stays "UTC", the default, so only an explicitly blank value is rejected.
+	if err != nil || name == "" || name == "Local" {
+		return fmt.Errorf("invalid timezone %q (APP_TIMEZONE or --timezone): use an IANA name such as Europe/Paris", config.AppTimezone)
+	}
+	config.AppLocation = location
+	return nil
+}
+
+// positiveUint32Setting parses a whole-number setting of at least 1.
+func positiveUint32Setting(name, raw string) (uint32, error) {
+	n, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 32)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
+	}
+	return uint32(n), nil
 }
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
+	// Key names stay visible; secret values and URL userinfo are masked.
+	fmt.Println(utils.RedactSettings(viper.AllSettings()))
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort
@@ -90,6 +155,12 @@ func initEnvConfig() {
 	}
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
+	}
+	if err := loadFullHistoryConfig(rootCmd); err != nil {
+		logrus.Fatal(err)
+	}
+	if err := loadTimezoneConfig(rootCmd); err != nil {
+		logrus.Fatal(err)
 	}
 	if envBasicAuth := viper.GetString("app_basic_auth"); envBasicAuth != "" {
 		credential := strings.Split(envBasicAuth, ",")
@@ -160,6 +231,9 @@ func initEnvConfig() {
 	if viper.IsSet("whatsapp_auto_download_media") {
 		config.WhatsappAutoDownloadMedia = viper.GetBool("whatsapp_auto_download_media")
 	}
+	if viper.IsSet("whatsapp_ignore_status_media") {
+		config.WhatsappIgnoreStatusMedia = viper.GetBool("whatsapp_ignore_status_media")
+	}
 	if envWebhook := viper.GetString("whatsapp_webhook"); envWebhook != "" {
 		webhook := strings.Split(envWebhook, ",")
 		config.WhatsappWebhook = webhook
@@ -183,6 +257,12 @@ func initEnvConfig() {
 			}
 		}
 		config.WhatsappWebhookIgnoreJids = jids
+	}
+	if !rootCmd.PersistentFlags().Changed("webhook-all-device-receipts") && viper.IsSet("whatsapp_webhook_all_device_receipts") {
+		config.WhatsappWebhookAllDeviceReceipts = viper.GetBool("whatsapp_webhook_all_device_receipts")
+	}
+	if viper.IsSet("whatsapp_webhook_device_merge_global") {
+		config.WhatsappWebhookDeviceMergeGlobal = viper.GetBool("whatsapp_webhook_device_merge_global")
 	}
 	if viper.IsSet("whatsapp_account_validation") {
 		config.WhatsappAccountValidation = viper.GetBool("whatsapp_account_validation")
@@ -261,6 +341,11 @@ func initEnvConfig() {
 	if envChatwootWebhookSecret := viper.GetString("chatwoot_webhook_secret"); envChatwootWebhookSecret != "" {
 		config.ChatwootWebhookSecret = envChatwootWebhookSecret
 	}
+	if viper.IsSet("chatwoot_webhook_signature_tolerance") {
+		if tolerance := viper.GetDuration("chatwoot_webhook_signature_tolerance"); tolerance > 0 {
+			config.ChatwootWebhookSignatureTolerance = tolerance
+		}
+	}
 	if envChatwootAllowedHosts := viper.GetString("chatwoot_allowed_hosts"); envChatwootAllowedHosts != "" {
 		config.ChatwootAllowedHosts = splitCommaTrimmed(envChatwootAllowedHosts)
 	}
@@ -288,11 +373,17 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_forward_deletes") {
 		config.ChatwootForwardDeletes = viper.GetBool("chatwoot_forward_deletes")
 	}
+	if envChatwootEvents := viper.GetString("chatwoot_events"); envChatwootEvents != "" && !rootCmd.PersistentFlags().Changed("chatwoot-events") {
+		config.ChatwootEvents = splitCommaTrimmed(envChatwootEvents)
+	}
 	if viper.IsSet("chatwoot_message_read") {
 		config.ChatwootMessageRead = viper.GetBool("chatwoot_message_read")
 	}
 	if viper.IsSet("chatwoot_message_delete") {
 		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
+	}
+	if !rootCmd.PersistentFlags().Changed("chatwoot-revoke-on-delete") && viper.IsSet("chatwoot_revoke_on_delete") {
+		config.ChatwootRevokeOnDelete = viper.GetBool("chatwoot_revoke_on_delete")
 	}
 }
 
@@ -317,6 +408,24 @@ func initFlags() {
 		"debug", "d",
 		config.AppDebug,
 		"hide or displaying log with --debug <true/false> | example: --debug=true",
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappFullHistorySync,
+		"full-history-sync", "",
+		config.WhatsappFullHistorySync,
+		`pair as Desktop and ask the phone for the FULL message history (new pairings only) --full-history-sync=<true|false> | example: --full-history-sync=true`,
+	)
+	rootCmd.PersistentFlags().Uint32VarP(
+		&config.WhatsappFullHistoryDays,
+		"full-history-days", "",
+		config.WhatsappFullHistoryDays,
+		`days of history requested when --full-history-sync is on | example: --full-history-days=3650`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppTimezone,
+		"timezone", "",
+		config.AppTimezone,
+		`IANA timezone for chat, message and newsletter timestamps in REST and MCP responses --timezone <string> | example: --timezone="Europe/Paris"`,
 	)
 	rootCmd.PersistentFlags().StringVarP(
 		&config.AppOs,
@@ -426,6 +535,12 @@ func initFlags() {
 		config.WhatsappAutoDownloadMedia,
 		`auto download media from incoming messages --auto-download-media <true/false> | example: --auto-download-media=false`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappIgnoreStatusMedia,
+		"ignore-status-media", "",
+		config.WhatsappIgnoreStatusMedia,
+		`ignore downloading status media --ignore-status-media <true/false> | example: --ignore-status-media=true`,
+	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.WhatsappWebhook,
 		"webhook", "w",
@@ -436,7 +551,7 @@ func initFlags() {
 		&config.WhatsappWebhookSecret,
 		"webhook-secret", "",
 		config.WhatsappWebhookSecret,
-		`secure webhook request --webhook-secret <string> | example: --webhook-secret="super-secret-key"`,
+		`secure webhook request --webhook-secret <string> | example: --webhook-secret="<output of openssl rand -hex 32>"`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappWebhookInsecureSkipVerify,
@@ -455,6 +570,18 @@ func initFlags() {
 		"webhook-ignore-jids", "",
 		config.WhatsappWebhookIgnoreJids,
 		`comma-separated WhatsApp JIDs (or "@g.us"/"@s.whatsapp.net"/"@lid" wildcards) to skip when forwarding to webhooks --webhook-ignore-jids <list> | example: --webhook-ignore-jids="@g.us,628123456789@s.whatsapp.net"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookAllDeviceReceipts,
+		"webhook-all-device-receipts", "",
+		config.WhatsappWebhookAllDeviceReceipts,
+		`forward receipts from all linked devices instead of only the primary device --webhook-all-device-receipts <true/false> | example: --webhook-all-device-receipts=true`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.WhatsappWebhookDeviceMergeGlobal,
+		"webhook-device-merge-global", "",
+		config.WhatsappWebhookDeviceMergeGlobal,
+		`also deliver a device's events to the global --webhook URLs when that device has its own webhook (default: device webhook replaces the global ones) --webhook-device-merge-global <true/false> | example: --webhook-device-merge-global=true`,
 	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.WhatsappAccountValidation,
@@ -566,6 +693,12 @@ func initFlags() {
 		config.ChatwootWebhookSecret,
 		`shared secret required for incoming Chatwoot webhooks --chatwoot-webhook-secret <string> | example: --chatwoot-webhook-secret="super-secret-key"`,
 	)
+	rootCmd.PersistentFlags().DurationVarP(
+		&config.ChatwootWebhookSignatureTolerance,
+		"chatwoot-webhook-signature-tolerance", "",
+		config.ChatwootWebhookSignatureTolerance,
+		`maximum age (and clock skew) of the timestamp on Chatwoot's signed webhooks --chatwoot-webhook-signature-tolerance <duration> | example: --chatwoot-webhook-signature-tolerance=5m`,
+	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.ChatwootAllowedHosts,
 		"chatwoot-allowed-hosts", "",
@@ -608,6 +741,12 @@ func initFlags() {
 		config.ChatwootForwardEdits,
 		`mirror WhatsApp message edits into the Chatwoot conversation as threaded notes --chatwoot-forward-edits <true/false> | example: --chatwoot-forward-edits=true`,
 	)
+	rootCmd.PersistentFlags().StringSliceVarP(
+		&config.ChatwootEvents,
+		"chatwoot-events", "",
+		config.ChatwootEvents,
+		`whitelist of events to forward to Chatwoot (empty = follow --webhook-events) --chatwoot-events <string> | example: --chatwoot-events="message"`,
+	)
 	rootCmd.PersistentFlags().BoolVarP(
 		&config.ChatwootForwardDeletes,
 		"chatwoot-forward-deletes", "",
@@ -626,9 +765,18 @@ func initFlags() {
 		config.ChatwootMessageDelete,
 		`delete linked Chatwoot/WhatsApp messages when deletion is reported by the opposite side --chatwoot-message-delete <true/false> | example: --chatwoot-message-delete=true`,
 	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.ChatwootRevokeOnDelete,
+		"chatwoot-revoke-on-delete", "",
+		config.ChatwootRevokeOnDelete,
+		`revoke on WhatsApp the messages deleted in Chatwoot, without deleting in Chatwoot what WhatsApp deletes --chatwoot-revoke-on-delete <true/false> | example: --chatwoot-revoke-on-delete=true`,
+	)
 }
 
 func initChatStorage() (*sql.DB, error) {
+	if err := whatsapp.SecureSQLiteFile(config.ChatStorageURI); err != nil {
+		return nil, fmt.Errorf("prepare chat storage file: %w", err)
+	}
 	connStr := sqlite.FormatChatStorageURI(config.ChatStorageURI, config.ChatStorageEnableWAL, config.ChatStorageEnableForeignKeys)
 
 	db, err := sql.Open(sqlite.DriverName, connStr)
@@ -694,12 +842,26 @@ func initApp() {
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
 	callUsecase = usecase.NewCallService(chatStorageRepo)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
-	sendUsecase = usecase.NewSendService(appUsecase, chatStorageRepo)
+	baseSendUsecase := usecase.NewSendService(appUsecase, chatStorageRepo)
+	scheduleService := usecase.NewScheduleService(chatStorageRepo, baseSendUsecase, dm, config.PathStorages)
+	scheduleUsecase = scheduleService
+	sendUsecase = usecase.NewScheduledSendService(baseSendUsecase, scheduleService)
 	userUsecase = usecase.NewUserService(chatStorageRepo)
 	messageUsecase = usecase.NewMessageService(chatStorageRepo)
 	groupUsecase = usecase.NewGroupService()
 	newsletterUsecase = usecase.NewNewsletterService()
 	deviceUsecase = usecase.NewDeviceService(dm, appUsecase)
+	scheduleCtx, scheduleCancel := context.WithCancel(context.Background())
+	scheduleService.Start(scheduleCtx)
+	// Stop gives an in-flight scheduled send up to 10s to finish before storage
+	// closes; a send cut off later is recovered as interrupted on next boot.
+	scheduleStop = func() {
+		scheduleCancel()
+		select {
+		case <-scheduleService.Done():
+		case <-time.After(10 * time.Second):
+		}
+	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

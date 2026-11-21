@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -17,9 +20,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,6 +36,11 @@ type serviceMessage struct {
 	markReadFn      markReadFunc
 	sendMessageFn   func(ctx context.Context, client *whatsmeow.Client, recipient types.JID, message *waE2E.Message) (whatsmeow.SendResponse, error)
 	sendAppStateFn  func(ctx context.Context, client *whatsmeow.Client, patch appstate.PatchInfo) error
+
+	// Media download seams; nil uses the real whatsmeow/CDN implementations.
+	extractMediaFn         extractMediaFunc
+	requestMediaReuploadFn requestMediaReuploadFunc
+	fetchReuploadedMediaFn fetchReuploadedMediaFunc
 }
 
 func NewMessageService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainMessage.IMessageUsecase {
@@ -82,6 +92,22 @@ func (service serviceMessage) deleteStoredMessage(ctx context.Context, client *w
 		return fmt.Errorf("WhatsApp action succeeded, but failed to delete local message %s: %w", messageID, err)
 	}
 	return nil
+}
+
+// storedMessageForAction loads the calling device's own copy of a message in
+// one chat. Each device stores its own row for a message, and the rows differ:
+// the sender's copy is "from me", a recipient's is not, and only a device that
+// received the message holds its media keys. A lookup by ID alone can return
+// another device's row, so it must never back a user-facing action.
+func (service serviceMessage) storedMessageForAction(ctx context.Context, chatJID types.JID, messageID string) (*domainChatStorage.Message, error) {
+	if service.chatStorageRepo == nil {
+		return nil, nil
+	}
+	deviceID := storageDeviceID(ctx)
+	if deviceID == "" {
+		return nil, fmt.Errorf("device identification required")
+	}
+	return service.chatStorageRepo.GetMessageByIDChatAndDevice(deviceID, chatJID.ToNonAD().String(), messageID)
 }
 
 func isGroupReadSenderServer(server string) bool {
@@ -256,7 +282,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -266,7 +292,13 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// Participant field for group chats — required by the WhatsApp protocol.
 	// An empty JID means "message was from me".
 	senderJID := types.EmptyJID
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// IsFromMe is relative to the receiving device, so another device's copy
+	// of the same message cannot determine the reaction's sender.
+	message, err := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if err != nil {
 		logrus.Warnf("Failed to lookup message %s for reaction: %v, using heuristic", request.MessageID, err)
 		if len(request.MessageID) > 22 {
@@ -290,7 +322,7 @@ func (service serviceMessage) ReactMessage(ctx context.Context, request domainMe
 	// BuildReaction correctly constructs the MessageKey with Participant field
 	// for group chats, which is required for the reaction to be delivered.
 	msg := client.BuildReaction(dataWaRecipient, senderJID, request.MessageID, request.Emoji)
-	ts, err := client.SendMessage(ctx, dataWaRecipient, msg)
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, msg)
 	if err != nil {
 		return response, err
 	}
@@ -318,11 +350,14 @@ func (service serviceMessage) RevokeMessage(ctx context.Context, request domainM
 	// Resolve the original sender so group admins can revoke other members'
 	// messages. BuildRevoke treats types.EmptyJID as "message was from me";
 	// any other JID is admin-revoke and requires the bot to be group admin.
-	// WhatsApp message IDs are globally unique, so a cross-device lookup
-	// via GetMessageByID yields the same sender regardless of which device
-	// owns the row.
+	// IsFromMe belongs to a device's copy of the message, so resolve it
+	// within the current device and chat before choosing self- or admin-revoke.
 	senderJID := types.EmptyJID
-	message, lookupErr := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	message, lookupErr := service.chatStorageRepo.GetMessageByIDChatAndDevice(
+		deviceIDFromContext(ctx),
+		dataWaRecipient.ToNonAD().String(),
+		request.MessageID,
+	)
 	if lookupErr != nil {
 		logrus.Warnf("Failed to lookup message %s for revoke: %v, assuming self-revoke", request.MessageID, lookupErr)
 	} else if message != nil && !message.IsFromMe && message.Sender != "" {
@@ -389,6 +424,80 @@ func (service serviceMessage) DeleteMessage(ctx context.Context, request domainM
 	return service.deleteStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD().String())
 }
 
+// updateStoredMessage mirrors an edit sent through the API into local chat
+// storage, the same way deleteStoredMessage does for a revoke or delete.
+//
+// An edit that ARRIVES from another device is already applied: CreateMessage
+// spots the MESSAGE_EDIT protocol message and calls storeEditedMessage. An edit
+// we send ourselves is never echoed back to us, so nothing applied it, and the
+// stored copy keeps the text as first sent — indefinitely.
+//
+// That matters beyond the chat viewer, because mergeReplyContext builds a
+// reply's quoted context from the stored copy. Quoting a message that was edited
+// therefore sends the recipient the PRE-EDIT text, so the quote can show wording
+// the message no longer contains.
+//
+// The edit is replayed in the ProtocolMessage shape CreateMessage already
+// recognises, so it runs through the existing, tested edit path (content update
+// plus a message_edits history row) rather than a second implementation that
+// could drift from it.
+//
+// This is an adapter for local storage, not a claim of equivalence with a
+// dispatched event. whatsmeow's ParseWebMessage unwraps MESSAGE_EDIT before a
+// history-synced edit is handled (Info.ID becomes the target id and Message
+// becomes the edited content); only the live receive path leaves the
+// ProtocolMessage intact.
+func (service serviceMessage) updateStoredMessage(
+	ctx context.Context,
+	client *whatsmeow.Client,
+	messageID string,
+	recipient types.JID,
+	newContent string,
+	editEventID string,
+	editedAt time.Time,
+) error {
+	if service.chatStorageRepo == nil {
+		return fmt.Errorf("WhatsApp action succeeded, but local message %s could not be updated without chat storage", messageID)
+	}
+
+	senderJID := types.EmptyJID
+	if client != nil && client.Store != nil && client.Store.ID != nil {
+		senderJID = *client.Store.ID
+	}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     recipient,
+				Sender:   senderJID,
+				IsFromMe: true,
+			},
+			ID:        editEventID,
+			Timestamp: editedAt,
+		},
+		Message: &waE2E.Message{
+			ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+				Key: &waCommon.MessageKey{
+					ID:        proto.String(messageID),
+					RemoteJID: proto.String(recipient.String()),
+					FromMe:    proto.Bool(true),
+				},
+				EditedMessage: &waE2E.Message{Conversation: proto.String(newContent)},
+			},
+		},
+	}
+
+	if err := service.chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+		return fmt.Errorf("WhatsApp action succeeded, but failed to update local message %s: %w", messageID, err)
+	}
+	return nil
+}
+
+// UpdateMessage implements message.IMessageService. It edits a sent message;
+// with MediaType set, it replaces that image or document's caption instead of
+// sending a text edit, and refuses a MediaType that differs from the stored
+// copy's type.
 func (service serviceMessage) UpdateMessage(ctx context.Context, request domainMessage.UpdateMessageRequest) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateUpdateMessage(ctx, request); err != nil {
 		return response, err
@@ -399,20 +508,129 @@ func (service serviceMessage) UpdateMessage(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	msg := &waE2E.Message{Conversation: proto.String(request.Message)}
-	ts, err := client.SendMessage(ctx, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
+	// WhatsApp ignores a caption edit of another message type, so only a stored
+	// copy of the requested type is updated. With no stored copy the type cannot
+	// be checked: the edit is sent, and storage gets no row whose type is a guess.
+	uncachedCaptionEdit := false
+	if request.MediaType != "" {
+		stored, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
+		if err != nil {
+			return response, fmt.Errorf("failed to resolve message %s: %w", request.MessageID, err)
+		}
+		uncachedCaptionEdit = stored == nil
+		if stored != nil && stored.MediaType != request.MediaType {
+			storedType := stored.MediaType
+			if storedType == "" {
+				storedType = "text"
+			}
+			return response, pkgError.ValidationError(fmt.Sprintf("media_type: message %s is %s, not %s.", request.MessageID, storedType, request.MediaType))
+		}
+	}
+
+	text := request.Message
+	msg := &waE2E.Message{Conversation: proto.String(text)}
+	// WhatsApp applies a caption edit only when it carries the media message's own
+	// type; a Conversation edit of an image or document is accepted and then ignored.
+	switch request.MediaType {
+	case "image":
+		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(text)}}
+	case "document":
+		msg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{Caption: proto.String(text)}}
+	}
+	if link := strings.TrimSpace(request.Link); link != "" {
+		if !containsLinkToken(text, link) {
+			text = buildLinkMessageText(text, link)
+		}
+		msg, err = buildLinkPreviewMessage(ctx, client, dataWaRecipient, text, link)
+		if err != nil {
+			return response, err
+		}
+	}
+	ts, err := service.sendMessage(ctx, client, dataWaRecipient, client.BuildEdit(dataWaRecipient, request.MessageID, msg))
 	if err != nil {
 		return response, err
+	}
+
+	if !uncachedCaptionEdit {
+		if err := service.updateStoredMessage(ctx, client, request.MessageID, dataWaRecipient.ToNonAD(), text, ts.ID, ts.Timestamp); err != nil {
+			return response, err
+		}
 	}
 
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Update message success %s (server timestamp: %s)", request.Phone, ts.Timestamp)
 	return response, nil
+}
+
+// containsLinkToken reports whether link already appears in text as a complete
+// URL. The match must start at the beginning of text, after whitespace, or after
+// an opening bracket or quote that does not continue another URL token, and must
+// end at the end of text, at whitespace, or at trailing punctuation followed by
+// the end of text or whitespace. Prose and markdown such as
+// "Visit (https://example.com)." or "[label](https://example.com)" count as
+// present; https://example.com.evil and https://evil.test/(https://example.com)
+// do not. This accepts prose such as "Visit (https://example.com)." while a
+// longer URL that merely starts with link (https://example.com.evil) does not
+// count as present.
+func containsLinkToken(text, link string) bool {
+	if link == "" {
+		return false
+	}
+	for offset := 0; ; {
+		idx := strings.Index(text[offset:], link)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(link)
+		if linkStartsAtBoundary(text, start) && linkEndsAtBoundary(text, end) {
+			return true
+		}
+		offset = start + 1
+	}
+}
+
+func linkStartsAtBoundary(text string, start int) bool {
+	prefix := text[:start]
+	if prefix == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(prefix)
+	if unicode.IsSpace(r) {
+		return true
+	}
+	before := strings.TrimRight(prefix, "([{<\"'“‘")
+	if before == prefix {
+		// Directly attached to other text (e.g. "?u=" in a query string).
+		return false
+	}
+	// Wrapped in an opening bracket or quote: accept prose and markdown such as
+	// "See(link)" or "[label](link)", but not a wrapper that continues another
+	// URL token such as "https://evil.test/(link)".
+	fields := strings.Fields(before)
+	if len(fields) == 0 || unicode.IsSpace(lastRune(before)) {
+		return true
+	}
+	return !strings.Contains(fields[len(fields)-1], "://")
+}
+
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
+}
+
+func linkEndsAtBoundary(text string, end int) bool {
+	rest := strings.TrimLeft(text[end:], ".,;:!?)]}>\"'”’")
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r)
 }
 
 // StarMessage implements message.IMessageService.
@@ -455,19 +673,24 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}
 
-	// Query the message from chat storage
-	message, err := service.chatStorageRepo.GetMessageByID(request.MessageID)
+	// Query the message from chat storage. The row holds the media keys, so
+	// it must be this device's own copy in the requested chat: a message that
+	// only another device received is "not found" here.
+	if service.chatStorageRepo == nil {
+		return response, fmt.Errorf("cannot download media for message %s without chat storage", request.MessageID)
+	}
+	message, err := service.storedMessageForAction(ctx, dataWaRecipient, request.MessageID)
 	if err != nil {
 		return response, fmt.Errorf("message not found: %v", err)
 	}
 
 	if message == nil {
-		return response, fmt.Errorf("message with ID %s not found", request.MessageID)
+		return response, fmt.Errorf("message with ID %s not found in chat %s for current device", request.MessageID, dataWaRecipient.String())
 	}
 
 	directPath := utils.ResolveMediaDirectPath(message.DirectPath, message.URL)
@@ -475,11 +698,6 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	// Check if message has media
 	if message.MediaType == "" || directPath == "" {
 		return response, fmt.Errorf("message %s does not contain downloadable media", request.MessageID)
-	}
-
-	// Verify the message is from the specified chat
-	if message.ChatJID != dataWaRecipient.String() {
-		return response, fmt.Errorf("message %s does not belong to chat %s", request.MessageID, dataWaRecipient.String())
 	}
 
 	// Create directory structure for organized storage
@@ -491,24 +709,18 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 		return response, fmt.Errorf("failed to create directory: %v", err)
 	}
 
-	downloadableMsg, err := utils.BuildDownloadableMessage(
-		message.MediaType,
-		message.URL,
-		directPath,
-		message.Filename,
-		message.MediaKey,
-		message.FileSHA256,
-		message.FileEncSHA256,
-		message.FileLength,
-	)
+	downloadableMsg, err := utils.BuildStoredDownloadableMessage(message, directPath)
 	if err != nil {
-		return response, fmt.Errorf("unsupported media type: %s", message.MediaType)
+		return response, err
 	}
 
-	// Download the media using existing utils.ExtractMedia function
-	extractedMedia, err := utils.ExtractMedia(ctx, client, dateDir, downloadableMsg)
+	// Download the media; media expired on the server is re-requested from the phone.
+	extractedMedia, err := service.extractMedia(ctx, client, dateDir, downloadableMsg)
+	if utils.IsExpiredMediaError(err) {
+		extractedMedia, err = service.recoverExpiredMedia(ctx, client, message, dateDir, err)
+	}
 	if err != nil {
-		return response, fmt.Errorf("failed to download media: %v", err)
+		return response, fmt.Errorf("failed to download media: %w", err)
 	}
 
 	// Get file size

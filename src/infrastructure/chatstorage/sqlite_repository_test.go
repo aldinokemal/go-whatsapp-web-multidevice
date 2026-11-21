@@ -5,11 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"go.mau.fi/whatsmeow/proto/waCommon"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 func newTestSQLiteRepository(t *testing.T) *SQLiteRepository {
@@ -42,6 +49,95 @@ func TestSQLiteRepositoryInitializesMessageReactionsSchema(t *testing.T) {
 	}
 	if tableName != "message_reactions" {
 		t.Fatalf("expected message_reactions table, got %q", tableName)
+	}
+}
+
+func TestGetReactionForEvent(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	device := "device-a@s.whatsapp.net"
+	chat := types.NewJID("628123456789", types.DefaultUserServer)
+	sender := types.NewJID("628111111111", types.DefaultUserServer)
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(device, nil, repo))
+	evt := &events.Message{
+		Info: types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: sender}},
+		Message: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+			Key:  &waCommon.MessageKey{ID: proto.String("msg-1")},
+			Text: proto.String(""),
+		}},
+	}
+	if err := repo.StoreReaction(&domainChatStorage.Reaction{
+		MessageID: "msg-1", ChatJID: chat.String(), DeviceID: device,
+		ReactorJID: sender.String(), Emoji: "👍", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.GetReactionForEvent(ctx, evt)
+	if err != nil || stored == nil || stored.Emoji != "👍" {
+		t.Fatalf("stored reaction = %+v, error = %v", stored, err)
+	}
+	otherChatEvent := *evt
+	otherChatEvent.Info.Chat = types.NewJID("120363000000002", types.GroupServer)
+	if stored, err = repo.GetReactionForEvent(ctx, &otherChatEvent); err != nil || stored != nil {
+		t.Fatalf("other chat reaction = %+v, error = %v", stored, err)
+	}
+	otherCtx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("device-b", nil, repo))
+	if stored, err = repo.GetReactionForEvent(otherCtx, evt); err != nil || stored != nil {
+		t.Fatalf("other device reaction = %+v, error = %v", stored, err)
+	}
+	if err := repo.CreateReaction(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	if stored, err = repo.GetReactionForEvent(ctx, evt); err != nil || stored != nil {
+		t.Fatalf("removed reaction = %+v, error = %v", stored, err)
+	}
+}
+
+func TestCreateMessageFromMeKeepsPeerChatName(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	accountJID := types.NewJID("15550101000", types.DefaultUserServer)
+	peerJID := types.NewJID("15550102000", types.DefaultUserServer)
+	timestamp := time.Date(2026, time.September, 2, 15, 30, 0, 0, time.UTC)
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        accountJID.String(),
+		JID:             peerJID.String(),
+		Name:            peerJID.User,
+		LastMessageTime: timestamp.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("store peer chat: %v", err)
+	}
+
+	ctx := whatsapp.ContextWithDevice(
+		context.Background(),
+		whatsapp.NewDeviceInstance(accountJID.String(), nil, repo),
+	)
+	event := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     peerJID,
+				Sender:   accountJID,
+				IsFromMe: true,
+			},
+			ID:        "outgoing-message-1",
+			PushName:  "Alice Smith",
+			Timestamp: timestamp,
+		},
+		Message: &waE2E.Message{Conversation: proto.String("Hello Bob")},
+	}
+
+	if err := repo.CreateMessage(ctx, event); err != nil {
+		t.Fatalf("create outgoing message: %v", err)
+	}
+
+	chat, err := repo.GetChatByDevice(accountJID.String(), peerJID.String())
+	if err != nil {
+		t.Fatalf("get peer chat: %v", err)
+	}
+	if chat == nil {
+		t.Fatal("expected peer chat")
+	}
+	if chat.Name != peerJID.User {
+		t.Fatalf("outgoing message changed peer chat name to %q, want %q", chat.Name, peerJID.User)
 	}
 }
 
@@ -385,6 +481,113 @@ func getMessagesForTest(t *testing.T, repo *SQLiteRepository, deviceID, chatJID 
 	return messages
 }
 
+// TestSQLiteRepositoryGetOldestMessageByDevice pins the on-demand history sync
+// anchor lookup: it must return the earliest message by timestamp for the
+// given chat/device, ignoring newer messages and other devices' messages, and
+// return (nil, nil) for a chat with nothing stored yet.
+func TestSQLiteRepositoryGetOldestMessageByDevice(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	otherDeviceID := "device-b@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	base := time.Date(2026, time.June, 19, 8, 0, 0, 0, time.UTC)
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        deviceID,
+		JID:             chatJID,
+		Name:            chatJID,
+		LastMessageTime: base,
+	}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+
+	got, err := repo.GetOldestMessageByDevice(deviceID, chatJID)
+	if err != nil {
+		t.Fatalf("get oldest message (empty chat): %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil for chat with no stored messages, got %+v", got)
+	}
+
+	messages := []*domainChatStorage.Message{
+		{ID: "msg-newest", ChatJID: chatJID, DeviceID: deviceID, Sender: "628999999999@s.whatsapp.net", Content: "newest", Timestamp: base.Add(2 * time.Hour)},
+		{ID: "msg-oldest", ChatJID: chatJID, DeviceID: deviceID, Sender: "628999999999@s.whatsapp.net", Content: "oldest", Timestamp: base},
+		{ID: "msg-middle", ChatJID: chatJID, DeviceID: deviceID, Sender: "628999999999@s.whatsapp.net", Content: "middle", Timestamp: base.Add(1 * time.Hour)},
+		// Older timestamp but a different device — must not be selected.
+		{ID: "msg-other-device", ChatJID: chatJID, DeviceID: otherDeviceID, Sender: "628999999999@s.whatsapp.net", Content: "other device", Timestamp: base.Add(-1 * time.Hour)},
+	}
+	if err := repo.StoreMessagesBatch(messages); err != nil {
+		t.Fatalf("store messages batch: %v", err)
+	}
+
+	got, err = repo.GetOldestMessageByDevice(deviceID, chatJID)
+	if err != nil {
+		t.Fatalf("get oldest message: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected the oldest stored message, got nil")
+	}
+	if got.ID != "msg-oldest" {
+		t.Fatalf("oldest message ID = %q, want %q", got.ID, "msg-oldest")
+	}
+}
+
+// TestSQLiteRepositoryGetOldestMessageByDeviceSkipsSyntheticCallRows pins the
+// history-sync anchor fix: a synthetic call row (media_type "call", id
+// "call:<callID>") stored by CreateIncomingCallRecord is not a real WhatsApp
+// message the phone can recognize as a history-sync anchor, so it must never
+// be selected over an older-but-real message.
+func TestSQLiteRepositoryGetOldestMessageByDeviceSkipsSyntheticCallRows(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	base := time.Date(2026, time.June, 19, 8, 0, 0, 0, time.UTC)
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID:        deviceID,
+		JID:             chatJID,
+		Name:            chatJID,
+		LastMessageTime: base,
+	}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+
+	// Synthetic call row, older than the real message.
+	if err := repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "call:call-1",
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    "628999999999@s.whatsapp.net",
+		Content:   "Incoming call",
+		Timestamp: base.Add(-1 * time.Hour),
+		MediaType: "call",
+	}); err != nil {
+		t.Fatalf("store synthetic call row: %v", err)
+	}
+
+	if err := repo.StoreMessage(&domainChatStorage.Message{
+		ID:        "msg-real",
+		ChatJID:   chatJID,
+		DeviceID:  deviceID,
+		Sender:    "628999999999@s.whatsapp.net",
+		Content:   "real message",
+		Timestamp: base,
+	}); err != nil {
+		t.Fatalf("store real message: %v", err)
+	}
+
+	got, err := repo.GetOldestMessageByDevice(deviceID, chatJID)
+	if err != nil {
+		t.Fatalf("get oldest message: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected the real message, got nil")
+	}
+	if got.ID != "msg-real" {
+		t.Fatalf("oldest message ID = %q, want %q (synthetic call row must be excluded)", got.ID, "msg-real")
+	}
+}
+
 func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 	t.Helper()
 	var count int
@@ -392,4 +595,47 @@ func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 		t.Fatalf("count message reactions: %v", err)
 	}
 	return count
+}
+
+func TestSQLiteRepositoryGetMessagesComparesTimeBoundsInUTC(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	at := func(hour, minute int) time.Time {
+		return time.Date(2026, time.November, 18, hour, minute, 0, 0, time.UTC)
+	}
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: deviceID, JID: chatJID, Name: chatJID, LastMessageTime: at(12, 0)}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+	var stored []*domainChatStorage.Message
+	for _, ts := range []time.Time{at(8, 59), at(9, 0), at(11, 30), at(11, 31)} {
+		stored = append(stored, &domainChatStorage.Message{
+			ID: ts.Format("1504"), ChatJID: chatJID, DeviceID: deviceID, Sender: chatJID, Content: "hi", Timestamp: ts,
+		})
+	}
+	if err := repo.StoreMessagesBatch(stored); err != nil {
+		t.Fatalf("store messages batch: %v", err)
+	}
+
+	// 10:00 and 12:30 in Paris are 09:00 and 11:30 UTC; the bounds are inclusive.
+	paris, err := time.LoadLocation("Europe/Paris")
+	if err != nil {
+		t.Fatalf("load Europe/Paris: %v", err)
+	}
+	start, end := at(9, 0).In(paris), at(11, 30).In(paris)
+	messages, err := repo.GetMessages(&domainChatStorage.MessageFilter{
+		DeviceID: deviceID, ChatJID: chatJID, StartTime: &start, EndTime: &end, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("get messages: %v", err)
+	}
+
+	var got []string
+	for _, message := range messages {
+		got = append(got, message.ID)
+	}
+	if want := []string{"1130", "0900"}; !slices.Equal(got, want) {
+		t.Fatalf("message IDs = %v, want %v", got, want)
+	}
 }

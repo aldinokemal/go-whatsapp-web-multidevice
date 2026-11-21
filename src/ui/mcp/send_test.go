@@ -7,6 +7,7 @@ import (
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,12 +27,16 @@ type stubSendService struct {
 	lastPoll     *domainSend.PollRequest
 	lastLink     *domainSend.LinkRequest
 	lastForward  *domainSend.ForwardRequest
+	scheduled    bool
 	err          error
 }
 
 func (s *stubSendService) resp() (domainSend.GenericResponse, error) {
 	if s.err != nil {
 		return domainSend.GenericResponse{}, s.err
+	}
+	if s.scheduled {
+		return domainSend.GenericResponse{Status: "Message scheduled", ScheduleID: "S1", ScheduledAt: "2026-09-22T10:00:00Z", NextRunAt: "2026-09-22T10:00:00Z"}, nil
 	}
 	return domainSend.GenericResponse{MessageID: "MSG1"}, nil
 }
@@ -81,6 +86,15 @@ func (s *stubSendService) SendForward(_ context.Context, r domainSend.ForwardReq
 	return s.resp()
 }
 
+// resultText returns the text content a tool result reports to the client.
+func resultText(t *testing.T, res *mcpg.CallToolResult) string {
+	t.Helper()
+	require.NotEmpty(t, res.Content)
+	text, ok := res.Content[0].(mcpg.TextContent)
+	require.True(t, ok)
+	return text.Text
+}
+
 // deviceCtx returns a context that already carries a device, as the HTTP
 // layer would after resolving X-Device-Id.
 func deviceCtx() context.Context {
@@ -111,11 +125,12 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "image", "phone": "628", "image_url": "http://x/a.png",
-			"caption": "c", "view_once": true, "hd": true,
+			"caption": "c", "view_once": true, "hd": true, "mentions": []any{"629", "@everyone"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastImage)
 		assert.Equal(t, "http://x/a.png", *svc.lastImage.ImageURL)
+		assert.Equal(t, []string{"629", "@everyone"}, svc.lastImage.Mentions)
 		assert.True(t, svc.lastImage.ViewOnce)
 		assert.True(t, svc.lastImage.Compress) // image compress defaults true
 		assert.True(t, svc.lastImage.HD)
@@ -126,12 +141,32 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "video", "phone": "628", "video_url": "http://x/a.mp4", "gif_playback": true, "hd": true,
+			"mentions": []any{"629"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastVideo)
+		assert.Equal(t, []string{"629"}, svc.lastVideo.Mentions)
 		assert.True(t, svc.lastVideo.GifPlayback)
 		assert.False(t, svc.lastVideo.Compress) // video compress defaults false
 		assert.True(t, svc.lastVideo.HD)
+	})
+
+	t.Run("allow_reshare", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		for _, args := range []map[string]any{
+			{"type": "text", "message": "hi"},
+			{"type": "image", "image_url": "http://x/a.png"},
+			{"type": "video", "video_url": "http://x/a.mp4"},
+		} {
+			args["phone"] = "status@broadcast"
+			args["allow_reshare"] = true
+			_, err := h.handleSend(deviceCtx(), callReq(args))
+			require.NoError(t, err)
+		}
+		assert.True(t, svc.lastText.AllowReshare)
+		assert.True(t, svc.lastImage.AllowReshare)
+		assert.True(t, svc.lastVideo.AllowReshare)
 	})
 
 	t.Run("audio", func(t *testing.T) {
@@ -149,10 +184,11 @@ func TestHandleSendDispatch(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})
 		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
-			"type": "document", "phone": "628", "file_url": "http://x/a.pdf",
+			"type": "document", "phone": "628", "file_url": "http://x/a.pdf", "mentions": []any{"629"},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastFile)
+		assert.Equal(t, []string{"629"}, svc.lastFile.Mentions)
 	})
 
 	t.Run("sticker", func(t *testing.T) {
@@ -219,6 +255,21 @@ func TestHandleSendDispatch(t *testing.T) {
 		require.NotNil(t, svc.lastForward)
 		require.NotNil(t, svc.lastForward.Duration)
 		assert.Equal(t, 86400, *svc.lastForward.Duration)
+	})
+
+	t.Run("scheduled send reports schedule_id", func(t *testing.T) {
+		svc := &stubSendService{scheduled: true}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "text", "phone": "628", "message": "hi",
+			"scheduled_at": "2026-09-22T10:00:00Z", "timezone": "UTC",
+			"recurrence": "weekly", "weekdays": []any{float64(1), float64(3)},
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.lastText)
+		assert.Equal(t, []int{1, 3}, svc.lastText.Weekdays)
+		assert.Equal(t, "text scheduled with schedule_id S1, next run 2026-09-22T10:00:00Z", resultText(t, res))
 	})
 
 	t.Run("usecase error becomes tool error", func(t *testing.T) {

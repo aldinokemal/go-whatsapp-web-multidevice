@@ -1,0 +1,117 @@
+package utils
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestExtractContextMetadata(t *testing.T) {
+	// Escapes must survive two JSON layers: metadata itself and the history API.
+	parent := "parent-\"quoted\"\\id\n"
+	ci := &waE2E.ContextInfo{StanzaID: proto.String(parent)}
+	messages := map[string]*waE2E.Message{
+		"text":          {ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: ci}},
+		"image":         {ImageMessage: &waE2E.ImageMessage{ContextInfo: ci}},
+		"video":         {VideoMessage: &waE2E.VideoMessage{ContextInfo: ci}},
+		"audio":         {AudioMessage: &waE2E.AudioMessage{ContextInfo: ci}},
+		"document":      {DocumentMessage: &waE2E.DocumentMessage{ContextInfo: ci}},
+		"sticker":       {StickerMessage: &waE2E.StickerMessage{ContextInfo: ci}},
+		"contact":       {ContactMessage: &waE2E.ContactMessage{ContextInfo: ci}},
+		"location":      {LocationMessage: &waE2E.LocationMessage{ContextInfo: ci}},
+		"video note":    {PtvMessage: &waE2E.VideoMessage{ContextInfo: ci}},
+		"live location": {LiveLocationMessage: &waE2E.LiveLocationMessage{ContextInfo: ci}},
+		"interactive":   {InteractiveMessage: &waE2E.InteractiveMessage{ContextInfo: ci}},
+	}
+	for name, msg := range messages {
+		t.Run(name, func(t *testing.T) {
+			original := proto.Clone(msg)
+			var metadata map[string]string
+			require.NoError(t, json.Unmarshal([]byte(ExtractContextMetadata(msg)), &metadata))
+			require.Equal(t, map[string]string{"replied_to_id": parent}, metadata)
+			require.True(t, proto.Equal(original, msg), "extraction must not mutate the message")
+		})
+	}
+	for name, wrap := range map[string]func(*waE2E.Message) *waE2E.Message{
+		"ephemeral": func(msg *waE2E.Message) *waE2E.Message {
+			return &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: msg}}
+		},
+		"view once": func(msg *waE2E.Message) *waE2E.Message {
+			return &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: msg}}
+		},
+		"view once v2": func(msg *waE2E.Message) *waE2E.Message {
+			return &waE2E.Message{ViewOnceMessageV2: &waE2E.FutureProofMessage{Message: msg}}
+		},
+		"view once v2 extension": func(msg *waE2E.Message) *waE2E.Message {
+			return &waE2E.Message{ViewOnceMessageV2Extension: &waE2E.FutureProofMessage{Message: msg}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			msg := messages["image"]
+			require.Equal(t, ExtractContextMetadata(msg), ExtractContextMetadata(wrap(msg)))
+		})
+	}
+	for _, msg := range []*waE2E.Message{
+		nil, {}, {Conversation: proto.String("ordinary")},
+		{ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: &waE2E.ContextInfo{MentionedJID: []string{"mention@s.whatsapp.net"}, IsForwarded: proto.Bool(true)}}},
+		{EphemeralMessage: &waE2E.FutureProofMessage{}},
+	} {
+		require.Empty(t, ExtractContextMetadata(msg))
+	}
+}
+
+func TestExtractContextMetadataIncludesTheQuotedAuthor(t *testing.T) {
+	for _, participant := range []string{"628123456789@s.whatsapp.net", "123456789012345@lid"} {
+		t.Run(participant, func(t *testing.T) {
+			msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{
+				StanzaID: proto.String("QUOTED-1"), Participant: proto.String(participant),
+			}}}
+			var metadata map[string]string
+			require.NoError(t, json.Unmarshal([]byte(ExtractContextMetadata(msg)), &metadata))
+			require.Equal(t, map[string]string{"replied_to_id": "QUOTED-1", "replied_to_sender": participant}, metadata,
+				"the author is stored as WhatsApp sent it")
+		})
+	}
+}
+
+// BuildEventMessage returns early for an edit, so the edited path carries the
+// quoted author on its own, like a plain reply.
+func TestBuildEventMessageCarriesTheQuotedAuthor(t *testing.T) {
+	ci := &waE2E.ContextInfo{StanzaID: proto.String("QUOTED-1"), Participant: proto.String("123456789012345@lid")}
+	reply := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("hi"), ContextInfo: ci}}
+	edited := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		EditedMessage: &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("hi, fixed"), ContextInfo: ci}},
+	}}
+	for name, msg := range map[string]*waE2E.Message{"reply": reply, "edited reply": edited} {
+		t.Run(name, func(t *testing.T) {
+			got := BuildEventMessage(&events.Message{Message: msg})
+			require.Equal(t, "QUOTED-1", got.RepliedId)
+			require.Equal(t, "123456789012345@lid", got.RepliedSender)
+		})
+	}
+}
+
+func TestExtractContextMetadataAuthorWithoutAReplyIsNotStored(t *testing.T) {
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: &waE2E.ContextInfo{
+		Participant: proto.String("628123456789@s.whatsapp.net"),
+	}}}
+	require.Equal(t, "", ExtractContextMetadata(msg), "metadata stays about replies only")
+}
+
+func TestExtractMentionedJIDs(t *testing.T) {
+	jids := []string{"628123456789@s.whatsapp.net", "", "123456789012345@lid"}
+	want := []string{"628123456789@s.whatsapp.net", "123456789012345@lid"}
+	text := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{ContextInfo: &waE2E.ContextInfo{MentionedJID: jids}}}
+	caption := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{ContextInfo: &waE2E.ContextInfo{MentionedJID: jids}}}
+	require.Equal(t, want, ExtractMentionedJIDs(text))
+	require.Equal(t, want, ExtractMentionedJIDs(caption))
+	require.Equal(t, want, ExtractMentionedJIDs(&waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: caption}}))
+	for _, msg := range []*waE2E.Message{nil, {}, {Conversation: proto.String("plain")}} {
+		require.Nil(t, ExtractMentionedJIDs(msg))
+	}
+}
