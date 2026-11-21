@@ -179,10 +179,10 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 		record = nil
 	}
 	ignoreGroups := deviceIgnoreGroupsOverride(record)
-	if err != nil || record == nil {
-		// An unresolved record hides the slot's webhook_ignore_groups, including an
-		// explicit true, so group events fail closed; other events keep the global
-		// fallback above.
+	if err != nil {
+		// A failed lookup hides the slot's webhook_ignore_groups, including an explicit
+		// true, so group events fail closed; other events keep the global fallback above.
+		// A device with no record has no override and follows the global list.
 		failClosed := true
 		ignoreGroups = &failClosed
 	}

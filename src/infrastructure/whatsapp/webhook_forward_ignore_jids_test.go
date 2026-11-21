@@ -76,7 +76,7 @@ func TestWebhookIgnoreJID_ExactJIDMatchesSender(t *testing.T) {
 
 func TestWebhookIgnoreJID_EmptyListForwardsAll(t *testing.T) {
 	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
-	if !runIgnoreJidForwardWithDeviceOverride(t, nil, nil, "message", payload) {
+	if !runIgnoreJidForward(t, nil, "message", payload) {
 		t.Fatal("group message should be forwarded when the ignore list is empty (default)")
 	}
 }
@@ -336,7 +336,9 @@ func TestWebhookIgnoreJID_ResolverErrorFailsClosedForGroupEvent(t *testing.T) {
 	}
 }
 
-func TestWebhookIgnoreJID_MissingDeviceRecordFailsClosedForGroupEvent(t *testing.T) {
+// A device with no registry row has no webhook_ignore_groups override, so its group
+// events follow WHATSAPP_WEBHOOK_IGNORE_JIDS exactly as before this feature.
+func TestWebhookIgnoreJID_MissingDeviceRecordFollowsGlobalList(t *testing.T) {
 	originalStorage := webhookStorageForTest
 	webhookStorageForTest = func(deviceJID string) (*domainChatStorage.DeviceRecord, error) {
 		return nil, nil
@@ -344,8 +346,11 @@ func TestWebhookIgnoreJID_MissingDeviceRecordFailsClosedForGroupEvent(t *testing
 	defer func() { webhookStorageForTest = originalStorage }()
 
 	payload := ignoreJidPayload("120363999000111@g.us", "628111@s.whatsapp.net")
-	if runIgnoreJidForward(t, nil, "message", payload) {
-		t.Fatal("group message must not be forwarded when the device record is missing, even with no global @g.us entry")
+	if !runIgnoreJidForward(t, nil, "message", payload) {
+		t.Fatal("group message from a device with no record must be forwarded when the global list is empty")
+	}
+	if runIgnoreJidForward(t, []string{"@g.us"}, "message", payload) {
+		t.Fatal("group message from a device with no record must still follow a global @g.us entry")
 	}
 }
 
