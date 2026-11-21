@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"go.mau.fi/whatsmeow/types"
@@ -13,6 +14,7 @@ type fakeWhatsappLookup struct {
 	numberResults []types.IsOnWhatsAppResponse
 	numberErr     error
 	userInfo      map[types.JID]types.UserInfo
+	userInfoErr   error
 	userInfoCalls int
 }
 
@@ -23,7 +25,7 @@ func (f *fakeWhatsappLookup) IsOnWhatsApp(_ context.Context, phones []string) ([
 
 func (f *fakeWhatsappLookup) GetUserInfo(_ context.Context, _ []types.JID) (map[types.JID]types.UserInfo, error) {
 	f.userInfoCalls++
-	return f.userInfo, nil
+	return f.userInfo, f.userInfoErr
 }
 
 func TestResolveOnWhatsapp(t *testing.T) {
@@ -62,9 +64,22 @@ func TestResolveOnWhatsapp(t *testing.T) {
 			want:   typed, wantOn: false, wantFallback: true,
 		},
 		{
+			// Group participants arrive as typed, so an E.164 "+" can reach the JID.
+			name:   "an E.164 plus is not doubled",
+			jid:    types.NewJID("+5573912345678", types.DefaultUserServer),
+			lookup: &fakeWhatsappLookup{userInfo: map[types.JID]types.UserInfo{typed: {LID: lid}}},
+			want:   typed, wantOn: true, wantFallback: true,
+		},
+		{
 			name:    "a failed lookup is an error, not a negative",
 			jid:     typed,
 			lookup:  &fakeWhatsappLookup{numberErr: errors.New("timed out")},
+			wantErr: true,
+		},
+		{
+			name:    "a failed JID lookup is an error, not a negative",
+			jid:     typed,
+			lookup:  &fakeWhatsappLookup{userInfoErr: errors.New("timed out")},
 			wantErr: true,
 		},
 		{
@@ -91,8 +106,9 @@ func TestResolveOnWhatsapp(t *testing.T) {
 			if fellBack := tc.lookup.userInfoCalls > 0; fellBack != tc.wantFallback {
 				t.Errorf("JID lookup called = %v, want %v", fellBack, tc.wantFallback)
 			}
-			if tc.jid.Server == types.DefaultUserServer && (len(tc.lookup.phones) != 1 || tc.lookup.phones[0] != "+"+tc.jid.User) {
-				t.Errorf("phone-number lookup got %q, want [+%s]", tc.lookup.phones, tc.jid.User)
+			wantPhone := "+" + strings.TrimPrefix(tc.jid.User, "+")
+			if tc.jid.Server == types.DefaultUserServer && (len(tc.lookup.phones) != 1 || tc.lookup.phones[0] != wantPhone) {
+				t.Errorf("phone-number lookup got %q, want [%s]", tc.lookup.phones, wantPhone)
 			}
 		})
 	}
