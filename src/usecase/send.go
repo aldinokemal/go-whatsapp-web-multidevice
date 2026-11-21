@@ -428,10 +428,10 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	}
 
 	// Set disappearing message duration if provided
-	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
+	if request.BaseRequest.Duration != nil { // an explicit 0 turns expiry off
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, request.BaseRequest.Phone))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, chatKeys(request.BaseRequest.Phone, dataWaRecipient)...))
 	}
 
 	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
@@ -2214,9 +2214,9 @@ func getWebPInfo(ctx context.Context, filePath string) (isAnimated bool, width i
 // getDefaultEphemeralExpiration returns the disappearing-message timer this
 // device has stored for the chat. Another device's timer for the same chat is
 // not this device's setting, so the lookup is device-scoped.
-func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, jid string) (expiration uint32) {
+func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, jids ...string) (expiration uint32) {
 	expiration = 0
-	if jid == "" || service.chatStorageRepo == nil {
+	if service.chatStorageRepo == nil {
 		return expiration
 	}
 	deviceID := storageDeviceID(ctx)
@@ -2224,12 +2224,7 @@ func (service serviceSend) getDefaultEphemeralExpiration(ctx context.Context, ji
 		return expiration
 	}
 
-	chat, err := service.chatStorageRepo.GetChatByDevice(deviceID, jid)
-	if err != nil {
-		return expiration
-	}
-
-	if chat != nil && chat.EphemeralExpiration != 0 {
+	if chat := storedChat(service.chatStorageRepo, deviceID, jids...); chat != nil && chat.EphemeralExpiration != 0 {
 		expiration = chat.EphemeralExpiration
 	}
 

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -282,6 +283,32 @@ func storageDeviceID(ctx context.Context) string {
 	return ""
 }
 
+// chatKeys orders the keys a request's stored chat is looked up under. A chat saved
+// under @lid keeps that key, and sending creates the phone row without its timer, so
+// an @lid request reads its own row first. Any other spelling reads the JID WhatsApp
+// registered first, since a row under the typed spelling is stale.
+func chatKeys(requested string, resolved types.JID) []string {
+	if strings.HasSuffix(requested, "@"+types.HiddenUserServer) {
+		return []string{requested, resolved.String()}
+	}
+	return []string{resolved.String(), requested}
+}
+
+// storedChat returns the device's chat under the first key that has one. A failed
+// read ends the lookup, since a later key's row is the stale one.
+func storedChat(repo domainChatStorage.IChatStorageRepository, deviceID string, keys ...string) *domainChatStorage.Chat {
+	for _, key := range keys {
+		chat, err := repo.GetChatByDevice(deviceID, key)
+		if err != nil {
+			return nil
+		}
+		if chat != nil {
+			return chat
+		}
+	}
+	return nil
+}
+
 func deviceIDFromContext(ctx context.Context) string {
 	if inst, ok := whatsapp.DeviceFromContext(ctx); ok && inst != nil {
 		if jid := inst.JID(); jid != "" {
@@ -365,7 +392,7 @@ func (service serviceChat) SetDisappearingTimer(ctx context.Context, request dom
 	}
 
 	// Update local storage immediately for consistency
-	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceIDFromContext(ctx), request.ChatJID); existingChat != nil {
+	if existingChat := storedChat(service.chatStorageRepo, deviceIDFromContext(ctx), chatKeys(request.ChatJID, targetJID)...); existingChat != nil {
 		existingChat.EphemeralExpiration = request.TimerSeconds
 		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}
@@ -429,7 +456,7 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	}
 
 	// Update local storage immediately for consistency
-	if existingChat, _ := service.chatStorageRepo.GetChatByDevice(deviceIDFromContext(ctx), request.ChatJID); existingChat != nil {
+	if existingChat := storedChat(service.chatStorageRepo, deviceIDFromContext(ctx), chatKeys(request.ChatJID, targetJID)...); existingChat != nil {
 		existingChat.Archived = request.Archived
 		_ = service.chatStorageRepo.StoreChat(existingChat)
 	}

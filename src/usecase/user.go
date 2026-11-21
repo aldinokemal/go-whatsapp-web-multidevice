@@ -523,9 +523,12 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 
 	utils.SanitizePhone(&request.Phone)
 
-	response.IsOnWhatsApp = utils.IsOnWhatsapp(client, request.Phone)
-
-	return response, nil
+	jid, err := utils.ParseJID(request.Phone)
+	if err != nil {
+		return response, pkgError.InvalidJID(err.Error())
+	}
+	_, response.IsOnWhatsApp, err = utils.ResolveOnWhatsapp(client, jid)
+	return response, err
 }
 
 func (service serviceUser) SubscribePresence(ctx context.Context, request domainUser.SubscribePresenceRequest) (response domainUser.SubscribePresenceResponse, err error) {
