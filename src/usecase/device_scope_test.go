@@ -130,10 +130,26 @@ func TestDefaultEphemeralExpirationIsPerDevice(t *testing.T) {
 	f.storeChat(t, scopeDeviceB, 0)
 	service := serviceSend{chatStorageRepo: f.repo}
 
-	require.Equal(t, uint32(86400), service.getDefaultEphemeralExpiration(scopeContext(scopeDeviceA), scopeGroup.String()))
-	require.Equal(t, uint32(0), service.getDefaultEphemeralExpiration(scopeContext(scopeDeviceB), scopeGroup.String()))
-	require.Equal(t, uint32(0), service.getDefaultEphemeralExpiration(context.Background(), scopeGroup.String()),
+	require.Equal(t, uint32(86400), service.getDefaultEphemeralExpiration(scopeContext(scopeDeviceA), scopeGroup))
+	require.Equal(t, uint32(0), service.getDefaultEphemeralExpiration(scopeContext(scopeDeviceB), scopeGroup))
+	require.Equal(t, uint32(0), service.getDefaultEphemeralExpiration(context.Background(), scopeGroup),
 		"a caller with no device must not inherit some device's timer")
+}
+
+func TestForwardDurationOptionUsesValidatedRecipient(t *testing.T) {
+	f := newScopeFixture(t)
+	asked := types.NewJID("5500912345678", types.DefaultUserServer)
+	recipient := types.NewJID("550012345678", types.DefaultUserServer)
+	require.NoError(t, f.repo.StoreChat(&domainChatStorage.Chat{
+		DeviceID: scopeDeviceA, JID: recipient.String(), LastMessageTime: time.Now(), EphemeralExpiration: 86400,
+	}))
+	service := serviceSend{chatStorageRepo: f.repo}
+	ctx := scopeContext(scopeDeviceA)
+
+	got := forwardDurationOption(ctx, service, recipient, nil)
+	require.NotNil(t, got)
+	require.Equal(t, 86400, *got)
+	require.Nil(t, forwardDurationOption(ctx, service, asked, nil))
 }
 
 func TestListChatsRequiresADevice(t *testing.T) {
