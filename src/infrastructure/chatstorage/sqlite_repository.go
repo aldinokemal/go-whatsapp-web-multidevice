@@ -2249,10 +2249,10 @@ func (r *SQLiteRepository) GetDeviceWebhookConfig(ctx context.Context, deviceID 
 }
 
 // SetDeviceStorageSettings applies a partial update to the per-device chat_storage /
-// auto_download_media overrides. Only columns whose Has* flag is set in patch are
-// included in the UPDATE, so an omitted field keeps its stored value untouched while
-// a present field with a nil pointer clears the override back to NULL (follow the
-// instance default). Returns sql.ErrNoRows if the device does not exist.
+// auto_download_media overrides. A column whose Has* flag is unset keeps its stored
+// value (the CASE ... ELSE branch), while a present field with a nil pointer clears
+// the override back to NULL (follow the instance default). Returns sql.ErrNoRows if
+// the device does not exist.
 func (r *SQLiteRepository) SetDeviceStorageSettings(deviceID string, patch domainChatStorage.DeviceStoragePatch) error {
 	if strings.TrimSpace(deviceID) == "" {
 		return fmt.Errorf("device id is required")
@@ -2261,23 +2261,13 @@ func (r *SQLiteRepository) SetDeviceStorageSettings(deviceID string, patch domai
 		return nil
 	}
 
-	setClauses := make([]string, 0, 3)
-	args := make([]any, 0, 4)
-
-	if patch.HasChatStorage {
-		setClauses = append(setClauses, "chat_storage = ?")
-		args = append(args, patch.ChatStorage)
-	}
-	if patch.HasAutoDownloadMedia {
-		setClauses = append(setClauses, "auto_download_media = ?")
-		args = append(args, patch.AutoDownloadMedia)
-	}
-	setClauses = append(setClauses, "updated_at = ?")
-	args = append(args, time.Now())
-	args = append(args, deviceID)
-
-	query := fmt.Sprintf("UPDATE devices SET %s WHERE device_id = ?", strings.Join(setClauses, ", "))
-	result, err := r.db.Exec(query, args...)
+	result, err := r.db.Exec(`
+		UPDATE devices
+		SET chat_storage = CASE WHEN ? THEN ? ELSE chat_storage END,
+			auto_download_media = CASE WHEN ? THEN ? ELSE auto_download_media END,
+			updated_at = ?
+		WHERE device_id = ?
+	`, patch.HasChatStorage, patch.ChatStorage, patch.HasAutoDownloadMedia, patch.AutoDownloadMedia, time.Now(), deviceID)
 	if err != nil {
 		return err
 	}
