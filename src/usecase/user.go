@@ -525,7 +525,7 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 
 	jid, err := utils.ParseJID(request.Phone)
 	if err != nil {
-		return response, err
+		return response, pkgError.InvalidJID(err.Error())
 	}
 	_, response.IsOnWhatsApp, err = utils.ResolveOnWhatsapp(client, jid)
 	return response, err
