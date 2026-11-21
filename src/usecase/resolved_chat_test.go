@@ -50,6 +50,20 @@ func TestForwardDurationOptionPrefersTheRequestedChat(t *testing.T) {
 	require.Equal(t, 86400, *got)
 }
 
+func TestForwardDurationOptionPrefersTheRegisteredSpelling(t *testing.T) {
+	f := newScopeFixture(t)
+	alias := types.NewJID("5573912345678", types.DefaultUserServer)
+	registered := types.NewJID("557312345678", types.DefaultUserServer)
+	storeChatWithTimer(t, f, alias, 3600)
+	storeTimedChat(t, f, registered)
+
+	got := forwardDurationOption(scopeContext(scopeDeviceA), serviceSend{chatStorageRepo: f.repo},
+		domainSend.ForwardRequest{Phone: alias.String()}, registered)
+
+	require.NotNil(t, got)
+	require.Equal(t, 86400, *got)
+}
+
 func TestForwardDurationOptionReadsTheRequestedChat(t *testing.T) {
 	f := newScopeFixture(t)
 	// A chat saved under @lid before its phone was known keeps the @lid key.

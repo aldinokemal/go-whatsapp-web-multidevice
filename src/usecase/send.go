@@ -431,7 +431,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 	if request.BaseRequest.Duration != nil && *request.BaseRequest.Duration > 0 {
 		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(uint32(*request.BaseRequest.Duration))
 	} else {
-		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, request.BaseRequest.Phone, dataWaRecipient.String()))
+		msg.ExtendedTextMessage.ContextInfo.Expiration = proto.Uint32(service.getDefaultEphemeralExpiration(ctx, chatKeys(request.BaseRequest.Phone, dataWaRecipient)...))
 	}
 
 	if mentionedJIDs := service.resolveMentions(ctx, request.Message, request.Mentions, dataWaRecipient); len(mentionedJIDs) > 0 {
