@@ -23,7 +23,8 @@ import (
 func newTestSQLiteRepository(t *testing.T) *SQLiteRepository {
 	t.Helper()
 
-	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chatstorage.db"))
+	// modernc (purego) has no default busy handler; mattn already waits 5s and ignores _pragma.
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "chatstorage.db")+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatalf("open sqlite database: %v", err)
 	}
