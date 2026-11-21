@@ -273,8 +273,8 @@ A set environment value can therefore override the matching flag. The `.env` fil
 only fills variables not already set in the process environment.
 
 Explicit flags win for MCP OAuth settings, `--allow-unauthenticated`,
-`--trusted-origins`, `--chatwoot-webhook-allow-unsigned`, and
-`--webhook-all-device-receipts`. Configure each option in one place to avoid
+`--trusted-origins`, `--chatwoot-webhook-allow-unsigned`,
+`--webhook-all-device-receipts`, and `--timezone`. Configure each option in one place to avoid
 conflicting values. For example, `WHATSAPP_WEBHOOK_INSECURE_SKIP_VERIFY=true`
 overrides `--webhook-insecure-skip-verify=false`.
 

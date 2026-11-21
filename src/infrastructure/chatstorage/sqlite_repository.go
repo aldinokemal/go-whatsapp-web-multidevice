@@ -594,14 +594,15 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 	conditions = append(conditions, "device_id = ?")
 	args = append(args, filter.DeviceID)
 
+	// Timestamps are stored as UTC text and compared as strings, so bounds must be UTC too.
 	if filter.StartTime != nil {
 		conditions = append(conditions, "timestamp >= ?")
-		args = append(args, *filter.StartTime)
+		args = append(args, filter.StartTime.UTC())
 	}
 
 	if filter.EndTime != nil {
 		conditions = append(conditions, "timestamp <= ?")
-		args = append(args, *filter.EndTime)
+		args = append(args, filter.EndTime.UTC())
 	}
 
 	if filter.MediaOnly {

@@ -61,26 +61,6 @@ func TestGetChatMessagesFormatsTimestampsInAppTimezone(t *testing.T) {
 	}
 }
 
-func TestGetChatMessagesBindsTimeFiltersInUTC(t *testing.T) {
-	ctx, repo, chatJID := newTimezoneChatFixture(t, time.Date(2026, time.November, 18, 9, 0, 0, 0, time.UTC))
-	start, end := "2026-11-18T10:00:00+01:00", "2026-11-18T12:30:00+01:00"
-
-	_, err := NewChatService(repo).GetChatMessages(ctx, domainChat.GetChatMessagesRequest{
-		ChatJID: chatJID, Limit: 50, StartTime: &start, EndTime: &end,
-	})
-	if err != nil {
-		t.Fatalf("get chat messages: %v", err)
-	}
-
-	// Stored timestamps are UTC text, so a bound with another offset would compare wrongly.
-	if got := repo.messageFilter.StartTime; got.Location() != time.UTC || !got.Equal(time.Date(2026, time.November, 18, 9, 0, 0, 0, time.UTC)) {
-		t.Errorf("start bound = %v, want 2026-11-18 09:00 UTC", got)
-	}
-	if got := repo.messageFilter.EndTime; got.Location() != time.UTC || !got.Equal(time.Date(2026, time.November, 18, 11, 30, 0, 0, time.UTC)) {
-		t.Errorf("end bound = %v, want 2026-11-18 11:30 UTC", got)
-	}
-}
-
 func TestFormatTimestampLeavesZeroTimeUnchanged(t *testing.T) {
 	useAppTimezone(t, "Europe/Paris")
 

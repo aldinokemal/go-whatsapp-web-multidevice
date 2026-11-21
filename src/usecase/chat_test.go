@@ -458,7 +458,6 @@ type chatUsecaseRepoStub struct {
 	oldestMessageCalled   bool
 	oldestMessageDeviceID string
 	oldestMessageChatJID  string
-	messageFilter         *domainChatStorage.MessageFilter
 }
 
 func (r *chatUsecaseRepoStub) GetOldestMessageByDevice(deviceID, chatJID string) (*domainChatStorage.Message, error) {
@@ -480,8 +479,7 @@ func (r *chatUsecaseRepoStub) GetFilteredChatCount(*domainChatStorage.ChatFilter
 	return int64(len(r.chats)), nil
 }
 
-func (r *chatUsecaseRepoStub) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
-	r.messageFilter = filter
+func (r *chatUsecaseRepoStub) GetMessages(*domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
 	return r.messages, nil
 }
 

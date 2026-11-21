@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -594,4 +595,47 @@ func countMessageReactions(t *testing.T, repo *SQLiteRepository) int {
 		t.Fatalf("count message reactions: %v", err)
 	}
 	return count
+}
+
+func TestSQLiteRepositoryGetMessagesComparesTimeBoundsInUTC(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	chatJID := "628123456789@s.whatsapp.net"
+	at := func(hour, minute int) time.Time {
+		return time.Date(2026, time.November, 18, hour, minute, 0, 0, time.UTC)
+	}
+
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: deviceID, JID: chatJID, Name: chatJID, LastMessageTime: at(12, 0)}); err != nil {
+		t.Fatalf("store chat: %v", err)
+	}
+	var stored []*domainChatStorage.Message
+	for _, ts := range []time.Time{at(8, 59), at(9, 0), at(11, 30), at(11, 31)} {
+		stored = append(stored, &domainChatStorage.Message{
+			ID: ts.Format("1504"), ChatJID: chatJID, DeviceID: deviceID, Sender: chatJID, Content: "hi", Timestamp: ts,
+		})
+	}
+	if err := repo.StoreMessagesBatch(stored); err != nil {
+		t.Fatalf("store messages batch: %v", err)
+	}
+
+	// 10:00 and 12:30 in Paris are 09:00 and 11:30 UTC; the bounds are inclusive.
+	paris, err := time.LoadLocation("Europe/Paris")
+	if err != nil {
+		t.Fatalf("load Europe/Paris: %v", err)
+	}
+	start, end := at(9, 0).In(paris), at(11, 30).In(paris)
+	messages, err := repo.GetMessages(&domainChatStorage.MessageFilter{
+		DeviceID: deviceID, ChatJID: chatJID, StartTime: &start, EndTime: &end, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("get messages: %v", err)
+	}
+
+	var got []string
+	for _, message := range messages {
+		got = append(got, message.ID)
+	}
+	if want := []string{"1130", "0900"}; !slices.Equal(got, want) {
+		t.Fatalf("message IDs = %v, want %v", got, want)
+	}
 }

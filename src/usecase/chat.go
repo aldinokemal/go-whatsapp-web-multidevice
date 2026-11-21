@@ -153,7 +153,6 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		if err != nil {
 			return response, fmt.Errorf("invalid start_time format: %v", err)
 		}
-		startTime = startTime.UTC() // stored timestamps are UTC text, compared as strings
 		filter.StartTime = &startTime
 	}
 
@@ -162,7 +161,6 @@ func (service serviceChat) GetChatMessages(ctx context.Context, request domainCh
 		if err != nil {
 			return response, fmt.Errorf("invalid end_time format: %v", err)
 		}
-		endTime = endTime.UTC() // stored timestamps are UTC text, compared as strings
 		filter.EndTime = &endTime
 	}
 
