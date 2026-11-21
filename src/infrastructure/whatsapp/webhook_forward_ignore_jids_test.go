@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -368,5 +369,69 @@ func TestWebhookIgnoreJID_ResolverErrorStillForwardsNonGroupEvent(t *testing.T) 
 	payload := ignoreJidPayload("628999@s.whatsapp.net", "628999@s.whatsapp.net")
 	if !runIgnoreJidForward(t, nil, "message", payload) {
 		t.Fatal("non-group message should still be forwarded via the global config fallback when device record resolution errors")
+	}
+}
+
+// The emitting slot's own record is missing and the bare number resolves the one
+// surviving row, which belongs to a sibling slot: that row's webhook must not
+// receive this slot's event. The slot's own legacy row (no ad_jid yet) found by
+// the bare number is still used.
+func TestWebhookPolicyIgnoresSiblingRecordFoundByBareJID(t *testing.T) {
+	origHooks := config.WhatsappWebhook
+	origEvents := config.WhatsappWebhookEvents
+	origIgnore := config.WhatsappWebhookIgnoreJids
+	origDM := deviceManager
+	origStorage := webhookStorageForTest
+	origSubmit := submitWebhookFn
+	t.Cleanup(func() {
+		config.WhatsappWebhook = origHooks
+		config.WhatsappWebhookEvents = origEvents
+		config.WhatsappWebhookIgnoreJids = origIgnore
+		deviceManager = origDM
+		webhookStorageForTest = origStorage
+		submitWebhookFn = origSubmit
+	})
+
+	config.WhatsappWebhook = []string{"https://global.example/hook"}
+	config.WhatsappWebhookEvents = nil
+	config.WhatsappWebhookIgnoreJids = nil
+	slotA := companionInstance("slot-a", "6281777000021", 12)
+	deviceManager = NewDeviceManager(nil, nil, nil)
+	deviceManager.AddDevice(slotA)
+
+	var urls []string
+	submitWebhookFn = func(_ context.Context, _ map[string]any, url string, _ *domainChatStorage.DeviceWebhookConfig) error {
+		urls = append(urls, url)
+		return nil
+	}
+
+	const rowURL = "https://row-owner.example/hook"
+	for _, tc := range []struct {
+		name     string
+		rowOwner string
+		wantURLs []string
+	}{
+		{name: "sibling row", rowOwner: "slot-b"},
+		{name: "own legacy row", rowOwner: "slot-a", wantURLs: []string{rowURL}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			url := rowURL
+			webhookStorageForTest = func(key string) (*domainChatStorage.DeviceRecord, error) {
+				if key != slotA.JID() {
+					return nil, nil
+				}
+				return &domainChatStorage.DeviceRecord{DeviceID: tc.rowOwner, JID: slotA.JID(), WebhookURL: &url}, nil
+			}
+			urls = nil
+
+			payload := ignoreJidPayload("628999@s.whatsapp.net", "628999@s.whatsapp.net")
+			payload["device_id"] = slotA.JID()
+			if err := forwardPayloadToConfiguredWebhooks(ContextWithDevice(context.Background(), slotA), payload, "message"); err != nil {
+				t.Fatalf("forward: %v", err)
+			}
+			if !slices.Equal(urls, tc.wantURLs) {
+				t.Fatalf("delivered to %v, want %v", urls, tc.wantURLs)
+			}
+		})
 	}
 }

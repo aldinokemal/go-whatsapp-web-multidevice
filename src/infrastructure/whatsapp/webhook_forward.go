@@ -306,9 +306,11 @@ var errAmbiguousWebhookDevice = errors.New("webhook device identity is ambiguous
 // slot. payload["device_id"] stays the public account JID; policy uses the
 // companion AD JID from the device context when that slot is known. A bare
 // account JID that matches several in-memory slots does not fall back to the
-// global filter.
+// global filter, and a record found by the bare JID is used only when it
+// belongs to the emitting slot.
 func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceRecord, error) {
 	payloadID, _ := payload["device_id"].(string)
+	emittingSlot := ""
 	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
 		ad := strings.TrimSpace(inst.ADJID())
 		if ad != "" && ad != payloadID {
@@ -319,6 +321,7 @@ func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*d
 			if rec != nil {
 				return rec, nil
 			}
+			emittingSlot = inst.ID()
 			bare := inst.JID()
 			if bare == "" {
 				bare = payloadID
@@ -337,6 +340,11 @@ func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*d
 	record, err := getDeviceRecordForTest(payloadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device record: %w", err)
+	}
+	if record != nil && emittingSlot != "" && record.DeviceID != emittingSlot {
+		// The emitting slot's own row is missing and the bare number matched a
+		// sibling slot's row; its URL, secret and filters must not apply here.
+		return nil, errAmbiguousWebhookDevice
 	}
 	return record, nil
 }
