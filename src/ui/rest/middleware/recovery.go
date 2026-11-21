@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -24,7 +25,7 @@ func Recovery() fiber.Handler {
 				logrus.Errorf("Panic recovered in middleware: %v", err)
 
 				// Check for context deadline exceeded (timeout)
-				if ctxErr, ok := err.(error); ok && ctxErr == context.DeadlineExceeded {
+				if ctxErr, ok := err.(error); ok && errors.Is(ctxErr, context.DeadlineExceeded) {
 					res.Status = 504
 					res.Code = "GATEWAY_TIMEOUT"
 					res.Message = "Request timed out waiting for WhatsApp server response"

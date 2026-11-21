@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	fiberUtils "github.com/gofiber/utils/v2"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
@@ -24,13 +26,14 @@ import (
 
 // DeviceManager keeps a registry of active device instances.
 type DeviceManager struct {
-	mu       sync.RWMutex
-	devices  map[string]*DeviceInstance
-	store    *sqlstore.Container
-	keys     *sqlstore.Container
-	storage  domainChatStorage.IChatStorageRepository
-	initted  bool
-	initOnce sync.Once
+	mu        sync.RWMutex
+	devices   map[string]*DeviceInstance
+	transient *DeviceInstance
+	store     *sqlstore.Container
+	keys      *sqlstore.Container
+	storage   domainChatStorage.IChatStorageRepository
+	initted   bool
+	initOnce  sync.Once
 }
 
 func NewDeviceManager(store *sqlstore.Container, keys *sqlstore.Container, chatStorageRepo domainChatStorage.IChatStorageRepository) *DeviceManager {
@@ -49,6 +52,7 @@ func (m *DeviceManager) AddDevice(instance *DeviceInstance) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.attachClientLocked(instance, instance.GetClient())
 	m.devices[instance.ID()] = instance
 
 	// Persist registry entry if available
@@ -187,10 +191,71 @@ func (m *DeviceManager) ResolveDevice(deviceID string) (*DeviceInstance, string,
 	return nil, "", fmt.Errorf("device id is required")
 }
 
+// resolveDeviceForPurge locates a slot for destructive cleanup without trimming the
+// requested id. CreateDevice stores ids verbatim, so "sales" and " sales" are distinct
+// slots; ResolveDevice trims and must not be used for DELETE/purge.
+func (m *DeviceManager) resolveDeviceForPurge(deviceID string) (*DeviceInstance, string, error) {
+	if m == nil {
+		return nil, "", fmt.Errorf("device manager not initialized")
+	}
+	if deviceID == "" {
+		return nil, "", fmt.Errorf("device id is required")
+	}
+	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
+		return inst, deviceID, nil
+	}
+	if inst, ok := m.getDeviceByJID(deviceID); ok && inst != nil {
+		return inst, inst.ID(), nil
+	}
+	return nil, deviceID, fmt.Errorf("device %s not found", deviceID)
+}
+
+// nonADJIDClaimedByOtherSlot reports whether another registered slot still uses the
+// same bare-number JID for chat-storage partitioning (companion slots on one number).
+//
+// excludeSlotID is compared verbatim: slots are stored under the id as supplied, so
+// trimming it here would stop a padded id such as " sales " from matching its own
+// record, and the slot would then read as somebody else's claim on its own number.
+//
+// A lookup failure is returned rather than swallowed. The caller cannot tell "claimed"
+// from "could not tell" otherwise, and would drop the partition while reporting success.
+func (m *DeviceManager) nonADJIDClaimedByOtherSlot(excludeSlotID, nonADJID string) (bool, error) {
+	nonADJID = strings.TrimSpace(nonADJID)
+	if nonADJID == "" {
+		return false, nil
+	}
+	if m.storage != nil {
+		records, err := m.storage.ListDeviceRecords()
+		if err != nil {
+			return true, err
+		}
+		for _, rec := range records {
+			if rec == nil || rec.DeviceID == excludeSlotID {
+				continue
+			}
+			if strings.TrimSpace(rec.JID) == nonADJID {
+				return true, nil
+			}
+		}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for id, inst := range m.devices {
+		if id == excludeSlotID || inst == nil {
+			continue
+		}
+		if strings.TrimSpace(inst.JID()) == nonADJID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *DeviceManager) RemoveDevice(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.devices, id)
+	newsletterLiveUpdates.stopDevice(id)
 
 	if m.storage != nil && strings.TrimSpace(id) != "" {
 		_ = m.storage.DeleteDeviceRecord(id)
@@ -266,6 +331,11 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 		return fmt.Errorf("device id is required")
 	}
 
+	inst, resolvedID, err := m.resolveDeviceForPurge(deviceID)
+	if err != nil {
+		return err
+	}
+
 	var firstErr error
 	recordErr := func(err error) {
 		if err != nil {
@@ -275,46 +345,63 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 
 	// Resolve the device's WhatsApp identity before tearing anything down so we can
 	// delete its whatsmeow store rows even when no live client is attached.
-	var jid string
-	if inst, ok := m.GetDevice(deviceID); ok && inst != nil {
-		jid = storeIdentity(inst)
-		if cli := inst.GetClient(); cli != nil {
-			// The WhatsApp unlink is best-effort: a dead/expired session may fail
-			// here, but that must not block local cleanup or fail the purge.
-			if err := cli.Logout(ctx); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", deviceID)
-			}
-			cli.Disconnect()
+	jid := storeIdentity(inst)
+	if cli := inst.GetClient(); cli != nil {
+		// A purge-triggered LoggedOut must not run the keep-slot callback: that
+		// would resurrect the slot (and persist it) while DELETE promises removal.
+		inst.SetOnLoggedOut(nil)
+		// The WhatsApp unlink is best-effort: a dead/expired session may fail
+		// here, but that must not block local cleanup or fail the purge.
+		if err := cli.Logout(ctx); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] remote unlink failed for device %s (best-effort)", resolvedID)
 		}
+		cli.Disconnect()
 	}
 
 	// Delete chatstorage data for this device (local cleanup — surfaced on failure).
+	// Chats/messages are partitioned by the WhatsApp JID once paired, while the
+	// registry slot keeps its own id — purge both keys when they differ.
 	if m.storage != nil {
-		if err := m.storage.DeleteDeviceData(deviceID); err != nil {
-			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s", deviceID)
-			recordErr(err)
+		partitionKeys := []string{resolvedID}
+		if jidKey := strings.TrimSpace(inst.JID()); jidKey != "" && jidKey != resolvedID {
+			claimed, err := m.nonADJIDClaimedByOtherSlot(resolvedID, jidKey)
+			switch {
+			case err != nil:
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to check shared chatstorage partition %s for slot %s", jidKey, resolvedID)
+				recordErr(err)
+			case claimed:
+				logrus.Warnf("[DEVICE_MANAGER] skipping shared chatstorage partition %s for slot %s (another slot still claims this number)", jidKey, resolvedID)
+			default:
+				partitionKeys = append(partitionKeys, jidKey)
+			}
+		}
+		for _, key := range partitionKeys {
+			if err := m.storage.DeleteDeviceData(key); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatstorage for device %s (partition %s)", resolvedID, key)
+				recordErr(err)
+			}
 		}
 
 		// Drop the device's Chatwoot config (and its message links) with it. An
 		// orphaned row would keep claiming the device's JID under the unique
 		// device_jid index, blocking a re-created device for the same number from
 		// being configured.
-		if cfg, err := m.storage.GetChatwootDeviceConfig(deviceID); err != nil {
-			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to load chatwoot config for device %s", deviceID)
+		if cfg, err := m.storage.GetChatwootDeviceConfig(resolvedID); err != nil {
+			logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to load chatwoot config for device %s", resolvedID)
 			recordErr(err)
 		} else if cfg != nil {
-			if err := m.storage.DeleteChatwootDeviceConfig(deviceID); err != nil {
-				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot config for device %s", deviceID)
+			if err := m.storage.DeleteChatwootDeviceConfig(resolvedID); err != nil {
+				logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot config for device %s", resolvedID)
 				recordErr(err)
 			} else {
 				if cfg.ID != 0 {
 					if err := m.storage.DeleteChatwootMessageLinksByConfig(cfg.ID); err != nil {
-						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot links for device %s", deviceID)
+						logrus.WithError(err).Warnf("[DEVICE_MANAGER] failed to delete chatwoot links for device %s", resolvedID)
 						recordErr(err)
 					}
 				}
 				if reg := chatwoot.GetClientRegistry(); reg != nil {
-					reg.Invalidate(deviceID)
+					reg.Invalidate(resolvedID)
 				}
 			}
 		}
@@ -323,8 +410,10 @@ func (m *DeviceManager) PurgeDevice(ctx context.Context, deviceID string) error 
 	// Delete whatsmeow store/keys rows by JID (local cleanup — surfaced on failure).
 	recordErr(m.deleteStoreRowsForJID(ctx, jid))
 
-	// Remove from registry last
-	m.RemoveDevice(deviceID)
+	// Keep the registry entry when local cleanup failed so DELETE can be retried.
+	if firstErr == nil {
+		m.RemoveDevice(resolvedID)
+	}
 	return firstErr
 }
 
@@ -392,6 +481,7 @@ func (m *DeviceManager) keepSlotLogout(ctx context.Context, deviceID string) err
 	// storage). Always delete (don't rely on cli.Logout having done it): an orphan row
 	// would otherwise get matched back on restart. Idempotent when the row is already gone.
 	jid := storeIdentity(inst)
+	newsletterLiveUpdates.stopDevice(deviceID)
 
 	var firstErr error
 	firstErr = errors.Join(firstErr, m.deleteStoreRowsForJID(ctx, jid))
@@ -652,76 +742,71 @@ func (m *DeviceManager) loadFromRegistry(records []*domainChatStorage.DeviceReco
 			seenIdentities[identity] = true
 		}
 
-		// Check if a device with this identity already exists in memory (from InitWaCLI)
-		m.mu.RLock()
-		var existingByJID *DeviceInstance
-		for id, inst := range m.devices {
-			if id != rec.DeviceID && slotIdentityMatches(inst, rec.JID, rec.ADJID) {
-				existingByJID = inst
-				break
-			}
-		}
-		m.mu.RUnlock()
-
-		// If device with matching identity exists, remove it and use the registry device
-		if existingByJID != nil {
-			m.mu.Lock()
-			delete(m.devices, existingByJID.ID())
-			m.mu.Unlock()
-			logrus.Infof("[DEVICE_MANAGER] replacing in-memory device %s with registry device %s", existingByJID.ID(), rec.DeviceID)
-		}
-
-		// Create device instance
 		storageDeviceID := rec.DeviceID
 		if rec.JID != "" {
 			storageDeviceID = rec.JID
 		}
 		instance := NewDeviceInstance(rec.DeviceID, nil, newDeviceChatStorage(storageDeviceID, m.storage))
-		instance.SetState(domainDevice.DeviceStateDisconnected)
 		instance.displayName = rec.DisplayName
 		instance.jid = rec.JID
 		instance.adJID = rec.ADJID
 
-		// If we had an existing device with client, transfer the client
-		if existingByJID != nil {
-			if client := existingByJID.GetClient(); client != nil {
-				instance.SetClient(client)
-				instance.UpdateStateFromClient()
+		// Publish the destination and retire the source under one registry lock.
+		m.mu.Lock()
+		existing := m.devices[rec.DeviceID]
+		if existing == nil {
+			for id, inst := range m.devices {
+				if slotIdentityMatches(inst, rec.JID, rec.ADJID) {
+					existing = inst
+					delete(m.devices, id)
+					break
+				}
 			}
 		}
-
-		m.AddDevice(instance)
+		if existing == nil && slotIdentityMatches(m.transient, rec.JID, rec.ADJID) {
+			existing = m.transient
+		}
+		if existing != nil {
+			m.attachClientLocked(instance, existing.GetClient())
+			existing.ResetClient()
+		} else {
+			m.attachClientLocked(instance, nil)
+		}
+		m.devices[rec.DeviceID] = instance
+		m.mu.Unlock()
+		m.persistInstanceRecord(instance)
 	}
 }
 
 // EnsureDefault registers the current global client as the default device if present.
 // It checks both by device ID and by JID to avoid creating duplicates.
-func (m *DeviceManager) EnsureDefault(client *DeviceInstance) {
-	if client == nil || client.ID() == "" {
+func (m *DeviceManager) EnsureDefault(instance *DeviceInstance) {
+	if instance == nil {
 		return
 	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if device exists by ID
-	if _, ok := m.devices[client.ID()]; ok {
+	if instance.ID() == "" {
+		m.transient = instance
+		m.attachClientLocked(instance, instance.GetClient())
 		return
 	}
-
-	// Check if any existing device refers to the same companion session
-	clientJID := client.JID()
-	if clientJID != "" {
-		for _, inst := range m.devices {
-			if slotIdentityMatches(inst, clientJID, client.ADJID()) {
-				// Update existing device with the new client
-				inst.SetClient(client.GetClient())
+	if current, ok := m.devices[instance.ID()]; ok {
+		m.attachClientLocked(current, current.GetClient())
+		return
+	}
+	if jid := instance.JID(); jid != "" {
+		for _, current := range m.devices {
+			if slotIdentityMatches(current, jid, instance.ADJID()) {
+				m.attachClientLocked(current, instance.GetClient())
+				instance.ResetClient()
 				return
 			}
 		}
 	}
-
-	m.devices[client.ID()] = client
+	m.attachClientLocked(instance, instance.GetClient())
+	m.devices[instance.ID()] = instance
 }
 
 // EnsureClient returns a device instance with an initialized WhatsApp client.
@@ -752,7 +837,12 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 	client := whatsmeow.NewClient(storeDevice, newFilteredLogger(baseLogger))
 	if proxyURL := config.WhatsappProxy; proxyURL != "" {
 		if err := client.SetProxyAddress(proxyURL); err != nil {
-			baseLogger.Errorf("failed to apply WHATSAPP_PROXY=%q for device %s: %v", redactProxyURL(proxyURL), deviceID, err)
+			// url.Parse errors include the raw URL, so log only its scheme and host.
+			reason := err.Error()
+			if errors.As(err, new(*url.Error)) {
+				reason = utils.FormatProxyParseFailure(proxyURL)
+			}
+			baseLogger.Errorf("failed to apply WHATSAPP_PROXY for device %s: %s", deviceID, reason)
 		} else {
 			baseLogger.Infof("applied outbound proxy from WHATSAPP_PROXY for device %s", deviceID)
 		}
@@ -766,21 +856,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		inst.SetChatStorage(repo)
 	}
 
-	client.AddEventHandler(func(rawEvt any) {
-		handler(ctx, inst, rawEvt)
-	})
-
-	inst.SetOnLoggedOut(func(deviceID string) {
-		// On remote logout (device unlinked from the phone) keep the slot so it can
-		// be re-paired under the same id, matching the explicit logout semantics.
-		// Use a fresh context: the original request ctx may already be cancelled.
-		if err := m.keepSlotLogout(context.Background(), deviceID); err != nil {
-			logrus.WithError(err).Warnf("[REMOTE_LOGOUT] keep-slot cleanup failed for %s", deviceID)
-		}
-	})
-
-	inst.SetClient(client)
-	inst.UpdateStateFromClient()
+	client.AddEventHandler(m.eventHandler(client))
+	m.mu.Lock()
+	m.attachClientLocked(inst, client)
+	m.mu.Unlock()
 
 	return inst, nil
 }
@@ -938,10 +1017,18 @@ func findStoreDeviceByJID(ctx context.Context, container *sqlstore.Container, ji
 	return nil, nil
 }
 
+var devicePropsOnce sync.Once
+
+// configureDeviceProps sets the process-wide properties whatsmeow sends when a
+// device pairs. It runs once, before the first client starts: devices are
+// created concurrently and whatsmeow marshals store.DeviceProps without a lock.
 func configureDeviceProps() {
-	osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
-	store.DeviceProps.PlatformType = &config.AppPlatform
-	store.DeviceProps.Os = &osName
+	devicePropsOnce.Do(func() {
+		osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
+		store.DeviceProps.PlatformType = &config.AppPlatform
+		store.DeviceProps.Os = &osName
+		applyFullHistorySyncProps(store.DeviceProps)
+	})
 }
 
 // StoreInfo returns configured store URIs for observability.

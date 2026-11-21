@@ -6,6 +6,7 @@ import (
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/mark3labs/mcp-go/server"
@@ -14,15 +15,17 @@ import (
 // Deps carries the usecase instances the MCP tools call — the same instances
 // the REST handlers hold, so both surfaces share one whatsmeow session.
 type Deps struct {
-	App     domainApp.IAppUsecase
-	Send    domainSend.ISendUsecase
-	Chat    domainChat.IChatUsecase
-	User    domainUser.IUserUsecase
-	Message domainMessage.IMessageUsecase
-	Group   domainGroup.IGroupUsecase
+	App        domainApp.IAppUsecase
+	Send       domainSend.ISendUsecase
+	Schedule   domainSend.IScheduleUsecase
+	Chat       domainChat.IChatUsecase
+	User       domainUser.IUserUsecase
+	Message    domainMessage.IMessageUsecase
+	Group      domainGroup.IGroupUsecase
+	Newsletter domainNewsletter.INewsletterUsecase
 }
 
-// NewServer builds the MCPServer with the 5 consolidated tools registered.
+// NewServer builds the MCPServer with the 7 consolidated tools registered.
 func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	s := server.NewMCPServer(
 		"WhatsApp Web Multidevice MCP Server",
@@ -34,9 +37,11 @@ func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 		server.WithInputSchemaValidation(),
 	)
 	InitMcpSend(deps.Send, resolver).AddSendTools(s)
+	InitMcpSchedule(deps.Schedule, resolver).AddScheduleTools(s)
 	InitMcpMessage(deps.Message, resolver).AddMessageTools(s)
 	InitMcpChat(deps.Chat, deps.User, resolver).AddChatTools(s)
 	InitMcpGroup(deps.Group, resolver).AddGroupTools(s)
 	InitMcpApp(deps.App, resolver).AddAppTools(s)
+	InitMcpNewsletter(deps.Newsletter, resolver).AddNewsletterTools(s)
 	return s
 }

@@ -61,7 +61,7 @@ func newMcpTestApp(withAuth bool) *fiber.App {
 	return app
 }
 
-func TestMcpEndpointListsFiveTools(t *testing.T) {
+func TestMcpEndpointListsSevenTools(t *testing.T) {
 	app := newMcpTestApp(false)
 
 	rec, initRes := mcpRPC(t, app, initializeRPC, false)
@@ -74,13 +74,13 @@ func TestMcpEndpointListsFiveTools(t *testing.T) {
 	require.True(t, ok, "tools/list result: %v", listRes)
 	tools, ok := result["tools"].([]any)
 	require.True(t, ok)
-	require.Len(t, tools, 5)
+	require.Len(t, tools, 7)
 
 	names := map[string]bool{}
 	for _, tl := range tools {
 		names[tl.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"whatsapp_send", "whatsapp_message", "whatsapp_chat", "whatsapp_group", "whatsapp_app"} {
+	for _, want := range []string{"whatsapp_send", "whatsapp_schedule", "whatsapp_message", "whatsapp_chat", "whatsapp_group", "whatsapp_app", "whatsapp_newsletter"} {
 		assert.True(t, names[want], "missing tool %s", want)
 	}
 }
@@ -142,4 +142,62 @@ func TestMcpToolCallRejectsInvalidArgumentsViaSchema(t *testing.T) {
 	assert.Contains(t, text, "input schema validation failed",
 		"expected mcp-go's validator to reject the missing 'message' field before the handler ran, got: %q", text)
 	assert.Contains(t, text, "message", "expected the validator error to name the missing field, got: %q", text)
+}
+
+// TestMcpChatSchemaDeclaresLimitBounds guards #893: the whatsapp_chat limit
+// cap enforced by ValidateListChats/ValidateGetChatMessages (1..100) must be
+// published in the tools/list input schema, so clients can see it before
+// they call.
+func TestMcpChatSchemaDeclaresLimitBounds(t *testing.T) {
+	app := newMcpTestApp(false)
+
+	rec, listRes := mcpRPC(t, app, toolsListRPC, false)
+	require.Equal(t, 200, rec.Code)
+	result, ok := listRes["result"].(map[string]any)
+	require.True(t, ok, "tools/list result: %v", listRes)
+	tools, ok := result["tools"].([]any)
+	require.True(t, ok)
+
+	var chatTool map[string]any
+	for _, tl := range tools {
+		if m := tl.(map[string]any); m["name"] == "whatsapp_chat" {
+			chatTool = m
+		}
+	}
+	require.NotNil(t, chatTool, "whatsapp_chat missing from tools/list")
+
+	schema, ok := chatTool["inputSchema"].(map[string]any)
+	require.True(t, ok, "whatsapp_chat inputSchema: %v", chatTool)
+	props, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+	limit, ok := props["limit"].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 1, limit["minimum"])
+	assert.EqualValues(t, 100, limit["maximum"])
+	offset, ok := props["offset"].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 0, offset["minimum"])
+}
+
+// TestMcpChatToolCallRejectsLimitOverMaximum guards #893: a limit above the
+// cap is rejected by mcp-go's schema validator before the handler runs (see
+// TestMcpToolCallRejectsInvalidArgumentsViaSchema for why the validator text
+// is what proves that).
+func TestMcpChatToolCallRejectsLimitOverMaximum(t *testing.T) {
+	app := newMcpTestApp(false)
+
+	const callRPC = `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"whatsapp_chat","arguments":{"action":"list_chats","limit":101}}}`
+	rec, res := mcpRPC(t, app, callRPC, false)
+	require.Equal(t, 200, rec.Code)
+
+	result, ok := res["result"].(map[string]any)
+	require.True(t, ok, "tools/call response missing result: %v", res)
+	require.Equal(t, true, result["isError"], "expected schema validation failure to surface as isError:true, got: %v", res)
+
+	content, ok := result["content"].([]any)
+	require.True(t, ok && len(content) > 0, "tools/call error result missing content: %v", res)
+	text, _ := content[0].(map[string]any)["text"].(string)
+	assert.Contains(t, text, "input schema validation failed",
+		"expected mcp-go's validator to reject limit 101 before the handler ran, got: %q", text)
+	assert.Contains(t, text, "limit", "expected the validator error to name the limit field, got: %q", text)
 }

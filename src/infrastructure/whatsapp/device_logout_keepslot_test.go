@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,9 @@ type keepSlotStubStorage struct {
 	domainChatStorage.IChatStorageRepository
 	saveErr        error
 	deleteDataErr  error
+	listRecordsErr error
 	savedRecords   []*domainChatStorage.DeviceRecord
+	deviceRecords  []*domainChatStorage.DeviceRecord
 	deletedData    []string
 	deletedRecords []string
 }
@@ -48,6 +51,10 @@ func (s *keepSlotStubStorage) DeleteDeviceRecord(deviceID string) error {
 // none, so the lookup returns empty and the delete methods are never reached.
 func (s *keepSlotStubStorage) GetChatwootDeviceConfig(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
 	return nil, nil
+}
+
+func (s *keepSlotStubStorage) ListDeviceRecords() ([]*domainChatStorage.DeviceRecord, error) {
+	return s.deviceRecords, s.listRecordsErr
 }
 
 // assertStoreLacksJID fails if any device row in the container still matches the given
@@ -185,8 +192,130 @@ func TestPurgeDevice_SurfacesLocalCleanupFailure(t *testing.T) {
 	const slotID = "slot-cleanup-err"
 	manager.devices[slotID] = &DeviceInstance{id: slotID, createdAt: time.Now()}
 
-	if err := manager.PurgeDevice(ctx, slotID); err == nil || !strings.Contains(err.Error(), "chatstorage down") {
+	err := manager.PurgeDevice(ctx, slotID)
+	if err == nil || !strings.Contains(err.Error(), "chatstorage down") {
 		t.Fatalf("expected PurgeDevice to surface the local cleanup failure, got %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); !ok {
+		t.Fatal("expected slot to remain registered after failed purge so DELETE can be retried")
+	}
+}
+
+func TestPurgeDevice_RetryAfterTransientCleanupFailure(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{deleteDataErr: errors.New("chatstorage down")}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "slot-retry-cleanup"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, createdAt: time.Now()}
+
+	if err := manager.PurgeDevice(ctx, slotID); err == nil {
+		t.Fatal("expected first purge to fail")
+	}
+	storage.deleteDataErr = nil
+	if err := manager.PurgeDevice(ctx, slotID); err != nil {
+		t.Fatalf("expected second purge to succeed, got %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); ok {
+		t.Fatal("expected slot removed after successful retry")
+	}
+}
+
+func TestPurgeDevice_ExactSlotIDDoesNotTrimToSibling(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const salesID = "sales"
+	const spacedID = " sales "
+	manager.devices[salesID] = &DeviceInstance{id: salesID, createdAt: time.Now()}
+	manager.devices[spacedID] = &DeviceInstance{id: spacedID, createdAt: time.Now()}
+
+	if err := manager.PurgeDevice(ctx, spacedID); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if _, ok := manager.GetDevice(salesID); !ok {
+		t.Fatal("expected sibling slot sales to remain when purging exact id \" sales \"")
+	}
+	if _, ok := manager.GetDevice(spacedID); ok {
+		t.Fatal("expected spaced slot to be removed")
+	}
+}
+
+func TestPurgeDevice_DoesNotDeleteSharedJIDPartitionWhenSiblingSlotExists(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotA = "companion-a"
+	const slotB = "companion-b"
+	sharedJID := "6281777000021@s.whatsapp.net"
+	manager.devices[slotA] = &DeviceInstance{id: slotA, jid: sharedJID, createdAt: time.Now()}
+	manager.devices[slotB] = &DeviceInstance{id: slotB, jid: sharedJID, createdAt: time.Now()}
+	storage.deviceRecords = []*domainChatStorage.DeviceRecord{
+		{DeviceID: slotA, JID: sharedJID},
+		{DeviceID: slotB, JID: sharedJID},
+	}
+
+	if err := manager.PurgeDevice(ctx, slotA); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	for _, key := range storage.deletedData {
+		if key == sharedJID {
+			t.Fatalf("expected shared JID partition %q not to be deleted while sibling slot remains, got deletes %v", sharedJID, storage.deletedData)
+		}
+	}
+	if _, ok := manager.GetDevice(slotB); !ok {
+		t.Fatal("expected sibling slot to remain in registry")
+	}
+}
+
+func TestPurgeDevice_RequiresExistingSlot(t *testing.T) {
+	manager := NewDeviceManager(nil, nil, nil)
+	if err := manager.PurgeDevice(context.Background(), "missing-slot"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected PurgeDevice to fail for missing slot, got %v", err)
+	}
+}
+
+func TestPurgeDevice_ResolvesByJID(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "slot-resolve-jid"
+	nonAD := "6281999999999@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+
+	if err := manager.PurgeDevice(ctx, nonAD); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); ok {
+		t.Fatal("expected slot to be removed when purging by JID")
+	}
+	if len(storage.deletedRecords) == 0 || storage.deletedRecords[0] != slotID {
+		t.Fatalf("expected device record deletion for %s, got %v", slotID, storage.deletedRecords)
+	}
+}
+
+func TestPurgeDevice_RemovesSlotEvenWhenLogoutWouldKeepIt(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "slot-purge-over-keep"
+	inst := &DeviceInstance{id: slotID, jid: "6281888888888@s.whatsapp.net", createdAt: time.Now()}
+	inst.SetOnLoggedOut(func(deviceID string) {
+		if err := manager.keepSlotLogout(ctx, deviceID); err != nil {
+			t.Errorf("keepSlotLogout during purge: %v", err)
+		}
+	})
+	manager.devices[slotID] = inst
+
+	if err := manager.PurgeDevice(ctx, slotID); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if _, ok := manager.GetDevice(slotID); ok {
+		t.Fatal("expected slot to be removed even when a keep-slot callback is wired")
 	}
 }
 
@@ -359,4 +488,50 @@ func TestRemoteLogoutCallback_KeepsSlot(t *testing.T) {
 	}
 	assertStoreLacksJID(t, ctx, primaryStore, nonAD)
 	assertStoreLacksJID(t, ctx, keysStore, nonAD)
+}
+
+// A slot id is stored exactly as supplied, padding included. The shared-JID guard must
+// therefore compare it verbatim: trimming it would stop " sales " from matching its own
+// record, the slot would read as another claim on its own number, and its chat partition
+// would survive a purge that reported success.
+func TestPurgeDevice_PaddedSlotIDStillDeletesItsOwnJIDPartition(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = " sales "
+	nonAD := "6281700000001@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+	storage.deviceRecords = []*domainChatStorage.DeviceRecord{{DeviceID: slotID, JID: nonAD}}
+
+	if err := manager.PurgeDevice(ctx, slotID); err != nil {
+		t.Fatalf("PurgeDevice returned error: %v", err)
+	}
+	if !slices.Contains(storage.deletedData, nonAD) {
+		t.Fatalf("expected JID partition %q to be deleted for sole slot %q, got deletes %v", nonAD, slotID, storage.deletedData)
+	}
+}
+
+// A failed lookup is not evidence that another slot claims the number. Skipping the
+// partition is the safe response, but it must surface as an error so the slot stays
+// registered and DELETE can be retried rather than reporting a success that lost data.
+func TestPurgeDevice_SurfacesSharedJIDLookupFailureAndKeepsSlot(t *testing.T) {
+	ctx := context.Background()
+	storage := &keepSlotStubStorage{listRecordsErr: errors.New("database is locked")}
+	manager := NewDeviceManager(nil, nil, storage)
+
+	const slotID = "solo"
+	nonAD := "6281700000002@s.whatsapp.net"
+	manager.devices[slotID] = &DeviceInstance{id: slotID, jid: nonAD, createdAt: time.Now()}
+
+	err := manager.PurgeDevice(ctx, slotID)
+	if err == nil {
+		t.Fatal("expected PurgeDevice to surface the shared-JID lookup failure, got nil")
+	}
+	if slices.Contains(storage.deletedData, nonAD) {
+		t.Fatalf("expected JID partition %q to be skipped when the claim check failed, got deletes %v", nonAD, storage.deletedData)
+	}
+	if _, ok := manager.GetDevice(slotID); !ok {
+		t.Fatal("expected slot to remain registered so the purge can be retried")
+	}
 }
