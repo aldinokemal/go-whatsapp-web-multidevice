@@ -303,7 +303,7 @@ func (handler *Device) GetDeviceWebhook(c fiber.Ctx) error {
 // apart from a field explicitly sent as null (clear the override, follow the
 // instance default): a struct field of type *bool decodes to nil in both cases.
 func (handler *Device) UpdateDeviceStorageSettings(c fiber.Ctx) error {
-	deviceID := c.Params("device_id")
+	deviceID := pathDeviceID(c)
 
 	var raw map[string]json.RawMessage
 	if err := c.Bind().Body(&raw); err != nil {
@@ -313,6 +313,17 @@ func (handler *Device) UpdateDeviceStorageSettings(c fiber.Ctx) error {
 			Message: "Invalid request body",
 			Results: nil,
 		})
+	}
+
+	for key := range raw {
+		if key != "chat_storage" && key != "auto_download_media" {
+			return c.Status(fiber.StatusBadRequest).JSON(utils.ResponseData{
+				Status:  400,
+				Code:    "BAD_REQUEST",
+				Message: fmt.Sprintf("unknown field %q", key),
+				Results: nil,
+			})
+		}
 	}
 
 	var patch chatstorage.DeviceStoragePatch
@@ -370,7 +381,7 @@ func (handler *Device) UpdateDeviceStorageSettings(c fiber.Ctx) error {
 
 // GetDeviceStorageSettings handles GET /devices/:device_id/settings.
 func (handler *Device) GetDeviceStorageSettings(c fiber.Ctx) error {
-	deviceID := c.Params("device_id")
+	deviceID := pathDeviceID(c)
 	settings, err := handler.Service.GetDeviceStorageSettings(c.Context(), deviceID)
 	utils.PanicIfNeeded(err)
 

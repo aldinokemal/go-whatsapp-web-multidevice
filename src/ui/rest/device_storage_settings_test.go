@@ -20,16 +20,22 @@ import (
 type storageSettingsStubUsecase struct {
 	domainDevice.IDeviceUsecase
 	receivedPatch chatstorage.DeviceStoragePatch
+	setDeviceID   string
+	getDeviceID   string
+	patched       bool
 	settings      *chatstorage.DeviceStorageSettings
 	getErr        error
 }
 
-func (s *storageSettingsStubUsecase) SetDeviceStorageSettings(_ context.Context, _ string, patch chatstorage.DeviceStoragePatch) error {
+func (s *storageSettingsStubUsecase) SetDeviceStorageSettings(_ context.Context, deviceID string, patch chatstorage.DeviceStoragePatch) error {
 	s.receivedPatch = patch
+	s.setDeviceID = deviceID
+	s.patched = true
 	return nil
 }
 
-func (s *storageSettingsStubUsecase) GetDeviceStorageSettings(_ context.Context, _ string) (*chatstorage.DeviceStorageSettings, error) {
+func (s *storageSettingsStubUsecase) GetDeviceStorageSettings(_ context.Context, deviceID string) (*chatstorage.DeviceStorageSettings, error) {
+	s.getDeviceID = deviceID
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
@@ -191,5 +197,55 @@ func TestGetDeviceStorageSettings_WithOverrideReturnsValues(t *testing.T) {
 	}
 	if parsed.Results["auto_download_media"] != true {
 		t.Fatalf("expected auto_download_media=true, got %v", parsed.Results["auto_download_media"])
+	}
+}
+
+// A registered id with a space reaches the usecase decoded, on both GET and PATCH.
+func TestDeviceStorageSettings_DecodesPercentEncodedDeviceID(t *testing.T) {
+	stub := &storageSettingsStubUsecase{}
+	app := newDeviceStorageSettingsTestApp(stub)
+
+	req := httptest.NewRequest(http.MethodPatch, "/devices/sales%20team/settings", strings.NewReader(`{"chat_storage": false}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if stub.setDeviceID != "sales team" || stub.getDeviceID != "sales team" {
+		t.Fatalf("expected decoded id on PATCH, got set=%q get=%q", stub.setDeviceID, stub.getDeviceID)
+	}
+
+	stub.getDeviceID = ""
+	resp, err = app.Test(httptest.NewRequest(http.MethodGet, "/devices/sales%20team/settings", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if stub.getDeviceID != "sales team" {
+		t.Fatalf("expected decoded id on GET, got %q", stub.getDeviceID)
+	}
+}
+
+// Fields outside the documented schema are rejected instead of silently ignored.
+func TestUpdateDeviceStorageSettings_UnknownFieldRejected(t *testing.T) {
+	stub := &storageSettingsStubUsecase{}
+	app := newDeviceStorageSettingsTestApp(stub)
+
+	req := httptest.NewRequest(http.MethodPatch, "/devices/dev1/settings", strings.NewReader(`{"chat_storage": false, "chat_storag": true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.StatusCode)
+	}
+	if stub.patched {
+		t.Fatal("expected no update when the body has an unknown field")
 	}
 }
