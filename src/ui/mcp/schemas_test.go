@@ -59,11 +59,25 @@ func TestSchemas(t *testing.T) {
 		{"send forward ok", sendSchema, `{"type":"forward","phone":"628","message_id":"M1"}`, false},
 		{"send forward missing id", sendSchema, `{"type":"forward","phone":"628"}`, true},
 		{"send with device_id", sendSchema, `{"type":"text","phone":"628","message":"hi","device_id":"dev2"}`, false},
+		{"send scheduled", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"once"}`, false},
+		{"send weekly integer weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":[1,3]}`, false},
+		{"send weekly string weekdays", sendSchema, `{"type":"text","phone":"628","message":"hi","scheduled_at":"2026-09-22T10:00:00Z","timezone":"UTC","recurrence":"weekly","weekdays":["1"]}`, true},
+		{"send weekday out of range", sendSchema, `{"type":"text","phone":"628","message":"hi","recurrence":"weekly","weekdays":[7]}`, true},
+		{"send poll max_answer zero", sendSchema, `{"type":"poll","phone":"628","question":"q","options":["a","b"],"max_answer":0}`, true},
+		{"send forward duration allowed", sendSchema, `{"type":"forward","phone":"628","message_id":"M1","duration":604800}`, false},
+		{"send forward duration not allowed", sendSchema, `{"type":"forward","phone":"628","message_id":"M1","duration":3600}`, true},
+
+		// ---- whatsapp_schedule ----
+		{"schedule list", scheduleSchema, `{"action":"list"}`, false},
+		{"schedule get", scheduleSchema, `{"action":"get","schedule_id":"s1"}`, false},
+		{"schedule get missing id", scheduleSchema, `{"action":"get"}`, true},
 
 		// ---- whatsapp_message ----
 		{"msg react ok", messageSchema, `{"action":"react","phone":"628","message_id":"M1","emoji":"👍"}`, false},
 		{"msg react no emoji ok (removes reaction)", messageSchema, `{"action":"react","phone":"628","message_id":"M1"}`, false},
 		{"msg edit ok", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new"}`, false},
+		{"msg edit with link ok", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new","link":"https://example.com"}`, false},
+		{"msg edit link not string", messageSchema, `{"action":"edit","phone":"628","message_id":"M1","message":"new","link":1}`, true},
 		{"msg edit missing message", messageSchema, `{"action":"edit","phone":"628","message_id":"M1"}`, true},
 		{"msg revoke ok", messageSchema, `{"action":"revoke","phone":"628","message_id":"M1"}`, false},
 		{"msg delete ok", messageSchema, `{"action":"delete","phone":"628","message_id":"M1"}`, false},
@@ -83,7 +97,32 @@ func TestSchemas(t *testing.T) {
 		{"chat archive ok", chatSchema, `{"action":"archive","chat_jid":"628@s.whatsapp.net","archived":true}`, false},
 		{"chat archive missing flag", chatSchema, `{"action":"archive","chat_jid":"628@s.whatsapp.net"}`, true},
 		{"chat bad action", chatSchema, `{"action":"nuke"}`, true},
+		{"chat list_chats limit at max", chatSchema, `{"action":"list_chats","limit":100}`, false},
+		{"chat list_chats limit over max", chatSchema, `{"action":"list_chats","limit":101}`, true},
+		{"chat list_chats limit zero", chatSchema, `{"action":"list_chats","limit":0}`, true},
+		{"chat list_chats negative offset", chatSchema, `{"action":"list_chats","offset":-1}`, true},
+		{"chat get_messages limit over max", chatSchema, `{"action":"get_messages","chat_jid":"628@s.whatsapp.net","limit":500}`, true},
 
+		// ---- whatsapp_newsletter ----
+		{"newsletter follow ok", newsletterSchema, `{"action":"follow","newsletter_id":"1@newsletter"}`, false},
+		{"newsletter follow missing id", newsletterSchema, `{"action":"follow"}`, true},
+		{"newsletter info by id", newsletterSchema, `{"action":"info","newsletter_id":"1@newsletter"}`, false},
+		{"newsletter info by invite", newsletterSchema, `{"action":"info","invite":"0029Va"}`, false},
+		{"newsletter info missing key", newsletterSchema, `{"action":"info"}`, true},
+		{"newsletter info both keys", newsletterSchema, `{"action":"info","newsletter_id":"1@newsletter","invite":"0029Va"}`, true},
+		{"newsletter directory ok", newsletterSchema, `{"action":"directory","view":"TRENDING","country_codes":["BR"]}`, false},
+		{"newsletter directory bad view", newsletterSchema, `{"action":"directory","view":"HOT","country_codes":["BR"]}`, true},
+		{"newsletter directory featured", newsletterSchema, `{"action":"directory","view":"FEATURED","country_codes":["BR"]}`, false},
+		{"newsletter directory search only", newsletterSchema, `{"action":"directory","search_text":"news"}`, false},
+		{"newsletter directory missing country", newsletterSchema, `{"action":"directory","view":"POPULAR"}`, true},
+		{"newsletter directory empty country", newsletterSchema, `{"action":"directory","view":"POPULAR","country_codes":[]}`, true},
+		{"newsletter directory bad category", newsletterSchema, `{"action":"directory","search_text":"x","categories":["POLITICS"]}`, true},
+		{"newsletter updates ok", newsletterSchema, `{"action":"message_updates","newsletter_id":"1@newsletter","after":10}`, false},
+		{"newsletter updates missing after", newsletterSchema, `{"action":"message_updates","newsletter_id":"1@newsletter"}`, true},
+		{"newsletter updates zero after", newsletterSchema, `{"action":"message_updates","newsletter_id":"1@newsletter","after":0}`, true},
+		{"newsletter messages count too high", newsletterSchema, `{"action":"messages","newsletter_id":"1@newsletter","count":101}`, true},
+		{"newsletter live list ok", newsletterSchema, `{"action":"live_updates_list"}`, false},
+		{"newsletter live subscribe missing id", newsletterSchema, `{"action":"live_updates_subscribe"}`, true},
 		// ---- whatsapp_group ----
 		{"group create ok", groupSchema, `{"action":"create","title":"T","participants":["628"]}`, false},
 		{"group create missing title", groupSchema, `{"action":"create"}`, true},
@@ -101,6 +140,7 @@ func TestSchemas(t *testing.T) {
 		{"group invite_link ok", groupSchema, `{"action":"invite_link","group_id":"123@g.us","reset":true}`, false},
 		{"group set_name ok", groupSchema, `{"action":"set_name","group_id":"123@g.us","name":"N"}`, false},
 		{"group set_name missing name", groupSchema, `{"action":"set_name","group_id":"123@g.us"}`, true},
+		{"group set_name too long", groupSchema, `{"action":"set_name","group_id":"123@g.us","name":"abcdefghijklmnopqrstuvwxyz"}`, true},
 		{"group set_topic ok", groupSchema, `{"action":"set_topic","group_id":"123@g.us","topic":"T"}`, false},
 		{"group set_settings announce", groupSchema, `{"action":"set_settings","group_id":"123@g.us","announce":true}`, false},
 		{"group set_settings locked", groupSchema, `{"action":"set_settings","group_id":"123@g.us","locked":false}`, false},
@@ -122,7 +162,7 @@ func TestSchemas(t *testing.T) {
 
 	// compile each schema once
 	compiled := map[string]*jsonschema.Schema{}
-	for _, raw := range []string{sendSchema, messageSchema, chatSchema, groupSchema, appSchema} {
+	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema} {
 		compiled[raw] = compileSchema(t, raw)
 	}
 

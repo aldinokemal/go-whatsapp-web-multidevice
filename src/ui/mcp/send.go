@@ -50,8 +50,9 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	}
 
 	base := domainSend.BaseRequest{
-		Phone:       phone,
-		IsForwarded: request.GetBool("is_forwarded", false),
+		ScheduleOptions: scheduleOptions(request),
+		Phone:           phone,
+		IsForwarded:     request.GetBool("is_forwarded", false),
 	}
 
 	var res domainSend.GenericResponse
@@ -63,27 +64,32 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			Message:        request.GetString("message", ""),
 			ReplyMessageID: &replyID,
 			Mentions:       request.GetStringSlice("mentions", nil),
+			AllowReshare:   request.GetBool("allow_reshare", false),
 		})
 	case "image":
 		imageURL := request.GetString("image_url", "")
 		res, err = s.sendService.SendImage(ctx, domainSend.ImageRequest{
-			BaseRequest: base,
-			ImageURL:    &imageURL,
-			Caption:     request.GetString("caption", ""),
-			ViewOnce:    request.GetBool("view_once", false),
-			Compress:    request.GetBool("compress", true),
-			HD:          request.GetBool("hd", false),
+			BaseRequest:  base,
+			ImageURL:     &imageURL,
+			Caption:      request.GetString("caption", ""),
+			Mentions:     request.GetStringSlice("mentions", nil),
+			ViewOnce:     request.GetBool("view_once", false),
+			Compress:     request.GetBool("compress", true),
+			HD:           request.GetBool("hd", false),
+			AllowReshare: request.GetBool("allow_reshare", false),
 		})
 	case "video":
 		videoURL := request.GetString("video_url", "")
 		res, err = s.sendService.SendVideo(ctx, domainSend.VideoRequest{
-			BaseRequest: base,
-			VideoURL:    &videoURL,
-			Caption:     request.GetString("caption", ""),
-			ViewOnce:    request.GetBool("view_once", false),
-			GifPlayback: request.GetBool("gif_playback", false),
-			Compress:    request.GetBool("compress", false),
-			HD:          request.GetBool("hd", false),
+			BaseRequest:  base,
+			VideoURL:     &videoURL,
+			Caption:      request.GetString("caption", ""),
+			Mentions:     request.GetStringSlice("mentions", nil),
+			ViewOnce:     request.GetBool("view_once", false),
+			GifPlayback:  request.GetBool("gif_playback", false),
+			Compress:     request.GetBool("compress", false),
+			HD:           request.GetBool("hd", false),
+			AllowReshare: request.GetBool("allow_reshare", false),
 		})
 	case "audio":
 		audioURL := request.GetString("audio_url", "")
@@ -98,6 +104,7 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			BaseRequest: base,
 			FileURL:     &fileURL,
 			Caption:     request.GetString("caption", ""),
+			Mentions:    request.GetStringSlice("mentions", nil),
 		})
 	case "sticker":
 		stickerURL := request.GetString("sticker_url", "")
@@ -132,9 +139,10 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 		})
 	case "forward":
 		forwardReq := domainSend.ForwardRequest{
-			MessageID:     request.GetString("message_id", ""),
-			Phone:         phone,
-			ForceReupload: request.GetBool("force_reupload", false),
+			ScheduleOptions: scheduleOptions(request),
+			MessageID:       request.GetString("message_id", ""),
+			Phone:           phone,
+			ForceReupload:   request.GetBool("force_reupload", false),
 		}
 		if args := request.GetArguments(); args != nil {
 			if _, ok := args["duration"]; ok {
@@ -150,5 +158,20 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
+	if res.ScheduleID != "" {
+		return mcpg.NewToolResultStructured(res, fmt.Sprintf("%s scheduled with schedule_id %s, next run %s", msgType, res.ScheduleID, res.NextRunAt)), nil
+	}
 	return mcpg.NewToolResultText(fmt.Sprintf("%s sent successfully with ID %s", msgType, res.MessageID)), nil
+}
+
+func scheduleOptions(request mcpg.CallToolRequest) domainSend.ScheduleOptions {
+	return domainSend.ScheduleOptions{
+		ScheduledAt:     request.GetString("scheduled_at", ""),
+		Timezone:        request.GetString("timezone", ""),
+		Recurrence:      request.GetString("recurrence", ""),
+		Weekdays:        request.GetIntSlice("weekdays", nil),
+		DayOfMonth:      request.GetInt("day_of_month", 0),
+		EndAt:           request.GetString("end_at", ""),
+		OccurrenceLimit: request.GetInt("occurrence_limit", 0),
+	}
 }

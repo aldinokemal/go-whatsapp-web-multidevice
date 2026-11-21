@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
@@ -25,6 +26,9 @@ type stubGroupService struct {
 	lockedReq    *domainGroup.SetGroupLockedRequest
 	joinReqsReq  *domainGroup.GetGroupRequestParticipantsRequest
 	managedJoins *domainGroup.GroupRequestParticipantsRequest
+	infoResp     domainGroup.GroupInfoResponse
+	partsResp    domainGroup.GetGroupParticipantsResponse
+	joinReqsResp []domainGroup.GetGroupRequestParticipantsResponse
 }
 
 func (s *stubGroupService) CreateGroup(_ context.Context, r domainGroup.CreateGroupRequest) (string, error) {
@@ -41,11 +45,11 @@ func (s *stubGroupService) LeaveGroup(_ context.Context, r domainGroup.LeaveGrou
 }
 func (s *stubGroupService) GroupInfo(_ context.Context, r domainGroup.GroupInfoRequest) (domainGroup.GroupInfoResponse, error) {
 	s.infoReq = &r
-	return domainGroup.GroupInfoResponse{}, nil
+	return s.infoResp, nil
 }
 func (s *stubGroupService) GetGroupParticipants(_ context.Context, r domainGroup.GetGroupParticipantsRequest) (domainGroup.GetGroupParticipantsResponse, error) {
 	s.partsReq = &r
-	return domainGroup.GetGroupParticipantsResponse{}, nil
+	return s.partsResp, nil
 }
 func (s *stubGroupService) ManageParticipant(_ context.Context, r domainGroup.ParticipantRequest) ([]domainGroup.ParticipantStatus, error) {
 	s.managed = &r
@@ -73,7 +77,7 @@ func (s *stubGroupService) SetGroupLocked(_ context.Context, r domainGroup.SetGr
 }
 func (s *stubGroupService) GetGroupRequestParticipants(_ context.Context, r domainGroup.GetGroupRequestParticipantsRequest) ([]domainGroup.GetGroupRequestParticipantsResponse, error) {
 	s.joinReqsReq = &r
-	return nil, nil
+	return s.joinReqsResp, nil
 }
 func (s *stubGroupService) ManageGroupRequestParticipants(_ context.Context, r domainGroup.GroupRequestParticipantsRequest) ([]domainGroup.ParticipantStatus, error) {
 	s.managedJoins = &r
@@ -115,16 +119,38 @@ func TestHandleGroupDispatch(t *testing.T) {
 
 	t.Run("info", func(t *testing.T) {
 		svc, h := newHandler()
-		_, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "info", "group_id": "123@g.us"}))
+		svc.infoResp = domainGroup.GroupInfoResponse{
+			Data: map[string]any{
+				"Name": "Secret Group",
+			},
+		}
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "info", "group_id": "123@g.us"}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.infoReq)
+		require.NotNil(t, res)
+		require.NotEmpty(t, res.Content)
+		text, ok := mcpg.AsTextContent(res.Content[0])
+		require.True(t, ok)
+		assert.Contains(t, text.Text, "Secret Group")
+		assert.NotNil(t, res.StructuredContent)
 	})
 
 	t.Run("participants", func(t *testing.T) {
 		svc, h := newHandler()
-		_, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "participants", "group_id": "123@g.us"}))
+		svc.partsResp = domainGroup.GetGroupParticipantsResponse{
+			Participants: []domainGroup.GroupParticipant{
+				{JID: "628111@s.whatsapp.net", PhoneNumber: "628111"},
+			},
+		}
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "participants", "group_id": "123@g.us"}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.partsReq)
+		require.NotNil(t, res)
+		require.NotEmpty(t, res.Content)
+		text, ok := mcpg.AsTextContent(res.Content[0])
+		require.True(t, ok)
+		assert.Contains(t, text.Text, "628111@s.whatsapp.net")
+		assert.NotNil(t, res.StructuredContent)
 	})
 
 	t.Run("participant changes map to whatsmeow actions", func(t *testing.T) {
@@ -197,9 +223,18 @@ func TestHandleGroupDispatch(t *testing.T) {
 
 	t.Run("join_requests", func(t *testing.T) {
 		svc, h := newHandler()
-		_, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "join_requests", "group_id": "123@g.us"}))
+		svc.joinReqsResp = []domainGroup.GetGroupRequestParticipantsResponse{
+			{JID: "628222@s.whatsapp.net"},
+		}
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{"action": "join_requests", "group_id": "123@g.us"}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.joinReqsReq)
+		require.NotNil(t, res)
+		require.NotEmpty(t, res.Content)
+		text, ok := mcpg.AsTextContent(res.Content[0])
+		require.True(t, ok)
+		assert.Contains(t, text.Text, "628222@s.whatsapp.net")
+		assert.NotNil(t, res.StructuredContent)
 	})
 
 	t.Run("manage_join_requests", func(t *testing.T) {

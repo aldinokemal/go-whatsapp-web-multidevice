@@ -2,6 +2,7 @@ package chatwoot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,8 +36,78 @@ type Client struct {
 	// endpoints (e.g. update_last_seen). It is immutable for a given inbox, so
 	// it is resolved once (at provisioning or on first use) and cached here to
 	// avoid a full inbox-list GET on every read receipt.
+	//
+	// It may be assigned directly only before the client is shared between
+	// goroutines. Read receipts are forwarded concurrently, so afterwards it
+	// is read and written through resolveInboxIdentifier and
+	// setInboxIdentifier, which serialise on inboxIdentifierLock.
 	InboxIdentifier string
 }
+
+// inboxIdentifierKey names one inbox of one Chatwoot installation.
+type inboxIdentifierKey struct {
+	BaseURL   string
+	AccountID int
+	InboxID   int
+}
+
+// inboxIdentifierLocks holds one mutex per inbox (inboxIdentifierKey ->
+// *sync.Mutex). The lock lives here rather than in Client so that Client
+// stays an ordinary copyable struct; it is bounded by the number of inboxes.
+var inboxIdentifierLocks sync.Map
+
+func (c *Client) inboxIdentifierLock() *sync.Mutex {
+	key := inboxIdentifierKey{BaseURL: c.BaseURL, AccountID: c.AccountID, InboxID: c.InboxID}
+	lock, _ := inboxIdentifierLocks.LoadOrStore(key, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+// setInboxIdentifier records an inbox identifier learned outside the lazy
+// lookup (inbox provisioning).
+func (c *Client) setInboxIdentifier(identifier string) {
+	lock := c.inboxIdentifierLock()
+	lock.Lock()
+	defer lock.Unlock()
+	c.InboxIdentifier = identifier
+}
+
+// resolveInboxIdentifier returns the inbox identifier, looking it up from the
+// inbox list the first time. The lock is held across the lookup so concurrent
+// first callers wait for one request instead of each sending their own; a
+// failed lookup is not remembered, so the next caller tries again.
+func (c *Client) resolveInboxIdentifier() (string, error) {
+	lock := c.inboxIdentifierLock()
+	lock.Lock()
+	defer lock.Unlock()
+	if c.InboxIdentifier != "" {
+		return c.InboxIdentifier, nil
+	}
+	inboxes, err := c.ListInboxes()
+	if err != nil {
+		return "", err
+	}
+	for _, inbox := range inboxes {
+		if inbox.ID == c.InboxID && inbox.InboxIdentifier != "" {
+			c.InboxIdentifier = inbox.InboxIdentifier
+			return c.InboxIdentifier, nil
+		}
+	}
+	return "", fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
+}
+
+// apiTokenHeader carries the Chatwoot API access token. Chatwoot documents it
+// as "api_access_token". Rails exposes a request header to the application as
+// HTTP_<NAME> with hyphens turned into underscores, so "api-access-token"
+// reaches Chatwoot as the same HTTP_API_ACCESS_TOKEN and is equivalent.
+//
+// The hyphenated spelling is used because some reverse proxies discard header
+// names that contain an underscore. nginx does so by default:
+// "underscores_in_headers" defaults to "off", which marks such a header as
+// invalid, and "ignore_invalid_headers" defaults to "on", which drops it
+// (https://nginx.org/en/docs/http/ngx_http_core_module.html#underscores_in_headers).
+// Behind such a proxy every call would fail with a 401. Proxies that forward
+// headers unchanged (Caddy, for example) work with either spelling.
+const apiTokenHeader = "api-access-token"
 
 // HTTPStatusError is returned by every Client method that hits Chatwoot's
 // REST API when the response status is outside 2xx. It carries the HTTP
@@ -147,19 +218,46 @@ func init() {
 // NewClient builds the Chatwoot client from the global CHATWOOT_* env config.
 // It is used for the legacy/env "single config" mode (no per-device config rows).
 // The env client is operator-trusted and may legitimately point at an internal
-// Chatwoot (e.g. the same Docker network), so it is NOT SSRF-guarded.
+// Chatwoot (e.g. the same Docker network), so it is NOT SSRF-guarded or held to
+// the per-device allowlist. Its redirects still drop the API token when they
+// leave the configured origin.
 func NewClient() *Client {
 	return newChatwootClient(config.ChatwootURL, config.ChatwootAPIToken, config.ChatwootAccountID, config.ChatwootInboxID, false)
 }
 
 // NewClientFromConfig builds a Chatwoot client for a specific (per-device)
 // destination from an operator-supplied config. The base URL is canonicalized
-// (a stored, already-validated URL falls back to a trimmed value on error). The
-// HTTP client is SSRF-guarded at connect time unless an explicit host allowlist
-// is configured (CHATWOOT_ALLOWED_HOSTS), which is the operator's opt-in to
-// trust specific hosts — including internal ones.
+// (a stored, already-validated URL falls back to a trimmed value on error).
+// The HTTP client is SSRF-guarded at connect time. When CHATWOOT_ALLOWED_HOSTS
+// is set, the stored host is checked against that list again here — an operator
+// can tighten the list after the row was saved — and every redirect is checked
+// the same way. An allowlisted host may be private; that is the operator's
+// explicit approval. An empty allowlist keeps the previous rule: public hosts
+// are allowed and private addresses are refused, so a self-hosted Chatwoot is
+// not suddenly blocked unless it was already blocked.
 func NewClientFromConfig(baseURL, apiToken string, accountID, inboxID int) *Client {
-	return newChatwootClient(baseURL, apiToken, accountID, inboxID, len(config.ChatwootAllowedHosts) == 0)
+	if !perDeviceChatwootURLAllowed(baseURL) {
+		return &Client{}
+	}
+	return newChatwootClient(baseURL, apiToken, accountID, inboxID, true)
+}
+
+// perDeviceChatwootURLAllowed reports whether baseURL may be used as a
+// per-device Chatwoot destination under the current allowlist. An empty
+// allowlist does not reject here; connect-time filtering still applies.
+func perDeviceChatwootURLAllowed(baseURL string) bool {
+	if len(config.ChatwootAllowedHosts) == 0 {
+		return true
+	}
+	canonical, err := CanonicalizeChatwootURL(baseURL)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(canonical)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	return chatwootHostAllowlisted(u.Hostname())
 }
 
 func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGuard bool) *Client {
@@ -169,7 +267,10 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if ssrfGuard {
-		httpClient.Transport = ssrfGuardedTransport()
+		httpClient.Transport = cappedBodyTransport{ssrfGuardedTransport()}
+		httpClient.CheckRedirect = chatwootCheckRedirect
+	} else {
+		httpClient.CheckRedirect = chatwootTokenRedirect
 	}
 	return &Client{
 		BaseURL:    canonical,
@@ -180,28 +281,143 @@ func newChatwootClient(baseURL, apiToken string, accountID, inboxID int, ssrfGua
 	}
 }
 
-// ssrfGuardedTransport returns an HTTP transport whose dialer rejects, at
-// connect time, any connection to a loopback/private/link-local/metadata
-// address. Checking post-resolution (via Dialer.Control) closes the DNS
-// rebinding window left open by validating the URL's host once up front.
+// maxChatwootErrorBody is the most of an auto-decompressed Chatwoot error
+// response that is kept. One extra byte is read so a larger body is rejected
+// instead of being copied into the error string.
+const maxChatwootErrorBody = 64 << 10
+
+// maxChatwootResponseBody bounds every per-device response body after
+// automatic decompression; a read past it fails with *http.MaxBytesError. It
+// is generous for any Chatwoot API reply and keeps a small compressed body
+// from an operator-supplied URL from expanding without limit in memory.
+const maxChatwootResponseBody = 16 << 20
+
+// cappedBodyTransport applies maxChatwootResponseBody to every response.
+type cappedBodyTransport struct{ http.RoundTripper }
+
+func (t cappedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.RoundTripper.RoundTrip(req)
+	if err == nil {
+		resp.Body = http.MaxBytesReader(nil, resp.Body, maxChatwootResponseBody)
+	}
+	return resp, err
+}
+
+// ssrfGuardedTransport returns an HTTP transport that refuses connections the
+// operator has not approved.
+//
+// With an empty allowlist it rejects, at connect time, any loopback / private /
+// link-local / metadata address. Checking post-resolution (via Dialer.Control)
+// closes the DNS rebinding window left open by validating the URL's host once
+// up front. Behind HTTP(S)_PROXY the dialed address is the proxy, so Proxy
+// also refuses a request, redirects included, whose host is such an address
+// written as a literal IP. A host name that resolves to one is not caught
+// there: the proxy resolves it.
+//
+// With a non-empty allowlist the request's host must be on that list. Proxy
+// checks it for every request, redirects included, before a connection is
+// chosen; the dialed address is not checked because behind HTTP(S)_PROXY it
+// is the proxy. An allowlisted host is dialed even when it is private — that
+// host is the operator's explicit self-host exception.
 func ssrfGuardedTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	dialer := &net.Dialer{
+	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		if len(config.ChatwootAllowedHosts) > 0 && !chatwootHostAllowlisted(req.URL.Hostname()) {
+			return nil, fmt.Errorf("chatwoot: host %q is not in the allowed hosts list", req.URL.Hostname())
+		}
+		if ip := net.ParseIP(req.URL.Hostname()); len(config.ChatwootAllowedHosts) == 0 && ip != nil && isDisallowedSSRFIP(ip) {
+			return nil, fmt.Errorf("chatwoot: blocked request to disallowed address %s", req.URL.Hostname())
+		}
+		return http.ProxyFromEnvironment(req)
+	}
+	baseDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				host = address
+	}
+	t.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if len(config.ChatwootAllowedHosts) > 0 {
+			return baseDialer.DialContext(ctx, network, address)
+		}
+		guarded := *baseDialer
+		guarded.Control = func(_, resolved string, _ syscall.RawConn) error {
+			ipHost, _, splitErr := net.SplitHostPort(resolved)
+			if splitErr != nil {
+				ipHost = resolved
 			}
-			if ip := net.ParseIP(host); ip != nil && isDisallowedSSRFIP(ip) {
-				return fmt.Errorf("chatwoot: blocked connection to disallowed address %s", address)
+			if ip := net.ParseIP(ipHost); ip != nil && isDisallowedSSRFIP(ip) {
+				return fmt.Errorf("chatwoot: blocked connection to disallowed address %s", resolved)
 			}
 			return nil
-		},
+		}
+		return guarded.DialContext(ctx, network, address)
 	}
-	t.DialContext = dialer.DialContext
 	return t
+}
+
+// chatwootCheckRedirect applies the host allowlist to every redirect. An empty
+// allowlist keeps the default follow-redirects behavior (the connect-time
+// guard still blocks private addresses). Like chatwootTokenRedirect, it drops
+// the Chatwoot API token on a redirect that leaves the original origin, with
+// or without an allowlist.
+func chatwootCheckRedirect(req *http.Request, via []*http.Request) error {
+	if err := chatwootTokenRedirect(req, via); err != nil {
+		return err
+	}
+	if len(config.ChatwootAllowedHosts) == 0 {
+		return nil
+	}
+	if !chatwootHostAllowlisted(req.URL.Hostname()) {
+		return fmt.Errorf("chatwoot: redirect host %q is not in the allowed hosts list", req.URL.Hostname())
+	}
+	return nil
+}
+
+// chatwootTokenRedirect is the redirect policy every Chatwoot client uses. It
+// caps the chain at 10 hops and removes the API token when the redirect target
+// is not the same origin (scheme, host and effective port) as the original
+// request. Go's client copies custom headers such as api-access-token to every
+// redirected request, so without this a 302 would hand the token to whichever
+// origin it names.
+func chatwootTokenRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("chatwoot: stopped after 10 redirects")
+	}
+	if len(via) > 0 && !sameChatwootOrigin(via[0].URL, req.URL) {
+		req.Header.Del(apiTokenHeader)
+	}
+	return nil
+}
+
+// sameChatwootOrigin compares scheme, host name and effective port, so
+// https://host and https://host:443 match while https://host:8443 does not.
+func sameChatwootOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	}
+	return ""
+}
+
+func readChatwootErrorBody(r io.Reader) string {
+	buf, err := io.ReadAll(io.LimitReader(r, maxChatwootErrorBody+1))
+	if err != nil || len(buf) == 0 {
+		return ""
+	}
+	if len(buf) > maxChatwootErrorBody {
+		return fmt.Sprintf("response body exceeds %d bytes", maxChatwootErrorBody)
+	}
+	return string(buf)
 }
 
 func (c *Client) IsConfigured() bool {
@@ -225,7 +441,7 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	q := req.URL.Query()
 	q.Add("q", searchTerm)
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -234,8 +450,7 @@ func (c *Client) FindContactByIdentifier(identifier string, isGroup bool) (*Cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "search contact", Body: string(body)}
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "search contact", Body: readChatwootErrorBody(resp.Body)}
 	}
 
 	var result struct {
@@ -299,7 +514,7 @@ func (c *Client) CreateContact(name, identifier string, isGroup bool) (*Contact,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -399,7 +614,7 @@ func (c *Client) UpdateContactName(contactID int, name string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -430,7 +645,7 @@ func (c *Client) listContactConversations(contactID int) ([]conversationListItem
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -491,7 +706,7 @@ func (c *Client) ToggleConversationStatus(conversationID int, status string) err
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -543,7 +758,7 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -578,11 +793,22 @@ func (c *Client) CreateConversation(contactID int, sourceID string) (*Conversati
 // land in. sourceID is the WhatsApp chat JID, forwarded to CreateConversation
 // when a fresh thread is opened. The contact's conversation list is fetched
 // once and scanned in-process for both the open-conversation and reopen cases.
+// A conversation is created only when that list was read; when it cannot be
+// read the error is returned and nothing is created.
 func (c *Client) FindOrCreateConversation(contactID int, sourceID string) (*Conversation, error) {
 	items, err := c.listContactConversations(contactID)
 	if err != nil {
-		// A list failure is logged and we fall through to creation rather than
-		// dropping the message.
+		var statusErr *HTTPStatusError
+		if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusNotFound {
+			// Not knowing the contact's conversations is not the same as the
+			// contact having none. Creating one now would open a second thread
+			// next to the customer's open conversation, and every later
+			// message would follow it there. The error is returned instead: a
+			// transient one (network, 429, 5xx) is retried by the caller.
+			return nil, fmt.Errorf("failed to list the conversations of contact %d: %w", contactID, err)
+		}
+		// 404: Chatwoot does not know the contact. Creating the conversation
+		// below fails the same way and reports it.
 		logrus.Errorf("Error finding conversation: %v", err)
 	}
 
@@ -620,7 +846,7 @@ func (c *Client) ListInboxes() ([]Inbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -662,7 +888,7 @@ func (c *Client) CreateInbox(name, webhookURL string) (*Inbox, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -728,7 +954,7 @@ func (c *Client) CreateMessage(conversationID int, content string, messageType s
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -758,7 +984,7 @@ func (c *Client) DeleteMessage(conversationID, messageID int) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -777,22 +1003,9 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	// inbox_identifier is immutable, so resolve it once and reuse the cached
 	// value — read sync fires this per receipt and a full inbox-list GET each
 	// time is pure overhead.
-	inboxIdentifier := c.InboxIdentifier
-	if inboxIdentifier == "" {
-		inboxes, err := c.ListInboxes()
-		if err != nil {
-			return err
-		}
-		for _, inbox := range inboxes {
-			if inbox.ID == c.InboxID {
-				inboxIdentifier = inbox.InboxIdentifier
-				break
-			}
-		}
-		if inboxIdentifier == "" {
-			return fmt.Errorf("chatwoot inbox %d has no inbox_identifier", c.InboxID)
-		}
-		c.InboxIdentifier = inboxIdentifier
+	inboxIdentifier, err := c.resolveInboxIdentifier()
+	if err != nil {
+		return err
 	}
 
 	endpoint := fmt.Sprintf(
@@ -806,7 +1019,7 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -933,7 +1146,7 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("api_access_token", c.APIToken)
+	req.Header.Set(apiTokenHeader, c.APIToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

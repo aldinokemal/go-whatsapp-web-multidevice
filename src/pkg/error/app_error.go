@@ -84,11 +84,12 @@ func (err notFoundError) StatusCode() int {
 }
 
 var (
-	ErrAlreadyLoggedIn = LoginError("you are already logged in.")
-	ErrNotConnected    = AuthError("you are not connect to services server, please reconnect")
-	ErrNotLoggedIn     = AuthError("you are not logged in")
-	ErrReconnect       = AuthError("reconnect error")
-	ErrQrChannel       = qrChannelError("QR channel error")
-	ErrSessionSaved   = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
-	ErrDeviceNotFound = notFoundError("device not found")
+	ErrAlreadyLoggedIn       = LoginError("you are already logged in.")
+	ErrNotConnected          = AuthError("you are not connect to services server, please reconnect")
+	ErrNotLoggedIn           = AuthError("you are not logged in")
+	ErrReconnect             = AuthError("reconnect error")
+	ErrQrChannel             = qrChannelError("QR channel error")
+	ErrSessionSaved          = sessionSavedError("your session have been saved, please wait to connect 2 second and refresh again")
+	ErrDeviceNotFound        = notFoundError("device not found")
+	ErrScheduledSendNotFound = notFoundError("scheduled send not found")
 )

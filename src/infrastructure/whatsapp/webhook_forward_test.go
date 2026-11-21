@@ -91,6 +91,38 @@ func TestForwardPayloadToConfiguredWebhooks_AllFail(t *testing.T) {
 	}
 }
 
+// A webhook stuck in retry backoff must not hold back the Chatwoot forward (#962).
+func TestForwardPayloadWithWebhookConfig_ChatwootNotBlockedByWebhook(t *testing.T) {
+	origWebhooks, origEvents, origEnabled := config.WhatsappWebhook, config.WhatsappWebhookEvents, config.ChatwootEnabled
+	origSubmit, origClient := submitWebhookFn, getChatwootClientFn
+	t.Cleanup(func() {
+		config.WhatsappWebhook, config.WhatsappWebhookEvents, config.ChatwootEnabled = origWebhooks, origEvents, origEnabled
+		submitWebhookFn, getChatwootClientFn = origSubmit, origClient
+	})
+	config.WhatsappWebhook = []string{"https://down"}
+	config.WhatsappWebhookEvents = nil
+	config.ChatwootEnabled = true
+
+	chatwootReached := make(chan struct{})
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		close(chatwootReached)
+		return nil, nil
+	}
+	submitWebhookFn = func(context.Context, map[string]any, string, *chatstorage.DeviceWebhookConfig) error {
+		select {
+		case <-chatwootReached:
+			return nil
+		case <-time.After(2 * time.Second):
+			return errors.New("chatwoot forward did not start while the webhook was still being delivered")
+		}
+	}
+
+	payload := map[string]any{"event": "message", "payload": map[string]any{"id": "MSG1"}}
+	if err := forwardPayloadWithWebhookConfig(context.Background(), payload, "message", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestForwardPayloadToConfiguredWebhooks_EventWhitelist_FilteredOut(t *testing.T) {
 	ctx := context.Background()
 	payload := map[string]any{"foo": "bar"}

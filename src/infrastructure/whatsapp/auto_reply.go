@@ -88,10 +88,7 @@ func handleAutoReply(ctx context.Context, evt *events.Message, chatStorageRepo d
 	// Store the auto-reply message in chat storage if send was successful
 	if chatStorageRepo != nil {
 		// Get our own JID as sender
-		senderJID := ""
-		if client.Store.ID != nil {
-			senderJID = client.Store.ID.String()
-		}
+		senderJID := OwnSenderJID(client)
 
 		// Store the sent auto-reply message
 		if err := chatStorageRepo.StoreSentMessageWithContext(

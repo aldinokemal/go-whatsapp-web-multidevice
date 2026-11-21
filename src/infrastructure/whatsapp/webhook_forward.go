@@ -3,10 +3,14 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -14,7 +18,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
-	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -52,38 +56,100 @@ const mutexShardCount = 64
 // This approach prevents memory leaks that would occur with a sync.Map that grows indefinitely.
 var contactMutexShards [mutexShardCount]sync.Mutex
 
+// groupNameCacheKey identifies a cached group name. A subject belongs to the
+// account that read it: another account may not be in the group at all, so a
+// name is never shared between devices.
+type groupNameCacheKey struct {
+	deviceID string
+	groupJID string
+}
+
 // groupNameCacheEntry holds cached group name with expiration time
 type groupNameCacheEntry struct {
-	name      string
-	expiresAt time.Time
+	name       string
+	expiresAt  time.Time
+	fetchToken *int
 }
 
 var (
 	// groupNameCache provides TTL-based caching for group names to reduce WhatsApp API calls
 	groupNameCache    sync.Map
 	groupNameCacheTTL = 5 * time.Minute
+
+	// fetchGroupInfoFn asks WhatsApp for a group's info as the given client. It
+	// is a seam so tests can answer per device without a live connection.
+	fetchGroupInfoFn = func(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		return client.GetGroupInfo(ctx, jid)
+	}
 )
 
-// getCachedGroupName retrieves group name from cache if not expired.
-// Returns empty string and false if not cached or expired.
-func getCachedGroupName(groupJID string) (string, bool) {
-	if entry, ok := groupNameCache.Load(groupJID); ok {
+// groupNameCacheDeviceID returns the identity a client's group names are cached
+// under: its own account JID, the same identity chat storage files rows under.
+// A client that is not logged in has none and never uses the cache.
+func groupNameCacheDeviceID(client *whatsmeow.Client) string {
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return ""
+	}
+	return client.Store.ID.ToNonAD().String()
+}
+
+// getCachedGroupName retrieves the name one device cached for a group, if not
+// expired. Returns empty string and false if not cached or expired.
+func getCachedGroupName(deviceID, groupJID string) (string, bool) {
+	if deviceID == "" {
+		return "", false
+	}
+	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
+	if entry, ok := groupNameCache.Load(key); ok {
 		cached := entry.(groupNameCacheEntry)
 		if time.Now().Before(cached.expiresAt) {
 			return cached.name, true
 		}
 		// Entry expired, delete it
-		groupNameCache.Delete(groupJID)
+		groupNameCache.Delete(key)
 	}
 	return "", false
 }
 
-// setCachedGroupName stores group name in cache with TTL.
-func setCachedGroupName(groupJID, name string) {
-	groupNameCache.Store(groupJID, groupNameCacheEntry{
+// setCachedGroupName stores a group name for one device with TTL.
+func setCachedGroupName(deviceID, groupJID, name string) {
+	if deviceID == "" {
+		return
+	}
+	groupNameCache.Store(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}, groupNameCacheEntry{
 		name:      name,
 		expiresAt: time.Now().Add(groupNameCacheTTL),
 	})
+}
+
+// invalidateCachedGroupName drops the name one device cached for a group, so
+// the next lookup by that device reads the current subject.
+func invalidateCachedGroupName(deviceID, groupJID string) {
+	if deviceID == "" {
+		return
+	}
+	groupNameCache.Delete(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID})
+}
+
+// beginGroupNameCacheFetch reserves a unique cache value before the network
+// read. Deleting or replacing that value prevents an older fetch from caching
+// a name after a subject-change event invalidated it.
+func beginGroupNameCacheFetch(deviceID, groupJID string) func(string) {
+	if deviceID == "" {
+		return func(string) {}
+	}
+	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
+	pending := groupNameCacheEntry{fetchToken: new(int)}
+	groupNameCache.Store(key, pending)
+	return func(name string) {
+		if name == "" {
+			groupNameCache.CompareAndDelete(key, pending)
+			return
+		}
+		groupNameCache.CompareAndSwap(key, pending, groupNameCacheEntry{
+			name: name, expiresAt: time.Now().Add(groupNameCacheTTL),
+		})
+	}
 }
 
 // getContactMutex returns a mutex for the given phone number to serialize contact operations.
@@ -100,32 +166,65 @@ func getContactMutex(phone string) *sync.Mutex {
 func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]any, eventName string) error {
 	deviceJID, _ := payload["device_id"].(string)
 	record, err := resolveWebhookDeviceRecord(ctx, payload)
-	recordResolutionFailed := err != nil || record == nil
-	if recordResolutionFailed {
+	if errors.Is(err, errAmbiguousWebhookDevice) {
+		// Sibling companion slots share the bare account JID. Delivering with the
+		// global policy would replace the originating slot's event filter.
+		logrus.Warnf("Skipping event %s: %v (device_id=%s)", eventName, err, deviceJID)
+		return nil
+	}
+	if err != nil {
 		// A config lookup failure is not a delivery failure: fall back to the global
 		// webhook config so the event still reaches the global targets and Chatwoot.
 		logrus.Warnf("Failed to get webhook config for device %s, falling back to global config: %v", deviceJID, err)
 		record = nil
 	}
-	webhookConfig := webhookConfigFromRecord(record)
-
-	// A resolution failure hides whatever per-device WebhookIgnoreGroups the emitting
-	// slot has, including an explicit true. Falling back to the global config in that
-	// case would forward a group event the device meant to suppress, so fail closed for
-	// group events until the record is resolved; non-group events keep the fallback above.
-	webhookAllowed := isEventWhitelistedForDevice(eventName, webhookConfig) &&
-		!shouldIgnoreWebhookJID(payload, deviceIgnoreGroupsOverride(record)) &&
-		!(recordResolutionFailed && payloadIsGroupEvent(payload))
-	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
-
-	if !webhookAllowed && !chatwootAllowed {
-		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
-		return nil
+	ignoreGroups := deviceIgnoreGroupsOverride(record)
+	if err != nil || record == nil {
+		// An unresolved record hides the slot's webhook_ignore_groups, including an
+		// explicit true, so group events fail closed; other events keep the global
+		// fallback above.
+		failClosed := true
+		ignoreGroups = &failClosed
 	}
+	return forwardPayloadWithWebhookConfig(ctx, payload, eventName, webhookConfigFromRecord(record), ignoreGroups)
+}
+
+// forwardPayloadWithWebhookConfig is forwardPayloadToConfiguredWebhooks with the device's
+// webhook config already resolved, for callers that must look it up before the device
+// record changes. ignoreGroups is the device's webhook_ignore_groups override (nil
+// follows WHATSAPP_WEBHOOK_IGNORE_JIDS).
+func forwardPayloadWithWebhookConfig(ctx context.Context, payload map[string]any, eventName string, webhookConfig *domainChatStorage.DeviceWebhookConfig, ignoreGroups *bool) error {
+	jidAllowed := !shouldIgnoreWebhookJID(payload, ignoreGroups)
+	webhookAllowed := jidAllowed && isEventWhitelistedForDevice(eventName, webhookConfig)
+	chatwootAllowed := config.ChatwootEnabled && shouldForwardEventToChatwoot(eventName) && isEventWhitelistedForChatwoot(eventName)
 
 	webhookURLs := getWebhookURLsFromConfig(webhookConfig)
 	if len(webhookURLs) == 0 {
 		webhookURLs = config.WhatsappWebhook
+	}
+
+	// With WHATSAPP_WEBHOOK_DEVICE_MERGE_GLOBAL a per-device webhook is an addition
+	// to the global targets instead of a replacement: the global URLs still get the
+	// event, signed with the global secret and filtered by the global event
+	// whitelist, while the device URL keeps its own secret and event filter.
+	var globalURLs []string
+	if config.WhatsappWebhookDeviceMergeGlobal && webhookConfig != nil && jidAllowed &&
+		isEventWhitelistedForDevice(eventName, nil) {
+		// Only dedup against the device URLs when the device leg is actually going to
+		// deliver. A global URL that happens to equal the device URL is still a global
+		// subscription: if the device's own event filter rejects this event, excluding
+		// it here would drop the event entirely for a target the global config accepts.
+		deviceURLs := webhookURLs
+		if !webhookAllowed {
+			deviceURLs = nil
+		}
+		globalURLs = globalWebhookURLsExcluding(deviceURLs)
+	}
+	globalAllowed := len(globalURLs) > 0
+
+	if !webhookAllowed && !globalAllowed && !chatwootAllowed {
+		logrus.Debugf("Skipping event %s - not allowed for webhooks or Chatwoot", eventName)
+		return nil
 	}
 
 	// Enrich the payload with the operator-facing session id so multi-tenant
@@ -133,19 +232,52 @@ func forwardPayloadToConfiguredWebhooks(ctx context.Context, payload map[string]
 	// back to the session id they registered via POST /devices. Done here,
 	// synchronously, before the Chatwoot goroutine is spawned below, so the
 	// shared payload map is never mutated concurrently.
-	if webhookAllowed {
+	if webhookAllowed || globalAllowed {
 		addWebhookSessionID(payload)
+	}
+
+	// Start Chatwoot before the webhook legs: a down webhook spends ~15s in retry
+	// backoff, and Chatwoot must not wait for it.
+	if chatwootAllowed {
+		go forwardToChatwoot(ctx, payload, eventName)
+	}
+
+	// Run the two legs concurrently. They share the caller's deadline, and each URL
+	// can spend up to ~15s in retry backoff, so running the device leg first would
+	// let one slow endpoint consume the whole budget and leave the global leg a dead
+	// context — precisely the silent drop this flag exists to prevent. Both legs only
+	// read the payload from here on, so sharing it is safe.
+	var (
+		globalErr  error
+		globalDone chan struct{}
+	)
+	if globalAllowed {
+		globalDone = make(chan struct{})
+		go func() {
+			defer close(globalDone)
+			globalErr = forwardToWebhooks(ctx, payload, eventName, globalURLs, nil)
+		}()
 	}
 
 	var webhookErr error
 	if webhookAllowed {
 		webhookErr = forwardToWebhooks(ctx, payload, eventName, webhookURLs, webhookConfig)
-	} else {
+	} else if chatwootAllowed {
 		logrus.Debugf("Skipping event %s for configured webhooks, but allowing Chatwoot", eventName)
 	}
 
-	if chatwootAllowed {
-		go forwardToChatwoot(ctx, payload, eventName)
+	if globalAllowed {
+		<-globalDone
+		// Same contract as forwardToWebhooks: only report failure when every
+		// target that was attempted failed.
+		switch {
+		case !webhookAllowed:
+			webhookErr = globalErr
+		case webhookErr != nil && globalErr != nil:
+			webhookErr = fmt.Errorf("%w; global: %v", webhookErr, globalErr)
+		default:
+			webhookErr = nil
+		}
 	}
 
 	return webhookErr
@@ -166,9 +298,69 @@ func getDeviceRecordForTest(deviceJID string) (*domainChatStorage.DeviceRecord, 
 	return nil, nil
 }
 
-// webhookConfigFromRecord maps a device registration onto its webhook configuration,
-// returning nil when the device has no device-specific webhook URL so the caller keeps
-// using the global config.
+// errAmbiguousWebhookDevice means the event's account JID is shared by more
+// than one companion slot and the originating slot could not be selected.
+var errAmbiguousWebhookDevice = errors.New("webhook device identity is ambiguous across companion slots")
+
+// resolveWebhookDeviceRecord selects the registration of the originating device
+// slot. payload["device_id"] stays the public account JID; policy uses the
+// companion AD JID from the device context when that slot is known. A bare
+// account JID that matches several in-memory slots does not fall back to the
+// global filter.
+func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceRecord, error) {
+	payloadID, _ := payload["device_id"].(string)
+	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
+		ad := strings.TrimSpace(inst.ADJID())
+		if ad != "" && ad != payloadID {
+			rec, err := getDeviceRecordForTest(ad)
+			if err != nil {
+				return nil, err
+			}
+			if rec != nil {
+				return rec, nil
+			}
+			bare := inst.JID()
+			if bare == "" {
+				bare = payloadID
+			}
+			if siblingCompanionCount(bare) > 1 {
+				return nil, errAmbiguousWebhookDevice
+			}
+		}
+	}
+	if siblingCompanionCount(payloadID) > 1 {
+		return nil, errAmbiguousWebhookDevice
+	}
+	if payloadID == "" {
+		return nil, nil
+	}
+	record, err := getDeviceRecordForTest(payloadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device record: %w", err)
+	}
+	return record, nil
+}
+
+// siblingCompanionCount reports how many registered slots share a bare account
+// JID. Zero means the manager is absent or the id is not a shared account JID.
+func siblingCompanionCount(bareJID string) int {
+	bareJID = strings.TrimSpace(bareJID)
+	if bareJID == "" || !strings.Contains(bareJID, "@") {
+		return 0
+	}
+	dm := GetDeviceManager()
+	if dm == nil {
+		return 0
+	}
+	n := 0
+	for _, inst := range dm.ListDevices() {
+		if inst != nil && inst.JID() == bareJID {
+			n++
+		}
+	}
+	return n
+}
+
 func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChatStorage.DeviceWebhookConfig {
 	if record == nil || record.WebhookURL == nil || *record.WebhookURL == "" {
 		return nil
@@ -183,33 +375,14 @@ func webhookConfigFromRecord(record *domainChatStorage.DeviceRecord) *domainChat
 	}
 }
 
-// resolveWebhookDeviceRecord resolves the registration of the slot that emitted the event.
-// The payload's device_id is the bare NonAD JID, which GetDeviceRecordByJID deliberately
-// refuses to resolve once several slots share one number (issue #760); the AD JID of the
-// slot carried in the event context addresses exactly one row, so try that first and only
-// fall back to the bare JID when the slot has no AD JID recorded yet.
-func resolveWebhookDeviceRecord(ctx context.Context, payload map[string]any) (*domainChatStorage.DeviceRecord, error) {
-	deviceJID, _ := payload["device_id"].(string)
-
-	if inst, ok := DeviceFromContext(ctx); ok && inst != nil {
-		if adJID := inst.ADJID(); adJID != "" && adJID != deviceJID {
-			record, err := getDeviceRecordForTest(adJID)
-			if err != nil {
-				logrus.Warnf("Failed to get device record for AD JID %s, falling back to %s: %v", adJID, deviceJID, err)
-			} else if record != nil {
-				return record, nil
-			}
-		}
+// deviceIgnoreGroupsOverride returns the per-device override for ignoring group messages
+// in webhook forwarding (webhook_ignore_groups), or nil when the device has never set it
+// -- the caller falls back to the global "@g.us" wildcard.
+func deviceIgnoreGroupsOverride(record *domainChatStorage.DeviceRecord) *bool {
+	if record == nil {
+		return nil
 	}
-
-	if deviceJID == "" {
-		return nil, nil
-	}
-	record, err := getDeviceRecordForTest(deviceJID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device record: %w", err)
-	}
-	return record, nil
+	return record.WebhookIgnoreGroups
 }
 
 // getWebhookURLsFromConfig extracts webhook URLs from the config.
@@ -218,6 +391,23 @@ func getWebhookURLsFromConfig(config *domainChatStorage.DeviceWebhookConfig) []s
 		return nil
 	}
 	return []string{*config.WebhookURL}
+}
+
+// globalWebhookURLsExcluding returns the global WHATSAPP_WEBHOOK targets minus any
+// URL already covered by the device-specific delivery, so a device whose webhook
+// duplicates a global URL is not hit twice for the same event.
+func globalWebhookURLsExcluding(deviceURLs []string) []string {
+	if len(config.WhatsappWebhook) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(config.WhatsappWebhook))
+	for _, url := range config.WhatsappWebhook {
+		if slices.Contains(deviceURLs, url) {
+			continue
+		}
+		urls = append(urls, url)
+	}
+	return urls
 }
 
 // isEventWhitelistedForDevice checks if an event is whitelisted for a specific device.
@@ -234,61 +424,34 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 	return len(config.WhatsappWebhookEvents) == 0 || isEventWhitelisted(eventName)
 }
 
-// payloadIsGroupEvent reports whether the event's chat or sender JID (checked in the same
-// nested payload fields as shouldIgnoreWebhookJID: chat_id/from and their LID forms
-// chat_lid/from_lid) is a group JID ("@g.us"). It is used to fail closed on the generic
-// webhook when the device record couldn't be resolved, independent of any ignore-list logic.
-func payloadIsGroupEvent(payload map[string]any) bool {
-	data, ok := payload["payload"].(map[string]any)
-	if !ok {
-		return false
-	}
-	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
-		if jid, _ := data[key].(string); strings.HasSuffix(jid, "@g.us") {
-			return true
-		}
-	}
-	return false
-}
-
 // shouldIgnoreWebhookJID reports whether an event should be skipped for WHATSAPP_WEBHOOK
 // forwarding because its chat or sender JID matches WHATSAPP_WEBHOOK_IGNORE_JIDS (e.g. the
-// "@g.us" wildcard to drop all group traffic), OR because the originating device has an
-// explicit per-device override for group messages (webhook_ignore_groups, set via
-// PATCH /devices/:device_id/webhook, passed in as groupOverride). The device override
-// takes precedence over the global "@g.us" wildcard specifically for group JIDs -- but
-// only over that wildcard: a group listed by its exact JID stays ignored either way. The
-// override has no effect on non-group JIDs, where the global list remains the only
-// mechanism (unchanged from before this feature).
-// The JID fields live in the nested inner payload, so it descends one level. Both the
-// resolved phone JIDs (chat_id/from) and the LID forms (chat_lid/from_lid) are matched.
-// It is a no-op when the inner payload is absent or no JID matches.
-func shouldIgnoreWebhookJID(payload map[string]any, groupOverride *bool) bool {
+// "@g.us" wildcard to drop all group traffic). The JID fields live in the nested inner
+// payload, so it descends one level. Both the resolved phone JIDs (chat_id/from) and the
+// LID forms (chat_lid/from_lid) are matched: a LID-migrated event keeps the @lid JID in the
+// *_lid fields while chat_id/from hold the resolved phone JID, so an "@lid" pattern (or an
+// exact ...@lid) only matches via the *_lid fields. It is a no-op when the ignore list is
+// empty, the inner payload is absent, or no JID matches — so events without a JID and the
+// default (no list configured) keep forwarding unchanged. This only gates the generic
+// webhook; the Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
+//
+// ignoreGroups is the device's webhook_ignore_groups override. When set it replaces the
+// "@g.us" wildcard for group JIDs only: true drops every group, false neutralizes the
+// wildcard but a group listed by its exact JID stays ignored. Non-group JIDs always use
+// the global list.
+func shouldIgnoreWebhookJID(payload map[string]any, ignoreGroups *bool) bool {
+	ignore := config.WhatsappWebhookIgnoreJids
+	if len(ignore) == 0 && ignoreGroups == nil {
+		return false
+	}
 	data, ok := payload["payload"].(map[string]any)
 	if !ok {
 		return false
 	}
-
-	ignore := config.WhatsappWebhookIgnoreJids
-
-	for _, key := range []string{"chat_id", "from", "chat_lid", "from_lid"} {
+	for _, key := range payloadIdentityKeys {
 		jid, _ := data[key].(string)
-		if jid == "" {
-			continue
-		}
-		if strings.HasSuffix(jid, "@g.us") {
-			if groupOverride != nil {
-				if *groupOverride {
-					return true
-				}
-				// Opting out only neutralizes the "@g.us" wildcard: a group the
-				// operator listed by its exact JID stays ignored.
-				if utils.MatchesExactIgnoredJID(jid, ignore) {
-					return true
-				}
-				continue
-			}
-			if utils.MatchesIgnoredJID(jid, ignore) {
+		if ignoreGroups != nil && strings.HasSuffix(jid, "@g.us") {
+			if *ignoreGroups || utils.MatchesExactIgnoredJID(jid, ignore) {
 				return true
 			}
 			continue
@@ -298,16 +461,6 @@ func shouldIgnoreWebhookJID(payload map[string]any, groupOverride *bool) bool {
 		}
 	}
 	return false
-}
-
-// deviceIgnoreGroupsOverride returns the per-device override for ignoring group messages
-// in webhook forwarding (webhook_ignore_groups), or nil when the device has never set it
-// -- the caller falls back to the global "@g.us" wildcard.
-func deviceIgnoreGroupsOverride(record *domainChatStorage.DeviceRecord) *bool {
-	if record == nil {
-		return nil
-	}
-	return record.WebhookIgnoreGroups
 }
 
 // addWebhookSessionID injects the operator-facing session id into a webhook
@@ -434,8 +587,11 @@ func extractChatwootContactInfo(ctx context.Context, data map[string]any) (*chat
 
 	// Operator-configured ignore list (CHATWOOT_IGNORE_JIDS) on top of the
 	// always-ignored system JIDs — supports exact JIDs and the "@g.us" /
-	// "@s.whatsapp.net" / "@lid" address-space wildcards.
-	if utils.MatchesIgnoredJID(chatID, config.ChatwootIgnoreJids) || utils.MatchesIgnoredJID(from, config.ChatwootIgnoreJids) {
+	// "@s.whatsapp.net" / "@lid" address-space wildcards. Phone-normalized
+	// chat_id/from are not enough: a resolved LID keeps its original id in
+	// chat_lid/from_lid, and an exclusion written against that alias must
+	// still match.
+	if chatwootPayloadExcluded(data) {
 		return nil, fmt.Errorf("skipping ignored JID chat=%s from=%s", chatID, from)
 	}
 
@@ -568,7 +724,18 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	}
 	prefixGroupSender := isGroup && !fromMe && senderLabel != ""
 
-	if body, ok := data["body"].(string); ok && body != "" {
+	// A poll creation or edit is rendered with its options: the webhook body
+	// ("Poll: <question>") leaves them out, so the agent could not see the
+	// choices. An edit that failed to decrypt lists the stored, pre-edit
+	// options, so it keeps its body below like votes and added options.
+	if poll := chatwootPollFromPayload(data); poll != nil &&
+		(poll.Type == "creation" || (poll.Type == "edit" && poll.ResolutionStatus == "")) {
+		content = formatChatwootPoll(poll)
+	} else if interactive, ok := data["interactive"].(string); ok && interactive != "" {
+		// Interactive messages carry the same summary as body, but it has always
+		// been forwarded without the markdown pass below.
+		content = interactive
+	} else if body, ok := data["body"].(string); ok && body != "" {
 		// Translate WhatsApp formatting (*bold*, _italic_, ~strike~) into the
 		// GitHub-flavored markdown Chatwoot renders so emphasis survives the hop.
 		content = utils.WhatsAppToChatwootMarkdown(body)
@@ -661,11 +828,18 @@ func shouldForwardEventToChatwoot(eventName string) bool {
 	}
 }
 
+// isEventWhitelistedForChatwoot uses CHATWOOT_EVENTS when set, so a webhook
+// limited to other events does not starve Chatwoot; otherwise it follows
+// WHATSAPP_WEBHOOK_EVENTS.
 func isEventWhitelistedForChatwoot(eventName string) bool {
-	if len(config.WhatsappWebhookEvents) == 0 {
+	events := config.ChatwootEvents
+	if len(events) == 0 {
+		events = config.WhatsappWebhookEvents
+	}
+	if len(events) == 0 {
 		return true
 	}
-	if isEventWhitelisted(eventName) {
+	if eventInList(events, eventName) {
 		return true
 	}
 	// Derived message sub-events (reactions, edits, deletes) ride along when the
@@ -673,9 +847,15 @@ func isEventWhitelistedForChatwoot(eventName string) bool {
 	// every sub-event to get them mirrored to Chatwoot.
 	switch eventName {
 	case "message.reaction", "message.ack", "message.edited", "message.revoked", "message.deleted":
-		return isEventWhitelisted("message")
+		return eventInList(events, "message")
 	}
 	return false
+}
+
+// ChatwootReceivesMessages reports whether the event filter lets WhatsApp
+// messages through to Chatwoot.
+func ChatwootReceivesMessages() bool {
+	return isEventWhitelistedForChatwoot(EventTypeMessage)
 }
 
 // buildReactionChatwootContent renders the note posted for a reaction event.
@@ -696,9 +876,81 @@ func buildReactionChatwootContent(data map[string]any, fromName string) string {
 	}
 
 	if reaction == "" {
+		if removed, _ := data["removed_reaction"].(string); removed != "" {
+			return fmt.Sprintf("%s removed %s", actor, removed)
+		}
 		return fmt.Sprintf("%s removed a reaction", actor)
 	}
 	return fmt.Sprintf("%s reacted %s", actor, reaction)
+}
+
+const quotedExcerptMaxRunes = 80
+
+// oneLineExcerpt collapses whitespace/newlines into single spaces and truncates
+// to maxRunes (appending an ellipsis), so quoted excerpts stay on one line.
+func oneLineExcerpt(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if runes := []rune(s); len(runes) > maxRunes {
+		s = string(runes[:maxRunes]) + "…"
+	}
+	return s
+}
+
+// chatwootReplyTarget threads a WhatsApp reply or reaction onto the message it
+// references. in_reply_to_external_id (WAID:<id>) is always set and resolves
+// only for messages that carry that source_id, i.e. messages mirrored from
+// WhatsApp. Agent replies sent from Chatwoot have none, so the stored link is
+// kept to set the native in_reply_to once the target conversation is known
+// (see apply).
+type chatwootReplyTarget struct {
+	link    *domainChatStorage.ChatwootMessageLink // nil when no usable link
+	excerpt string                                 // "> ..." quote; empty for reactions
+}
+
+// resolveChatwootReplyTarget looks up the link for repliedToID. A link is used
+// only when it was written for the current Chatwoot destination
+// (chatwootLinkMatchesClient): Chatwoot message ids repeat across servers and
+// accounts. quotedBody, when set, becomes the inline excerpt shown if the link
+// cannot be used.
+func resolveChatwootReplyTarget(cw *chatwoot.Client, configID int64, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, repliedToID, quotedBody string) *chatwootReplyTarget {
+	target := &chatwootReplyTarget{}
+	if strings.TrimSpace(quotedBody) != "" {
+		target.excerpt = "> " + oneLineExcerpt(quotedBody, quotedExcerptMaxRunes)
+	}
+	if linkRepo == nil || deviceID == "" {
+		return target
+	}
+	link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, repliedToID)
+	if err != nil {
+		logrus.Warnf("Chatwoot: Failed to resolve quoted message link for %s: %v", repliedToID, err)
+		return target
+	}
+	if link != nil && link.ChatwootMessageID != 0 && chatwootLinkMatchesClient(link, cw, configID) {
+		target.link = link
+	}
+	return target
+}
+
+// apply sets the native in_reply_to when the linked message is in
+// conversationID: Chatwoot rejects a reference to another conversation, which
+// happens when a returning contact gets a new conversation
+// (CHATWOOT_REOPEN_CONVERSATION=false). Otherwise the excerpt, if any, is
+// prepended to content. opts.ContentAttributes must already be set.
+func (r *chatwootReplyTarget) apply(conversationID int, content string, opts *chatwoot.MessageOptions) string {
+	if r == nil {
+		return content
+	}
+	if r.link != nil && r.link.ChatwootConversationID == conversationID {
+		opts.ContentAttributes["in_reply_to"] = r.link.ChatwootMessageID
+		return content
+	}
+	if r.excerpt == "" {
+		return content
+	}
+	if content == "" {
+		return r.excerpt
+	}
+	return r.excerpt + "\n\n" + content
 }
 
 func chatwootMessageTypeFromPayload(data map[string]any) string {
@@ -706,6 +958,48 @@ func chatwootMessageTypeFromPayload(data map[string]any) string {
 		return "outgoing"
 	}
 	return "incoming"
+}
+
+// chatwootPollFromPayload reads data["poll"] in both shapes it reaches the
+// forwarder in: *webhookPollPayload live, a JSON map after the retry queue.
+func chatwootPollFromPayload(data map[string]any) *webhookPollPayload {
+	switch v := data["poll"].(type) {
+	case *webhookPollPayload:
+		return v
+	case map[string]any:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		var poll webhookPollPayload
+		if json.Unmarshal(raw, &poll) != nil {
+			return nil
+		}
+		return &poll
+	}
+	return nil
+}
+
+// formatChatwootPoll renders a poll creation or edit for Chatwoot. Question and
+// options go through WhatsAppToChatwootMarkdown one by one, like a message body,
+// so WhatsApp emphasis survives without pairing markers across lines.
+func formatChatwootPoll(poll *webhookPollPayload) string {
+	var sb strings.Builder
+	sb.WriteString("📊 Poll")
+	if poll.Type == "edit" {
+		sb.WriteString(" edited")
+	}
+	if poll.Question != "" {
+		sb.WriteString(": ")
+		sb.WriteString(utils.WhatsAppToChatwootMarkdown(poll.Question))
+	}
+	for _, opt := range poll.Options {
+		if opt.Name != "" {
+			sb.WriteString("\n• ")
+			sb.WriteString(utils.WhatsAppToChatwootMarkdown(opt.Name))
+		}
+	}
+	return sb.String()
 }
 
 func extractStructuredMessageContent(data map[string]any) string {
@@ -786,155 +1080,7 @@ func extractStructuredMessageContent(data map[string]any) string {
 		return "Order message"
 	}
 
-	if interactive, ok := data["interactive"].(string); ok && interactive != "" {
-		// Pre-rendered by buildOtherMessageTypes at construction time (not
-		// stored as the raw proto) so it survives the JSON round-trip on the
-		// Chatwoot forward retry path; see the comment at that call site.
-		return interactive
-	}
-
 	return ""
-}
-
-// formatInteractiveMessageSummary renders an InteractiveMessage (business/
-// Cloud API messages with native buttons: cta_url, cta_call, single/multi
-// select, etc.) as plain text, since Chatwoot has no native concept of a
-// WhatsApp interactive button. Buttons are described in buttonParamsJSON as
-// a per-button-type JSON blob (undocumented, reverse-engineered from
-// traffic), so only the fields relevant to rendering are decoded and
-// anything unrecognized still shows the button's raw name.
-func formatInteractiveMessageSummary(im *waE2E.InteractiveMessage) string {
-	var parts []string
-
-	if header := im.GetHeader(); header != nil {
-		if title := header.GetTitle(); title != "" {
-			parts = append(parts, title)
-		}
-		if subtitle := header.GetSubtitle(); subtitle != "" {
-			parts = append(parts, subtitle)
-		}
-		// Media captions on interactive headers never reach payload["body"]
-		// (ExtractMediaCaption only handles top-level Get*Message() cases,
-		// not InteractiveMessage.Header) — surface them here instead of
-		// silently dropping them, since collectInteractiveMedia forwards the
-		// file itself but nothing else carries the caption text.
-		if caption := interactiveHeaderMediaCaption(header); caption != "" {
-			parts = append(parts, caption)
-		}
-	}
-	if body := im.GetBody(); body != nil {
-		if text := body.GetText(); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	if footer := im.GetFooter(); footer != nil {
-		if text := footer.GetText(); text != "" {
-			parts = append(parts, text)
-		}
-	}
-
-	for _, button := range im.GetNativeFlowMessage().GetButtons() {
-		if line := formatNativeFlowButton(button); line != "" {
-			parts = append(parts, line)
-		}
-	}
-
-	// Carousels put their CTA/quick-reply buttons on each card rather than on
-	// the top-level NativeFlowMessage, so the loop above sees none of them —
-	// summarize each card (itself a full InteractiveMessage) separately.
-	if carousel := im.GetCarouselMessage(); carousel != nil {
-		for i, card := range carousel.GetCards() {
-			if cardSummary := formatInteractiveMessageSummary(card); cardSummary != "" && cardSummary != "Interactive message" {
-				parts = append(parts, fmt.Sprintf("Card %d: %s", i+1, cardSummary))
-			}
-		}
-	}
-
-	if len(parts) == 0 {
-		return "Interactive message"
-	}
-	return strings.Join(parts, "\n")
-}
-
-// interactiveHeaderMediaCaption returns the caption on whichever media type
-// (if any) an InteractiveMessage header carries. Mirrors utils.ExtractMediaCaption's
-// per-type checks, scoped to the Header oneof instead of top-level Get*Message().
-func interactiveHeaderMediaCaption(header *waE2E.InteractiveMessage_Header) string {
-	if header == nil {
-		return ""
-	}
-	if img := header.GetImageMessage(); img != nil {
-		return img.GetCaption()
-	}
-	if vid := header.GetVideoMessage(); vid != nil {
-		return vid.GetCaption()
-	}
-	if doc := header.GetDocumentMessage(); doc != nil {
-		return doc.GetCaption()
-	}
-	return ""
-}
-
-// nativeFlowButtonParams covers the fields used by the button types this
-// forwarder renders specially (cta_url, cta_call, cta_copy). Other button
-// names (e.g. single_select, review_and_pay) fall through to displaying the
-// raw button name, since their params carry structured picker/payment data
-// that doesn't reduce to a single line of text.
-type nativeFlowButtonParams struct {
-	DisplayText string `json:"display_text"`
-	URL         string `json:"url"`
-	PhoneNumber string `json:"phone_number"`
-	Copy        string `json:"copy_code"`
-	// Title is the visible label field used by picker-style buttons (e.g.
-	// single_select's {"title":...,"sections":...}), which don't set
-	// display_text at all.
-	Title string `json:"title"`
-}
-
-func formatNativeFlowButton(button *waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton) string {
-	if button == nil {
-		return ""
-	}
-	name := button.GetName()
-
-	var params nativeFlowButtonParams
-	_ = json.Unmarshal([]byte(button.GetButtonParamsJSON()), &params)
-
-	switch name {
-	case "cta_url":
-		label := params.DisplayText
-		if label == "" {
-			label = "Link"
-		}
-		if params.URL != "" {
-			return fmt.Sprintf("🔗 %s: %s", label, params.URL)
-		}
-	case "cta_call":
-		label := params.DisplayText
-		if label == "" {
-			label = "Call"
-		}
-		if params.PhoneNumber != "" {
-			return fmt.Sprintf("📞 %s: %s", label, params.PhoneNumber)
-		}
-	case "cta_copy":
-		label := params.DisplayText
-		if label == "" {
-			label = "Copy code"
-		}
-		if params.Copy != "" {
-			return fmt.Sprintf("📋 %s: %s", label, params.Copy)
-		}
-	}
-
-	label := params.DisplayText
-	if label == "" {
-		label = params.Title
-	}
-	if label != "" {
-		return fmt.Sprintf("[%s] %s", name, label)
-	}
-	return fmt.Sprintf("[%s]", name)
 }
 
 func extractContactDetails(contact any) (name string, phone string, ok bool) {
@@ -982,7 +1128,7 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions) (*chatwootSyncResult, error) {
+func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget) (*chatwootSyncResult, error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
 	mu.Lock()
@@ -1000,6 +1146,7 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 		return nil, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
 	logrus.Infof("Chatwoot: Conversation ID: %d", conversation.ID)
+	content = reply.apply(conversation.ID, content, &opts)
 
 	logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(content), len(attachments))
 	messageType := "incoming"
@@ -1108,13 +1255,288 @@ func deleteTargetMessageID(eventName string, data map[string]any) string {
 	return ""
 }
 
-func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, data map[string]any) {
+// payloadIdentityKeys are the original and normalized JIDs a webhook event can
+// carry. An exclusion configured against a LID must still match after that LID
+// is resolved to a phone JID and stored beside it. The first two are the
+// addresses the event is delivered under; the rest are aliases.
+var payloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid", "sender_alt", "recipient_alt"}
+
+// addChatwootIdentityAliases copies original LID chats and alt JIDs onto a
+// webhook payload. chat_id/from may already be the phone; exclusion still has
+// to see 111@lid when that is only the original chat or an alt address.
+func addChatwootIdentityAliases(payload map[string]any, chat, sender, senderAlt, recipientAlt types.JID) {
+	if payload == nil {
+		return
+	}
+	setLID := func(key string, jid types.JID) {
+		if jid.IsEmpty() || jid.Server != types.HiddenUserServer {
+			return
+		}
+		if _, exists := payload[key]; exists {
+			return
+		}
+		payload[key] = jid.ToNonAD().String()
+	}
+	setLID("chat_lid", chat)
+	setLID("from_lid", sender)
+	if !senderAlt.IsEmpty() {
+		payload["sender_alt"] = senderAlt.ToNonAD().String()
+		setLID("from_lid", senderAlt)
+	}
+	if !recipientAlt.IsEmpty() {
+		payload["recipient_alt"] = recipientAlt.ToNonAD().String()
+		// In a 1:1 chat the recipient alt is the chat's other address.
+		setLID("chat_lid", recipientAlt)
+	}
+}
+
+func chatwootPayloadExcluded(data map[string]any) bool {
+	if len(config.ChatwootIgnoreJids) == 0 || data == nil {
+		return false
+	}
+	for i, key := range payloadIdentityKeys {
+		jid, _ := data[key].(string)
+		// Wildcards such as "@lid" apply to chat_id and from, as before the
+		// aliases were added; an alias matches exact entries only.
+		if i < 2 && utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids) ||
+			i >= 2 && utils.MatchesIgnoredAliasJID(jid, config.ChatwootIgnoreJids) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatwootJIDExcluded(jid string) bool {
+	return utils.MatchesIgnoredJID(jid, config.ChatwootIgnoreJids)
+}
+
+// MessageAuthorMatches reports whether an edit or revoke was sent by the stored
+// message's author. whatsmeow sets IsFromMe from the authenticated account, so
+// the account may rewrite its own messages even when companion devices differ
+// in the sender string. Otherwise the event sender — or the pre-normalization
+// alias, when one was kept — must equal the stored sender.
+func MessageAuthorMatches(storedSender string, storedFromMe bool, eventSender, eventAlias string, eventFromMe bool) bool {
+	if storedFromMe && eventFromMe {
+		return true
+	}
+	storedSender = strings.TrimSpace(storedSender)
+	if storedSender == "" {
+		return false
+	}
+	for _, candidate := range []string{eventSender, eventAlias} {
+		if s := strings.TrimSpace(candidate); s != "" && s == storedSender {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGroupAdmin reports whether any of one user's addresses (LID or phone) is
+// currently an admin of group, asking WhatsApp as client. A failed lookup is
+// not an admin.
+func IsGroupAdmin(ctx context.Context, client *whatsmeow.Client, group types.JID, user ...types.JID) bool {
+	if client == nil {
+		return false
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	info, err := fetchGroupInfoFn(lookupCtx, client, group)
+	if err != nil || info == nil {
+		logrus.Warnf("Could not load admins of group %s: %v", group, err)
+		return false
+	}
+	for _, p := range info.Participants {
+		if !p.IsAdmin && !p.IsSuperAdmin {
+			continue
+		}
+		for _, u := range user {
+			u = u.ToNonAD()
+			if !u.IsEmpty() && (u == p.JID.ToNonAD() || u == p.LID.ToNonAD() || u == p.PhoneNumber.ToNonAD()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type revokeAuthRecord struct {
+	authorized bool
+	expires    time.Time
+}
+
+// authNotesSweptAt is when expired decisions were last swept, in Unix nanoseconds.
+var authNotesSweptAt atomic.Int64
+
+// sweepAuthNotes drops expired decisions at most every five minutes. A read
+// removes only the expired entry it looks up.
+func sweepAuthNotes() {
+	now := time.Now()
+	last := authNotesSweptAt.Load()
+	if now.UnixNano()-last < int64(5*time.Minute) || !authNotesSweptAt.CompareAndSwap(last, now.UnixNano()) {
+		return
+	}
+	dropAuthNotes(func(_ string, rec revokeAuthRecord) bool { return now.After(rec.expires) })
+}
+
+// ForgetMessageAuthorizationsForTest drops every decision noted for deviceID,
+// so tests in other packages can clean up the decisions CreateMessage records.
+func ForgetMessageAuthorizationsForTest(deviceID string) {
+	dropAuthNotes(func(key string, _ revokeAuthRecord) bool { return strings.HasPrefix(key, deviceID+"\n") })
+}
+
+func dropAuthNotes(drop func(key string, rec revokeAuthRecord) bool) {
+	for _, notes := range []*sync.Map{&revokeAuthNotes, &messageEventAuthNotes} {
+		notes.Range(func(key, value any) bool {
+			k, _ := key.(string)
+			if rec, _ := value.(revokeAuthRecord); drop(k, rec) {
+				notes.CompareAndDelete(key, value)
+			}
+			return true
+		})
+	}
+}
+
+var revokeAuthNotes sync.Map
+
+func revokeAuthKey(deviceID, chatJID, messageID string) string {
+	return deviceID + "\n" + chatJID + "\n" + messageID
+}
+
+// NoteMessageRevokeAuthorization remembers whether a revoke was authorized
+// against the stored author. Chatwoot forwarding runs after that row is
+// deleted and would otherwise be unable to tell a real revoke from a forged one.
+// A later missing-row or unauthorized attempt must not clear an authorization
+// already recorded for this message: the forwarder may not have read it yet.
+// Only Chatwoot forwarding reads it, so nothing is kept while Chatwoot is off.
+func NoteMessageRevokeAuthorization(deviceID, chatJID, messageID string, authorized bool) {
+	deviceID = strings.TrimSpace(deviceID)
+	messageID = strings.TrimSpace(messageID)
+	if !config.ChatwootEnabled || deviceID == "" || messageID == "" {
+		return
+	}
+	if !authorized {
+		if prev, ok := MessageRevokeAuthorized(deviceID, chatJID, messageID); ok && prev {
+			return
+		}
+	}
+	sweepAuthNotes()
+	revokeAuthNotes.Store(revokeAuthKey(deviceID, chatJID, messageID), revokeAuthRecord{
+		authorized: authorized,
+		expires:    time.Now().Add(24 * time.Hour),
+	})
+}
+
+var messageEventAuthNotes sync.Map
+
+func messageEventAuthKey(deviceID, eventID string) string {
+	return deviceID + "\n" + eventID
+}
+
+// NoteMessageEventAuthorization records whether this protocol event was applied.
+// Chatwoot forwarding is asynchronous and keys off the event id in the payload,
+// so an unauthorized edit or revoke can be skipped without erasing an earlier
+// authorization of the same target message.
+func NoteMessageEventAuthorization(deviceID, eventID string, authorized bool) {
+	deviceID = strings.TrimSpace(deviceID)
+	eventID = strings.TrimSpace(eventID)
+	if !config.ChatwootEnabled || deviceID == "" || eventID == "" {
+		return
+	}
+	sweepAuthNotes()
+	messageEventAuthNotes.Store(messageEventAuthKey(deviceID, eventID), revokeAuthRecord{
+		authorized: authorized,
+		expires:    time.Now().Add(24 * time.Hour),
+	})
+}
+
+// MessageEventAuthorized reports the decision recorded for one protocol event.
+func MessageEventAuthorized(deviceID, eventID string) (authorized bool, ok bool) {
+	key := messageEventAuthKey(strings.TrimSpace(deviceID), strings.TrimSpace(eventID))
+	v, found := messageEventAuthNotes.Load(key)
+	if !found {
+		return false, false
+	}
+	rec, _ := v.(revokeAuthRecord)
+	if time.Now().After(rec.expires) {
+		messageEventAuthNotes.Delete(key)
+		return false, false
+	}
+	return rec.authorized, true
+}
+
+// chatwootEventDenied reports whether an edit or revoke must not reach
+// Chatwoot. Without a recorded decision (storage failed or never saw the
+// event) only this account's own event passes: it may edit or revoke
+// anything it sent.
+func chatwootEventDenied(deviceID string, data map[string]any) bool {
+	eventID, _ := data["id"].(string)
+	authorized, ok := MessageEventAuthorized(deviceID, eventID)
+	if !ok {
+		isFromMe, _ := data["is_from_me"].(bool)
+		return !isFromMe
+	}
+	return !authorized
+}
+
+// MessageRevokeAuthorized reports a previously recorded revoke decision.
+func MessageRevokeAuthorized(deviceID, chatJID, messageID string) (authorized bool, ok bool) {
+	key := revokeAuthKey(strings.TrimSpace(deviceID), chatJID, strings.TrimSpace(messageID))
+	v, found := revokeAuthNotes.Load(key)
+	if !found {
+		return false, false
+	}
+	rec, _ := v.(revokeAuthRecord)
+	if time.Now().After(rec.expires) {
+		revokeAuthNotes.Delete(key)
+		return false, false
+	}
+	return rec.authorized, true
+}
+
+func chatwootEventChatMatches(data map[string]any, chatJID string) bool {
+	chatJID = strings.TrimSpace(chatJID)
+	if chatJID == "" || data == nil {
+		return false
+	}
+	for _, key := range []string{"chat_id", "chat_lid", "revoked_chat"} {
+		if v, _ := data[key].(string); strings.TrimSpace(v) == chatJID {
+			return true
+		}
+	}
+	return false
+}
+
+func chatwootRevokeAuthorized(deviceID string, linkRepo domainChatStorage.IChatStorageRepository, data map[string]any, link *domainChatStorage.ChatwootMessageLink, targetID string) bool {
+	if link == nil || !chatwootEventChatMatches(data, link.WhatsAppChatJID) {
+		return false
+	}
+	if authorized, ok := MessageRevokeAuthorized(deviceID, link.WhatsAppChatJID, targetID); ok {
+		return authorized
+	}
+	if linkRepo == nil {
+		return false
+	}
+	msg, err := linkRepo.GetMessageByIDChatAndDevice(deviceID, link.WhatsAppChatJID, targetID)
+	if err != nil || msg == nil {
+		return false
+	}
+	from, _ := data["from"].(string)
+	alias, _ := data["from_lid"].(string)
+	isFromMe, _ := data["is_from_me"].(bool)
+	return MessageAuthorMatches(msg.Sender, msg.IsFromMe, from, alias, isFromMe)
+}
+
+func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, configID int64, data map[string]any) {
 	receiptType, _ := data["receipt_type"].(string)
 	if receiptType != string(types.ReceiptTypeRead) && receiptType != string(types.ReceiptTypeReadSelf) {
 		return
 	}
 	if deviceID == "" || linkRepo == nil {
 		logrus.Warn("Chatwoot: Cannot sync read receipt without message-link storage")
+		return
+	}
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping read receipt for excluded chat")
 		return
 	}
 
@@ -1127,10 +1549,14 @@ func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo d
 		if link == nil || link.ChatwootConversationID == 0 {
 			continue
 		}
-		if !chatwootLinkMatchesClient(link, cw) {
-			// The link was written under a different Chatwoot account (e.g. before
-			// a delete-and-recreate rebind): its conversation id means nothing on
-			// the current destination.
+		if !chatwootLinkMatchesClient(link, cw, configID) {
+			// The link was written under a different Chatwoot account or server
+			// (e.g. before a delete-and-recreate rebind): its conversation id
+			// means nothing on the current destination.
+			continue
+		}
+		if chatwootJIDExcluded(link.WhatsAppChatJID) {
+			logrus.Debugf("Chatwoot: skipping read receipt for excluded chat %s", link.WhatsAppChatJID)
 			continue
 		}
 
@@ -1153,8 +1579,12 @@ func syncReadReceiptsToChatwoot(cw *chatwoot.Client, deviceID string, linkRepo d
 	}
 }
 
-func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, eventName string, data map[string]any) bool {
+func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, configID int64, eventName string, data map[string]any) bool {
 	if !config.ChatwootMessageDelete || deviceID == "" || linkRepo == nil {
+		return false
+	}
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping linked delete for excluded chat")
 		return false
 	}
 
@@ -1171,9 +1601,17 @@ func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo 
 	if link == nil || link.ChatwootConversationID == 0 || link.ChatwootMessageID == 0 {
 		return false
 	}
-	if !chatwootLinkMatchesClient(link, cw) {
-		// Cross-account link (pre-rebind): the (conversation, message) ids would
-		// address an unrelated message on the current destination.
+	if !chatwootLinkMatchesClient(link, cw, configID) {
+		// Cross-account or cross-server link (pre-rebind): the (conversation,
+		// message) ids would address an unrelated message on the current destination.
+		return false
+	}
+	if chatwootJIDExcluded(link.WhatsAppChatJID) {
+		logrus.Debugf("Chatwoot: skipping linked delete for excluded chat %s", link.WhatsAppChatJID)
+		return false
+	}
+	if eventName == "message.revoked" && !chatwootRevokeAuthorized(deviceID, linkRepo, data, link, targetID) {
+		logrus.Warnf("Chatwoot: not deleting linked message %s; revoke is not authorized", targetID)
 		return false
 	}
 
@@ -1185,12 +1623,18 @@ func deleteLinkedChatwootMessage(cw *chatwoot.Client, deviceID string, linkRepo 
 }
 
 // chatwootLinkMatchesClient reports whether a stored message link belongs to
-// the Chatwoot account the client is bound to. Links with account id 0
-// (pre-migration legacy rows not yet backfilled) are accepted for
-// compatibility; any other mismatch means the link predates a rebind and its
-// Chatwoot ids must not be replayed against the current destination.
-func chatwootLinkMatchesClient(link *domainChatStorage.ChatwootMessageLink, cw *chatwoot.Client) bool {
+// the Chatwoot destination the client is bound to. Account numbers collide
+// across servers, so a per-device client (configID != 0) must match the link's
+// configuration id. The legacy env client (configID 0) accepts only legacy
+// links, and then only when the account id matches or was never backfilled.
+func chatwootLinkMatchesClient(link *domainChatStorage.ChatwootMessageLink, cw *chatwoot.Client, configID int64) bool {
 	if link == nil || cw == nil {
+		return false
+	}
+	if configID != 0 {
+		return link.ChatwootConfigID == configID
+	}
+	if link.ChatwootConfigID != 0 {
 		return false
 	}
 	return link.ChatwootAccountID == 0 || link.ChatwootAccountID == cw.AccountID
@@ -1245,6 +1689,9 @@ func isRetryableChatwootForwardEvent(eventName string) bool {
 	}
 }
 
+// queuedAuthorizationKey carries an edit or revoke decision in a queued payload.
+const queuedAuthorizationKey = "chatwoot_authorized"
+
 func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageRepository, deviceID, eventName string, payload map[string]any, syncErr error) bool {
 	if !isRetryableChatwootForwardEvent(eventName) || linkRepo == nil || strings.TrimSpace(deviceID) == "" || !chatwoot.Retryable(syncErr) {
 		return false
@@ -1253,6 +1700,16 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 	messageID := chatwootForwardMessageID(payload)
 	if messageID == "" {
 		return false
+	}
+
+	// Edit and revoke decisions live in memory. Queue this one with the event,
+	// on a copy so the live map is not changed. It follows the live rule, so this
+	// account's own event without a recorded decision stays authorized.
+	if eventName == "message.edited" || eventName == "message.revoked" {
+		data, _ := payload["payload"].(map[string]any)
+		authorized := !chatwootEventDenied(deviceID, data)
+		payload = maps.Clone(payload)
+		payload[queuedAuthorizationKey] = authorized
 	}
 
 	payloadJSON, err := json.Marshal(payload)
@@ -1278,6 +1735,15 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 }
 
 func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventName, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) error {
+	// In WhatsApp a vote only updates the tally on the poll, so one Chatwoot
+	// message per vote floods the conversation. Webhooks still get every vote.
+	// Checked before the client lookup so a lookup failure never queues a vote.
+	voteData, _ := payload["payload"].(map[string]any)
+	if poll := chatwootPollFromPayload(voteData); eventName == EventTypeMessage && poll != nil && poll.Type == "vote" {
+		logrus.Debugf("Chatwoot: Skipping poll vote %v", voteData["id"])
+		return nil
+	}
+
 	resolved, err := getChatwootClientFn(deviceID)
 	if err != nil {
 		// Transient resolution failure (e.g. storage error): let the caller retry.
@@ -1302,12 +1768,41 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		return nil
 	}
 
+	// An unauthorized edit or revoke is a storage no-op. Do not post the
+	// "Edited" or "This message was deleted" note, and do not hard-delete.
+	if (eventName == "message.edited" || eventName == "message.revoked") && chatwootEventDenied(deviceID, data) {
+		logrus.Warnf("Chatwoot: skipping %s; sender is not the author", eventName)
+		return nil
+	}
+	// Exclusion covers the normalized phone and every original or alt LID
+	// carried on the payload. It runs before read receipts, hard deletes, and
+	// tombstone notes.
+	if chatwootPayloadExcluded(data) {
+		logrus.Debugf("Chatwoot: skipping %s for excluded chat", eventName)
+		return nil
+	}
+
+	if isAlbumHeaderPayload(eventName, data) {
+		// The album header only announces how many items follow; each photo or
+		// video arrives as its own message, so there is nothing to post.
+		logrus.Debugf("Chatwoot: Skipping album header %v", data["id"])
+		return nil
+	}
+
 	switch eventName {
 	case "message.ack":
-		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, data)
+		syncReadReceiptsToChatwoot(cw, deviceID, linkRepo, resolved.ConfigID, data)
 		return nil
 	case "message.revoked", "message.deleted":
-		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, eventName, data) {
+		// The stored chat may be excluded under an address this payload does not
+		// carry (LID vs phone). Then skip both the hard delete and the tombstone.
+		if targetID := deleteTargetMessageID(eventName, data); targetID != "" && linkRepo != nil {
+			if link, err := linkRepo.GetChatwootMessageLinkByWhatsAppID(deviceID, targetID); err == nil && link != nil && chatwootJIDExcluded(link.WhatsAppChatJID) {
+				logrus.Debugf("Chatwoot: skipping %s for excluded chat %s", eventName, link.WhatsAppChatJID)
+				return nil
+			}
+		}
+		if deleteLinkedChatwootMessage(cw, deviceID, linkRepo, resolved.ConfigID, eventName, data) {
 			return nil
 		}
 		// The hard delete was attempted (or there was no link to delete). The
@@ -1334,12 +1829,17 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		content     string
 		attachments []string
 		msgOpts     chatwoot.MessageOptions
+		reply       *chatwootReplyTarget // resolved against the conversation in syncMessageToChatwoot
 	)
 	switch eventName {
 	case "message.reaction":
 		content = buildReactionChatwootContent(data, info.FromName)
+		if id, _ := data["id"].(string); id != "" {
+			msgOpts.SourceID = "WAID:" + id
+		}
 		if rid, _ := data["reacted_message_id"].(string); rid != "" {
 			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, "")
 		}
 	case "message.edited", "message.revoked", "message.deleted":
 		var threadID string
@@ -1358,6 +1858,8 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 		if rid, _ := data["replied_to_id"].(string); rid != "" {
 			msgOpts.ContentAttributes = map[string]any{"in_reply_to_external_id": "WAID:" + rid}
+			quoted, _ := data["quoted_body"].(string)
+			reply = resolveChatwootReplyTarget(cw, resolved.ConfigID, deviceID, linkRepo, rid, quoted)
 		}
 	}
 	info.IsFromMe = chatwootMessageTypeFromPayload(data) == "outgoing"
@@ -1377,7 +1879,7 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 
-	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts)
+	result, err := syncMessageToChatwoot(cw, info, content, attachments, msgOpts, reply)
 	if err != nil {
 		return err
 	}
@@ -1389,6 +1891,16 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 		}
 	}
 	return nil
+}
+
+// isAlbumHeaderPayload reports whether a message event is the AlbumMessage that
+// precedes the items of a media album (see buildAlbumFields).
+func isAlbumHeaderPayload(eventName string, data map[string]any) bool {
+	if eventName != EventTypeMessage {
+		return false
+	}
+	_, ok := data["album"]
+	return ok
 }
 
 func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName string) {
@@ -1413,9 +1925,28 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 	// fall back to the global default device — the wrong client in multi-device
 	// deployments.
 	ctx := context.Background()
-	if dm := GetDeviceManager(); dm != nil {
-		if instance, _, err := dm.ResolveDevice(event.DeviceID); err == nil && instance != nil {
-			ctx = ContextWithDevice(ctx, instance)
+	dm := GetDeviceManager()
+	if dm == nil {
+		return fmt.Errorf("chatwoot retry: device manager unavailable, not replaying %s for device %s", event.EventName, event.DeviceID)
+	}
+	instance, _, err := dm.ResolveDevice(event.DeviceID)
+	if err != nil || instance == nil {
+		if err == nil {
+			err = errors.New("device not found")
+		}
+		return fmt.Errorf("chatwoot retry: device %s is not available: %w", event.DeviceID, err)
+	}
+	ctx = ContextWithDevice(ctx, instance)
+	if event.EventName == "message.edited" || event.EventName == "message.revoked" {
+		// The in-memory decision may be gone after a restart or its TTL. Restore
+		// the one queued with the event; a queued edit or revoke without one is denied.
+		authorized, _ := payload[queuedAuthorizationKey].(bool)
+		data, _ := payload["payload"].(map[string]any)
+		eventID, _ := data["id"].(string)
+		NoteMessageEventAuthorization(event.DeviceID, eventID, authorized)
+		if event.EventName == "message.revoked" {
+			chatJID, _ := data["chat_id"].(string)
+			NoteMessageRevokeAuthorization(event.DeviceID, chatJID, deleteTargetMessageID(event.EventName, data), authorized)
 		}
 	}
 	return syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
@@ -1492,7 +2023,11 @@ func buildEditDeleteChatwootContent(eventName string, data map[string]any, isGro
 
 // isEventWhitelisted checks if the given event name is in the configured whitelist
 func isEventWhitelisted(eventName string) bool {
-	for _, allowed := range config.WhatsappWebhookEvents {
+	return eventInList(config.WhatsappWebhookEvents, eventName)
+}
+
+func eventInList(events []string, eventName string) bool {
+	for _, allowed := range events {
 		if strings.EqualFold(strings.TrimSpace(allowed), eventName) {
 			return true
 		}
@@ -1501,22 +2036,23 @@ func isEventWhitelisted(eventName string) bool {
 }
 
 // getGroupName fetches the group name from WhatsApp using the group JID.
-// Uses a TTL cache to avoid repeated API calls for the same group.
+// Uses a per-device TTL cache to avoid repeated API calls for the same group.
 func getGroupName(ctx context.Context, groupJID string) string {
-	// Check cache first
-	if name, ok := getCachedGroupName(groupJID); ok {
-		logrus.Debugf("Chatwoot: Using cached group name for %s: %s", groupJID, name)
-		return name
+	instance, ok := DeviceFromContext(ctx)
+	if !ok || instance == nil {
+		return ""
+	}
+	client := instance.GetClient()
+	if client == nil || groupNameCacheDeviceID(client) == "" {
+		return ""
 	}
 
-	client := ClientFromContext(ctx)
-	if client == nil {
-		logrus.Debug("Chatwoot: ClientFromContext returned nil, trying GetClient()")
-		client = GetClient()
-	}
-	if client == nil {
-		logrus.Warn("Chatwoot: No WhatsApp client available to fetch group name")
-		return ""
+	// Check this device's cache first. The name is only ever served to the
+	// device that fetched it.
+	deviceID := groupNameCacheDeviceID(client)
+	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
+		logrus.Debugf("Chatwoot: Using cached group name for %s: %s", groupJID, name)
+		return name
 	}
 
 	jid, err := types.ParseJID(groupJID)
@@ -1529,9 +2065,11 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	// (this function is called from a goroutine)
 	freshCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	cacheResult := beginGroupNameCacheFetch(deviceID, groupJID)
+	defer cacheResult("")
 
 	logrus.Debugf("Chatwoot: Fetching group info for %s", groupJID)
-	groupInfo, err := client.GetGroupInfo(freshCtx, jid)
+	groupInfo, err := fetchGroupInfoFn(freshCtx, client, jid)
 	if err != nil {
 		logrus.Warnf("Chatwoot: Failed to get group info for %s: %v", groupJID, err)
 		return ""
@@ -1540,7 +2078,7 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	if groupInfo != nil && groupInfo.Name != "" {
 		logrus.Infof("Chatwoot: Got group name: %s", groupInfo.Name)
 		// Cache the result
-		setCachedGroupName(groupJID, groupInfo.Name)
+		cacheResult(groupInfo.Name)
 		return groupInfo.Name
 	}
 

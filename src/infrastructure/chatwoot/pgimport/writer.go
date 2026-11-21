@@ -97,7 +97,7 @@ func (i *Importer) ImportChat(ctx context.Context, req ImportChatRequest) (*Impo
 		return nil, fmt.Errorf("pgimport: upsert contact_inbox: %w", err)
 	}
 
-	convID, err := i.findOrCreateConversation(ctx, tx, contactID, contactInboxID, req.Messages)
+	convID, wasResolved, err := i.findOrCreateConversation(ctx, tx, contactID, contactInboxID, req.Messages)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("pgimport: conversation: %w", err)
@@ -146,6 +146,15 @@ func (i *Importer) ImportChat(ctx context.Context, req ImportChatRequest) (*Impo
 		if err := i.touchConversation(ctx, tx, convID, lastActivity); err != nil {
 			_ = tx.Rollback()
 			return res, fmt.Errorf("pgimport: touch conversation %d: %w", convID, err)
+		}
+		// Reopen only now, once something was actually added. A replay whose
+		// every row hit the idempotency probe reaches neither this branch nor
+		// the reopen, so a thread the agent resolved stays resolved.
+		if config.ChatwootReopenConversation && wasResolved {
+			if err := i.reopenConversation(ctx, tx, convID); err != nil {
+				_ = tx.Rollback()
+				return res, fmt.Errorf("pgimport: %w", err)
+			}
 		}
 	}
 
@@ -296,14 +305,15 @@ func conversationStatusForNew() int {
 }
 
 // findOrCreateConversation returns the id of the most recent conversation
-// for (account, inbox, contact), opening a fresh one if none exists. We
+// for (account, inbox, contact), opening a fresh one if none exists, and
+// whether it reused a *resolved* one. We
 // match regardless of `status` so that a conversation resolved by an agent
 // and then re-imported from WhatsApp reuses the same row instead of
 // creating a duplicate (the live REST path hits the same row for new
-// inbound messages, so the two paths agree). When CHATWOOT_REOPEN_CONVERSATION
-// is enabled (the default), a reused *resolved* conversation is flipped back to
-// the configured new-status so a returning customer's history resurfaces in the
-// agent queue — matching the REST path's reopen behavior. (When reopen is
+// inbound messages, so the two paths agree). It never changes the status of
+// the reused row: ImportChat reopens a resolved one only after it writes a
+// message, so a replay that skips every row leaves the thread as the agent
+// left it. (When reopen is
 // disabled the REST path opens a brand-new conversation instead; the importer
 // still reuses the row here to avoid duplicate threads, leaving its status
 // untouched. This is a deliberate, narrow asymmetry: the live REST path opens
@@ -324,7 +334,7 @@ func (i *Importer) findOrCreateConversation(
 	tx *sql.Tx,
 	contactID, contactInboxID int,
 	msgs []*domainChatStorage.Message,
-) (int, error) {
+) (int, bool, error) {
 	var id, status int
 	err := tx.QueryRowContext(ctx, `
 		SELECT id, status
@@ -336,23 +346,10 @@ func (i *Importer) findOrCreateConversation(
 		LIMIT 1
 	`, i.accountID, i.inboxID, contactID).Scan(&id, &status)
 	if err == nil {
-		// Reopen a reused resolved thread when configured. Only `resolved`
-		// is touched (pending/snoozed reused rows are left as the agent set
-		// them), matching the REST path. The UPDATE is idempotent via its
-		// WHERE status guard.
-		if config.ChatwootReopenConversation && status == conversationStatusResolved {
-			if _, uerr := tx.ExecContext(ctx, `
-				UPDATE conversations
-				SET status = $1, updated_at = now()
-				WHERE id = $2 AND account_id = $3 AND status = $4
-			`, conversationStatusForNew(), id, i.accountID, conversationStatusResolved); uerr != nil {
-				return 0, fmt.Errorf("reopen conversation %d: %w", id, uerr)
-			}
-		}
-		return id, nil
+		return id, status == conversationStatusResolved, nil
 	}
 	if err != sql.ErrNoRows {
-		return 0, err
+		return 0, false, err
 	}
 
 	// Anchor the new conversation's created_at at the first message's
@@ -382,10 +379,28 @@ func (i *Importer) findOrCreateConversation(
 		RETURNING id
 	`, i.accountID, i.inboxID, conversationStatusForNew(), contactID, contactInboxID, createdAt).Scan(&newID)
 	if err != nil {
-		return 0, fmt.Errorf("insert conversation: %w", err)
+		return 0, false, fmt.Errorf("insert conversation: %w", err)
 	}
 	logrus.Debugf("Chatwoot pgimport: created conversation id=%d contact=%d", newID, contactID)
-	return newID, nil
+	return newID, false, nil
+}
+
+// reopenConversation flips a resolved conversation back to the new-message
+// status so the returning customer's thread resurfaces in the agent queue,
+// matching the REST path. Only `resolved` is touched -- pending and snoozed
+// rows are left as the agent set them -- and the WHERE guard keeps the UPDATE
+// idempotent. ImportChat calls this only after at least one message was
+// written into a conversation it reused resolved, so a replay that skips every
+// row leaves the thread as the agent left it.
+func (i *Importer) reopenConversation(ctx context.Context, tx *sql.Tx, convID int) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE conversations
+		SET status = $1, updated_at = now()
+		WHERE id = $2 AND account_id = $3 AND status = $4
+	`, conversationStatusForNew(), convID, i.accountID, conversationStatusResolved); err != nil {
+		return fmt.Errorf("reopen conversation %d: %w", convID, err)
+	}
+	return nil
 }
 
 // insertMessageSavepoint wraps one INSERT in a SAVEPOINT so a single bad
@@ -445,21 +460,17 @@ func (i *Importer) insertMessage(
 	sourceID := "WAID:" + msg.ID
 
 	// Idempotency probe keyed to the inbox: Chatwoot's `index_messages_on_source_id`
-	// is plain (non-unique), but messages imported under the same inbox
-	// share a source_id iff they're the same WhatsApp message — whether
-	// they landed in a different conversation after a resolve/reopen cycle
-	// or not. Inbox-scoped lookup makes replays correctly skip duplicates.
-	var existingID, existingConvID int
-	err := tx.QueryRowContext(ctx, `
-		SELECT id, conversation_id FROM messages
-		WHERE inbox_id = $1 AND source_id = $2
-		LIMIT 1
-	`, i.inboxID, sourceID).Scan(&existingID, &existingConvID)
-	if err == nil {
-		return i.buildMessageLink(msg, existingConvID, existingID, sourceID, messageTypeForWA(msg.IsFromMe)), false, nil
-	}
-	if err != sql.ErrNoRows {
+	// is plain (non-unique). A hit is the same WhatsApp message only when the
+	// existing conversation belongs to this chat's contact — a resolve/reopen
+	// cycle keeps the contact and changes the conversation id. An inbox-wide
+	// source_id collision in some other contact's conversation must not become
+	// a routing link for this chat.
+	existingID, existingConvID, reuse, err := i.existingMessageForChat(ctx, tx, contactID, sourceID)
+	if err != nil {
 		return nil, false, err
+	}
+	if reuse {
+		return i.buildMessageLink(msg, existingConvID, existingID, sourceID, messageTypeForWA(msg.IsFromMe)), false, nil
 	}
 
 	content := buildContent(msg, isGroup)
@@ -534,6 +545,28 @@ func (i *Importer) insertMessage(
 		return nil, false, err
 	}
 	return i.buildMessageLink(msg, convID, chatwootMessageID, sourceID, mType), true, nil
+}
+
+// existingMessageForChat reports an inbox source_id hit in one of this chat
+// contact's conversations. reuse is false when nothing matches or the only
+// hits sit on other contacts' conversations; the caller then inserts instead
+// of linking a foreign conversation. The contact filter runs before LIMIT 1,
+// so another contact's copy of the source_id cannot hide this contact's row.
+func (i *Importer) existingMessageForChat(ctx context.Context, tx *sql.Tx, contactID int, sourceID string) (existingID, existingConvID int, reuse bool, err error) {
+	err = tx.QueryRowContext(ctx, `
+		SELECT m.id, m.conversation_id FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.inbox_id = $1 AND m.source_id = $2
+			AND c.account_id = $3 AND c.inbox_id = $1 AND c.contact_id = $4
+		LIMIT 1
+	`, i.inboxID, sourceID, i.accountID, contactID).Scan(&existingID, &existingConvID)
+	if err == sql.ErrNoRows {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return existingID, existingConvID, true, nil
 }
 
 func (i *Importer) buildMessageLink(msg *domainChatStorage.Message, convID, chatwootMessageID int, sourceID string, messageType int) *domainChatStorage.ChatwootMessageLink {
