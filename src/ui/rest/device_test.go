@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,6 +151,7 @@ type deviceWebhookStubUsecase struct {
 	receivedDeviceID string
 	receivedConfig   *chatstorage.DeviceWebhookConfig
 	getConfig        *chatstorage.DeviceWebhookConfig
+	getErr           error
 }
 
 func (s *deviceWebhookStubUsecase) SetDeviceWebhookConfig(_ context.Context, deviceID string, config *chatstorage.DeviceWebhookConfig) error {
@@ -160,7 +162,24 @@ func (s *deviceWebhookStubUsecase) SetDeviceWebhookConfig(_ context.Context, dev
 
 func (s *deviceWebhookStubUsecase) GetDeviceWebhookConfig(_ context.Context, deviceID string) (*chatstorage.DeviceWebhookConfig, error) {
 	s.receivedDeviceID = deviceID
-	return s.getConfig, nil
+	return s.getConfig, s.getErr
+}
+
+// A stored override the handler cannot read back must not be reported as cleared.
+func TestUpdateDeviceWebhook_OmittedIgnoreGroupsReadFailureIsAnError(t *testing.T) {
+	stub := &deviceWebhookStubUsecase{getErr: errors.New("synthetic read failure")}
+	app := newDeviceWebhookTestApp(stub)
+
+	req := httptest.NewRequest(http.MethodPatch, "/devices/dev1/webhook", strings.NewReader(`{"webhook_url": "https://hook.example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected status 500 when the preserved value cannot be read, got %d", resp.StatusCode)
+	}
 }
 
 func newDeviceWebhookTestApp(stub *deviceWebhookStubUsecase) *fiber.App {

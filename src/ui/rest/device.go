@@ -252,7 +252,9 @@ func (handler *Device) UpdateDeviceWebhook(c fiber.Ctx) error {
 	if !req.WebhookIgnoreGroups.Set {
 		// Report the value actually stored after the atomic preserve, not a value
 		// read before the write (which could already be stale by response time).
-		if current, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID); err == nil && current != nil {
+		current, err := handler.Service.GetDeviceWebhookConfig(c.Context(), deviceID)
+		utils.PanicIfNeeded(err)
+		if current != nil {
 			ignoreGroups = current.WebhookIgnoreGroups
 		}
 	}
