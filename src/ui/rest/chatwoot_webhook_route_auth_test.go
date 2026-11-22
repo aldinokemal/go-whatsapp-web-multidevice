@@ -118,7 +118,7 @@ func (s *routeAuthSend) SendText(ctx context.Context, request domainSend.Message
 		device = instance.ID()
 	}
 	s.sends = append(s.sends, device+" -> "+request.Phone)
-	return domainSend.GenericResponse{MessageID: fmt.Sprintf("WA-%d", len(s.sends)), Status: "ok"}, nil
+	return domainSend.GenericResponse{RecipientJID: chatwootLinkChatJID(request.Phone), MessageID: fmt.Sprintf("WA-%d", len(s.sends)), Status: "ok"}, nil
 }
 
 func (s *routeAuthSend) taken() []string {

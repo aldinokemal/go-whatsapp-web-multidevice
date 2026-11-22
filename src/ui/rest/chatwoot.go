@@ -108,6 +108,15 @@ func chatwootLinkChatJID(destination string) string {
 	return clean + config.WhatsappTypeUser
 }
 
+// A phone contact can be registered under a different spelling. Keep explicit
+// group and LID route keys, which read receipts and existing links also use.
+func deliveredChatwootLinkJID(requestedJID, recipientJID string) string {
+	if strings.HasSuffix(requestedJID, config.WhatsappTypeUser) {
+		return recipientJID
+	}
+	return requestedJID
+}
+
 // resolveSendDestination computes the WhatsApp send target from a Chatwoot
 // contact's stored destination (a JID or phone number). Group (@g.us) and
 // privacy-masked (@lid) JIDs are returned verbatim so the send layer's JID
@@ -593,7 +602,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	linkChatJID := chatwootLinkChatJID(destination)
+	requestedChatJID := chatwootLinkChatJID(destination)
 
 	// Resolve the WhatsApp send target. Groups (@g.us) and privacy-masked (@lid)
 	// JIDs are preserved verbatim so the send layer's JID parsing and LID
@@ -610,11 +619,11 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 	// The message the agent replied to, quoted by the text and by every
 	// attachment; nil sends them without a quote.
-	replyMessageID := h.chatwootReplyMessageID(ctx, payload, route, storageDeviceID, linkChatJID)
+	replyMessageID := h.chatwootReplyMessageID(ctx, payload, route, storageDeviceID, requestedChatJID)
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
-		sentAny := false
+		var deliveredChatJID string
 		for i, attachment := range payload.Attachments {
 			// The caption belongs to the message as a whole, so it rides on the
 			// first attachment only — otherwise a multi-file reply repeats the
@@ -629,11 +638,11 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 				h.notifySendFailure(payload, route, fmt.Errorf("attachment %d failed: %w", attachment.ID, err))
 				continue
 			}
-			sentAny = true
-			h.storeChatwootOutboundLink(route, storageDeviceID, linkChatJID, payload, resp.MessageID)
+			deliveredChatJID = deliveredChatwootLinkJID(requestedChatJID, resp.RecipientJID)
+			h.storeChatwootOutboundLink(route, storageDeviceID, deliveredChatJID, payload, resp.MessageID)
 		}
-		if sentAny {
-			h.markLatestInboundAsRead(c, storageDeviceID, linkChatJID)
+		if deliveredChatJID != "" {
+			h.markLatestInboundAsRead(c, storageDeviceID, deliveredChatJID)
 		}
 		// Return early after sending attachments - caption was already included
 		return c.SendStatus(fiber.StatusOK)
@@ -658,9 +667,10 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 			h.notifySendFailure(payload, route, err)
 			return c.SendStatus(fiber.StatusOK)
 		}
-		logrus.Infof("Chatwoot Webhook: Sent text message to %s", sendDestination)
-		h.storeChatwootOutboundLink(route, storageDeviceID, linkChatJID, payload, resp.MessageID)
-		h.markLatestInboundAsRead(c, storageDeviceID, linkChatJID)
+		deliveredChatJID := deliveredChatwootLinkJID(requestedChatJID, resp.RecipientJID)
+		logrus.Infof("Chatwoot Webhook: Sent text message to %s", deliveredChatJID)
+		h.storeChatwootOutboundLink(route, storageDeviceID, deliveredChatJID, payload, resp.MessageID)
+		h.markLatestInboundAsRead(c, storageDeviceID, deliveredChatJID)
 	}
 
 	return c.SendStatus(fiber.StatusOK)

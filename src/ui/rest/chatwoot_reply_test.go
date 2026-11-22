@@ -55,7 +55,7 @@ func (s *replySendStub) record(ctx context.Context, call replySend, reply *strin
 	if err := s.fail[len(s.calls)]; err != nil {
 		return domainSend.GenericResponse{}, err
 	}
-	return domainSend.GenericResponse{MessageID: fmt.Sprintf("WA-SENT-%d", len(s.calls))}, nil
+	return domainSend.GenericResponse{RecipientJID: chatwootLinkChatJID(call.phone), MessageID: fmt.Sprintf("WA-SENT-%d", len(s.calls))}, nil
 }
 
 func (s *replySendStub) SendText(ctx context.Context, r domainSend.MessageRequest) (domainSend.GenericResponse, error) {
@@ -292,6 +292,12 @@ func attachments(fileTypes ...string) map[string]any {
 		list[i] = map[string]any{"id": i + 1, "file_type": fileType, "data_url": replyTestURL}
 	}
 	return map[string]any{"attachments": list, "content": "Legenda"}
+}
+
+func TestDeliveredChatwootLinkKeepsLIDRoute(t *testing.T) {
+	if got := deliveredChatwootLinkJID(replyTestLID, replyTestChat); got != replyTestLID {
+		t.Fatalf("link chat = %q, want original LID %q", got, replyTestLID)
+	}
 }
 
 // chatwootSameChat compares full non-AD JIDs and maps an @lid side only

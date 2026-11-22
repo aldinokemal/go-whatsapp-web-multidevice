@@ -962,3 +962,5 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 		})
 	}
 }
+
+var SyncPayloadToChatwootForTest = syncPayloadToChatwoot
