@@ -1,0 +1,59 @@
+{{define "account.html"}}{{template "head" .}}
+<main id="main" tabindex="-1" class="page">
+  <div class="page-header">
+    <h1>Account</h1>
+    <button type="button" class="btn btn-primary" data-passkey-register data-csrf="{{.CSRF}}">Add a passkey</button>
+  </div>
+
+  <p data-passkey-register-error role="alert" class="form-error"></p>
+
+  <div class="card">
+    <p><strong>Phone</strong><br>{{.User.Phone}}</p>
+    <button type="button" class="btn btn-secondary" data-open-dialog="signout-everywhere">Sign out everywhere</button>
+  </div>
+
+  <dialog id="signout-everywhere">
+    <h2>Sign out everywhere?</h2>
+    <p>Every device you're signed in on, this one included, will need to sign in again.</p>
+    <form method="post" action="/account/signout-everywhere">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="action-group">
+        <button type="submit" class="btn btn-danger">Sign out everywhere</button>
+        <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <h2>Passkeys</h2>
+  <p class="list-count">{{len .Data.Passkeys}} passkey{{if ne (len .Data.Passkeys) 1}}s{{end}}</p>
+  {{if .Data.Passkeys}}
+  <div class="device-list">
+    {{range .Data.Passkeys}}
+    <div class="device-card">
+      <div class="device-info">
+        <p class="device-name">{{.Name}}</p>
+        <span class="pill pill-muted">Added {{.Added}}</span>
+        <span class="pill pill-muted">Last used {{.LastUsed}}</span>
+      </div>
+      <div class="device-actions">
+        <button type="button" class="btn btn-ghost" data-open-dialog="remove-passkey-{{.CredentialID}}">Remove</button>
+      </div>
+    </div>
+    <dialog id="remove-passkey-{{.CredentialID}}">
+      <h2>Remove this passkey?</h2>
+      <p>"{{.Name}}" will no longer be able to sign you in.</p>
+      <form method="post" action="/account/passkeys/{{.CredentialID}}/delete">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <div class="action-group">
+          <button type="submit" class="btn btn-danger">Remove</button>
+          <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty-state">No passkeys yet. Add one so you can sign in without WhatsApp.</p>
+  {{end}}
+</main>
+{{template "foot" .}}{{end}}

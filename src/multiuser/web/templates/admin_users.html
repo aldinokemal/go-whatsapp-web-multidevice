@@ -1,0 +1,87 @@
+{{define "admin_users.html"}}{{template "head" .}}
+<main id="main" tabindex="-1" class="page">
+  <div class="page-header">
+    <h1>Users</h1>
+  </div>
+
+  <p class="form-error" role="alert">{{.Data.Error}}</p>
+  <p class="list-count">{{len .Data.Rows}} user{{if ne (len .Data.Rows) 1}}s{{end}}</p>
+
+  {{if .Data.Rows}}
+  <div class="list" role="table" aria-label="Users">
+    <div class="list-row list-head" role="row">
+      <span role="columnheader">Phone</span>
+      <span role="columnheader">Status</span>
+      <span role="columnheader">Linked phones</span>
+      <span role="columnheader">Last sign-in</span>
+      <span role="columnheader">Actions</span>
+    </div>
+    {{range .Data.Rows}}
+    <div class="list-row" role="row">
+      <span role="cell" data-label="Phone">{{.Phone}}{{if .IsSelf}} <span class="pill pill-muted">You</span>{{end}}</span>
+      <span role="cell" data-label="Status">
+        {{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill pill-muted">Disabled</span>{{end}}
+      </span>
+      <span role="cell" data-label="Linked phones">{{.DeviceCount}}</span>
+      <span role="cell" data-label="Last sign-in">{{.LastSignIn}}</span>
+      <span role="cell" data-label="Actions" class="device-actions">
+        {{if not .IsSelf}}
+        {{if .Active}}
+        <button type="button" class="btn btn-ghost" data-open-dialog="disable-{{.ID}}">Disable</button>
+        {{else}}
+        <form method="post" action="/admin/users/{{.ID}}/status" class="inline-form">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="status" value="active">
+          <button type="submit" class="btn btn-secondary">Enable</button>
+        </form>
+        {{end}}
+        {{end}}
+        <button type="button" class="btn btn-secondary" data-open-dialog="link-dialog"
+                hx-post="/admin/users/{{.ID}}/signin-link" hx-target="#link-dialog-body" hx-swap="innerHTML"
+                hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}'>Get sign-in link</button>
+      </span>
+    </div>
+    {{if .Active}}
+    <dialog id="disable-{{.ID}}">
+      <h2>Disable this user?</h2>
+      <p>They'll be signed out everywhere right away.</p>
+      <form method="post" action="/admin/users/{{.ID}}/status">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="status" value="disabled">
+        <div class="action-group">
+          <button type="submit" class="btn btn-danger">Disable</button>
+          <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+    {{end}}
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty-state">No users yet.</p>
+  {{end}}
+
+  <dialog id="link-dialog">
+    <h2>Sign-in link</h2>
+    <div id="link-dialog-body"></div>
+    <button type="button" class="btn btn-ghost" data-close-dialog>Close</button>
+  </dialog>
+</main>
+{{template "foot" .}}{{end}}
+
+{{/* signin_link.html is the htmx fragment POST /admin/users/:id/signin-link
+     returns into #link-dialog-body: either the fresh link to copy, or the
+     page's own form-error styling if something went wrong before a link
+     could be minted. */}}
+{{define "signin_link.html"}}
+{{if .Data.Error}}
+<p class="form-error" role="alert">{{.Data.Error}}</p>
+{{else}}
+<p>Valid once, for 15 minutes. Send it to them yourself.</p>
+<div class="link-copy">
+  <input type="text" id="signin-link-value" value="{{.Data.Link}}" readonly aria-label="Sign-in link">
+  <button type="button" class="btn btn-secondary" data-copy="signin-link-value">Copy</button>
+</div>
+<p class="copy-feedback" data-copy-feedback aria-live="polite"></p>
+{{end}}
+{{end}}

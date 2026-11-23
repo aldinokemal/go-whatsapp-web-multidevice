@@ -55,6 +55,11 @@
     if (el) el.textContent = message || "";
   }
 
+  function setRegisterError(message) {
+    var el = document.querySelector("[data-passkey-register-error]");
+    if (el) el.textContent = message || "";
+  }
+
   async function signInWithPasskey() {
     setError("");
     if (!window.PublicKeyCredential || !navigator.credentials) {
@@ -105,6 +110,107 @@
     }
   }
 
+  // addPasskey drives the registration ceremony from the account page's
+  // "Add a passkey" button. The CSRF token travels on the button itself
+  // (data-csrf) rather than from a form, since this is a plain button, not
+  // a submit.
+  async function addPasskey(button) {
+    setRegisterError("");
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      setRegisterError("This browser doesn't support passkeys.");
+      return;
+    }
+    var csrf = button.getAttribute("data-csrf") || "";
+    try {
+      var beginResp = await fetch("/auth/passkey/register/begin", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrf },
+      });
+      if (!beginResp.ok) {
+        var beginResult = await beginResp.json().catch(function () { return {}; });
+        setRegisterError(beginResult.message || "Couldn't start adding a passkey. Try again.");
+        return;
+      }
+      var optionsJSON = await beginResp.text();
+      var publicKey;
+      if (typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function") {
+        publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(JSON.parse(optionsJSON));
+      } else {
+        var opts = JSON.parse(optionsJSON);
+        opts.challenge = base64urlToBuffer(opts.challenge);
+        opts.user.id = base64urlToBuffer(opts.user.id);
+        if (Array.isArray(opts.excludeCredentials)) {
+          opts.excludeCredentials = opts.excludeCredentials.map(function (c) {
+            return Object.assign({}, c, { id: base64urlToBuffer(c.id) });
+          });
+        }
+        publicKey = opts;
+      }
+
+      var credential;
+      try {
+        credential = await navigator.credentials.create({ publicKey: publicKey });
+      } catch (e) {
+        setRegisterError("Adding the passkey was cancelled.");
+        return;
+      }
+      if (!credential) {
+        setRegisterError("Adding the passkey was cancelled.");
+        return;
+      }
+
+      var payload;
+      if (typeof credential.toJSON === "function") {
+        payload = credential.toJSON();
+      } else {
+        var response = credential.response;
+        payload = {
+          id: credential.id,
+          rawId: bufferToBase64url(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64url(response.clientDataJSON),
+            attestationObject: bufferToBase64url(response.attestationObject),
+          },
+        };
+      }
+
+      var finishResp = await fetch("/auth/passkey/register/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify(payload),
+      });
+      var result = await finishResp.json().catch(function () { return {}; });
+      if (!finishResp.ok || !result.ok) {
+        setRegisterError(result.message || "That didn't work. Try again.");
+        return;
+      }
+      window.location.reload();
+    } catch (e) {
+      setRegisterError("Adding the passkey was cancelled.");
+    }
+  }
+
+  // copyToClipboard backs the "Copy" button beside a read-only sign-in link
+  // (data-copy names the id of the <input> to copy). It reports success or
+  // failure in the nearest [data-copy-feedback], never a native popup.
+  function copyToClipboard(button) {
+    var targetId = button.getAttribute("data-copy");
+    var input = targetId && document.getElementById(targetId);
+    var feedback = button.parentElement && button.parentElement.parentElement &&
+      button.parentElement.parentElement.querySelector("[data-copy-feedback]");
+    if (!feedback) feedback = document.querySelector("[data-copy-feedback]");
+    if (!input || !navigator.clipboard || !navigator.clipboard.writeText) {
+      if (feedback) feedback.textContent = "Couldn't copy. Select and copy the link by hand.";
+      return;
+    }
+    navigator.clipboard.writeText(input.value).then(function () {
+      if (feedback) feedback.textContent = "Copied.";
+    }).catch(function () {
+      if (feedback) feedback.textContent = "Couldn't copy. Select and copy the link by hand.";
+    });
+  }
+
   // The QR image polls itself every 20s with hx-swap="none" (the response is
   // a PNG, not markup to swap in), so nothing else makes the browser re-fetch
   // it once the real, rotating code behind it changes. On a successful poll,
@@ -125,6 +231,12 @@
       signInWithPasskey();
       return;
     }
+    var registerBtn = event.target.closest("[data-passkey-register]");
+    if (registerBtn) {
+      event.preventDefault();
+      addPasskey(registerBtn);
+      return;
+    }
     var openBtn = event.target.closest("[data-open-dialog]");
     if (openBtn) {
       var id = openBtn.getAttribute("data-open-dialog");
@@ -136,6 +248,11 @@
     if (closeBtn) {
       var host = closeBtn.closest("dialog");
       if (host) host.close();
+      return;
+    }
+    var copyBtn = event.target.closest("[data-copy]");
+    if (copyBtn) {
+      copyToClipboard(copyBtn);
     }
   });
 })();
