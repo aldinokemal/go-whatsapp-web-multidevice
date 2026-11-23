@@ -307,6 +307,20 @@ func TestMediaDisplayName(t *testing.T) {
 			wantNotContain:   ".pdf.pdf",
 		},
 		{
+			name:             "MalformedSuffixKeepsResolvedExtension",
+			originalFilename: "invoice.pdf(1)",
+			mediaKind:        "document",
+			extension:        ".pdf",
+			wantSuffix:       "invoice.pdf(1).pdf",
+		},
+		{
+			name:             "MatchingUppercaseExtensionNotDoubled",
+			originalFilename: "invoice.PDF",
+			mediaKind:        "document",
+			extension:        ".pdf",
+			wantSuffix:       "invoice.PDF",
+		},
+		{
 			name:       "GeneratedNameStillCarriesExtension",
 			mediaKind:  "image",
 			extension:  ".jpg",

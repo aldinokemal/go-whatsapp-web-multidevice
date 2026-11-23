@@ -1061,7 +1061,7 @@ func mediaDisplayName(originalFilename, mediaKind, caption, extension string) st
 	if displayName == "" {
 		displayName = GenerateMediaFilename(mediaKind, strings.TrimPrefix(extension, "."), caption)
 	}
-	if extension != "" && filepath.Ext(displayName) == "" {
+	if extension != "" && !strings.EqualFold(filepath.Ext(displayName), extension) {
 		displayName += extension
 	}
 	return displayName

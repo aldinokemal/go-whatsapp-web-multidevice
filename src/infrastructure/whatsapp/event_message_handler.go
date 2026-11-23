@@ -52,7 +52,7 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	}
 
 	// Handle image message if present
-	handleImageMessage(ctx, evt, client)
+	handleImageMessage(ctx, evt, client, utils.ExtractMedia)
 
 	// Auto-mark message as read if configured
 	handleAutoMarkRead(ctx, evt, client)
@@ -137,7 +137,9 @@ func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJI
 	return false
 }
 
-func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
+type imageMediaExtractor func(context.Context, *whatsmeow.Client, string, whatsmeow.DownloadableMessage) (utils.ExtractedMedia, error)
+
+func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client, extract imageMediaExtractor) {
 	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
@@ -145,10 +147,10 @@ func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsm
 		return
 	}
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if extracted, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
-			log.Errorf("Failed to download image for message %s: %v", evt.Info.ID, utils.MediaErrorForLog(err))
+		if _, err := extract(ctx, client, config.PathStorages, img); err != nil {
+			log.Errorf("Failed to download image for message %s: %v", sanitizeLogText(evt.Info.ID), utils.MediaErrorForLog(err))
 		} else {
-			log.Infof("Image downloaded to %s", extracted.MediaPath)
+			log.Infof("Image downloaded for message %s", sanitizeLogText(evt.Info.ID))
 		}
 	}
 }
