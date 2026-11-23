@@ -50,6 +50,16 @@
     return out;
   }
 
+  // describeError surfaces the real DOMException name/message from a failed
+  // WebAuthn ceremony. Temporary diagnostic (2026-11-23): the generic
+  // "was cancelled" text swallows every rejection identically, including a
+  // real browser/relying-party error, which is indistinguishable on screen
+  // from an actual user cancel. Remove once the live failure is understood.
+  function describeError(e) {
+    if (!e) return "";
+    return " [" + (e.name || "Error") + ": " + (e.message || String(e)) + "]";
+  }
+
   function setError(message) {
     var el = document.querySelector("[data-passkey-error]");
     if (el) el.textContent = message || "";
@@ -84,7 +94,7 @@
       try {
         credential = await navigator.credentials.get({ publicKey: publicKey });
       } catch (e) {
-        setError("Passkey sign-in was cancelled.");
+        setError("Passkey sign-in was cancelled." + describeError(e));
         return;
       }
       if (!credential) {
@@ -106,7 +116,7 @@
       }
       window.location.assign(result.next || "/");
     } catch (e) {
-      setError("Passkey sign-in was cancelled.");
+      setError("Passkey sign-in was cancelled." + describeError(e));
     }
   }
 
@@ -151,7 +161,7 @@
       try {
         credential = await navigator.credentials.create({ publicKey: publicKey });
       } catch (e) {
-        setRegisterError("Adding the passkey was cancelled.");
+        setRegisterError("Adding the passkey was cancelled." + describeError(e));
         return;
       }
       if (!credential) {
@@ -187,7 +197,7 @@
       }
       window.location.reload();
     } catch (e) {
-      setRegisterError("Adding the passkey was cancelled.");
+      setRegisterError("Adding the passkey was cancelled." + describeError(e));
     }
   }
 
