@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -143,4 +144,30 @@ func (h *harness) tokensFor(ck *http.Cookie, clientID, redirect string) (string,
 	}
 	require.NoError(h.t, json.Unmarshal([]byte(body), &pair))
 	return pair.AccessToken, pair.RefreshToken
+}
+
+// cimdServer serves client ID metadata documents on "example.com" (covered
+// by httptest's certificate); its client dials the test server for any host.
+func cimdServer(t *testing.T, docs map[string]any) *http.Client {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		doc, ok := docs["https://example.com"+r.URL.Path]
+		if !ok || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(doc)
+	}))
+	t.Cleanup(srv.Close)
+	tr := srv.Client().Transport.(*http.Transport).Clone()
+	addr := srv.Listener.Addr().String()
+	tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	return &http.Client{Transport: tr, Timeout: 5 * time.Second}
+}
+
+func cimdDoc(clientID, name string, redirects ...string) map[string]any {
+	return map[string]any{"client_id": clientID, "client_name": name, "redirect_uris": redirects, "token_endpoint_auth_method": "none"}
 }

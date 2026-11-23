@@ -26,8 +26,12 @@ type Config struct {
 	// sign-in names the subject and the authorize page asks for consent.
 	Session SessionAuthenticator
 	// DisableDCR turns off dynamic client registration: /oauth/register is
-	// not mounted and metadata omits registration_endpoint.
+	// not mounted, metadata omits registration_endpoint, and a client id
+	// that is not a CIMD URL is refused.
 	DisableDCR bool
+	// CIMD, when set, accepts client ids that are HTTPS URLs of client ID
+	// metadata documents on the allowed hosts.
+	CIMD *CIMDConfig
 }
 
 type Client struct {

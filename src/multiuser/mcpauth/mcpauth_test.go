@@ -82,3 +82,33 @@ func TestConsentOriginIsTheOriginNotTheURL(t *testing.T) {
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	assert.True(t, strings.HasSuffix(resp.Header.Get("Content-Security-Policy"), "form-action 'self' https://claude.ai"))
 }
+
+func TestConsentNamesTheClientHostNotTheName(t *testing.T) {
+	const id = "https://example.com/oauth/meta"
+	client := cimdServer(t, map[string]any{id: cimdDoc(id, "Anthropic Official", claudeRedirect)})
+	h := newHarness(t, oauth.Config{DisableDCR: true, CIMD: &oauth.CIMDConfig{AllowedHosts: []string{"example.com"}, HTTPClient: client}})
+	_, ck := h.user("+27825550101")
+	q, _ := authorizeQuery(id, claudeRedirect)
+	req := httptest.NewRequest("GET", "/oauth/authorize?"+q.Encode(), nil)
+	req.AddCookie(ck)
+	resp, page := h.do(req)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode, page)
+	assert.Contains(t, page, `<span class="consent-host">example.com</span> wants to use your WTF account.`)
+	assert.NotContains(t, page, `<span class="consent-host">Anthropic Official`)
+	assert.Contains(t, page, "Anthropic Official", "the self-asserted name is shown small, below the host")
+	assert.NotContains(t, page, "Only continue if you started this from Claude Code", "a web client gets no loopback warning")
+}
+
+func TestConsentWarnsWhenTheClientRunsOnThisComputer(t *testing.T) {
+	const id = "https://example.com/oauth/code"
+	client := cimdServer(t, map[string]any{id: cimdDoc(id, "Claude Code", "http://localhost/callback", "http://127.0.0.1/callback")})
+	h := newHarness(t, oauth.Config{DisableDCR: true, CIMD: &oauth.CIMDConfig{AllowedHosts: []string{"example.com"}, HTTPClient: client}})
+	_, ck := h.user("+27825550101")
+	q, _ := authorizeQuery(id, "http://localhost:43123/callback")
+	req := httptest.NewRequest("GET", "/oauth/authorize?"+q.Encode(), nil)
+	req.AddCookie(ck)
+	resp, page := h.do(req)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode, page)
+	assert.Contains(t, page, "Only continue if you started this from Claude Code")
+	assert.True(t, strings.HasSuffix(resp.Header.Get("Content-Security-Policy"), "form-action 'self' http://localhost:43123"))
+}

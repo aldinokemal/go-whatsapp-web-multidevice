@@ -41,6 +41,7 @@ type Server struct {
 	validateCredential CredentialValidator
 	session            SessionAuthenticator
 	disableDCR         bool
+	cimd               *cimdResolver
 	now                func() time.Time
 }
 
@@ -138,6 +139,13 @@ func New(cfg Config, validateCredential CredentialValidator) (*Server, error) {
 	if issuer.Scheme != resource.Scheme || !strings.EqualFold(issuer.Host, resource.Host) {
 		return nil, errors.New("MCP OAuth issuer and resource must use the same public origin")
 	}
+	nowFn := func() time.Time { return time.Now().UTC() }
+	var cimd *cimdResolver
+	if cfg.CIMD != nil {
+		if cimd, err = newCIMDResolver(cfg.CIMD, func() time.Time { return nowFn() }); err != nil {
+			return nil, err
+		}
+	}
 	storageURI := strings.TrimSpace(cfg.StorageURI)
 	if storageURI == "" {
 		storageURI = defaultStorageURI
@@ -146,15 +154,21 @@ func New(cfg Config, validateCredential CredentialValidator) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	srv := &Server{
 		issuer:             issuer,
 		resource:           resource,
 		store:              store,
 		validateCredential: validateCredential,
 		session:            cfg.Session,
 		disableDCR:         cfg.DisableDCR,
-		now:                func() time.Time { return time.Now().UTC() },
-	}, nil
+		cimd:               cimd,
+		now:                nowFn,
+	}
+	if cimd != nil {
+		// Tests freeze s.now; the cache follows the same clock.
+		cimd.now = func() time.Time { return srv.now() }
+	}
+	return srv, nil
 }
 
 func (s *Server) Close() error {
@@ -284,6 +298,9 @@ func (s *Server) authorizationServerMetadata(c fiber.Ctx) error {
 	}
 	if !s.disableDCR {
 		metadata["registration_endpoint"] = s.issuerEndpointURL("/oauth/register")
+	}
+	if s.cimd != nil {
+		metadata["client_id_metadata_document_supported"] = true
 	}
 	return c.JSON(metadata)
 }
@@ -463,6 +480,9 @@ func (s *Server) token(c fiber.Ctx) error {
 	if req.Resource != s.resource.String() {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_target", "resource does not match this MCP server")
 	}
+	if !s.clientStillAccepted(req.ClientID) {
+		return oauthError(c, fiber.StatusUnauthorized, "invalid_client", "unknown client_id")
+	}
 	var (
 		pair TokenPair
 		err  error
@@ -509,13 +529,51 @@ func (s *Server) token(c fiber.Ctx) error {
 	})
 }
 
-func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+// clientStillAccepted is the token endpoint's client check. A CIMD client
+// has no row to look up: its host must still be allowed. A registered client
+// is refused once registration is off.
+func (s *Server) clientStillAccepted(clientID string) bool {
+	if isCIMDClientID(clientID) {
+		return s.cimd != nil && s.cimd.hostAllowed(clientID)
+	}
+	return !s.disableDCR
+}
+
+// lookupClient finds the client an authorization request names: a CIMD
+// client from its fetched document, a registered one from the client table.
+// Errors here are answered in the browser, never at the redirect URI, which
+// is not trusted yet.
+func (s *Server) lookupClient(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+	if isCIMDClientID(req.ClientID) {
+		if s.cimd == nil {
+			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
+		}
+		client, err := s.cimd.resolve(c.Context(), req.ClientID)
+		if err != nil {
+			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_client", "the client's metadata document could not be used")
+		}
+		if !cimdRedirectMatches(client.RedirectURIs, req.RedirectURI) {
+			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri is not one the client declared")
+		}
+		return client, true, nil
+	}
+	if s.disableDCR {
+		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
+	}
 	client, err := s.store.getClient(c.Context(), req.ClientID)
 	if err != nil {
 		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
 	}
 	if !redirectURIMatches(client, req.RedirectURI) {
 		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri does not match the registered client")
+	}
+	return client, true, nil
+}
+
+func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+	client, ok, err := s.lookupClient(c, req)
+	if !ok {
+		return Client{}, false, err
 	}
 	// Once the client and redirect URI are known to be safe, OAuth errors must
 	// be returned to the client at that redirect URI rather than as an endpoint
